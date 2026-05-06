@@ -1,0 +1,13 @@
+# DOKS Terraform — .tfvars example
+#
+# Copy this file to terraform.tfvars and adjust values.
+# DO NOT commit terraform.tfvars to Git (it's in .gitignore).
+
+do_region    = "fra1"
+cluster_name = "nexus-prod"
+k8s_version  = "1.32"
+node_size    = "s-2vcpu-4gb"
+node_count   = 2
+min_nodes    = 1
+max_nodes    = 3
+tags         = ["nexus", "pfe", "production"]

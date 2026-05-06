@@ -3,7 +3,7 @@
 **/*.tfstate
 **/*.tfstate.backup
 **/*.tfvars
-**/.terraform.lock.hcl
+# Note: .terraform.lock.hcl IS committed (reproducible provider versions)
 
 # Python
 __pycache__/

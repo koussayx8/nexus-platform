@@ -1,0 +1,72 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-autonomy-level
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    nexus.io/policy-type: autonomy-ladder
+  annotations:
+    policies.kyverno.io/title: NEXUS Autonomy Level Annotation
+    policies.kyverno.io/category: NEXUS Platform
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Validates that all Deployments in nexus-* namespaces carry the
+      nexus.io/autonomy-level annotation with a valid value (0-4).
+      Warns on missing annotation, enforces valid values.
+      See ADR-003 (Autonomy Ladder) for design rationale.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    # Rule 1: Warn when autonomy-level annotation is missing
+    - name: warn-missing-autonomy-level
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+              namespaces:
+                - "nexus-*"
+      validate:
+        message: >-
+          NEXUS Policy: Deployment {{request.object.metadata.name}} in
+          namespace {{request.object.metadata.namespace}} is missing the
+          nexus.io/autonomy-level annotation. All NEXUS workloads must declare
+          their autonomy level (0-4). See ADR-003 for details.
+          Default is "0" (observe only).
+        pattern:
+          metadata:
+            annotations:
+              nexus.io/autonomy-level: "?*"
+
+    # Rule 2: Validate autonomy-level value is 0-4
+    - name: validate-autonomy-level-value
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+              namespaces:
+                - "nexus-*"
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.annotations.\"nexus.io/autonomy-level\" || '' }}"
+            operator: NotEquals
+            value: ""
+      validate:
+        message: >-
+          NEXUS Policy: Invalid autonomy level on Deployment
+          {{request.object.metadata.name}}.
+          Valid values are: "0" (observe), "1" (diagnose), "2" (recommend),
+          "3" (approve), "4" (auto-heal). See ADR-003.
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.object.metadata.annotations.\"nexus.io/autonomy-level\" }}"
+                operator: AnyNotIn
+                value:
+                  - "0"
+                  - "1"
+                  - "2"
+                  - "3"
+                  - "4"
