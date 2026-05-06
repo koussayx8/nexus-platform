@@ -10,9 +10,10 @@ metadata:
     policies.kyverno.io/category: NEXUS Platform
     policies.kyverno.io/severity: medium
     policies.kyverno.io/description: >-
-      Validates that all Deployments in nexus-* namespaces carry the
+      Audits all Deployments in nexus-* namespaces for the
       nexus.io/autonomy-level annotation with a valid value (0-4).
-      Warns on missing annotation, enforces valid values.
+      Rule 1 audits missing annotations. Rule 2 audits invalid values.
+      Mode is Audit (warn + report, does not block deployments).
       See ADR-003 (Autonomy Ladder) for design rationale.
 spec:
   validationFailureAction: Audit

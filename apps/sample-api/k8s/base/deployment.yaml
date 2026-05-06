@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sample-api
-          image: ghcr.io/koussayx8/nexus-platform/sample-api:latest
+          image: ghcr.io/koussayx8/nexus-platform/sample-api@sha256:c693838d11d653251ebdb44f79e93d89e39b0940a221af376bb9367d240c97bb
           ports:
             - name: http
               containerPort: 8000

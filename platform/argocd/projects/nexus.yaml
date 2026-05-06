@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: nexus
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-004"
+spec:
+  description: NEXUS platform applications — scoped to this cluster only
+
+  # Only allow sources from the NEXUS repo
+  sourceRepos:
+    - https://github.com/koussayx8/nexus-platform.git
+
+  # Only allow deploying to nexus-* namespaces on the local cluster
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: nexus-apps
+    - server: https://kubernetes.default.svc
+      namespace: nexus-apps-prod
+
+  # Allowed cluster-scoped resources (Namespace is needed for CreateNamespace)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  # Allowed namespace-scoped resources
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+
+  # Deny orphaned resources (extra safety for GitOps)
+  orphanedResources:
+    warn: true

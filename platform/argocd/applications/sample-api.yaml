@@ -12,7 +12,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: nexus
 
   source:
     repoURL: https://github.com/koussayx8/nexus-platform.git

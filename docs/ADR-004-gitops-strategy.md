@@ -1,4 +1,4 @@
-# ADR-004: GitOps Strategy — ArgoCD App-of-Apps with Self-Heal
+# ADR-004: GitOps Strategy — ArgoCD Single Application with Self-Heal
 
 **Status:** Accepted
 **Date:** 2026-05-06
@@ -88,8 +88,12 @@ Dev overlay applied to k3s (auto-sync)
 image tag overrides in `overlays/prod/kustomization.yaml`.
 
 **Image tag strategy:**
-- Dev: `latest` (auto-updated by CI on every push to main)
-- Prod: pinned SHA tag (changed via PR to `overlays/prod/kustomization.yaml`)
+- Dev: SHA-pinned digest (updated by CI on every push to main)
+- Prod: SHA-pinned digest (changed via PR to `overlays/prod/kustomization.yaml`)
+
+**Rationale:** Using `:latest` violates GitOps immutability — the same tag can
+point to different images over time, making rollback and auditability impossible.
+SHA-pinned digests guarantee that the exact image that passed CI is deployed.
 
 ### 5. Repository Structure for ArgoCD
 
