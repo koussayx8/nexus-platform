@@ -86,9 +86,11 @@ Pod running, self-heal enabled (manual changes reverted)
 
 **Self-heal proven:** `kubectl scale --replicas=0` → ArgoCD restores within 40s.
 
-- [ArgoCD sample-api: Synced + Healthy](docs/screenshots/argocd-sample-api-synced.md)
-- [Self-heal demo: scale-to-0 → restored](docs/screenshots/self-heal-demo.md)
-- [Full validation log](docs/gitops-validation-log.md)
+![ArgoCD sample-api Synced](docs/screenshots/argocd-sample-api-synced.png)
+
+![Self-heal demo](docs/screenshots/self-heal-demo.png)
+
+See [full validation log](docs/gitops-validation-log.md) for details.
 
 ## Status
 
