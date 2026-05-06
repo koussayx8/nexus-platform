@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexus-apps
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    pod-security.kubernetes.io/enforce: restricted

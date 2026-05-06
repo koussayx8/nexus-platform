@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-api
+  namespace: nexus-apps
+  labels:
+    app.kubernetes.io/name: sample-api
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sample-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
