@@ -48,6 +48,28 @@ Implement a five-level **Autonomy Ladder** inspired by autonomous vehicle levels
    - ADR-003 appendix will contain real examples of "AI was wrong, Ladder prevented harm"
    - This addresses the architecture review's recommendation about failure mode documentation
 
+## Integration with Incident Flight Recorder (ADR-009)
+
+Every Autonomy Ladder operation **must** emit an `IncidentTimelineEvent` as defined
+in ADR-009. The following events are mandatory at each level:
+
+| Level | Required Events |
+|-------|----------------|
+| **0** | `anomaly_detected` |
+| **1** | `anomaly_detected`, `metrics_queried`, `logs_searched`, `diagnosis_generated` |
+| **2** | All Level 1 events + `runbook_retrieved`, `action_recommended`, `human_notified` |
+| **3** | All Level 2 events + `human_approved`, `action_executed`, `action_result` |
+| **4** | All Level 2 events + `action_executed`, `action_result` (no human_approved) |
+
+**Level transitions** (e.g., circuit breaker dropping from Level 4 → Level 0) emit
+a `ladder_transition` event with:
+- `from_level`, `to_level`
+- `reason` (manual override, circuit breaker, policy change)
+- `triggered_by` (human, system, policy)
+
+This ensures the Flight Recorder captures not just what happened during an incident,
+but also how the system's trust posture changed over time.
+
 ## Consequences
 
 - Safety becomes a **thesis feature**, not a weakness

@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-api
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: application
+  annotations:
+    nexus.io/owner: koussay
+    nexus.io/adr: "ADR-004"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/koussayx8/nexus-platform.git
+    targetRevision: main
+    path: apps/sample-api/k8s/overlays/dev
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nexus-apps
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m
