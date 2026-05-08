@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: sample-api
+  description: Nexus Platform Sample API
+  annotations:
+    argocd/app-name: sample-api
+    backstage.io/kubernetes-id: sample-api
+spec:
+  type: service
+  lifecycle: experimental
+  owner: nexus-platform-team

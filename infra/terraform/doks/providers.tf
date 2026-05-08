@@ -15,13 +15,20 @@
 #   terraform plan -out=plan.tfplan
 #   terraform apply plan.tfplan    # DO NOT apply until credit is active
 #
-# Remote state: Tracked as future work (GitHub Issue #1).
-# Will use DigitalOcean Spaces S3-compatible backend.
-#
+# Remote state: Terraform Cloud (nexus_pfe/nexus-doks).
+# DIGITALOCEAN_TOKEN set as sensitive env var in TFC workspace.
 # See ADR-004 for dev→prod promotion path.
 
 terraform {
   required_version = "~> 1.5"
+
+  cloud {
+    organization = "nexus_pfe"
+
+    workspaces {
+      name = "nexus-doks"
+    }
+  }
 
   required_providers {
     digitalocean = {

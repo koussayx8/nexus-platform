@@ -1,0 +1,7 @@
+# Nexus Platform Contract
+# Defines ownership and operational metadata for the service
+owner: ${{ values.owner }}
+runtime: python-fastapi
+slo-target: ""
+runbook-path: ""
+dashboard-path: ""

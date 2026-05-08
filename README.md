@@ -90,6 +90,8 @@ Pod running, self-heal enabled (manual changes reverted)
 
 ![Self-heal demo](docs/screenshots/self-heal-demo.png)
 
+![Backstage Software Catalog](docs/screenshots/backstage-catalog.png)
+
 See [full validation log](docs/gitops-validation-log.md) for details.
 
 ## Status
@@ -97,7 +99,7 @@ See [full validation log](docs/gitops-validation-log.md) for details.
 - [x] Week 0 — Environment setup (k3s, ArgoCD, API keys, venv)
 - [x] Week 1 — CI pipeline + sample-api deployed to k3s
 - [x] Week 2 — ArgoCD GitOps + Kyverno policy enforcement
-- [ ] Week 3 — Backstage IDP
+- [x] Week 3 — Backstage IDP
 - [ ] ...
 
 ## Quick Start (Dev)
@@ -112,4 +114,9 @@ kubectl get policyreport -n nexus-apps
 # ArgoCD UI (port-forward):
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Login: admin / $(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
+
+# Backstage Setup
+cd platform/backstage
+yarn install
+yarn dev
 ```
