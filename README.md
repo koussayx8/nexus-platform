@@ -118,5 +118,5 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Backstage Setup
 cd platform/backstage
 yarn install
-yarn dev
+yarn start
 ```
