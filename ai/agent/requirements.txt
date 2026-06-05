@@ -1,0 +1,3 @@
+kopf
+redis
+psycopg2-binary
