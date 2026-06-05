@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: nexus-platform-team
+  namespace: default
+  description: NEXUS Platform Engineering Team
+  annotations:
+    backstage.io/managed-by-location: "url:https://github.com/koussayx8/nexus-platform/blob/main/platform/backstage/catalog/org.yaml"
+spec:
+  type: team
+  profile:
+    displayName: NEXUS Platform Team
+    email: belhouchet.koussay@esprit.tn
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: koussayx8
+  namespace: default
+  description: Platform Engineer
+spec:
+  profile:
+    displayName: Koussay Belhouchet
+    email: belhouchet.koussay@esprit.tn
+  memberOf:
+    - nexus-platform-team

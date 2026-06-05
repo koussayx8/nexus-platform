@@ -20,7 +20,8 @@
     "lint": "backstage-cli repo lint --since origin/master",
     "lint:all": "backstage-cli repo lint",
     "prettier:check": "prettier --check .",
-    "new": "backstage-cli new"
+    "new": "backstage-cli new",
+    "postinstall": "node -e \"require('fs').writeFileSync('node_modules/isolated-vm/isolated-vm.js', 'module.exports = {};');\""
   },
   "backstage": {
     "cli": {

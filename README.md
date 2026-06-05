@@ -115,8 +115,10 @@ kubectl get policyreport -n nexus-apps
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Login: admin / $(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
 
-# Backstage Setup
+# Start Backstage (single command)
 cd platform/backstage
-yarn install
-yarn start
+./dev.sh
+
+# With ArgoCD integration
+./start-with-argocd.sh
 ```

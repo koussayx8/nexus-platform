@@ -111,51 +111,30 @@ catalog:
   rules:
     - allow: [Component, System, API, Resource, Location]
   locations:
-    # Local example data, file locations are relative to the backend process, typically `packages/backend`
-    - type: file
-      target: ../../examples/entities.yaml
-
-    # Local example template
-    - type: file
-      target: ../../examples/template/template.yaml
+    - type: url
+      target: https://github.com/koussayx8/nexus-platform/blob/main/platform/backstage/catalog/org.yaml
+      rules:
+        - allow: [Group, User]
+    - type: url
+      target: https://github.com/koussayx8/nexus-platform/blob/main/apps/sample-api/catalog-info.yaml
+      rules:
+        - allow: [Component]
+    - type: url
+      target: https://github.com/koussayx8/nexus-platform/blob/main/platform/backstage/templates/fastapi-service/template.yaml
       rules:
         - allow: [Template]
-
-    # Local example organizational data
-    - type: file
-      target: ../../examples/org.yaml
-      rules:
-        - allow: [User, Group]
-
-    # Register FastAPI template
-    - type: file
-      target: ../../templates/fastapi-service/template.yaml
-      rules:
-        - allow: [Template]
-
-    # Register sample-api
-    - type: file
-      target: ../../../apps/sample-api/catalog-info.yaml
-
-    ## Uncomment these lines to add more example data
-    # - type: url
-    #   target: https://github.com/backstage/backstage/blob/master/packages/catalog-model/examples/all.yaml
-
-    ## Uncomment these lines to add an example org
-    # - type: url
-    #   target: https://github.com/backstage/backstage/blob/master/packages/catalog-model/examples/acme-corp.yaml
-    #   rules:
-    #     - allow: [User, Group]
 
 kubernetes:
   # see https://backstage.io/docs/features/kubernetes/configuration for kubernetes configuration options
 
 argocd:
+  username: admin
+  password: ${ARGOCD_PASSWORD}
   appLocatorMethods:
     - type: 'config'
       instances:
         - name: argoInstance1
-          url: https://localhost:8080
+          url: ${ARGOCD_BASE_URL:-https://localhost:8080}
           token: ${ARGOCD_AUTH_TOKEN}
 
 
