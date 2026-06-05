@@ -4,30 +4,31 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Always source nvm and activate Node 22 (handles .venv PATH resets)
+export NVM_DIR="$HOME/.nvm"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  source "$NVM_DIR/nvm.sh"
+fi
+nvm use 22 &>/dev/null || nvm use default &>/dev/null
+
+# Use local Yarn release (not globally installed)
+YARN="node .yarn/releases/yarn-4.4.1.cjs"
+
 echo "=== NEXUS Backstage Dev Startup ==="
 echo ""
-
-# Auto-source nvm if node is not in PATH
-if ! command -v node &> /dev/null; then
-  export NVM_DIR="$HOME/.nvm"
-  if [ -s "$NVM_DIR/nvm.sh" ]; then
-    source "$NVM_DIR/nvm.sh"
-    nvm use 22 &>/dev/null || nvm use default &>/dev/null
-  fi
-fi
 
 # Check Node version
 NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
 if [ "$NODE_VERSION" -lt 22 ]; then
   echo "ERROR: Node 22+ required. Current: $(node --version)"
-  echo "Run: nvm use 22"
+  echo "Run: nvm install 22 && nvm use 22"
   exit 1
 fi
 echo "Node version: $(node --version) ✓"
 
 # Install dependencies (postinstall will stub isolated-vm)
 echo "Installing dependencies..."
-yarn install
+$YARN install
 
 # Verify stub
 if grep -q "module.exports = {}" node_modules/isolated-vm/isolated-vm.js; then
@@ -44,14 +45,14 @@ sleep 2
 
 echo ""
 echo "Starting backend on :7007..."
-yarn workspace backend start &
+$YARN workspace backend start &
 BACKEND_PID=$!
 
 echo "Waiting for backend to initialize..."
 sleep 20
 
 echo "Starting frontend on :3000..."
-yarn workspace app start &
+$YARN workspace app start &
 FRONTEND_PID=$!
 
 echo ""
