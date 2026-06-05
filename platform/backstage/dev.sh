@@ -7,6 +7,15 @@ cd "$SCRIPT_DIR"
 echo "=== NEXUS Backstage Dev Startup ==="
 echo ""
 
+# Auto-source nvm if node is not in PATH
+if ! command -v node &> /dev/null; then
+  export NVM_DIR="$HOME/.nvm"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    source "$NVM_DIR/nvm.sh"
+    nvm use 20 &>/dev/null || nvm use default &>/dev/null
+  fi
+fi
+
 # Check Node version
 NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
 if [ "$NODE_VERSION" -lt 20 ]; then
