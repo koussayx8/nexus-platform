@@ -4,7 +4,7 @@ metadata:
   name: sample-api
   description: Nexus Platform Sample API
   annotations:
-    argocd/app-name: sample-api
+    # argocd/app-name: sample-api  # Re-enable when ArgoCD is running (Week 7-8)
     backstage.io/kubernetes-id: sample-api
 spec:
   type: service

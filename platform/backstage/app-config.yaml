@@ -129,6 +129,12 @@ catalog:
 
 kubernetes:
   # see https://backstage.io/docs/features/kubernetes/configuration for kubernetes configuration options
+  serviceLocatorMethod:
+    type: 'multiTenant'
+  clusterLocatorMethods:
+    - type: 'config'
+      # Empty for now — add k3s cluster in Week 7-8
+      clusters: []
 
 argocd:
   username: admin
