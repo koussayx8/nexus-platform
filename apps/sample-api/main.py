@@ -2,12 +2,15 @@
 
 from fastapi import FastAPI
 from datetime import datetime, timezone
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(
     title="NEXUS Sample API",
     description="Sample microservice for validating the NEXUS CI/CD pipeline",
     version="0.1.0",
 )
+
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/")
