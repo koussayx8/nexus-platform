@@ -12,15 +12,15 @@ if ! command -v node &> /dev/null; then
   export NVM_DIR="$HOME/.nvm"
   if [ -s "$NVM_DIR/nvm.sh" ]; then
     source "$NVM_DIR/nvm.sh"
-    nvm use 20 &>/dev/null || nvm use default &>/dev/null
+    nvm use 22 &>/dev/null || nvm use default &>/dev/null
   fi
 fi
 
 # Check Node version
 NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-if [ "$NODE_VERSION" -lt 20 ]; then
-  echo "ERROR: Node 20+ required. Current: $(node --version)"
-  echo "Run: nvm use 20"
+if [ "$NODE_VERSION" -lt 22 ]; then
+  echo "ERROR: Node 22+ required. Current: $(node --version)"
+  echo "Run: nvm use 22"
   exit 1
 fi
 echo "Node version: $(node --version) ✓"
