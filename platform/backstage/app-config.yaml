@@ -12,10 +12,13 @@ app:
     - nav-item:catalog: false
     - nav-item:scaffolder: false
 
-    # Configure the catalog index page to be the root page, this is normally mounted on /catalog
+    # Make catalog the default home page at /
     - page:catalog:
         config:
-          path: /catalog
+          path: /
+
+    # Disable standalone kubernetes page (it only works inside entity pages)
+    - page:kubernetes: false
 
 organization:
   name: My Company

@@ -6,7 +6,6 @@ import userSettingsPlugin from '@backstage/plugin-user-settings/alpha';
 import catalogImportPlugin from '@backstage/plugin-catalog-import/alpha';
 import orgPlugin from '@backstage/plugin-org/alpha';
 import kubernetesPlugin from '@backstage/plugin-kubernetes/alpha';
-import homePlugin from '@backstage/plugin-home/alpha';
 import { navModule } from './modules/nav';
 
 export default createApp({
@@ -18,7 +17,6 @@ export default createApp({
     catalogImportPlugin,
     orgPlugin,
     kubernetesPlugin,
-    homePlugin,
     navModule,
   ],
 });
