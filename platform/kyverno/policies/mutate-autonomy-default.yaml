@@ -1,0 +1,28 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-autonomy-level-default
+  annotations:
+    policies.kyverno.io/title: Add Default Autonomy Level
+    policies.kyverno.io/category: NEXUS Platform
+    policies.kyverno.io/description: >-
+      Automatically adds nexus.io/autonomy-level: "0" annotation to
+      Deployments in platform namespaces if not already present.
+      The + prefix means "add only if missing" — won't override existing values.
+spec:
+  rules:
+    - name: add-autonomy-level-default
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+              namespaces:
+                - crossplane-system
+                - nexus-ops
+                - nexus-apps
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              +(nexus.io/autonomy-level): "0"
