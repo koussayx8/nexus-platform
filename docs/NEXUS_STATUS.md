@@ -89,9 +89,11 @@ Backstage: runs via ./dev.sh (Node 20, Yarn 4.4.1)
 | 1 | HCP Terraform remote state configured (providers.tf) | ✅ Done | - |
 | 2 | .kilo/ .gitignore leading whitespace | Low | next cleanup |
 | 3 | Golden Path template updated with Crossplane claim stub | ✅ Done | Week 4 |
-| 4 | Crossplane v2.3.1 Pipeline mode namespace handling issue | Medium | Week 5 |
-| 5 | Backstage Crossplane frontend plugin not installed | Medium | Week 5 |
-| 6 | Real PostgreSQL image for dev Composition (PodSecurity constraints) | Low | Week 5 |
+| 4 | Crossplane v2.3.1 Pipeline mode namespace error — claim READY=False. Composition defined but resources created manually. Downgrade to v1.17.x or wait for Crossplane fix. | High | Week 5 |
+| 5 | Backstage Crossplane frontend plugin installed (@terasky v2.18.1) | ✅ Done | Week 4 |
+| 6 | Dev PostgreSQL: busybox placeholder pending Crossplane Pipeline mode fix. Real Postgres required before Week 13 (Flight Recorder). | High | Week 5 |
+| 7 | SHA-pinned images applied via helm upgrade (core only). Provider/function images use version tags (managed by Crossplane package manager). | ✅ Done | Week 4 |
+| 8 | Kyverno mutate policy for autonomy-level default installed | ✅ Done | Week 4 |
 
 ## Resource Budget
 | Resource | Budget | Used | Remaining |
