@@ -1,0 +1,81 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xpostgresqlinstances.platform.nexus.io
+spec:
+  group: platform.nexus.io
+  names:
+    kind: XPostgreSQLInstance
+    plural: xpostgresqlinstances
+  claimNames:
+    kind: PostgreSQLInstance
+    plural: postgresqlinstances
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    engine:
+                      type: string
+                      default: "postgresql"
+                      description: Database engine type
+                    version:
+                      type: string
+                      default: "16"
+                      description: PostgreSQL version
+                    size:
+                      type: string
+                      enum:
+                        - small
+                        - medium
+                        - large
+                      default: small
+                      description: Database size tier
+                    region:
+                      type: string
+                      default: "nyc1"
+                      description: Region for cloud resources
+                    environment:
+                      type: string
+                      enum:
+                        - dev
+                        - prod
+                      default: dev
+                      description: Target environment (dev=in-cluster, prod=managed)
+                  required:
+                    - environment
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                connectionSecretRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
