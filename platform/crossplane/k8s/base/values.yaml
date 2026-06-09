@@ -1,0 +1,36 @@
+# Crossplane Helm values for NEXUS dev environment
+# Image is SHA-pinned to satisfy Hard Rule #2 (no :latest tags)
+
+replicas: 1
+
+image:
+  repository: xpkg.crossplane.io/crossplane/crossplane@sha256:62106c8ff33de067f0ef89ea48ec72f3cc9dad063c5dcb8b683d0dc3fa73461f
+  tag: ""
+  ignoreTag: true
+  pullPolicy: IfNotPresent
+
+resourcesCrossplane:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1024Mi
+
+resourcesRBACManager:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
+webhooks:
+  enabled: true
+
+rbacManager:
+  replicas: 1
+  skipAggregatedClusterRoles: false
+
+# Provider packages to install
+# provider-upjet-digitalocean will be installed separately after Crossplane is healthy
