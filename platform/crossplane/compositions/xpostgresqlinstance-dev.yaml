@@ -40,6 +40,12 @@ spec:
                     labels:
                       app: sample-db
                   spec:
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 999
+                      fsGroup: 999
+                      seccompProfile:
+                        type: RuntimeDefault
                     containers:
                       - name: postgres
                         image: docker.io/library/postgres:16-alpine
@@ -62,9 +68,21 @@ spec:
                         volumeMounts:
                           - name: data
                             mountPath: /var/lib/postgresql/data
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop:
+                              - ALL
+                          runAsNonRoot: true
+                          seccompProfile:
+                            type: RuntimeDefault
                     volumes:
                       - name: data
                         emptyDir: {}
+            readinessChecks:
+              - type: MatchString
+                fieldPath: status.readyReplicas
+                matchString: "1"
 
           - name: postgresql-service
             base:
@@ -82,23 +100,5 @@ spec:
                   - port: 5432
                     targetPort: 5432
                 type: ClusterIP
-
-          - name: postgresql-secret
-            base:
-              apiVersion: v1
-              kind: Secret
-              metadata:
-                name: sample-db-connection
-                namespace: nexus-apps
-                labels:
-                  app: sample-db
-              type: Opaque
-              stringData:
-                host: sample-db.nexus-apps.svc.cluster.local
-                port: "5432"
-                database: nexus
-                username: nexus
-                password: nexus-dev-password
-                sslmode: disable
 
   writeConnectionSecretsToNamespace: nexus-apps
