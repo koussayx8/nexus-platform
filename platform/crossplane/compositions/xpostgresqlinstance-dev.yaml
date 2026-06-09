@@ -1,0 +1,104 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xpostgresqlinstance-dev
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    nexus.io/environment: dev
+spec:
+  compositeTypeRef:
+    apiVersion: platform.nexus.io/v1alpha1
+    kind: XPostgreSQLInstance
+
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: crossplane-contrib-function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: postgresql-deployment
+            base:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: sample-db
+                namespace: nexus-apps
+                labels:
+                  app: sample-db
+                annotations:
+                  nexus.io/autonomy-level: "0"
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: sample-db
+                template:
+                  metadata:
+                    labels:
+                      app: sample-db
+                  spec:
+                    containers:
+                      - name: postgres
+                        image: docker.io/library/postgres:16-alpine
+                        ports:
+                          - containerPort: 5432
+                        env:
+                          - name: POSTGRES_DB
+                            value: nexus
+                          - name: POSTGRES_USER
+                            value: nexus
+                          - name: POSTGRES_PASSWORD
+                            value: nexus-dev-password
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 256Mi
+                          limits:
+                            cpu: 500m
+                            memory: 512Mi
+                        volumeMounts:
+                          - name: data
+                            mountPath: /var/lib/postgresql/data
+                    volumes:
+                      - name: data
+                        emptyDir: {}
+
+          - name: postgresql-service
+            base:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: sample-db
+                namespace: nexus-apps
+                labels:
+                  app: sample-db
+              spec:
+                selector:
+                  app: sample-db
+                ports:
+                  - port: 5432
+                    targetPort: 5432
+                type: ClusterIP
+
+          - name: postgresql-secret
+            base:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: sample-db-connection
+                namespace: nexus-apps
+                labels:
+                  app: sample-db
+              type: Opaque
+              stringData:
+                host: sample-db.nexus-apps.svc.cluster.local
+                port: "5432"
+                database: nexus
+                username: nexus
+                password: nexus-dev-password
+                sslmode: disable
+
+  writeConnectionSecretsToNamespace: nexus-apps

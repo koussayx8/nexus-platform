@@ -1,0 +1,51 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xpostgresqlinstance-prod
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    nexus.io/environment: prod
+spec:
+  compositeTypeRef:
+    apiVersion: platform.nexus.io/v1alpha1
+    kind: XPostgreSQLInstance
+
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: crossplane-contrib-function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: postgresql-database
+            base:
+              apiVersion: database.digitalocean.crossplane.io/v1alpha1
+              kind: Database
+              metadata:
+                name: sample-db
+              spec:
+                forProvider:
+                  engine: pg
+                  version: "16"
+                  size: db-s-1vcpu-1gb
+                  region: nyc1
+                  numNodes: 1
+                providerConfigRef:
+                  name: default
+            patches:
+              - fromFieldPath: spec.parameters.version
+                toFieldPath: spec.forProvider.version
+              - fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - fromFieldPath: spec.parameters.size
+                toFieldPath: spec.forProvider.size
+                transforms:
+                  - type: map
+                    map:
+                      small: db-s-1vcpu-1gb
+                      medium: db-s-2vcpu-4gb
+                      large: db-s-4vcpu-8gb
+
+  writeConnectionSecretsToNamespace: nexus-apps
