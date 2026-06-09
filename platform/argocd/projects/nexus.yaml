@@ -15,18 +15,25 @@ spec:
     - https://github.com/koussayx8/nexus-platform.git
 
   # Only allow deploying to nexus-* namespaces on the local cluster
+  # crossplane-system added for Crossplane infrastructure (ADR-006)
   destinations:
     - server: https://kubernetes.default.svc
       namespace: nexus-apps
     - server: https://kubernetes.default.svc
       namespace: nexus-apps-prod
+    - server: https://kubernetes.default.svc
+      namespace: crossplane-system
 
   # Allowed cluster-scoped resources (Namespace is needed for CreateNamespace)
+  # CustomResourceDefinition added for Crossplane XRDs (ADR-006)
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
 
   # Allowed namespace-scoped resources
+  # Crossplane resources added for infrastructure provisioning (ADR-006)
   namespaceResourceWhitelist:
     - group: ""
       kind: Service
@@ -42,6 +49,20 @@ spec:
       kind: Ingress
     - group: autoscaling
       kind: HorizontalPodAutoscaler
+    - group: crossplane.io
+      kind: CompositeResourceDefinition
+    - group: crossplane.io
+      kind: Composition
+    - group: crossplane.io
+      kind: Provider
+    - group: crossplane.io
+      kind: ProviderConfig
+    - group: crossplane.io
+      kind: Claim
+    - group: pkg.crossplane.io
+      kind: ProviderRevision
+    - group: pkg.crossplane.io
+      kind: ConfigurationRevision
 
   # Deny orphaned resources (extra safety for GitOps)
   orphanedResources:
