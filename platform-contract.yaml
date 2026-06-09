@@ -1,0 +1,40 @@
+# NEXUS Platform Contract
+# Defines the platform's resource classes and standards for developer self-service
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-contract
+  namespace: nexus-apps
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+data:
+  contract.yaml: |
+    # Platform Resource Classes
+    # Developers can claim these resources via Crossplane Claims
+    resource-classes:
+      - name: XPostgreSQLInstance
+        description: "Managed PostgreSQL database"
+        apiVersion: platform.nexus.io/v1alpha1
+        kind: PostgreSQLInstance
+        environments:
+          dev:
+            description: "In-cluster PostgreSQL on k3s"
+            composition: xpostgresqlinstance-dev
+          prod:
+            description: "DigitalOcean managed PostgreSQL"
+            composition: xpostgresqlinstance-prod
+        sizes:
+          - name: small
+            description: "1 vCPU, 1GB RAM"
+          - name: medium
+            description: "2 vCPU, 4GB RAM"
+          - name: large
+            description: "4 vCPU, 8GB RAM"
+
+    # Platform Standards
+    standards:
+      image-tagging: "SHA digest only — no :latest tags"
+      autonomy-level: "All Deployments must have nexus.io/autonomy-level annotation"
+      gitops: "All resources managed via ArgoCD"
+      namespace: "Application resources in nexus-apps"

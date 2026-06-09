@@ -26,6 +26,7 @@ chaos engineering experiments with reproducible benchmark packs.
 - **Autonomy Ladder** — Five-level trust model (Observe → Diagnose → Recommend → Approve → Auto-Heal) for graded AI autonomy, enforced by Kyverno policy ([ADR-003](docs/ADR-003-autonomy-ladder.md))
 - **Incident Flight Recorder** — Immutable audit trail for every AI decision ([ADR-009](docs/ADR-009-incident-flight-recorder.md))
 - **Security-hardened CI** — Ruff + Semgrep + GitLeaks + Trivy + Cosign ([ADR-002](docs/ADR-002-ci-pipeline-design.md))
+- **Resource Provisioning** — Crossplane with GitOps-native infrastructure claims ([ADR-006](docs/ADR-006-crossplane-design.md))
 
 ## Stack
 
@@ -53,6 +54,11 @@ nexus-platform/
 │       └── test_main.py        # Pytest suite
 ├── platform/
 │   ├── argocd/applications/    # ArgoCD Application manifests
+│   ├── argocd/projects/          # ArgoCD AppProjects
+│   ├── crossplane/              # Crossplane XRDs, Compositions, Providers
+│   │   ├── compositions/        # Dev and Prod Compositions
+│   │   ├── providers/           # DigitalOcean provider config
+│   │   └── xrds/                # CompositeResourceDefinitions
 │   └── kyverno/policies/       # Kyverno ClusterPolicies
 ├── infra/                      # Infrastructure (k3s, Terraform)
 ├── ai/                         # AI components (agent, anomaly-detector, RAG)
@@ -94,12 +100,41 @@ Pod running, self-heal enabled (manual changes reverted)
 
 See [full validation log](docs/gitops-validation-log.md) for details.
 
+## Resource Provisioning (Crossplane)
+
+NEXUS uses Crossplane for GitOps-native infrastructure provisioning. Developers
+request resources via Kubernetes Claims, and Crossplane selects the appropriate
+Composition based on environment.
+
+```
+Developer creates Claim (YAML) → Crossplane selects Composition →
+Dev: in-cluster PostgreSQL on k3s | Prod: DigitalOcean managed DB
+```
+
+**Key resources:**
+- `XPostgreSQLInstance` XRD — defines the claim schema
+- `xpostgresqlinstance-dev` Composition — in-cluster PostgreSQL (Deployment + Service)
+- `xpostgresqlinstance-prod` Composition — DigitalOcean managed PostgreSQL
+- `platform-contract.yaml` — defines available resource classes
+
+**Verification:**
+```bash
+# Check Crossplane resources
+kubectl get xrd
+kubectl get composition
+kubectl get claim -n nexus-apps
+
+# Check provider health
+kubectl get provider -n crossplane-system
+```
+
 ## Status
 
 - [x] Week 0 — Environment setup (k3s, ArgoCD, API keys, venv)
 - [x] Week 1 — CI pipeline + sample-api deployed to k3s
 - [x] Week 2 — ArgoCD GitOps + Kyverno policy enforcement
 - [x] Week 3 — Backstage IDP
+- [x] Week 4 — Crossplane resource provisioning
 - [ ] ...
 
 ## Quick Start (Dev)
@@ -110,6 +145,12 @@ See [full validation log](docs/gitops-validation-log.md) for details.
 kubectl get app -n argocd sample-api
 kubectl get pods -n nexus-apps
 kubectl get policyreport -n nexus-apps
+
+# Crossplane resources:
+kubectl get xrd
+kubectl get composition
+kubectl get claim -n nexus-apps
+kubectl get provider -n crossplane-system
 
 # ArgoCD UI (port-forward):
 kubectl port-forward svc/argocd-server -n argocd 8080:443
