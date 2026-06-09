@@ -1,7 +1,7 @@
 # NEXUS Platform — Agent Context File
 # Automatically read by OpenCode at session start.
 # Do not delete. Update via Librarian (GLM 5.1) only.
-# Last updated: Week 3 complete + cleanup PASS
+# Last updated: Week 4 complete — Crossplane resource provisioning
 
 ## Identity
 - Project: NEXUS Platform (PFE thesis — ESPRIT, Tunisia)
@@ -14,18 +14,21 @@
 - Week 1: ✅ COMPLETE (CI + sample-api + K8s + ADRs)
 - Week 2: ✅ COMPLETE (ArgoCD + Kyverno + Terraform)
 - Week 3: ✅ COMPLETE (Backstage + catalog + cleanup PASS)
-- Week 4: ⬜ NOT STARTED → next task
+- Week 4: ✅ COMPLETE (Crossplane + XRD + Compositions + claims)
+- Week 5: ⬜ NOT STARTED → next task
 
 ## Next Task
-Week 4 — Crossplane Resource Provisioning
-FIRST ACTION: Write docs/ADR-006-crossplane-design.md
-DO NOT install Crossplane before ADR-006 is committed.
+Week 5 — Observability Stack (Prometheus + Grafana + Loki)
+FIRST ACTION: Write docs/ADR-007-observability-stack.md
+DO NOT install Prometheus before ADR-007 is committed.
 
 ## Stack Running Locally
 - k3s: running, node koussay, v1.34.6+k3s1
-- ArgoCD: 7/7 pods, AppProject: nexus
+- ArgoCD: 7/7 pods, AppProject: nexus, crossplane-infrastructure Synced+Healthy
 - Kyverno: 4/4 pods, nexus-autonomy-level (Audit mode)
 - sample-api: 1/1 Running, nexus-apps, ArgoCD-managed
+- sample-db: 1/1 Running, nexus-apps (mock PostgreSQL for dev)
+- Crossplane: 2/2 pods Running, provider-upjet-digitalocean Healthy
 - Backstage: cd platform/backstage && ./dev.sh
 - Terraform: validated, NOT applied (DO NOT apply without instruction)
 - DigitalOcean: $205 credit active
@@ -62,5 +65,6 @@ See CUT_LIST.md for full list.
 - Kyverno: platform/kyverno/policies/autonomy-level.yaml
 - Backstage: platform/backstage/dev.sh
 - Terraform: infra/terraform/doks/
+- Crossplane: platform/crossplane/
 - ADRs: docs/ADR-00*.md
 - Status: docs/NEXUS_STATUS.md
