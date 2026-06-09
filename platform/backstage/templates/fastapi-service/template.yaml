@@ -37,6 +37,14 @@ spec:
             allowedKinds:
               - Group
 
+    - title: Infrastructure
+      properties:
+        databaseEnabled:
+          title: Enable PostgreSQL Database
+          type: boolean
+          default: true
+          description: Create a Crossplane database claim for this service
+
     - title: Choose a location
       required:
         - repoUrl
@@ -59,6 +67,16 @@ spec:
           component_id: ${{ parameters.component_id }}
           description: ${{ parameters.description }}
           owner: ${{ parameters.owner }}
+
+    - id: generate-database-claim
+      name: Generate Database Claim
+      action: fetch:template
+      if: ${{ parameters.databaseEnabled }}
+      input:
+        url: ./skeleton/infrastructure
+        targetPath: ./infrastructure
+        values:
+          component_id: ${{ parameters.component_id }}
 
     - id: publish
       name: Publish

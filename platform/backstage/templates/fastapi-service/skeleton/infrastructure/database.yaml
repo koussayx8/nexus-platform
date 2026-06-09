@@ -1,0 +1,14 @@
+apiVersion: platform.nexus.io/v1alpha1
+kind: PostgreSQLInstance
+metadata:
+  name: ${{ values.component_id }}-database
+  namespace: nexus-apps
+  labels:
+    app.kubernetes.io/part-of: ${{ values.component_id }}
+spec:
+  parameters:
+    engine: postgresql
+    version: "16"
+    size: small
+    region: nyc1
+    environment: dev
