@@ -16,6 +16,7 @@ spec:
 
   # Only allow deploying to nexus-* namespaces on the local cluster
   # crossplane-system added for Crossplane infrastructure (ADR-006)
+  # monitoring added for observability stack (ADR-007)
   destinations:
     - server: https://kubernetes.default.svc
       namespace: nexus-apps
@@ -23,17 +24,33 @@ spec:
       namespace: nexus-apps-prod
     - server: https://kubernetes.default.svc
       namespace: crossplane-system
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
 
   # Allowed cluster-scoped resources (Namespace is needed for CreateNamespace)
   # CustomResourceDefinition added for Crossplane XRDs (ADR-006)
+  # Prometheus Operator CRDs added for observability stack (ADR-007)
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
     - group: apiextensions.k8s.io
       kind: CustomResourceDefinition
+    - group: monitoring.coreos.com
+      kind: Prometheus
+    - group: monitoring.coreos.com
+      kind: Alertmanager
+    - group: monitoring.coreos.com
+      kind: PrometheusRule
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+    - group: monitoring.coreos.com
+      kind: PodMonitor
+    - group: monitoring.coreos.com
+      kind: Probe
 
   # Allowed namespace-scoped resources
   # Crossplane resources added for infrastructure provisioning (ADR-006)
+  # Prometheus Operator resources added for observability stack (ADR-007)
   namespaceResourceWhitelist:
     - group: ""
       kind: Service
@@ -63,6 +80,18 @@ spec:
       kind: ProviderRevision
     - group: pkg.crossplane.io
       kind: ConfigurationRevision
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+    - group: monitoring.coreos.com
+      kind: PodMonitor
+    - group: monitoring.coreos.com
+      kind: PrometheusRule
+    - group: monitoring.coreos.com
+      kind: Probe
+    - group: monitoring.coreos.com
+      kind: Prometheus
+    - group: monitoring.coreos.com
+      kind: Alertmanager
 
   # Deny orphaned resources (extra safety for GitOps)
   orphanedResources:

@@ -1,0 +1,167 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: observability
+  annotations:
+    nexus.io/owner: platform-team
+    nexus.io/adr: "ADR-007"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: nexus
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "69.8.0"
+    helm:
+      values: |
+        namespaceOverride: monitoring
+        kubeEtcd:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        kubeApiServer:
+          enabled: false
+        prometheusOperator:
+          image:
+            repository: quay.io/prometheus-operator/prometheus-operator@sha256:6e17e1d52736864adee530c9300a044617d7892a3506aadd2029906620fb5182
+            tag: ""
+            ignoreTag: true
+            pullPolicy: IfNotPresent
+          podAnnotations:
+            nexus.io/autonomy-level: "0"
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 200m
+            requests:
+              memory: 128Mi
+              cpu: 100m
+        prometheus:
+          prometheusSpec:
+            image:
+              repository: quay.io/prometheus/prometheus@sha256:71cf2f3f30da3f0f0e9b9cb64f86d3909e59061d2c99fd210f22aa9ba661cb66
+              tag: ""
+              ignoreTag: true
+              pullPolicy: IfNotPresent
+            retention: 7d
+            storageSpec:
+              emptyDir: {}
+            resources:
+              limits:
+                memory: 1Gi
+                cpu: 500m
+              requests:
+                memory: 512Mi
+                cpu: 250m
+            podMetadata:
+              annotations:
+                nexus.io/autonomy-level: "0"
+        alertmanager:
+          alertmanagerSpec:
+            image:
+              repository: quay.io/prometheus/alertmanager@sha256:4f1ab01786fcb97c1ae272d6d1cc4e1fc6c1abb9b85882f1bd24913b56d4cf94
+              tag: ""
+              ignoreTag: true
+              pullPolicy: IfNotPresent
+            resources:
+              limits:
+                memory: 256Mi
+                cpu: 100m
+              requests:
+                memory: 128Mi
+                cpu: 50m
+            podMetadata:
+              annotations:
+                nexus.io/autonomy-level: "0"
+        grafana:
+          image:
+            repository: grafana/grafana@sha256:83c713850a2cf743813febc1bb8fb14e57ae2e76913ba5dea5d423f7c321a2c5
+            tag: ""
+            ignoreTag: true
+            pullPolicy: IfNotPresent
+          podAnnotations:
+            nexus.io/autonomy-level: "0"
+          adminPassword: admin
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: 200m
+            requests:
+              memory: 256Mi
+              cpu: 100m
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              searchNamespace: ALL
+        kubeStateMetrics:
+          image:
+            repository: registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:21c8c43f40b09a9a26b2f1252603c654855ace00c7a6b7a440eba3e2a9dac1c9
+            tag: ""
+            ignoreTag: true
+            pullPolicy: IfNotPresent
+          podAnnotations:
+            nexus.io/autonomy-level: "0"
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 100m
+            requests:
+              memory: 64Mi
+              cpu: 50m
+        prometheus-node-exporter:
+          image:
+            repository: quay.io/prometheus/node-exporter@sha256:22658a4208bbe06e1f6fff19176955b2f117f16566c8f2d274987421bbad39a6
+            tag: ""
+            ignoreTag: true
+            pullPolicy: IfNotPresent
+          podAnnotations:
+            nexus.io/autonomy-level: "0"
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 100m
+            requests:
+              memory: 64Mi
+              cpu: 50m
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: prometheus-operator-admission
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: Secret
+      name: prometheus-operator-tls
+      jsonPointers:
+        - /data

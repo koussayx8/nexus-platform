@@ -1,0 +1,93 @@
+# loki-stack Helm values for NEXUS dev environment on k3s
+# Task 4 of Week 5 observability plan
+# All images are SHA-pinned to satisfy Hard Rule #2 (no :latest tags)
+
+namespaceOverride: monitoring
+
+# ------------------------------------------------------------------------------
+# Loki
+# ------------------------------------------------------------------------------
+loki:
+  enabled: true
+  image:
+    repository: docker.io/grafana/loki@sha256:eb92f1a439171542fd718f929fad38c917b3cad15ec830ba4742e2ba5ab03313
+    tag: ""
+    ignoreTag: true
+    pullPolicy: IfNotPresent
+  podAnnotations:
+    nexus.io/autonomy-level: "0"
+  persistence:
+    enabled: false
+  config:
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+  resources:
+    limits:
+      memory: 512Mi
+      cpu: 300m
+    requests:
+      memory: 256Mi
+      cpu: 150m
+
+# ------------------------------------------------------------------------------
+# Promtail
+# ------------------------------------------------------------------------------
+promtail:
+  enabled: true
+  image:
+    repository: docker.io/grafana/promtail@sha256:b338a29de45ef8ffa96f882f3a36306b1e61262b2a560ff523e0e2633cccbbc4
+    tag: ""
+    ignoreTag: true
+    pullPolicy: IfNotPresent
+  podAnnotations:
+    nexus.io/autonomy-level: "0"
+  config:
+    clients:
+      - url: http://loki.monitoring:3100/loki/api/v1/push
+    snippets:
+      pipelineStages:
+        - cri: {}
+      scrapeConfigs: |
+        - job_name: kubernetes-pods
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_node_name]
+              target_label: __host__
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container
+          pipeline_stages:
+            - cri: {}
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: 100m
+    requests:
+      memory: 128Mi
+      cpu: 50m
