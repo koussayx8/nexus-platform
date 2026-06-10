@@ -99,6 +99,8 @@ spec:
         prometheus-node-exporter:
           podAnnotations:
             nexus.io/autonomy-level: "0"
+          hostRootFsMount:
+            enabled: false
           resources:
             limits:
               memory: 128Mi
