@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sample-api-error-rate
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    nexus.io/autonomy-level: "0"
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: sample-api
+      rules:
+        - alert: SampleAPIHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{job="sample-api",status=~"5.."}[2m]))
+              /
+              sum(rate(http_requests_total{job="sample-api"}[2m]))
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            nexus.io/autonomy-level: "0"
+          annotations:
+            summary: "sample-api error rate exceeds 5%"
+            description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.job }}"

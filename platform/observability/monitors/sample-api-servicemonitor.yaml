@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-api
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: observability
+    nexus.io/autonomy-level: "0"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-api
+  namespaceSelector:
+    matchNames:
+      - nexus-apps
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
