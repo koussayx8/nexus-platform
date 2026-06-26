@@ -125,6 +125,10 @@ kubeStateMetrics:
 prometheus-node-exporter:
   podAnnotations:
     nexus.io/autonomy-level: "0"
+  # k3s/WSL2: host root is not a shared/slave mount, so HostToContainer
+  # mountPropagation on "/" fails with CreateContainerError. Disable it.
+  hostRootFsMount:
+    enabled: false
   resources:
     limits:
       memory: 128Mi
