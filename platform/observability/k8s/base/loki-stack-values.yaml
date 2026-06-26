@@ -1,6 +1,6 @@
 # loki-stack Helm values for NEXUS dev environment on k3s
 # Task 4 of Week 5 observability plan
-# All images are SHA-pinned to satisfy Hard Rule #2 (no :latest tags)
+# Chart version pinned to 2.10.3 — images are pinned by chart maintainers
 
 namespaceOverride: monitoring
 
@@ -9,11 +9,6 @@ namespaceOverride: monitoring
 # ------------------------------------------------------------------------------
 loki:
   enabled: true
-  image:
-    repository: docker.io/grafana/loki@sha256:eb92f1a439171542fd718f929fad38c917b3cad15ec830ba4742e2ba5ab03313
-    tag: ""
-    ignoreTag: true
-    pullPolicy: IfNotPresent
   podAnnotations:
     nexus.io/autonomy-level: "0"
   persistence:
@@ -54,11 +49,6 @@ loki:
 # ------------------------------------------------------------------------------
 promtail:
   enabled: true
-  image:
-    repository: docker.io/grafana/promtail@sha256:b338a29de45ef8ffa96f882f3a36306b1e61262b2a560ff523e0e2633cccbbc4
-    tag: ""
-    ignoreTag: true
-    pullPolicy: IfNotPresent
   podAnnotations:
     nexus.io/autonomy-level: "0"
   config:
@@ -91,3 +81,12 @@ promtail:
     requests:
       memory: 128Mi
       cpu: 50m
+
+# ------------------------------------------------------------------------------
+# Grafana datasource — Loki must NOT be default (Prometheus is already default)
+# ------------------------------------------------------------------------------
+grafana:
+  enabled: false  # Grafana is managed by kube-prometheus-stack, not loki-stack
+  sidecar:
+    datasources:
+      enabled: false

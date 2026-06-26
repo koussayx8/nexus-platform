@@ -17,17 +17,12 @@ spec:
   source:
     repoURL: https://grafana.github.io/helm-charts
     chart: loki-stack
-    targetRevision: "2.9.3"
+    targetRevision: "2.10.3"
     helm:
       values: |
         namespaceOverride: monitoring
         loki:
           enabled: true
-          image:
-            repository: docker.io/grafana/loki@sha256:eb92f1a439171542fd718f929fad38c917b3cad15ec830ba4742e2ba5ab03313
-            tag: ""
-            ignoreTag: true
-            pullPolicy: IfNotPresent
           podAnnotations:
             nexus.io/autonomy-level: "0"
           persistence:
@@ -64,11 +59,6 @@ spec:
               cpu: 150m
         promtail:
           enabled: true
-          image:
-            repository: docker.io/grafana/promtail@sha256:b338a29de45ef8ffa96f882f3a36306b1e61262b2a560ff523e0e2633cccbbc4
-            tag: ""
-            ignoreTag: true
-            pullPolicy: IfNotPresent
           podAnnotations:
             nexus.io/autonomy-level: "0"
           config:
@@ -101,6 +91,16 @@ spec:
             requests:
               memory: 128Mi
               cpu: 50m
+        # Prevent loki-stack from auto-creating a datasource ConfigMap with
+        # isDefault: true, which conflicts with Prometheus (also default) and
+        # crashes Grafana ("Only one datasource per organization can be marked
+        # as default"). Loki is added as isDefault: false via the observability
+        # app's grafana.additionalDataSources instead.
+        grafana:
+          enabled: false
+          sidecar:
+            datasources:
+              enabled: false
 
   destination:
     server: https://kubernetes.default.svc

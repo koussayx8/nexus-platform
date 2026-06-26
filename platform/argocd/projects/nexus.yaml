@@ -10,9 +10,11 @@ metadata:
 spec:
   description: NEXUS platform applications — scoped to this cluster only
 
-  # Only allow sources from the NEXUS repo
+  # Only allow sources from the NEXUS repo and trusted Helm registries
   sourceRepos:
     - https://github.com/koussayx8/nexus-platform.git
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana.github.io/helm-charts
 
   # Only allow deploying to nexus-* namespaces on the local cluster
   # crossplane-system added for Crossplane infrastructure (ADR-006)
@@ -30,6 +32,7 @@ spec:
   # Allowed cluster-scoped resources (Namespace is needed for CreateNamespace)
   # CustomResourceDefinition added for Crossplane XRDs (ADR-006)
   # Prometheus Operator CRDs added for observability stack (ADR-007)
+  # RBAC and webhook resources added for Helm chart deployments (ADR-007)
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
@@ -47,10 +50,19 @@ spec:
       kind: PodMonitor
     - group: monitoring.coreos.com
       kind: Probe
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
 
   # Allowed namespace-scoped resources
   # Crossplane resources added for infrastructure provisioning (ADR-006)
   # Prometheus Operator resources added for observability stack (ADR-007)
+  # RBAC and workload resources added for Helm chart deployments (ADR-007)
   namespaceResourceWhitelist:
     - group: ""
       kind: Service
@@ -58,14 +70,24 @@ spec:
       kind: ConfigMap
     - group: ""
       kind: Secret
+    - group: ""
+      kind: ServiceAccount
     - group: apps
       kind: Deployment
     - group: apps
       kind: StatefulSet
+    - group: apps
+      kind: DaemonSet
     - group: networking.k8s.io
       kind: Ingress
     - group: autoscaling
       kind: HorizontalPodAutoscaler
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    - group: batch
+      kind: Job
     - group: crossplane.io
       kind: CompositeResourceDefinition
     - group: crossplane.io

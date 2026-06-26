@@ -86,6 +86,17 @@ spec:
               enabled: true
               label: grafana_dashboard
               searchNamespace: ALL
+          # Loki added as a non-default datasource here (single source of truth).
+          # loki-stack's own datasource sidecar is disabled to avoid a second
+          # isDefault: true entry that crashes Grafana.
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              access: proxy
+              url: http://loki.monitoring:3100
+              version: 1
+              isDefault: false
+              jsonData: {}
         kubeStateMetrics:
           podAnnotations:
             nexus.io/autonomy-level: "0"
