@@ -13,6 +13,7 @@ spec:
   sourceRepos:
     - https://github.com/koussayx8/nexus-platform.git
     - https://prometheus-community.github.io/helm-charts
+    - https://kyverno.github.io/kyverno/
 
   # Spec §3 namespaces. nexus-apps is removed together with the old sample-api Application.
   destinations:

@@ -1,0 +1,30 @@
+# Kyverno chart 3.8.0 (Kyverno v1.18.0) values for the `kyverno` Application (ADR-015).
+#
+# Nothing in NEXUS consumes policy reports: the API Audit Log and the Flight Recorder are the
+# evidence records (spec §14). So the reports controller is disabled, together with every
+# feature that writes reports, which it would otherwise aggregate and clean up.
+# The NEXUS policies K1-K6 arrive in M3 (spec §11).
+
+admissionController:
+  replicas: 1
+
+backgroundController:
+  replicas: 1
+
+cleanupController:
+  replicas: 1
+
+reportsController:
+  enabled: false
+
+features:
+  admissionReports:
+    enabled: false
+  aggregateReports:
+    enabled: false
+  policyReports:
+    enabled: false
+  validatingAdmissionPolicyReports:
+    enabled: false
+  backgroundScan:
+    enabled: false
