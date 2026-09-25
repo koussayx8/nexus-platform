@@ -27,7 +27,11 @@ and in `~/nexus-backup/`.
 - **Secret-bearing files:** `digitalocean-creds.yaml` and `postgresql-manual.yaml` are removed with
   `git rm`. In ADR-006 and ADR-007, every value under `data:`/`stringData:` is replaced by
   `<REDACTED>` through a scripted edit that never printed a value. **History is not rewritten.**
-  Credential status after the owner's check: *to be recorded at the M0-2 gate.*
+  Credential status after the owner's check:
+  - DigitalOcean token: **dead**. It stays in public history, which is harmless because it no longer works.
+  - `postgresql-manual.yaml`: **dead**. The database it belonged to never existed.
+  - Grafana admin password: **exposed** (public repository) and not reused anywhere. The M0-5
+    rebuild replaces it with a generated password in a Secret created by `bootstrap.sh`.
 - **Rule A2 for agents:**
   - a path under `secrets/` is never opened;
   - a file with `kind: Secret` and `data`/`stringData` is never shown;
@@ -50,4 +54,8 @@ rotation, not by rewriting.
   `platform/observability/k8s/base/kube-prometheus-stack-values.yaml:84`, since `103676e`.
   The rebuilt Grafana takes its password from a Secret created by `bootstrap.sh`, never from Git
   (M0-4 removes the literal; M0-5 creates the Secret).
+- Until the rebuild, the exposed password guards a Grafana reachable only from this machine.
+  Observed read-only on 2026-09-25: Service `monitoring/observability-grafana` is `ClusterIP`; no
+  Ingress, Traefik IngressRoute or Gateway API route exists; the only LoadBalancer is k3s Traefik,
+  which routes nothing.
 - The live cluster is untouched. None of these removals is referenced by a tracked kustomization.
