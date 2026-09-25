@@ -22,6 +22,10 @@ env:
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
   KUSTOMIZE_VERSION: 5.8.1
   KUSTOMIZE_SHA256: 029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
+  HELM_VERSION: 3.20.2          # Helm 3, as used by ArgoCD 3.3 to render charts
+  HELM_SHA256: 258e830a9e613c8a7a302d6059b4bb3b9758f2f3e1bb8ea0d707ce10a9a72fea
+  YQ_VERSION: 4.53.6
+  YQ_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
 
 jobs:
   repo-checks:
@@ -47,6 +51,13 @@ jobs:
           fetch "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" "$GITLEAKS_SHA256"
           fetch "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" "$KUBECONFORM_SHA256"
           fetch "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" "$KUSTOMIZE_SHA256"
+          curl -fsSL -o pkg.tgz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "$HELM_SHA256  pkg.tgz" | sha256sum -c -
+          tar -xzf pkg.tgz -C "$bin" --strip-components=1 linux-amd64/helm
+          rm -f pkg.tgz
+          curl -fsSL -o "$bin/yq" "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
+          echo "$YQ_SHA256  $bin/yq" | sha256sum -c -
+          chmod +x "$bin/yq"
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit range
@@ -69,7 +80,7 @@ jobs:
           fi
           echo "range=$range" >> "$GITHUB_OUTPUT"
 
-      - name: GitLeaks, kustomize build, kubeconform
+      - name: GitLeaks, kustomize build, render Applications, kubeconform
         env:
           RANGE: ${{ steps.range.outputs.range }}
         run: bash .github/scripts/repo-checks.sh "$RANGE"
