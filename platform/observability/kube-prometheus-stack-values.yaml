@@ -81,7 +81,10 @@ alertmanager:
 grafana:
   podAnnotations:
     nexus.io/autonomy-level: "0"
-  adminPassword: admin
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   resources:
     limits:
       memory: 512Mi
