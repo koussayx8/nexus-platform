@@ -15,7 +15,8 @@ added a credential that no scan ever saw (ADR-010).
   - one job whose check context is `repo-checks`. It is the only required check on `main` and `dev`;
   - the logic lives in `.github/scripts/repo-checks.sh`, which runs the same way locally.
 - **What it checks:**
-  1. **GitLeaks** over the pull request's commit range (base..head; for pushes before..after) and
+  1. **GitLeaks** over the pull request's commit range (base..head; for pushes before..after; for a
+     push that creates a branch, merge-base(origin/main)..head) and
      over the committed tree at HEAD (`git archive HEAD`). **Never the full history.** The dead
      DigitalOcean token stays there by design (ADR-010), and a history scan would fail every run.
   2. **`kustomize build`** of every kustomization, **except under parked paths**
