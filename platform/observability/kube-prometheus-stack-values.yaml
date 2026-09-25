@@ -1,28 +1,22 @@
-# kube-prometheus-stack Helm values for NEXUS dev environment on k3s
-# Task 3 of Week 5 observability plan
-# Chart version 86.2.2 pins all images — no :latest tags
+# kube-prometheus-stack 86.2.2 values for the `observability` Application (ADR-016).
+# The single values source: the Application references this file from Git; no inline values.
 
 namespaceOverride: monitoring
 
 # ------------------------------------------------------------------------------
-# k3s-specific: disable control-plane ServiceMonitors (components are embedded)
+# k3s: control-plane components are embedded, so their ServiceMonitors are off.
+# coreDns monitoring would create a Service in kube-system, outside the AppProject.
 # ------------------------------------------------------------------------------
 kubeEtcd:
   enabled: false
-
 kubeScheduler:
   enabled: false
-
 kubeControllerManager:
   enabled: false
-
 kubeProxy:
   enabled: false
-
 kubeApiServer:
   enabled: false
-
-# Disable coreDns monitoring — creates Service in kube-system which is not in AppProject
 coreDns:
   enabled: false
 
@@ -39,7 +33,8 @@ prometheusOperator:
       cpu: 100m
 
 # ------------------------------------------------------------------------------
-# Prometheus
+# Prometheus: 15 days on a local-path volume. An emptyDir lost the whole history on
+# every WSL restart, and the M1 Locust baseline and Z-score windows depend on it.
 # ------------------------------------------------------------------------------
 prometheus:
   prometheusSpec:
@@ -75,7 +70,9 @@ alertmanager:
         cpu: 50m
 
 # ------------------------------------------------------------------------------
-# Grafana
+# Grafana: the admin credentials come from the Secret monitoring/grafana-admin, created by
+# bootstrap.sh from ~/.nexus/keys.env, never from Git (ADR-010, ADR-016). Datasources are the
+# chart's own: Prometheus (the only default) and Alertmanager. Loki is REMOVED (spec §23).
 # ------------------------------------------------------------------------------
 grafana:
   admin:
@@ -96,8 +93,8 @@ grafana:
       searchNamespace: ALL
 
 # ------------------------------------------------------------------------------
-# kube-state-metrics (subchart config key is "kube-state-metrics", not
-# "kubeStateMetrics" which only holds the enabled toggle)
+# kube-state-metrics: its subchart key is "kube-state-metrics"; "kubeStateMetrics" holds only
+# the enabled toggle.
 # ------------------------------------------------------------------------------
 kube-state-metrics:
   resources:
@@ -109,11 +106,10 @@ kube-state-metrics:
       cpu: 50m
 
 # ------------------------------------------------------------------------------
-# node-exporter
+# node-exporter. On k3s/WSL2 the host root is not a shared or slave mount, so HostToContainer
+# mountPropagation on "/" fails with CreateContainerError. It is disabled.
 # ------------------------------------------------------------------------------
 prometheus-node-exporter:
-  # k3s/WSL2: host root is not a shared/slave mount, so HostToContainer
-  # mountPropagation on "/" fails with CreateContainerError. Disable it.
   hostRootFsMount:
     enabled: false
   resources:
