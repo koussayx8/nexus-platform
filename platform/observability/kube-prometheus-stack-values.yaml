@@ -45,9 +45,16 @@ prometheusOperator:
 # ------------------------------------------------------------------------------
 prometheus:
   prometheusSpec:
-    retention: 7d
+    retention: 15d
+    retentionSize: 9GB
     storageSpec:
-      emptyDir: {}
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
     resources:
       limits:
         memory: 1Gi
