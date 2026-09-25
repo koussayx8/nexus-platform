@@ -30,8 +30,6 @@ coreDns:
 # Prometheus Operator
 # ------------------------------------------------------------------------------
 prometheusOperator:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
   resources:
     limits:
       memory: 256Mi
@@ -62,9 +60,6 @@ prometheus:
       requests:
         memory: 512Mi
         cpu: 250m
-    podMetadata:
-      annotations:
-        nexus.io/autonomy-level: "0"
 
 # ------------------------------------------------------------------------------
 # Alertmanager
@@ -78,16 +73,11 @@ alertmanager:
       requests:
         memory: 128Mi
         cpu: 50m
-    podMetadata:
-      annotations:
-        nexus.io/autonomy-level: "0"
 
 # ------------------------------------------------------------------------------
 # Grafana
 # ------------------------------------------------------------------------------
 grafana:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
   admin:
     existingSecret: grafana-admin
     userKey: admin-user
@@ -110,8 +100,6 @@ grafana:
 # "kubeStateMetrics" which only holds the enabled toggle)
 # ------------------------------------------------------------------------------
 kube-state-metrics:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
   resources:
     limits:
       memory: 128Mi
@@ -124,8 +112,6 @@ kube-state-metrics:
 # node-exporter
 # ------------------------------------------------------------------------------
 prometheus-node-exporter:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
   # k3s/WSL2: host root is not a shared/slave mount, so HostToContainer
   # mountPropagation on "/" fails with CreateContainerError. Disable it.
   hostRootFsMount:
