@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M0 — verify, stabilise, govern (spec §25, §27).
-**Current phase:** M0-3 Git governance — planned below, waiting for approval. M0-2 is done.
+**Current phase:** M0-3 Git governance — approved, in progress. M0-2 is done.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -14,6 +14,9 @@ final capture, you run the k3s uninstall and `bootstrap.sh` (both need sudo). **
 
 Each phase ends at a gate: stop, report in the CLAUDE.md format, and wait. Every decision is
 recorded as an ADR in `docs/adr/` when its phase lands.
+
+**Standing rule — `main` is never left red.** A failing workflow on `main` is fixed before the next
+pull request merges.
 
 ## M0-1 Capture and triage — done
 
@@ -47,53 +50,37 @@ recorded as an ADR in `docs/adr/` when its phase lands.
 **Until the M0-5 rebuild, nothing merged to `main` may change a path a live Application tracks:
 `apps/sample-api/k8s`, `platform/crossplane/k8s`, `platform/argocd`.**
 
-## M0-3 Git governance — plan, waiting for approval
+## M0-3 Git governance — approved, in progress
 
-`gh` is authenticated (`repo`, `workflow`, `read:packages`). Work happens on branch
-`ci/m0-3-governance` from the updated `main`, one commit per concern, merged by PR with a merge
-commit. The only paths it changes are `.github/`, `docs/adr/` and `TASKS.md`, none of which a live
-Application tracks.
+Order: the lint PR, then the governance PR, then protection and the experiment branch.
+The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no live Application tracks.
 
-Facts behind the plan (observed in M0-2):
-- Secret scanning and push protection are **already enabled**.
-- All 10 kustomizations build offline.
-- The existing GitLeaks job sits in the path-filtered `ci.yml`, so it never ran on `719ade0`, which touched only `platform/crossplane/**`. This is the likely answer to the Later item on GitLeaks.
-- `gitleaks`, `kubeconform` and a standalone `kustomize` are not installed locally.
+1. [x] **Secret scanning and push protection** are both enabled (`gh api repos/koussayx8/nexus-platform --jq .security_and_analysis`).
+2. [x] **Auto-delete head branches** enabled; `chore/m0-triage` deleted after its merge.
+3. [x] **Lint PR** [#40](https://github.com/koussayx8/nexus-platform/pull/40), `fix/sample-api-lint`: `ruff==0.16.9` pinned in `apps/sample-api/requirements-dev.txt`, which CI installs; imports sorted; executable bit cleared on `main.py` and `test_main.py`. Merged as `311ad81`. `main` run 36136557684 is **green**, and build, push and Cosign signing succeeded.
+   - Image for M0-4: `ghcr.io/koussayx8/nexus-platform/sample-api@sha256:45e7a88c950a40fd6ce37a6544d95bc435c76a6aa5af2eefcc9463363150d57c`.
+4. [x] **`repo-checks`** (`.github/workflows/repo-checks.yml` + `.github/scripts/repo-checks.sh`):
+   - GitLeaks over the PR range and the committed tree, never the full history;
+   - `kustomize build` outside parked paths;
+   - `kubeconform -strict` for Kubernetes 1.34.6 with pinned core and CRD schemas;
+   - tools checksum-verified, actions pinned by SHA.
 
-1. [x] **Secret scanning and push protection** — **done when** `gh api repos/koussayx8/nexus-platform --jq .security_and_analysis` shows both `enabled`. Done 2026-09-25: both enabled, so nothing for you to change. Validity checks and non-provider patterns are disabled; optional.
-2. [ ] **Required-check workflow** `.github/workflows/repo-checks.yml`:
-   - triggers on `pull_request` to `main` and `dev`, with no path filter, and on `push` to `main` and `dev`;
-   - a single job `repo-checks`, the context the protection rules require, with `contents: read` and actions pinned by commit SHA;
-   - **GitLeaks CLI**, pinned version, checksum verified: `gitleaks git --redact` over the PR commit range, plus `gitleaks dir --redact .` over the tree. Findings in dead history belong in a reviewed `.gitleaksignore` by fingerprint, never by path;
-   - **`kustomize build`** of every directory with a `kustomization.yaml`;
-   - **`kubeconform -strict -summary`** on the output, for Kubernetes 1.34 plus a CRD schema catalog (monitoring.coreos.com today);
-   - validated locally first: tools downloaded into the scratchpad, never installed system-wide.
-
-   **Done when** the workflow's own PR shows `repo-checks` green.
-3. [ ] **`ci.yml`**: `pull_request.branches: [main, dev]`. `push` stays `main` only, and `build-and-push` and `sign` keep `if: push && main` — **done when** the diff shows only the trigger change and the PR runs lint and tests.
-4. [ ] **ADR-012 — required checks.** One unfiltered required workflow beside the path-filtered component workflows. This departs from §19's path-filtered-only design, because path-filtered workflows cannot be required. It goes into spec v1.1.
-5. [ ] **ADR-013 — experiment branch.**
-   - `experiment/dev-state` is created from `main` and never force-pushed;
-   - the runner resets with the forward commit `chore(exp): reset to baseline`, skipped when there is no diff;
-   - `main` is merged into it before the rebuild, and the baseline tag is set after `verify-state.sh` passes (M0-5);
-   - §13 sequencing goes into spec v1.1.
-6. [ ] Merge `ci/m0-3-governance` into `main` with a merge commit.
-7. [ ] **Create `dev`** from the new `main` (`git push origin main:refs/heads/dev`) — **done when** `git ls-remote origin refs/heads/dev` equals `main`.
-8. [ ] **Protect `main` and `dev`** (`gh api -X PUT …/branches/{main,dev}/protection`):
-   - a PR is required with 0 approvals (§19: self-merge after green checks is allowed);
-   - the required check is `repo-checks`, not strict;
+   Validated locally, negative controls included (ADR-012). **Done when** its own PR shows `repo-checks` green.
+5. [x] **`ci.yml`** runs lint and tests on pull requests to `dev`; build, push and sign stay `main`-only.
+6. [x] **ADR-012** (required checks) and **ADR-013** (experiment branch).
+7. [ ] Merge `ci/m0-3-governance` with a merge commit; `main` stays green.
+8. [ ] **Create `dev`** from `main` — **done when** `git ls-remote origin refs/heads/dev` equals `main`.
+9. [ ] **Protect `main` and `dev`**:
+   - PR required, 0 approvals;
+   - required check `repo-checks` (not strict);
+   - `enforce_admins: true`;
    - no force-push, no deletion;
-   - `enforce_admins: true`, so no direct pushes, the owner included (Q1);
-   - linear history is **not** required, so merge commits keep one commit per decision.
+   - no linear-history requirement.
 
    **Done when** a GET on both protection endpoints shows these settings.
-9. [ ] **Create `experiment/dev-state`** from `main` — **done when** `git ls-remote origin refs/heads/experiment/dev-state` equals `main`. §19 keeps it **unprotected**; "never force-pushed" is a runner rule (Q2).
-10. [ ] Update `TASKS.md` with the M0-3 outcome.
+10. [ ] **Create `experiment/dev-state`** from `main`, plus a ruleset that blocks non-fast-forward and deletion with **no bypass actors**; direct pushes stay allowed — **done when** the ruleset GET shows `enforcement: active`, both rules and `bypass_actors: []`.
+11. [ ] Record the outcome in `TASKS.md` through a PR to `main`. This also shows the protection works.
 - **GATE M0-3**
-
-Open points for M0-3:
-- **Q1.** Is `enforce_admins: true` acceptable? It blocks your own direct pushes too. An emergency needs an admin to lift it in the UI.
-- **Q2.** Should `experiment/dev-state` stay unprotected as §19 says, or get a ruleset that blocks only force-push and deletion? A ruleset would be a §19 deviation, and needs an ADR.
 
 ## M0-4 Git convergence — Git only, validated offline, never applied to the live cluster
 
@@ -111,7 +98,7 @@ Open points for M0-3:
 5. [ ] **`sample-api-dev`** (`experiment/dev-state`) and **`sample-api-prod`** (`main`), with overlays for `nexus-dev` and `nexus-prod`:
    - 2 replicas, a PDB with `maxUnavailable: 1`, `automountServiceAccountToken: false`;
    - `ignoreDifferences` on `/spec/replicas` plus `RespectIgnoreDifferences=true`;
-   - the digest pinned **in the overlays**: the latest successful `main` build that includes `prometheus-fastapi-instrumentator`, found with `gh`.
+   - the digest pinned **in the overlays**: `sha256:45e7a88c950a40fd6ce37a6544d95bc435c76a6aa5af2eefcc9463363150d57c`, the signed image from green `main` run 36136557684 (`311ad81`). Record the `cosign verify` output when pinning it.
 6. [ ] **No** `loki` and **no** `crossplane-infrastructure` Application. Crossplane manifests stay parked in Git, referenced by no Application (ADR). Backstage is not deployed until the final steps. `dependency-db` arrives in M1 with `/items`, its first user.
 7. [ ] Settle and record:
    - Is the ghcr package public? If not, bootstrap creates a pull secret.
@@ -155,8 +142,7 @@ Open points for M0-3:
 - M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
 - CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
-- Confirm why GitLeaks let four Secret-bearing files through. Likely cause: the GitLeaks job is inside the path-filtered `ci.yml`, and `719ade0` touched only `platform/crossplane/**`. ADR-012 closes the gap.
-- Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing (§13) and the unfiltered required-check workflow (§19).
+- Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
 - Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
 - The stash `m0-2: dropped dashboard change` can be dropped once M0-4 rebuilds the dashboard. `git stash drop` is denied to agents, so you drop it.
