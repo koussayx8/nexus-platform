@@ -1,0 +1,2 @@
+# Development tools for sample-api, installed by CI (not by the image).
+ruff==0.16.9
