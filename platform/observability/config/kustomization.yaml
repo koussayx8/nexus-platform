@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: observability-config
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: nexus-platform
+      app.kubernetes.io/component: observability
+
+resources:
+  - ../monitors
+  - ../alerts
+  - ../dashboards
+
+commonAnnotations:
+  nexus.io/owner: platform-team
+  nexus.io/adr: "ADR-007"

@@ -52,3 +52,10 @@ nexus_deep_dive (1).html
 nexus_roadmap_v3.html
 nexus_roadmap.html
     .kilo/
+
+# Windows alternate data streams copied into WSL
+*:Zone.Identifier
+
+# Node.js build artefacts
+node_modules/
+**/.yarn/install-state.gz

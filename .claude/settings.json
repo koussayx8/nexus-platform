@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(kubectl apply *)",
+      "Bash(kubectl create *)",
+      "Bash(kubectl delete *)",
+      "Bash(kubectl patch *)",
+      "Bash(kubectl edit *)",
+      "Bash(kubectl replace *)",
+      "Bash(kubectl scale *)",
+      "Bash(kubectl label *)",
+      "Bash(kubectl annotate *)",
+      "Bash(kubectl rollout *)",
+      "Bash(kubectl drain *)",
+      "Bash(kubectl cordon *)",
+      "Bash(kubectl taint *)",
+      "Bash(kubectl get secret*)",
+      "Bash(helm install *)",
+      "Bash(helm upgrade *)",
+      "Bash(helm uninstall *)",
+      "Bash(helm rollback *)",
+      "Bash(argocd app sync *)",
+      "Bash(argocd app set *)",
+      "Bash(argocd app delete *)",
+      "Bash(terraform apply*)",
+      "Bash(terraform destroy*)",
+      "Bash(*k3s-uninstall*)",
+      "Bash(*k3s-killall*)",
+      "Bash(sudo *)",
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean *)",
+      "Bash(git checkout -- *)",
+      "Bash(git restore *)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
+      "Read(~/.nexus/**)",
+      "Edit(~/.nexus/**)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)",
+      "Bash(git tag *)",
+      "Bash(kubectl port-forward *)",
+      "Bash(kubectl exec *)"
+    ]
+  }
+}

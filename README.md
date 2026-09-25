@@ -22,11 +22,11 @@ chaos engineering experiments with reproducible benchmark packs.
 
 ## Key Architecture Decisions
 
-- **GitOps Strategy** — ArgoCD with auto-sync, self-heal, and pruning. Git is the single source of truth ([ADR-004](docs/ADR-004-gitops-strategy.md))
-- **Autonomy Ladder** — Five-level trust model (Observe → Diagnose → Recommend → Approve → Auto-Heal) for graded AI autonomy, enforced by Kyverno policy ([ADR-003](docs/ADR-003-autonomy-ladder.md))
-- **Incident Flight Recorder** — Immutable audit trail for every AI decision ([ADR-009](docs/ADR-009-incident-flight-recorder.md))
-- **Security-hardened CI** — Ruff + Semgrep + GitLeaks + Trivy + Cosign ([ADR-002](docs/ADR-002-ci-pipeline-design.md))
-- **Resource Provisioning** — Crossplane with GitOps-native infrastructure claims ([ADR-006](docs/ADR-006-crossplane-design.md))
+- **GitOps Strategy** — ArgoCD with auto-sync, self-heal, and pruning. Git is the single source of truth ([ADR-004](docs/adr/ADR-004-gitops-strategy.md))
+- **Autonomy Ladder** — Five-level trust model (Observe → Diagnose → Recommend → Approve → Auto-Heal) for graded AI autonomy, enforced by Kyverno policy ([ADR-003](docs/adr/ADR-003-autonomy-ladder.md))
+- **Incident Flight Recorder** — Immutable audit trail for every AI decision ([ADR-009](docs/adr/ADR-009-incident-flight-recorder.md))
+- **Security-hardened CI** — Ruff + Semgrep + GitLeaks + Trivy + Cosign ([ADR-002](docs/adr/ADR-002-ci-pipeline-design.md))
+- **Resource Provisioning** — Crossplane with GitOps-native infrastructure claims ([ADR-006](docs/adr/ADR-006-crossplane-design.md))
 
 ## Stack
 
