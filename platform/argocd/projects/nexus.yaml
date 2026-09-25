@@ -41,7 +41,7 @@ spec:
     - { group: "", kind: Service }
     - { group: "", kind: ServiceAccount }
     - { group: apps, kind: Deployment }
-    - { group: apps, kind: StatefulSet }
+    # StatefulSet returns in M1 with dependency-db; operator-created StatefulSets need no entry.
     - { group: apps, kind: DaemonSet }
     - { group: policy, kind: PodDisruptionBudget }
     - { group: batch, kind: Job }
