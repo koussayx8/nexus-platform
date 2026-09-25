@@ -15,7 +15,7 @@ spec:
     - https://prometheus-community.github.io/helm-charts
     - https://kyverno.github.io/kyverno/
 
-  # Spec §3 namespaces. nexus-apps is removed together with the old sample-api Application.
+  # Spec §3 namespaces.
   destinations:
     - { server: https://kubernetes.default.svc, namespace: argocd }
     - { server: https://kubernetes.default.svc, namespace: kyverno }
@@ -26,7 +26,6 @@ spec:
     - { server: https://kubernetes.default.svc, namespace: nexus-prod }
     - { server: https://kubernetes.default.svc, namespace: nexus-data }
     - { server: https://kubernetes.default.svc, namespace: nexus-load }
-    - { server: https://kubernetes.default.svc, namespace: nexus-apps }
 
   clusterResourceWhitelist:
     - { group: "", kind: Namespace }
@@ -42,8 +41,9 @@ spec:
     - { group: "", kind: Service }
     - { group: "", kind: ServiceAccount }
     - { group: apps, kind: Deployment }
-    - { group: apps, kind: StatefulSet }
+    # StatefulSet returns in M1 with dependency-db; operator-created StatefulSets need no entry.
     - { group: apps, kind: DaemonSet }
+    - { group: policy, kind: PodDisruptionBudget }
     - { group: batch, kind: Job }
     - { group: rbac.authorization.k8s.io, kind: Role }
     - { group: rbac.authorization.k8s.io, kind: RoleBinding }

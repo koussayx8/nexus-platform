@@ -1,9 +1,12 @@
+# nexus-dev is owned by sample-api-dev, which tracks experiment/dev-state (spec §3, §12). The
+# Experiment Runner changes the level with a commit on that branch: "0" until M2, then "3".
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: nexus-apps
+  name: nexus-dev
   labels:
     app.kubernetes.io/part-of: nexus-platform
+    nexus.io/autonomy-level: "0"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted

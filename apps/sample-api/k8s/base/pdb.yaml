@@ -1,0 +1,13 @@
+# Spec §3: the API server enforces this bound on every eviction, NEXUS restart_workload included.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sample-api
+  labels:
+    app.kubernetes.io/name: sample-api
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-api
