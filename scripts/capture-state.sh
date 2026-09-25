@@ -199,11 +199,14 @@ check() {   # check <id> <title> <function> [args...]
 }
 
 # ---------------------------------------------------------------------------
-# Secret-bearing files in Git (amendment A2)
+# Secret-bearing files in Git (amendment A2, narrowed in M0-2): a path under
+# secrets/ is never opened; a file with kind: Secret and data/stringData is
+# excluded from every content capture; a file that only names kind: Secret is
+# listed but readable.
 # ---------------------------------------------------------------------------
 mapfile -d '' TRACKED < <(g ls-files -z)
 mapfile -d '' UNTRACKED < <(g ls-files -z --others --exclude-standard)
-declare -A SB_REASON=()
+declare -A SB_REASON=() SECRET_NAMED=()
 is_secret_path() { [[ /$1 == */secrets/* ]]; }
 for f in "${TRACKED[@]}" "${UNTRACKED[@]}"; do
   if is_secret_path "$f"; then
@@ -212,7 +215,7 @@ for f in "${TRACKED[@]}" "${UNTRACKED[@]}"; do
     if grep -qE '^[[:space:]]*"?(data|stringData)"?[[:space:]]*:' -- "$f" 2>/dev/null; then
       SB_REASON[$f]="contains kind: Secret; data/stringData present"
     else
-      SB_REASON[$f]="contains kind: Secret; no data/stringData"
+      SECRET_NAMED[$f]="names kind: Secret; no data/stringData — readable"
     fi
   fi
 done
@@ -334,6 +337,8 @@ c_git_secret_files() {
     printf '%s\n' "${UNTRACKED[@]}" | grep -qxF -- "$f" && state=untracked
     printf '%-70s %-10s %s\n' "$f" "$state" "${SB_REASON[$f]}"
   done | sort
+  show "Files that only name kind: Secret (readable under narrowed A2)"
+  for f in "${!SECRET_NAMED[@]}"; do printf '%-70s %s\n' "$f" "${SECRET_NAMED[$f]}"; done | sort
   show "git ls-files '*secrets/*'   (index only)"
   g ls-files '*secrets/*'
   show "grep -n secrets .gitignore"; grep -n secrets .gitignore || echo "(no secrets rule in .gitignore)"
