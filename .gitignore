@@ -55,3 +55,7 @@ nexus_roadmap.html
 
 # Windows alternate data streams copied into WSL
 *:Zone.Identifier
+
+# Node.js build artefacts
+node_modules/
+.yarn/install-state.gz
