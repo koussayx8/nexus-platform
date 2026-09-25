@@ -61,7 +61,9 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             range="$PR_BASE..$PR_HEAD"
           elif [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
-            range="-1 $SHA"
+            # New branch: scan everything it adds on top of main (ADR-012).
+            base=$(git merge-base origin/main "$SHA")
+            range="$base..$SHA"
           else
             range="$BEFORE..$SHA"
           fi
