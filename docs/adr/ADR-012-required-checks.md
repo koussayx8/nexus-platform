@@ -35,8 +35,8 @@ added a credential that no scan ever saw (ADR-010).
      - the output then goes through `kubeconform -strict`. `CustomResourceDefinition` objects are
        skipped because no pinned schema source ships a top-level CRD schema; the custom resources
        they define are validated against the catalog;
-     - inline Helm values are reported as a warning until the observability Application moves to a
-       values file (M0-4), then they fail.
+     - inline Helm values (`helm.values`, `helm.valuesObject`) fail the check: value files live in
+       Git (since the observability Application moved to a values file in M0-4).
 - **Pinning:** gitleaks 8.30.1, kubeconform 0.8.0, kustomize 5.8.1, Helm 3.20.2 (the major version
   ArgoCD 3.3 renders with) and yq 4.53.6, each SHA-256 verified;
   `actions/checkout` pinned by commit SHA (v7.0.1); `contents: read` only; no cluster credential (§19).

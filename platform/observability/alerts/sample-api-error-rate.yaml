@@ -1,3 +1,6 @@
+# Interim error-rate alert. The spec §3 Z-score rules replace it in M1.
+# prometheus-fastapi-instrumentator groups status codes ("2xx", "5xx"), and probe and scrape
+# traffic (/health, /ready, /metrics) is excluded from the ratio.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -5,9 +8,7 @@ metadata:
   namespace: monitoring
   labels:
     app.kubernetes.io/part-of: nexus-platform
-    nexus.io/autonomy-level: "0"
-    prometheus: kube-prometheus
-    role: alert-rules
+    release: observability          # matched by the Prometheus ruleSelector
 spec:
   groups:
     - name: sample-api
@@ -15,13 +16,13 @@ spec:
         - alert: SampleAPIHighErrorRate
           expr: |
             (
-              sum(rate(http_requests_total{job="sample-api",status=~"5.."}[2m]))
+              sum by (namespace) (rate(http_requests_total{job="sample-api",status="5xx",handler!~"/health|/ready|/metrics"}[2m]))
               /
-              sum(rate(http_requests_total{job="sample-api"}[2m]))
+              sum by (namespace) (rate(http_requests_total{job="sample-api",handler!~"/health|/ready|/metrics"}[2m]))
             ) > 0.05
           for: 2m
           labels:
             severity: warning
           annotations:
-            summary: "sample-api error rate exceeds 5%"
-            description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.job }}"
+            summary: "sample-api error rate exceeds 5% in {{ $labels.namespace }}"
+            description: "Error rate is {{ $value | humanizePercentage }} in {{ $labels.namespace }}"
