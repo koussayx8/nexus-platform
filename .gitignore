@@ -58,4 +58,4 @@ nexus_roadmap.html
 
 # Node.js build artefacts
 node_modules/
-.yarn/install-state.gz
+**/.yarn/install-state.gz
