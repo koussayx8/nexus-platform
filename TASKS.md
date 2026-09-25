@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M0 — verify, stabilise, govern (spec §25, §27).
-**Current phase:** M0-3 Git governance — approved, in progress. M0-2 is done.
+**Current phase:** M0-3 Git governance — done, waiting at its gate.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -50,7 +50,7 @@ pull request merges.
 **Until the M0-5 rebuild, nothing merged to `main` may change a path a live Application tracks:
 `apps/sample-api/k8s`, `platform/crossplane/k8s`, `platform/argocd`.**
 
-## M0-3 Git governance — approved, in progress
+## M0-3 Git governance — done
 
 Order: the lint PR, then the governance PR, then protection and the experiment branch.
 The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no live Application tracks.
@@ -68,18 +68,18 @@ The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no 
    Validated locally, negative controls included (ADR-012). **Done when** its own PR shows `repo-checks` green.
 5. [x] **`ci.yml`** runs lint and tests on pull requests to `dev`; build, push and sign stay `main`-only.
 6. [x] **ADR-012** (required checks) and **ADR-013** (experiment branch).
-7. [ ] Merge `ci/m0-3-governance` with a merge commit; `main` stays green.
-8. [ ] **Create `dev`** from `main` — **done when** `git ls-remote origin refs/heads/dev` equals `main`.
-9. [ ] **Protect `main` and `dev`**:
+7. [x] Governance PR [#41](https://github.com/koussayx8/nexus-platform/pull/41) merged as `a12c202`, with `repo-checks` green on the PR. On `main`, `repo-checks` (run 36137823639) and `ci.yml` (run 36137823324) are both green. That `ci.yml` run signed one more image, which M0-4 does not use.
+8. [x] **`dev`** created from `main` at `a12c202`; its `repo-checks` push run is green.
+9. [x] **`main` and `dev` protected**. Read back from `gh api …/branches/{main,dev}/protection`:
    - PR required, 0 approvals;
    - required check `repo-checks` (not strict);
    - `enforce_admins: true`;
    - no force-push, no deletion;
    - no linear-history requirement.
 
-   **Done when** a GET on both protection endpoints shows these settings.
-10. [ ] **Create `experiment/dev-state`** from `main`, plus a ruleset that blocks non-fast-forward and deletion with **no bypass actors**; direct pushes stay allowed — **done when** the ruleset GET shows `enforcement: active`, both rules and `bypass_actors: []`.
-11. [ ] Record the outcome in `TASKS.md` through a PR to `main`. This also shows the protection works.
+   Read back on both: `checks=[repo-checks] strict=false enforce_admins=true pr_required=true approvals=0 force_push=false deletions=false linear=false`.
+10. [x] **`experiment/dev-state`** created from `main` at `a12c202`. Ruleset `experiment-dev-state-no-force-push` (id 23998158): `enforcement=active`, rules `[non_fast_forward, deletion]`, `bypass_actors=[]`, `current_user_can_bypass=never`. Direct pushes stay allowed.
+11. [x] Outcome recorded in `TASKS.md` through this pull request, the first merged under protection.
 - **GATE M0-3**
 
 ## M0-4 Git convergence — Git only, validated offline, never applied to the live cluster
@@ -143,6 +143,7 @@ The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no 
 - CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
 - Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
+- `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
 - Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
 - The stash `m0-2: dropped dashboard change` can be dropped once M0-4 rebuilds the dashboard. `git stash drop` is denied to agents, so you drop it.
