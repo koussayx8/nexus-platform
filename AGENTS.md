@@ -46,10 +46,11 @@ DO NOT install Prometheus before ADR-007 is committed.
 
 ## Agent Roles (Oh-My-OpenCode-Slim)
 - Prometheus (Qwen 3.7 Max): ADRs + planning ONLY, never touches files
-- Sisyphus (Kimi K2.6): all implementation, kubectl, git commits
-- Hephaestus (DeepSeek V4 Pro): end-of-week review only
-- Sisyphus-Junior (MiniMax M3): boilerplate YAML, test stubs
-- Librarian (GLM 5.1): README, NEXUS_STATUS.md, docs
+- Sisyphus/designer (GLM 5.2): all implementation, kubectl, git commits
+- Hephaestus/fixer (DeepSeek V4 Pro): end-of-week review only
+- Sisyphus-Junior/explorer (MiniMax M3): boilerplate YAML, test stubs
+- Librarian/orchestrator (GLM 5.2): routing via AGENTS.md, session docs
+- Observer/observer (Kimi K2.7): screenshot analysis
 
 ## Session Rituals
 START: Read this file + docs/NEXUS_STATUS.md → confirm week + next task

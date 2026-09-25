@@ -106,9 +106,10 @@ grafana:
 
 
 # ------------------------------------------------------------------------------
-# kube-state-metrics
+# kube-state-metrics (subchart config key is "kube-state-metrics", not
+# "kubeStateMetrics" which only holds the enabled toggle)
 # ------------------------------------------------------------------------------
-kubeStateMetrics:
+kube-state-metrics:
   podAnnotations:
     nexus.io/autonomy-level: "0"
   resources:

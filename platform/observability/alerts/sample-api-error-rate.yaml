@@ -22,7 +22,6 @@ spec:
           for: 2m
           labels:
             severity: warning
-            nexus.io/autonomy-level: "0"
           annotations:
             summary: "sample-api error rate exceeds 5%"
             description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.job }}"

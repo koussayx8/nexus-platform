@@ -14,7 +14,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "sum(rate(http_requests_total{job=\"sample-api\"}[5m]))",
+            "expr": "sum(rate(http_requests_total{namespace=\"nexus-apps\",job=\"sample-api\"}[5m]))",
             "legendFormat": "Requests/sec"
           }
         ],
@@ -26,7 +26,7 @@
         "type": "stat",
         "targets": [
           {
-            "expr": "100 * (sum(rate(http_requests_total{job=\"sample-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"sample-api\"}[5m])))",
+            "expr": "100 * (sum(rate(http_requests_total{namespace=\"nexus-apps\",job=\"sample-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{namespace=\"nexus-apps\",job=\"sample-api\"}[5m])))",
             "legendFormat": "Error %"
           }
         ],
@@ -38,7 +38,7 @@
         "type": "graph",
         "targets": [
           {
-            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"sample-api\"}[5m])) by (le))",
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"nexus-apps\",job=\"sample-api\"}[5m])) by (le))",
             "legendFormat": "p95 latency"
           }
         ],
