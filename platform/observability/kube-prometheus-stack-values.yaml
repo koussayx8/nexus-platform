@@ -94,16 +94,6 @@ grafana:
       enabled: true
       label: grafana_dashboard
       searchNamespace: ALL
-  # Explicitly define all datasources here — single source of truth
-  additionalDataSources:
-    - name: Loki
-      type: loki
-      access: proxy
-      url: http://loki.monitoring:3100
-      version: 1
-      isDefault: false   # ← Prometheus is default, Loki is not
-      jsonData: {}
-
 
 # ------------------------------------------------------------------------------
 # kube-state-metrics (subchart config key is "kube-state-metrics", not
