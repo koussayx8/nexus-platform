@@ -52,10 +52,9 @@ for f in "${app_files[@]}"; do
         [[ -f ${vf#\$values/} ]] || { echo "$app: value file ${vf#\$values/} not found" >&2; exit 1; }
         vals+=(-f "${vf#\$values/}")
       done < <(yq "$s.helm.valueFiles // [] | .[]" "$f")
-      if [[ $(yq "$s.helm.values // \"\"" "$f") != "" ]]; then
-        yq "$s.helm.values" "$f" > "$OUT/meta/$app.$i.inline-values.yaml"
-        vals+=(-f "$OUT/meta/$app.$i.inline-values.yaml")
-        echo "   WARNING: inline helm values (ADR-012 expects value files from Git)"
+      if [[ $(yq "$s.helm.values // \"\"" "$f") != "" || $(yq "$s.helm.valuesObject // \"\"" "$f") != "" ]]; then
+        echo "$app: inline helm values are not allowed; use a values file in Git (ADR-012, ADR-016)" >&2
+        exit 1
       fi
       echo "   helm template $release $chart@$rev ${vals[*]}"
       helm template "$release" "$dir/$chart" --namespace "$ns" --kube-version "$KUBE_VERSION" \
