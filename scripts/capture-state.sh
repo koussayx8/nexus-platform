@@ -691,7 +691,7 @@ c_kyverno_cpol() {
   run k get clusterpolicies.kyverno.io -o wide
   need_jq || return 0
   show "per ClusterPolicy: validationFailureAction, failurePolicy, background, Ready; per rule: type and validate.failureAction"
-  k get clusterpolicies.kyverno.io -o json | jq -r '.items[] | "\(.metadata.name)  validationFailureAction=\(.spec.validationFailureAction // "unset")  failurePolicy=\(.spec.failurePolicy // "unset(default Fail)")  background=\(.spec.background // "unset")  ready=\(([.status.conditions[]? | select(.type == "Ready") | .status] | first) // "?")", ((.spec.rules // [])[] | "    rule \(.name): type=\(if .validate then "validate" elif .mutate then "mutate" elif .generate then "generate" elif .verifyImages then "verifyImages" else "?" end) failureAction=\(.validate.failureAction // "unset")")'
+  k get clusterpolicies.kyverno.io -o json | jq -r '.items[] | "\(.metadata.name)  validationFailureAction=\(.spec.validationFailureAction // "unset")  failurePolicy=\(.spec.failurePolicy // "unset(default Fail)")  background=\(if (.spec | has("background")) then (.spec.background | tostring) else "unset" end)  ready=\(([.status.conditions[]? | select(.type == "Ready") | .status] | first) // "?")", ((.spec.rules // [])[] | "    rule \(.name): type=\(if .validate then "validate" elif .mutate then "mutate" elif .generate then "generate" elif .verifyImages then "verifyImages" else "?" end) failureAction=\(.validate.failureAction // "unset")")'
 }
 
 c_kyverno_other() {
@@ -818,7 +818,7 @@ c_sampleapi_env() {
   need_jq || return 0
   show "sample-api Deployments: env (names; literals redacted), probes, ServiceAccount token mount"
   k get deploy -A -o json | jq -r \
-    '.items[] | select(.metadata.name | test("sample-api")) | "=== \(.metadata.namespace)/\(.metadata.name)", (.spec.template.spec.containers[] | '"$JQ_CONTAINERS"', "    readinessProbe=\(.readinessProbe // {} | tostring)", "    livenessProbe=\(.livenessProbe // {} | tostring)"), "  automountServiceAccountToken=\(.spec.template.spec.automountServiceAccountToken // "unset")", '"$JQ_VOLUMES"
+    '.items[] | select(.metadata.name | test("sample-api")) | "=== \(.metadata.namespace)/\(.metadata.name)", (.spec.template.spec.containers[] | '"$JQ_CONTAINERS"', "    readinessProbe=\(.readinessProbe // {} | tostring)", "    livenessProbe=\(.livenessProbe // {} | tostring)"), "  automountServiceAccountToken=\(if (.spec.template.spec | has("automountServiceAccountToken")) then (.spec.template.spec.automountServiceAccountToken | tostring) else "unset" end)", '"$JQ_VOLUMES"
 }
 
 c_db_claims() {
