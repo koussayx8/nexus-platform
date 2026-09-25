@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M0 — verify, stabilise, govern (spec §25, §27).
-**Current phase:** M0-3 Git governance — done, waiting at its gate.
+**Current phase:** M0-4 Git convergence — done on `dev`, waiting at its gate.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -82,40 +82,47 @@ The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no 
 11. [x] Outcome recorded in `TASKS.md` through this pull request, the first merged under protection.
 - **GATE M0-3**
 
-## M0-4 Git convergence — Git only, validated offline, never applied to the live cluster
+## M0-4 Git convergence — done on `dev`, waiting at its gate
 
-1. [ ] **Root Application** over `platform/argocd/applications/`. It is written here and applied **only by `bootstrap.sh` on the rebuilt cluster**, never to the current one, where its first sync would prune and cascade.
-2. [ ] **`platform`**: namespaces with their levels and the AppProject.
-   - Levels: `nexus-prod` `"1"` and `nexus-data` `"0"` on `main`; `nexus-dev` `"0"` on `experiment/dev-state`, raised to `"3"` by commit in M2.
-   - `nexus-system`, `nexus-reasoner` and `nexus-load` also exist.
-   - AppProject `nexus` destinations are the §3 namespaces; drop `nexus-apps`, `nexus-apps-prod` and `crossplane-system`.
-3. [ ] **`kyverno`**: chart 3.8.0 / v1.18.0 with `reportsController` disabled, because nothing consumes policy reports (ADR). Remove both ClusterPolicies from Git, since they implement the superseded workload-annotation design. K1–K6 arrive in M3.
-4. [ ] **`observability`** (keeps its name), multi-source:
-   - the chart, the values file in Git and `platform/observability/config`, with **no inline values**;
-   - the Loki datasource removed; Grafana admin from an existing Secret created by bootstrap, with the literal `adminPassword` removed from Git;
-   - Prometheus on a `local-path` PVC with 15-day retention;
-   - the dashboard with a title and namespace-agnostic queries.
-5. [ ] **`sample-api-dev`** (`experiment/dev-state`) and **`sample-api-prod`** (`main`), with overlays for `nexus-dev` and `nexus-prod`:
-   - 2 replicas, a PDB with `maxUnavailable: 1`, `automountServiceAccountToken: false`;
-   - `ignoreDifferences` on `/spec/replicas` plus `RespectIgnoreDifferences=true`;
-   - the digest pinned **in the overlays**: `sha256:45e7a88c950a40fd6ce37a6544d95bc435c76a6aa5af2eefcc9463363150d57c`, the signed image from green `main` run 36136557684 (`311ad81`). Record the `cosign verify` output when pinning it.
-6. [ ] **No** `loki` and **no** `crossplane-infrastructure` Application. Crossplane manifests stay parked in Git, referenced by no Application (ADR). Backstage is not deployed until the final steps. `dependency-db` arrives in M1 with `/items`, its first user.
-7. [ ] Settle and record:
-   - Is the ghcr package public? If not, bootstrap creates a pull secret.
-   - Is the repository public? **Yes, observed in M0-2**, so no ArgoCD repository credentials are needed.
-   - Does any Ingress use Traefik? If not, the k3s install disables `traefik` and `servicelb`.
-8. [ ] Offline validation — **done when** `kustomize build` of every kustomization, `helm template` of each chart with its values file, and `kubeconform` over all output pass. A CI job runs the same checks.
-9. [ ] ADRs: converge-then-rebuild, the Kyverno reports controller, Crossplane parked, the multi-source observability Application, autonomy levels.
-- **GATE M0-4**
+Git only; nothing applied to the live cluster (ADR-014). Branch flow: feature branch → PR → `dev`.
+`dev` → `main` happens only at the M0-5 rebuild, because M0-4 changes paths the live cluster
+tracks on `main`.
 
-## M0-5 Bootstrap, rebuild, verify
+0. [x] Branch flow set up:
+   - `main` → `dev` catch-up PR #43;
+   - `main` fast-forwarded into `experiment/dev-state` (`159e540`);
+   - `repo-checks` new-branch range fixed to scan from merge-base(origin/main) (#44).
+1. [x] **Render check** (#45, ADR-012):
+   - every Application rendered as ArgoCD would, with `helm template` from Git value files (Helm 3.20.2) and `kustomize build`;
+   - checked against its AppProject, then `kubeconform -strict`;
+   - negative controls fail as they should. Inline Helm values now fail the check.
+2. [x] **`platform`** (#46): namespaces with levels, the AppProject, the `platform` Application, the root Application `platform/argocd/root.yaml` (bootstrap only). The `loki` and `crossplane-infrastructure` Applications are removed. ADR-014, ADR-018.
+   - Levels: `nexus-prod` `"1"` and `nexus-data` `"0"` on `main`; `nexus-dev` `"0"` in `overlays/dev` (on `experiment/dev-state` after the rebuild merge), raised to `"3"` in M2.
+3. [x] **`kyverno`** (#47): chart 3.8.0 / v1.18.0, values `platform/kyverno/values.yaml`, reports controller and report features disabled. Both ClusterPolicies are removed. ADR-015.
+4. [x] **`observability`** (#48), multi-source:
+   - chart 86.2.2 + `platform/observability/kube-prometheus-stack-values.yaml` + `platform/observability/config`, no inline values;
+   - Loki datasource removed; Grafana admin from Secret `monitoring/grafana-admin`, and the literal password is gone from Git;
+   - Prometheus 15d / 9GB on a 10Gi `local-path` PVC;
+   - ServiceMonitor, alert and dashboard fixed. ADR-016.
+5. [x] **`sample-api-dev`** / **`sample-api-prod`** (#49):
+   - `overlays/{dev,prod}`, 2 replicas, PDB `maxUnavailable: 1`, token not mounted, replicas delegated;
+   - digest `sha256:45e7a88c…57c` pinned and cosign-verified;
+   - AppProject destinations are exactly the §3 namespaces, and only rendered kinds are admitted. ADR-017.
+6. [x] Settled (ADR-014):
+   - the ghcr package is **public**, so no pull secret;
+   - the repository is **public**, so no ArgoCD repository credentials;
+   - **no** Ingress, IngressRoute or Gateway route, so k3s gets `--disable traefik --disable servicelb`.
+7. [x] Capture-script fix for false booleans; errata in `CURRENT_STATE.md` (this PR).
+- **GATE M0-4** — report with the diff by path, the rendered and validated output of every Application, and the removal list.
+
+## M0-5 Bootstrap, rebuild, verify — plan
 
 1. [ ] Move `k`, `h`, `g`, `redact` and `check` into `scripts/lib/readonly.sh`. Add a `gh` wrapper that allows only `run list` and GET `api` calls. `capture-state.sh` sources the library.
-2. [ ] **`scripts/verify-state.sh`** is built on that library. Its M0 checks:
+2. [ ] **`scripts/verify-state.sh`**, built on that library. M0 checks:
    - every Application Synced/Healthy;
    - exactly one default Grafana datasource;
    - no Loki, Crossplane or `sample-db`;
-   - the sample-api digest equals Git, and `/metrics` returns 200 with the request counter and the latency histogram;
+   - the sample-api digest equals Git, and `/metrics` returns 200 with `http_requests_total` and `http_request_duration_seconds`;
    - namespaces and levels as declared;
    - no failing pods;
    - the audit log growing;
@@ -123,13 +130,18 @@ The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no 
 
    It writes `CURRENT_STATE.md` and exits non-zero on any failure.
 3. [ ] **`scripts/bootstrap.sh`**, with every sudo step marked (you run it):
-   - k3s install with the §14 audit policy and audit-log flags;
+   - k3s pinned to v1.34.6+k3s1 with the §14 audit policy and audit-log flags, `--disable traefik --disable servicelb`;
    - ArgoCD pinned to v3.3.8;
-   - runtime Secrets from `~/.nexus/keys.env`, including the Grafana admin;
-   - the runtime ConfigMaps `nexus-killswitch` (`active`) and `nexus-operator-config`;
-   - the root Application, then a wait for Synced/Healthy;
-   - then `verify-state.sh`.
-4. [ ] Final capture of the old cluster, then merge `main` into `experiment/dev-state`. You run the k3s uninstall and `bootstrap.sh`.
+   - Secrets from `~/.nexus/keys.env`, including `monitoring/grafana-admin`, created before the Applications sync;
+   - the ConfigMaps `nexus-killswitch` (`active`) and `nexus-operator-config`;
+   - the AppProject, then `platform/argocd/root.yaml`;
+   - wait for every Application to be Synced/Healthy, then `verify-state.sh`.
+4. [ ] **Rebuild order (ADR-014):**
+   1. final capture of the old cluster;
+   2. you uninstall k3s;
+   3. the `dev` → `main` PR is merged;
+   4. `main` is merged into `experiment/dev-state`;
+   5. `bootstrap.sh`.
 5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, then set the baseline tag on `main` — **done when** both hold. **M0 complete.**
 6. [ ] ADR for bootstrap and the audit policy.
 - **GATE M0-5**
@@ -140,6 +152,10 @@ The governance PR changes only `.github/`, `docs/adr/` and `TASKS.md`, which no 
 - M1: sample-api fault hooks and `NEXUS_FAULTS_ENABLED`, `/items` and `dependency-db`, a readiness check that is local only.
 - M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
 - M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
+- M1: `dependency-db` (PostgreSQL StatefulSet in `nexus-data`) re-adds `apps/StatefulSet` to the AppProject whitelist; `nexus` Application with the operator.
+- M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
+- Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
+- `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
 - CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
 - Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
