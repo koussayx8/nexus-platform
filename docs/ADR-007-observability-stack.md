@@ -308,8 +308,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  sample-api-red.json: |
-    { ... dashboard JSON ... }
+  sample-api-red.json: <REDACTED>
 ```
 
 ### 8. Autonomy-Level Annotations in Observability

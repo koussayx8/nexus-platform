@@ -59,10 +59,8 @@ and `ignoreDifferences` for Crossplane-managed resources.
 ```yaml
 # argocd-cm additions
 data:
-  application.resourceTrackingMethod: annotation
-  resource.exclusions: |
-    - apiGroups: ["*"]
-      kinds: ["ProviderConfigUsage"]
+  application.resourceTrackingMethod: <REDACTED>
+  resource.exclusions: <REDACTED>
 ```
 
 ### 3. Dev/Prod Composition Split
@@ -132,7 +130,7 @@ metadata:
   name: digitalocean-creds
   namespace: crossplane-system
 stringData:
-  credentials: '{"token":"REPLACE_WITH_REAL_TOKEN"}'
+  credentials: <REDACTED>
 ```
 
 ## Consequences
