@@ -89,11 +89,18 @@ step() {   # step <label> [SUDO]
   if [[ -n ${2:-} ]]; then printf '\n[%s] %s\n' "$2" "$1"; else printf '\n%s\n' "$1"; fi
 }
 
+fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
+
 # run_cmd <label> [SUDO|""] -- <command...>
 # Prints the label and the exact command, then runs it unless --plan is set. Single source of
 # truth: what --plan prints is exactly what would run for real, never a separately maintained copy.
 # Only for single, non-piped commands — anything with a pipe or shared state is written out by
 # hand instead, so the printed text and the executed text can never drift apart.
+#
+# A failing command is fatal, immediately, named by its label — this function does not merely
+# propagate an exit code for some caller to remember to check (nothing in this script relied on
+# `set -e`, whose semantics are suspended inside any if/while/&&/|| condition anyway, which is
+# exactly where several of this script's real command invocations live).
 run_cmd() {
   local label=$1 tag=$2
   shift 2
@@ -101,10 +108,8 @@ run_cmd() {
   step "$label" "$tag"
   printf '  $ %s\n' "$*"
   (( PLAN )) && return 0
-  "$@"
+  "$@" || fatal "$label (exit $?)"
 }
-
-fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------------------
 # 0/e. merge-order guard — run as a preflight before step a, and again right before applying
@@ -183,16 +188,16 @@ step_a_k3s() {
   printf '%s' "$AUDIT_POLICY_YAML" | sed 's/^/  /'
   printf '  YAML\n'
   if (( ! PLAN )); then
-    sudo install -d -m 0755 "$(dirname "$AUDIT_POLICY_FILE")"
-    printf '%s' "$AUDIT_POLICY_YAML" | sudo tee "$AUDIT_POLICY_FILE" >/dev/null
+    sudo install -d -m 0755 "$(dirname "$AUDIT_POLICY_FILE")" || fatal "creating $(dirname "$AUDIT_POLICY_FILE") failed"
+    printf '%s' "$AUDIT_POLICY_YAML" | sudo tee "$AUDIT_POLICY_FILE" >/dev/null || fatal "writing $AUDIT_POLICY_FILE failed"
   fi
 
   step "k3s: pre-create the audit log — group-readable mode survives every rotation (ADR-019)" SUDO
   printf '  $ sudo install -d -m 0750 -o root -g adm %s\n' "$AUDIT_DIR"
   printf '  $ sudo install -m 0640 -o root -g adm /dev/null %s\n' "$AUDIT_LOG"
   if (( ! PLAN )); then
-    sudo install -d -m 0750 -o root -g adm "$AUDIT_DIR"
-    sudo install -m 0640 -o root -g adm /dev/null "$AUDIT_LOG"
+    sudo install -d -m 0750 -o root -g adm "$AUDIT_DIR" || fatal "creating $AUDIT_DIR failed"
+    sudo install -m 0640 -o root -g adm /dev/null "$AUDIT_LOG" || fatal "pre-creating $AUDIT_LOG failed"
   fi
 
   step "k3s: write the apiserver config (disabled addons, audit flags) to config.yaml, not INSTALL_K3S_EXEC — editable later without reinstalling" SUDO
@@ -201,8 +206,8 @@ step_a_k3s() {
   printf '%s' "$K3S_CONFIG_YAML" | sed 's/^/  /'
   printf '  YAML\n'
   if (( ! PLAN )); then
-    sudo install -d -m 0755 "$(dirname "$K3S_CONFIG")"
-    printf '%s' "$K3S_CONFIG_YAML" | sudo tee "$K3S_CONFIG" >/dev/null
+    sudo install -d -m 0755 "$(dirname "$K3S_CONFIG")" || fatal "creating $(dirname "$K3S_CONFIG") failed"
+    printf '%s' "$K3S_CONFIG_YAML" | sudo tee "$K3S_CONFIG" >/dev/null || fatal "writing $K3S_CONFIG failed"
   fi
 
   step "k3s: optional docker.io mirror auth" SUDO
@@ -215,11 +220,12 @@ step_a_k3s() {
       # shellcheck disable=SC1091
       source "$NEXUS_DIR/dockerhub.env"
       : "${DOCKERHUB_USER:?dockerhub.env must set DOCKERHUB_USER}" "${DOCKERHUB_TOKEN:?dockerhub.env must set DOCKERHUB_TOKEN}"
-      sudo install -d -m 0755 /etc/rancher/k3s
+      sudo install -d -m 0755 /etc/rancher/k3s || fatal "creating /etc/rancher/k3s failed"
       umask 077
       printf 'configs:\n  "docker.io":\n    auth:\n      username: %s\n      password: %s\n' \
-        "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN" | sudo tee /etc/rancher/k3s/registries.yaml >/dev/null
-      sudo chmod 0600 /etc/rancher/k3s/registries.yaml
+        "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN" | sudo tee /etc/rancher/k3s/registries.yaml >/dev/null \
+        || fatal "writing /etc/rancher/k3s/registries.yaml failed"
+      sudo chmod 0600 /etc/rancher/k3s/registries.yaml || fatal "chmod on registries.yaml failed"
     fi
   else
     printf '  (skipped: ~/.nexus/dockerhub.env absent)\n'
@@ -238,10 +244,10 @@ step_a_k3s() {
   printf '  $ rm -f "$tmp"\n'
   if (( ! PLAN )); then
     local tmp
-    tmp=$(mktemp)
+    tmp=$(mktemp) || fatal "mktemp failed for the install.sh download target"
     trap 'rm -f "$tmp"' RETURN
-    curl -fsSL -o "$tmp" "$K3S_INSTALL_URL"
-    INSTALL_K3S_VERSION="$K3S_VERSION" sh "$tmp"
+    curl -fsSL -o "$tmp" "$K3S_INSTALL_URL" || fatal "downloading install.sh from $K3S_INSTALL_URL failed"
+    INSTALL_K3S_VERSION="$K3S_VERSION" sh "$tmp" || fatal "k3s install.sh failed"
     k3s --version 2>/dev/null | grep -qF "$K3S_VERSION" \
       || fatal "k3s --version does not report $K3S_VERSION after install"
   fi
@@ -254,7 +260,10 @@ step_b_kubeconfig() {
   step "kubeconfig: back up the existing one, if present"
   printf '  $ test -f ~/.kube/config && cp -a ~/.kube/config ~/.kube/config.bak-$(date -u +%%Y%%m%%dT%%H%%M%%SZ)\n'
   if (( ! PLAN )) && [[ -f $HOME/.kube/config ]]; then
-    cp -a "$HOME/.kube/config" "$HOME/.kube/config.bak-$(date -u +%Y%m%dT%H%M%SZ)"
+    # A failed defensive backup is a warning, not fatal: it doesn't block correctness, and the
+    # step immediately after this overwrites the same file anyway.
+    cp -a "$HOME/.kube/config" "$HOME/.kube/config.bak-$(date -u +%Y%m%dT%H%M%SZ)" \
+      || echo "bootstrap: WARNING — could not back up the existing ~/.kube/config, continuing" >&2
   fi
 
   run_cmd "kubeconfig: create ~/.kube at 0700 as this user, before the config file is installed into it" "" -- \
@@ -271,7 +280,8 @@ step_c_monitoring() {
   step "monitoring: create the namespace (idempotent)"
   printf '  $ kubectl get namespace monitoring >/dev/null 2>&1 || kubectl create namespace monitoring\n'
   if (( ! PLAN )); then
-    kubectl get namespace monitoring >/dev/null 2>&1 || kubectl create namespace monitoring
+    kubectl get namespace monitoring >/dev/null 2>&1 \
+      || kubectl create namespace monitoring || fatal "creating namespace monitoring failed"
   fi
 
   step "grafana-admin: generate-or-reuse ~/.nexus/grafana-admin (0600, no trailing newline, umask 077)"
@@ -280,9 +290,11 @@ step_c_monitoring() {
 
   local fresh=0
   if (( ! PLAN )); then
-    [[ -d $NEXUS_DIR ]] || install -d -m 0700 "$NEXUS_DIR"
+    [[ -d $NEXUS_DIR ]] || install -d -m 0700 "$NEXUS_DIR" || fatal "creating $NEXUS_DIR failed"
     if [[ ! -f $NEXUS_DIR/grafana-admin ]]; then
-      ( umask 077; python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_urlsafe(32))' > "$NEXUS_DIR/grafana-admin" )
+      ( umask 077; python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_urlsafe(32))' > "$NEXUS_DIR/grafana-admin" ) \
+        || fatal "generating grafana-admin failed"
+      [[ -s $NEXUS_DIR/grafana-admin ]] || fatal "grafana-admin was generated empty"
       fresh=1
     fi
   fi
@@ -295,17 +307,21 @@ step_c_monitoring() {
   if (( ! PLAN )); then
     if kubectl get secret grafana-admin -n monitoring >/dev/null 2>&1; then
       if (( fresh )); then
-        kubectl delete secret grafana-admin -n monitoring --ignore-not-found
+        kubectl delete secret grafana-admin -n monitoring --ignore-not-found \
+          || fatal "deleting the old grafana-admin Secret failed"
         kubectl create secret generic grafana-admin -n monitoring \
-          --from-literal=admin-user=admin --from-file=admin-password="$NEXUS_DIR/grafana-admin"
+          --from-literal=admin-user=admin --from-file=admin-password="$NEXUS_DIR/grafana-admin" \
+          || fatal "creating the rotated grafana-admin Secret failed"
         # Grafana's DB here is not persisted (chart default, unoverridden in our values — round 3
         # point 1): a restart alone re-bootstraps the admin user against the new password.
-        kubectl rollout restart deployment/"$GRAFANA_DEPLOYMENT" -n monitoring
+        kubectl rollout restart deployment/"$GRAFANA_DEPLOYMENT" -n monitoring \
+          || fatal "restarting $GRAFANA_DEPLOYMENT after rotating grafana-admin failed"
       fi
       # else: reused unchanged, touch nothing
     else
       kubectl create secret generic grafana-admin -n monitoring \
-        --from-literal=admin-user=admin --from-file=admin-password="$NEXUS_DIR/grafana-admin"
+        --from-literal=admin-user=admin --from-file=admin-password="$NEXUS_DIR/grafana-admin" \
+        || fatal "creating the grafana-admin Secret failed"
     fi
   fi
 }
@@ -317,7 +333,8 @@ step_d_argocd() {
   step "ArgoCD: create the namespace (idempotent)"
   printf '  $ kubectl get namespace argocd >/dev/null 2>&1 || kubectl create namespace argocd\n'
   if (( ! PLAN )); then
-    kubectl get namespace argocd >/dev/null 2>&1 || kubectl create namespace argocd
+    kubectl get namespace argocd >/dev/null 2>&1 \
+      || kubectl create namespace argocd || fatal "creating namespace argocd failed"
   fi
 
   run_cmd "ArgoCD: install $ARGOCD_VERSION with server-side apply (its manifest exceeds the client-side annotation limit)" "" -- \
@@ -328,9 +345,12 @@ step_d_argocd() {
   printf '  $ kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s\n'
   printf '  $ kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s\n'
   if (( ! PLAN )); then
-    kubectl -n argocd rollout status deployment/argocd-server --timeout=180s
-    kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s
-    kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s
+    kubectl -n argocd rollout status deployment/argocd-server --timeout=180s \
+      || fatal "argocd-server did not roll out"
+    kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s \
+      || fatal "argocd-application-controller did not roll out"
+    kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s \
+      || fatal "argocd-repo-server did not roll out"
   fi
 
   step "argocd-admin: poll for argocd-initial-admin-secret (timeout 120s), then read it to a temp file and move it into place; a failed or empty read is fatal"
@@ -344,7 +364,7 @@ step_d_argocd() {
     done
     (( waited >= 120 )) && fatal "argocd-initial-admin-secret did not appear within 120s"
 
-    [[ -d $NEXUS_DIR ]] || install -d -m 0700 "$NEXUS_DIR"
+    [[ -d $NEXUS_DIR ]] || install -d -m 0700 "$NEXUS_DIR" || fatal "creating $NEXUS_DIR failed"
     local tmp
     tmp="$NEXUS_DIR/.argocd-admin.tmp.$$"
     trap 'rm -f "$tmp"' EXIT
@@ -371,8 +391,10 @@ step_e_root_application() {
   printf '  $ git show origin/main:platform/argocd/root.yaml           | kubectl apply --server-side -f -\n'
   (( PLAN )) && return 0
 
-  git show origin/main:platform/argocd/projects/nexus.yaml | kubectl apply --server-side -f -
-  git show origin/main:platform/argocd/root.yaml | kubectl apply --server-side -f -
+  git show origin/main:platform/argocd/projects/nexus.yaml | kubectl apply --server-side -f - \
+    || fatal "applying the AppProject from origin/main failed"
+  git show origin/main:platform/argocd/root.yaml | kubectl apply --server-side -f - \
+    || fatal "applying root.yaml from origin/main failed"
 }
 
 # ---------------------------------------------------------------------------------------
@@ -412,7 +434,8 @@ step_g_killswitch() {
     printf '  $ kubectl get configmap %s -n nexus-system || git show origin/main:platform/bootstrap-templates/%s.yaml | kubectl create -f -\n' "$name" "$name"
     (( PLAN )) && continue
     if ! kubectl get configmap "$name" -n nexus-system >/dev/null 2>&1; then
-      git show "origin/main:platform/bootstrap-templates/$name.yaml" | kubectl create -f -
+      git show "origin/main:platform/bootstrap-templates/$name.yaml" | kubectl create -f - \
+        || fatal "creating ConfigMap $name failed"
     fi
   done
 }
