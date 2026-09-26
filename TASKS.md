@@ -162,10 +162,11 @@ tracks on `main`.
       clean. On failure: exit 2 is a script/guard error — investigate before retrying; exit 3 is a
       leak-check hit — read `LEAK-CHECK.txt`'s file list (never the match), decide if it's a real
       leak or a redaction gap, fix, re-run. Do not proceed to the uninstall until this is clean.
-      **UNVERIFIED for this rebuild:** `~/nexus-backup/` has no `state-<TS>` snapshot between
-      `state-20260926T072146Z` (09:24 local) and the bootstrap start (13:43:51Z) — no evidence this
-      step ran immediately before the uninstall. Low practical risk (the cluster holds no
-      persistent data per this file's own strategy note), but flagged rather than assumed.
+      **VERIFIED for the original cluster** (`state-20260926T072146Z`, 07:21Z, copy in
+      `~/nexus-backup/`) — this protects the original pre-M0 cluster, and it ran once. **Not
+      applicable to the retry clusters:** the two failed from-empty attempts and this final one were
+      disposable by design (the cluster holds no persistent data), so retrying needed no fresh
+      capture each time.
    2. **k3s uninstall.** Who: you. Done — 2026-09-26, before the bootstrap run below. The standard
       `/usr/local/bin/k3s-uninstall.sh`. Sudo: yes.
       Expected: `k3s` binary/service gone; `/etc/rancher/k3s` and `/var/lib/rancher/k3s` removed.
