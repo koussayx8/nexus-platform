@@ -78,20 +78,55 @@ adding a *different* user to `adm` would need a fresh login or `newgrp adm` befo
 read would succeed; a `sudo usermod -aG` in the same shell would not take effect immediately.)
 
 **Rotation test procedure** (run at the real rebuild, per the owner's instruction — not assumed
-correct from the source reading alone):
+correct from the source reading alone). `audit-log-maxsize` is a `kube-apiserver-arg` list item in
+`/etc/rancher/k3s/config.yaml` (`- audit-log-maxsize=100`), not a top-level YAML key — corrected
+here after the first draft of this procedure got the file format wrong:
 1. `stat -c '%a %U:%G %n' /var/log/nexus-audit/audit.log` — expect `640 root:adm`.
-2. Edit `/etc/rancher/k3s/config.yaml`, set `audit-log-maxsize: 1` (MB, the smallest useful value).
-   `sudo systemctl restart k3s`; wait for `kubectl get --raw /healthz`.
+2. Edit `/etc/rancher/k3s/config.yaml`, change the list item to `- audit-log-maxsize=1` (MB, the
+   smallest useful value). `sudo systemctl restart k3s`; wait for `kubectl get --raw /healthz`.
 3. Loop ~500–1000 `kubectl create configmap verify-state-probe-<n> -n nexus-system --dry-run=server
-   -o yaml >/dev/null` calls (the same dry-run probe `verify-state.sh` uses) to cross 1 MB quickly.
+   -o yaml >/dev/null` calls (the same dry-run probe `verify-state.sh` uses) to cross 1 MB quickly —
+   only if no backup file has appeared within ~2 minutes of the restart.
 4. Watch for a backup file (`audit-<timestamp>.log`) to appear.
 5. `stat` both the new active file and the backup — **both must be `640 root:adm`**.
 6. As the plain user, no `sudo`: `head -c1 /var/log/nexus-audit/audit.log` and the same on the
    backup — the real end-to-end proof; mode/ownership alone can look right while something else
    (a mount option, an LSM policy) still blocks the read.
-7. Restore `audit-log-maxsize: 100`, `sudo systemctl restart k3s`, confirm every Application
+7. Restore `- audit-log-maxsize=100`, `sudo systemctl restart k3s`, confirm every Application
    returns to `Synced`/`Healthy`.
 8. Record the `stat` and read-test results here once run.
+
+**Results (run 2026-09-26, against the from-empty M0-5 rebuild cluster):**
+- Baseline (step 1): `640 root:adm`, and `head -c1` as the plain user (`azure`, no sudo) already
+  confirmed readable by the same-day `verify-state.sh` runs — reused as the baseline rather than
+  re-measured.
+- Step 2/3 (owner, sudo): `audit-log-maxsize` changed `100` → `1`, `systemctl restart k3s`
+  completed without error.
+- Step 4: rotation happened immediately at restart, before any dry-run loop was needed — the
+  existing `audit.log` (~29 MB, well over the new 1 MB threshold) was rotated out the moment the
+  apiserver's audit writer reopened it. A second, size-triggered rotation followed shortly after
+  as the new active file itself crossed 1 MB under normal write volume. The step-3 loop was not
+  run.
+- Step 5/7: all three files present after the test (the pre-test log, the restart-triggered
+  backup, and the post-restart active file) read `640 root:adm`.
+- Step 6: `head -c1` succeeded as `azure`, no sudo, on the active file and both backups.
+- Step 9/10 (owner, sudo): restored to `100`, `systemctl restart k3s` completed without error.
+- Post-restore: `kubectl get --raw /healthz` → `ok`; all 6 Applications `Synced`/`Healthy`, held
+  stable for ≥60s; `verify-state.sh` re-run independently — **8/8**, exit 0.
+- **Conclusion: the audit-log design (pre-created `640 root:adm`, mode propagated through every
+  lumberjack rotation) holds under a real rotation, both restart-triggered and size-triggered, with
+  no cluster impact.**
+
+**Observed growth rate and effective retention (2026-09-26, informational — not part of the design
+decision above):** the pre-test `audit.log` reached ~29 MB over the roughly 7.3 hours since the
+from-empty rebuild created it — **~4 MB/h** at the audit volume this session generated (bootstrap
+itself, repeated `verify-state.sh` runs including their dry-run audit probes, and normal API
+traffic; not a measurement of steady-state idle load). At that rate, `audit-log-maxsize=100`
+fills roughly every ~25h, and with `audit-log-maxbackup=10` the oldest backup is evicted after
+roughly **10 days** of accumulated volume — well short of `audit-log-maxage=30` (days), which in
+practice never binds at this volume because `maxbackup` deletes older files first. This is an M1
+decision, not resolved here: raise `maxbackup` for longer retention, reduce audit volume via a
+narrower policy, or accept the ~10-day effective window.
 
 ## The audit-growth check is a probe, not "is it growing"
 
@@ -219,6 +254,7 @@ failing `Failed` pods outright.
   everything it does is exactly what that library's wrappers exist to forbid. It uses `kubectl`/
   `git` directly throughout, under the Cluster Admin's own authorization to run it (rule 6: it is
   never invoked through an agent's tool).
-- The rotation test (above) is real evidence, not yet collected — it happens at the actual rebuild.
-  Until then, the audit-log design rests on source-code reading and documented POSIX semantics,
-  which is weaker than a live test and is flagged as such rather than asserted as proven.
+- The rotation test (above) has been run against the from-empty M0-5 rebuild cluster (2026-09-26):
+  both a restart-triggered and a size-triggered rotation preserved `640 root:adm`, and non-sudo
+  reads succeeded on every file. The design is no longer resting on source-code reading and
+  documented POSIX semantics alone.
