@@ -191,11 +191,14 @@ tracks on `main`.
       first, or handle the specific failed step by hand referencing ADR-019, rather than
       re-running the whole script blindly.
    6. **`verify-state.sh` exit 0.** Who: Claude (read-only) runs it once standalone after
-      `bootstrap.sh` finishes, rather than trusting `bootstrap.sh`'s own tail call — **flagged
-      finding:** `bootstrap.sh`'s last step calls `verify-state.sh` through `run_cmd`, which does
-      not check or propagate its exit code, so a failing `verify-state.sh` would not stop
-      `bootstrap.sh` from printing "done." Worth a follow-up fix; not blocking, since this step
-      re-checks independently anyway. `./scripts/verify-state.sh` (writes `docs/CURRENT_STATE.md`
+      `bootstrap.sh` finishes. The finding noted here at first draft — `bootstrap.sh`'s last step
+      called `verify-state.sh` through `run_cmd`, which didn't check or propagate its exit code, so
+      a failing `verify-state.sh` wouldn't have stopped `bootstrap.sh` from printing "done" — is
+      **fixed in #55**, along with every other unchecked real-command call site the same audit
+      found (namespace creation, the grafana Secret sequence, both AppProject/root.yaml applies,
+      the killswitch create, every sudo write). Verified by a fault-injection test in a throwaway
+      worktree: six scenarios, each forcing one specific step to fail, all stop at that exact step,
+      name it, and exit non-zero without ever printing "done." `./scripts/verify-state.sh` (writes `docs/CURRENT_STATE.md`
       for real). Sudo: no. Expected: exit 0, all 8 checks `[PASS]`. On failure: each `[FAIL]` line
       names what's wrong; fix the root cause, re-run — do not commit `docs/CURRENT_STATE.md` until
       clean. Once clean: Claude opens a PR to `main` with the regenerated file; you approve the
