@@ -18,6 +18,9 @@ recorded as an ADR in `docs/adr/` when its phase lands.
 **Standing rule — `main` is never left red.** A failing workflow on `main` is fixed before the next
 pull request merges.
 
+**Standing rule — the AppProject stays as tight as it is now.** Each milestone widens it in the
+same pull request that introduces the new kinds, namespaces or repositories it needs.
+
 ## M0-1 Capture and triage — done
 
 - [x] Safety net verified — tag `backup/pre-m0` (`8fc5d26`) local and on origin; `~/nexus-backup/` complete.
@@ -115,36 +118,57 @@ tracks on `main`.
 7. [x] Capture-script fix for false booleans; errata in `CURRENT_STATE.md` (this PR).
 - **GATE M0-4** — report with the diff by path, the rendered and validated output of every Application, and the removal list.
 
-## M0-5 Bootstrap, rebuild, verify — plan
+## M0-5 Bootstrap, rebuild, verify — scripts ready, waiting at the gate
 
-1. [ ] Move `k`, `h`, `g`, `redact` and `check` into `scripts/lib/readonly.sh`. Add a `gh` wrapper that allows only `run list` and GET `api` calls. `capture-state.sh` sources the library.
-2. [ ] **`scripts/verify-state.sh`**, built on that library. M0 checks:
-   - every Application Synced/Healthy;
-   - exactly one default Grafana datasource;
-   - no Loki, Crossplane or `sample-db`;
-   - the sample-api digest equals Git, and `/metrics` returns 200 with `http_requests_total` and `http_request_duration_seconds`;
-   - namespaces and levels as declared;
-   - no failing pods;
-   - the audit log growing;
-   - the Kill Switch `active`.
-
-   It writes `CURRENT_STATE.md` and exits non-zero on any failure.
-3. [ ] **`scripts/bootstrap.sh`**, with every sudo step marked (you run it):
-   - k3s pinned to v1.34.6+k3s1 with the §14 audit policy and audit-log flags, `--disable traefik --disable servicelb`;
-   - ArgoCD pinned to v3.3.8;
-   - Secrets from `~/.nexus/keys.env`, including `monitoring/grafana-admin`, created before the Applications sync;
-   - the ConfigMaps `nexus-killswitch` (`active`) and `nexus-operator-config`;
-   - the AppProject, then `platform/argocd/root.yaml`;
-   - wait for every Application to be Synced/Healthy, then `verify-state.sh`.
+1. [x] `k`, `h`, `g`, `secret_names`, `redact`, `show`, `run`, `need_jq`, `sudo_needed`, `check`
+   and a new shared `leak_check` moved into `scripts/lib/readonly.sh` (#51). A `gh_ro` wrapper
+   allows only `run list` and GET `api` calls — rejects any short-option cluster carrying
+   `f`/`F`/`X` anywhere (not just flags beginning with one) and every long-form
+   `--field`/`--raw-field`/`--input`/`--method`; always appends `--method GET` itself.
+   `capture-state.sh` sources the library and gains `--backup` (copies a clean, leak-checked
+   snapshot to `~/nexus-backup/state-<TS>/`, directory enforced at `0700`). The PEM leak-check is
+   narrowed to the actual header/footer line and now also catches PGP private-key blocks.
+2. [x] **`scripts/verify-state.sh`** (#52), built on that library. M0 checks: every Application
+   (6, including `root`) Synced/Healthy; exactly one default Grafana datasource; no Loki,
+   Crossplane or `sample-db`; the sample-api digest — read from each namespace's real tracking
+   branch (`origin/experiment/dev-state` for `nexus-dev`, `origin/main` for `nexus-prod`;
+   ADR-013/ADR-017), not the local checkout — matches a ready pod, and `/metrics` returns 200 with
+   `http_requests_total` and `http_request_duration_seconds`; namespace autonomy levels per
+   ADR-018 (a namespace that doesn't exist fails, even where the wanted label is empty); every
+   pod's containers ready, `Succeeded` pods skipped, `Failed` pods still fail; a probe-based audit
+   check (one `--dry-run=server` create, confirmed in the audit log by name, plus an
+   `apiserver_audit_event_total` delta — raw log growth alone proves nothing under the §14 policy);
+   the Kill Switch `active`. Writes `--out` (default `docs/CURRENT_STATE.md`), exits non-zero on
+   any failure. K1–K6, the Incident CRD/CEL, operator/Reasoner readiness and N1–N6 stay in "Later".
+3. [x] **`scripts/bootstrap.sh`** (#53), `--plan` prints every step with `[SUDO]` tags and executes
+   nothing (verified: stubbing `k3s`/`kubectl`/`helm`/`git`/`sudo`/`curl`/`systemctl`/`install` to
+   log their own invocation and exit 1 produced an empty log and byte-identical `--plan` output).
+   Order: k3s (pinned `v1.34.6+k3s1`, refuses to run if already installed, §14 audit policy,
+   audit-log pre-created `root:adm 0640` so rotation stays group-readable, `--disable traefik
+   --disable servicelb`, optional `~/.nexus/dockerhub.env` → `registries.yaml`) → kubeconfig →
+   monitoring namespace + `grafana-admin` (generate-or-reuse, create-or-rotate, never `apply`) →
+   ArgoCD `v3.3.8` (server-side apply) + `argocd-admin` (always fresh, temp-file-then-move,
+   empty/failed read is fatal) → a merge-order guard (`origin/main` has the convergence,
+   `origin/main` is merged into `origin/experiment/dev-state`) then the AppProject and
+   `root.yaml`, both read via `git show origin/main:<path>` → wait for `platform` → `nexus-
+   killswitch`/`nexus-operator-config` (create-only-if-absent, read the same way, never through
+   ArgoCD) → wait for every Application → `verify-state.sh`. Full design and the ACL-vs-lumberjack
+   evidence chain: ADR-019.
 4. [ ] **Rebuild order (ADR-014):**
-   1. final capture of the old cluster;
+   1. final capture of the old cluster (`scripts/capture-state.sh --backup`, also copies to
+      `~/nexus-backup/`);
    2. you uninstall k3s;
    3. the `dev` → `main` PR is merged;
    4. `main` is merged into `experiment/dev-state`;
-   5. `bootstrap.sh`.
-5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, then set the baseline tag on `main` — **done when** both hold. **M0 complete.**
-6. [ ] ADR for bootstrap and the audit policy.
-- **GATE M0-5**
+   5. `bootstrap.sh` (without `--plan`).
+5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, then set the baseline tag `v0.1.0` on
+   `main` — **done when** both hold. **M0 complete.**
+6. [x] ADR for bootstrap and the audit policy — ADR-019.
+7. [ ] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
+   and ADRs. First section covers M0, drafted from the merged PRs, written at M0 exit together
+   with the `v0.1.0` tag (item 5).
+- **GATE M0-5** — scripts and `bootstrap.sh --plan` ready; items 4–5 wait for separate approval
+  (the uninstall, the `dev`→`main` PR, and the real `bootstrap.sh` run each need their own).
 
 ## Later — out of scope for M0
 

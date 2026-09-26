@@ -1,0 +1,14 @@
+# The Kill Switch (spec §11 K4, §12). Applied directly by bootstrap.sh, never by ArgoCD
+# (spec line 924): reconciliation must never be able to undo an emergency stop. A missing
+# ConfigMap is treated as halted; only the Cluster Admin changes `state`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-killswitch
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-019"
+data:
+  state: active

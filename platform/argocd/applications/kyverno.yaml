@@ -33,5 +33,5 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true         # Kyverno CRDs exceed the client-side apply annotation limit
     retry:
-      limit: 5
+      limit: 10
       backoff: { duration: 10s, factor: 2, maxDuration: 3m }

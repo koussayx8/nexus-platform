@@ -1,0 +1,19 @@
+# Admin-owned operator configuration (spec line 393). Applied directly by bootstrap.sh, never
+# by ArgoCD (spec line 924), so an experiment reset or reconciliation can never silently change
+# it. The NEXUS Operator arrives in M1 and defines the real schema for these fields; this M0-5
+# stub exists only so the ConfigMap is present, in the right namespace, and excluded from GitOps
+# before the operator ever reads it. Every value below is a placeholder — M1 replaces this file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-operator-config
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-019"
+data:
+  breakerEpoch: "0"
+  reasonerEndpoint: ""
+  approvalTTL: "5m"
+  advisoryChecks: "false"
