@@ -154,15 +154,70 @@ tracks on `main`.
    killswitch`/`nexus-operator-config` (create-only-if-absent, read the same way, never through
    ArgoCD) → wait for every Application → `verify-state.sh`. Full design and the ACL-vs-lumberjack
    evidence chain: ADR-019.
-4. [ ] **Rebuild order (ADR-014):**
-   1. final capture of the old cluster (`scripts/capture-state.sh --backup`, also copies to
-      `~/nexus-backup/`);
-   2. you uninstall k3s;
-   3. the `dev` → `main` PR is merged;
-   4. `main` is merged into `experiment/dev-state`;
-   5. `bootstrap.sh` (without `--plan`).
+4. [ ] **Rebuild checklist (ADR-014).** Nothing here runs until separately approved, step by step,
+   regardless of who it says runs it.
+
+   1. **Final capture.** Who: Claude (read-only). `scripts/capture-state.sh --backup`. Sudo: no.
+      Expected: exit 0; "snapshot copied to `~/nexus-backup/state-<TS>`" printed; leak self-check
+      clean. On failure: exit 2 is a script/guard error — investigate before retrying; exit 3 is a
+      leak-check hit — read `LEAK-CHECK.txt`'s file list (never the match), decide if it's a real
+      leak or a redaction gap, fix, re-run. Do not proceed to the uninstall until this is clean.
+   2. **k3s uninstall.** Who: you. The standard `/usr/local/bin/k3s-uninstall.sh`. Sudo: yes.
+      Expected: `k3s` binary/service gone; `/etc/rancher/k3s` and `/var/lib/rancher/k3s` removed.
+      `/var/log/nexus-audit/`, `~/.kube/config` and `~/.nexus/*` are outside its scope and persist
+      by design (`grafana-admin` is meant to survive a rebuild unless you delete it to rotate;
+      delete `~/.nexus/argocd-admin` if you want, `bootstrap.sh` always overwrites it anyway). On
+      failure: check `systemctl status k3s`; if the unit or files won't clear, stop and ask —
+      don't force anything by hand outside the script.
+   3. **`dev` → `main` PR.** Who: Claude opens it, you approve the merge (same as every PR this
+      session — a first for this specific direction, no precedent, so review the diff even though
+      every file already passed `repo-checks` on `dev`). `gh pr create --base main --head dev`.
+      Sudo: no. Expected: `repo-checks` passes; merge commit, matching every prior PR's convention.
+      On failure: a `repo-checks` failure here would mean something environment-specific to `main`
+      that `dev`'s own checks didn't catch — investigate the specific failing step before retrying.
+   4. **`main` → `experiment/dev-state`.** Who: Claude opens a PR (not a direct push, even though
+      ADR-013's ruleset allows one — a PR here is for visibility), you approve the merge. `gh pr
+      create --base experiment/dev-state --head main`. Sudo: no. Expected: clean, conflict-free
+      merge — `experiment/dev-state` has taken no divergent commits yet (no M1 experiment runs
+      have happened), so this should just be a fast-forward-shaped merge. **Never force-push this
+      branch** (ADR-013) regardless of what goes wrong. On failure (a real conflict): resolve on a
+      working branch, merge commit, still no force-push.
+   5. **`bootstrap.sh`.** Who: you, from a clean checkout (any branch — the merge-order guard
+      reads `origin/main`/`origin/experiment/dev-state` directly, not the local checkout, by
+      design). `./scripts/bootstrap.sh` (no `--plan`). Sudo: yes, for the steps `--plan` already
+      tags. Expected: "bootstrap: done", no `FATAL` line. On failure: `bootstrap.sh` names the
+      exact failed step. **Known gap:** if failure happens *after* the k3s install step succeeds,
+      a bare re-run will refuse at step a ("k3s is already installed") — re-run the uninstall
+      first, or handle the specific failed step by hand referencing ADR-019, rather than
+      re-running the whole script blindly.
+   6. **`verify-state.sh` exit 0.** Who: Claude (read-only) runs it once standalone after
+      `bootstrap.sh` finishes, rather than trusting `bootstrap.sh`'s own tail call — **flagged
+      finding:** `bootstrap.sh`'s last step calls `verify-state.sh` through `run_cmd`, which does
+      not check or propagate its exit code, so a failing `verify-state.sh` would not stop
+      `bootstrap.sh` from printing "done." Worth a follow-up fix; not blocking, since this step
+      re-checks independently anyway. `./scripts/verify-state.sh` (writes `docs/CURRENT_STATE.md`
+      for real). Sudo: no. Expected: exit 0, all 8 checks `[PASS]`. On failure: each `[FAIL]` line
+      names what's wrong; fix the root cause, re-run — do not commit `docs/CURRENT_STATE.md` until
+      clean. Once clean: Claude opens a PR to `main` with the regenerated file; you approve the
+      merge; catch `dev` up from `main` afterward (housekeeping, not urgent).
+   7. **ADR-019 rotation test.** Who: you run the sudo parts (edit `config.yaml`, `systemctl
+      restart k3s`); Claude runs the read-only parts (the probe writes, the `stat`/`head -c1`
+      checks) and drafts the ADR update. Commands: the 8-step procedure already written in
+      ADR-019's "Rotation test procedure" section. Sudo: yes, for editing
+      `/etc/rancher/k3s/config.yaml` and restarting `k3s`. Expected: both the active and the
+      rotated-backup `audit.log` are `640 root:adm`; a plain-user `head -c1` succeeds on both
+      without `sudo`. On failure: the ACL/lumberjack-mode design doesn't hold on this filesystem —
+      stop, don't assume audit access works, reopen ADR-019 for a fallback (e.g. a periodic
+      re-`chmod`) before relying on it. Claude records the result and opens a PR to `main`; you
+      approve the merge.
+   8. **M0 exit.** Who: Claude drafts `CHANGELOG.md`'s first section from the merged PRs and opens
+      a PR to `main`; you approve the merge; tagging `v0.1.0` needs your explicit go-ahead given
+      what it signifies. Sudo: no. Expected: PR merges clean; `git tag -a v0.1.0 -m "M0 complete"
+      main && git push origin v0.1.0` succeeds. On failure: a PR failure is a `CHANGELOG.md`
+      formatting/content issue, fix and retry; a tag-push failure (e.g. already exists) is never
+      resolved by force — investigate why first.
 5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, then set the baseline tag `v0.1.0` on
-   `main` — **done when** both hold. **M0 complete.**
+   `main` — **done when** both hold (checklist items 6 and 8). **M0 complete.**
 6. [x] ADR for bootstrap and the audit policy — ADR-019.
 7. [ ] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
    and ADRs. First section covers M0, drafted from the merged PRs, written at M0 exit together
