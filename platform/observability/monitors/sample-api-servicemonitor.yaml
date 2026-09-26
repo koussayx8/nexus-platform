@@ -6,15 +6,15 @@ metadata:
   labels:
     app.kubernetes.io/part-of: nexus-platform
     app.kubernetes.io/component: observability
-    nexus.io/autonomy-level: "0"
-    release: observability
+    release: observability          # matched by the Prometheus serviceMonitorSelector
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: sample-api
   namespaceSelector:
     matchNames:
-      - nexus-apps
+      - nexus-dev
+      - nexus-prod
   endpoints:
     - port: http
       path: /metrics

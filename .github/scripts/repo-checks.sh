@@ -5,9 +5,12 @@
 #      Never the full history: dead credentials stay there by design (ADR-010).
 #   2. kustomize build of every kustomization outside parked paths.
 #   3. kubeconform -strict on that output, with pinned Kubernetes and CRD schemas.
+#   4. Every ArgoCD Application rendered as ArgoCD would (helm template with the value files from
+#      Git, kustomize build, directories), checked against its AppProject, then kubeconform -strict.
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize and kubeconform on PATH (CI installs pinned, checksummed builds).
+# Needs gitleaks, kustomize, kubeconform, helm, yq and python3 on PATH (CI installs pinned,
+# checksummed builds).
 set -euo pipefail
 
 RANGE=${1:?usage: repo-checks.sh "<git log range>"}
@@ -46,4 +49,19 @@ kubeconform -strict -summary -output text \
   -schema-location "$K8S_SCHEMAS" \
   -schema-location "$CRD_SCHEMAS" \
   "$work/out"
+echo "::endgroup::"
+
+echo "::group::Render every Application and check its AppProject"
+bash "$(dirname "$0")/render-apps.sh" "$work/render"
+echo "::endgroup::"
+
+# No pinned schema source has a top-level CustomResourceDefinition schema (yannh ships only its
+# sub-schemas), so CRD objects are skipped; the custom resources themselves are validated (ADR-012).
+echo "::group::kubeconform on rendered Applications (Kubernetes $K8S_VERSION)"
+kubeconform -strict -summary -output text \
+  -kubernetes-version "$K8S_VERSION" \
+  -schema-location "$K8S_SCHEMAS" \
+  -schema-location "$CRD_SCHEMAS" \
+  -skip CustomResourceDefinition \
+  "$work/render/apps"
 echo "::endgroup::"

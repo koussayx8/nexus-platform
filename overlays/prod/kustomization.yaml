@@ -1,0 +1,14 @@
+# sample-api for nexus-prod, held at L1 for the demo. The namespace and its level come from the
+# platform Application on main (platform/namespaces/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus-prod
+
+resources:
+  - ../../apps/sample-api/k8s/base
+
+# Signed image from green main run 36136557684 at 311ad81 (ADR-017). A digest bump is a commit.
+images:
+  - name: ghcr.io/koussayx8/nexus-platform/sample-api
+    digest: sha256:45e7a88c950a40fd6ce37a6544d95bc435c76a6aa5af2eefcc9463363150d57c

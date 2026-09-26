@@ -1,28 +1,22 @@
-# kube-prometheus-stack Helm values for NEXUS dev environment on k3s
-# Task 3 of Week 5 observability plan
-# Chart version 86.2.2 pins all images — no :latest tags
+# kube-prometheus-stack 86.2.2 values for the `observability` Application (ADR-016).
+# The single values source: the Application references this file from Git; no inline values.
 
 namespaceOverride: monitoring
 
 # ------------------------------------------------------------------------------
-# k3s-specific: disable control-plane ServiceMonitors (components are embedded)
+# k3s: control-plane components are embedded, so their ServiceMonitors are off.
+# coreDns monitoring would create a Service in kube-system, outside the AppProject.
 # ------------------------------------------------------------------------------
 kubeEtcd:
   enabled: false
-
 kubeScheduler:
   enabled: false
-
 kubeControllerManager:
   enabled: false
-
 kubeProxy:
   enabled: false
-
 kubeApiServer:
   enabled: false
-
-# Disable coreDns monitoring — creates Service in kube-system which is not in AppProject
 coreDns:
   enabled: false
 
@@ -30,8 +24,6 @@ coreDns:
 # Prometheus Operator
 # ------------------------------------------------------------------------------
 prometheusOperator:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
   resources:
     limits:
       memory: 256Mi
@@ -41,13 +33,21 @@ prometheusOperator:
       cpu: 100m
 
 # ------------------------------------------------------------------------------
-# Prometheus
+# Prometheus: 15 days on a local-path volume. An emptyDir lost the whole history on
+# every WSL restart, and the M1 Locust baseline and Z-score windows depend on it.
 # ------------------------------------------------------------------------------
 prometheus:
   prometheusSpec:
-    retention: 7d
+    retention: 15d
+    retentionSize: 9GB
     storageSpec:
-      emptyDir: {}
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
     resources:
       limits:
         memory: 1Gi
@@ -55,9 +55,6 @@ prometheus:
       requests:
         memory: 512Mi
         cpu: 250m
-    podMetadata:
-      annotations:
-        nexus.io/autonomy-level: "0"
 
 # ------------------------------------------------------------------------------
 # Alertmanager
@@ -71,17 +68,17 @@ alertmanager:
       requests:
         memory: 128Mi
         cpu: 50m
-    podMetadata:
-      annotations:
-        nexus.io/autonomy-level: "0"
 
 # ------------------------------------------------------------------------------
-# Grafana
+# Grafana: the admin credentials come from the Secret monitoring/grafana-admin, created by
+# bootstrap.sh from ~/.nexus/keys.env, never from Git (ADR-010, ADR-016). Datasources are the
+# chart's own: Prometheus (the only default) and Alertmanager. Loki is REMOVED (spec §23).
 # ------------------------------------------------------------------------------
 grafana:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
-  adminPassword: admin
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   resources:
     limits:
       memory: 512Mi
@@ -94,24 +91,12 @@ grafana:
       enabled: true
       label: grafana_dashboard
       searchNamespace: ALL
-  # Explicitly define all datasources here — single source of truth
-  additionalDataSources:
-    - name: Loki
-      type: loki
-      access: proxy
-      url: http://loki.monitoring:3100
-      version: 1
-      isDefault: false   # ← Prometheus is default, Loki is not
-      jsonData: {}
-
 
 # ------------------------------------------------------------------------------
-# kube-state-metrics (subchart config key is "kube-state-metrics", not
-# "kubeStateMetrics" which only holds the enabled toggle)
+# kube-state-metrics: its subchart key is "kube-state-metrics"; "kubeStateMetrics" holds only
+# the enabled toggle.
 # ------------------------------------------------------------------------------
 kube-state-metrics:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
   resources:
     limits:
       memory: 128Mi
@@ -121,13 +106,10 @@ kube-state-metrics:
       cpu: 50m
 
 # ------------------------------------------------------------------------------
-# node-exporter
+# node-exporter. On k3s/WSL2 the host root is not a shared or slave mount, so HostToContainer
+# mountPropagation on "/" fails with CreateContainerError. It is disabled.
 # ------------------------------------------------------------------------------
 prometheus-node-exporter:
-  podAnnotations:
-    nexus.io/autonomy-level: "0"
-  # k3s/WSL2: host root is not a shared/slave mount, so HostToContainer
-  # mountPropagation on "/" fails with CreateContainerError. Disable it.
   hostRootFsMount:
     enabled: false
   resources:

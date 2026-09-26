@@ -7,123 +7,31 @@ metadata:
     app.kubernetes.io/part-of: nexus-platform
     app.kubernetes.io/component: observability
   annotations:
-    nexus.io/owner: platform-team
-    nexus.io/adr: "ADR-007"
+    nexus.io/adr: "ADR-007, ADR-016"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: nexus
-
-  source:
-    repoURL: https://prometheus-community.github.io/helm-charts
-    chart: kube-prometheus-stack
-    targetRevision: "86.2.2"
-    helm:
-      values: |
-        namespaceOverride: monitoring
-        kubeEtcd:
-          enabled: false
-        kubeScheduler:
-          enabled: false
-        kubeControllerManager:
-          enabled: false
-        kubeProxy:
-          enabled: false
-        kubeApiServer:
-          enabled: false
-        coreDns:
-          enabled: false
-        prometheusOperator:
-          podAnnotations:
-            nexus.io/autonomy-level: "0"
-          resources:
-            limits:
-              memory: 256Mi
-              cpu: 200m
-            requests:
-              memory: 128Mi
-              cpu: 100m
-        prometheus:
-          prometheusSpec:
-            retention: 7d
-            storageSpec:
-              emptyDir: {}
-            resources:
-              limits:
-                memory: 1Gi
-                cpu: 500m
-              requests:
-                memory: 512Mi
-                cpu: 250m
-            podMetadata:
-              annotations:
-                nexus.io/autonomy-level: "0"
-        alertmanager:
-          alertmanagerSpec:
-            resources:
-              limits:
-                memory: 256Mi
-                cpu: 100m
-              requests:
-                memory: 128Mi
-                cpu: 50m
-            podMetadata:
-              annotations:
-                nexus.io/autonomy-level: "0"
-        grafana:
-          podAnnotations:
-            nexus.io/autonomy-level: "0"
-          adminPassword: admin
-          resources:
-            limits:
-              memory: 512Mi
-              cpu: 200m
-            requests:
-              memory: 256Mi
-              cpu: 100m
-          sidecar:
-            dashboards:
-              enabled: true
-              label: grafana_dashboard
-              searchNamespace: ALL
-          # Loki added as a non-default datasource here (single source of truth).
-          # loki-stack's own datasource sidecar is disabled to avoid a second
-          # isDefault: true entry that crashes Grafana.
-          additionalDataSources:
-            - name: Loki
-              type: loki
-              access: proxy
-              url: http://loki.monitoring:3100
-              version: 1
-              isDefault: false
-              jsonData: {}
-        kubeStateMetrics:
-          podAnnotations:
-            nexus.io/autonomy-level: "0"
-          resources:
-            limits:
-              memory: 128Mi
-              cpu: 100m
-            requests:
-              memory: 64Mi
-              cpu: 50m
-        prometheus-node-exporter:
-          podAnnotations:
-            nexus.io/autonomy-level: "0"
-          hostRootFsMount:
-            enabled: false
-          resources:
-            limits:
-              memory: 128Mi
-              cpu: 100m
-            requests:
-              memory: 64Mi
-              cpu: 50m
-
+  sources:
+    # 1. The chart, with the values file from Git. No inline values (ADR-016).
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 86.2.2
+      helm:
+        releaseName: observability
+        valueFiles:
+          - $values/platform/observability/kube-prometheus-stack-values.yaml
+    # 2. This repository as the source of $values.
+    - repoURL: https://github.com/koussayx8/nexus-platform.git
+      targetRevision: main
+      ref: values
+    # 3. NEXUS monitoring content: ServiceMonitor, alert rules, dashboard.
+    - repoURL: https://github.com/koussayx8/nexus-platform.git
+      targetRevision: main
+      path: platform/observability/config
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-
   syncPolicy:
     automated:
       prune: true
@@ -133,21 +41,7 @@ spec:
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true   # source 3's ServiceMonitor/PrometheusRule need source 1's CRDs
     retry:
-      limit: 3
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 1m
-
-  ignoreDifferences:
-    - group: ""
-      kind: Secret
-      name: prometheus-operator-admission
-      jsonPointers:
-        - /data
-    - group: ""
-      kind: Secret
-      name: prometheus-operator-tls
-      jsonPointers:
-        - /data
+      limit: 10
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }

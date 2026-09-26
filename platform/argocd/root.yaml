@@ -1,0 +1,30 @@
+# Root Application: owns every Application in platform/argocd/applications/ (app of apps).
+# Applied ONLY by bootstrap.sh on a freshly built cluster, after the AppProject (ADR-014).
+# Never apply it to the pre-M0 cluster: its first sync would prune and cascade.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-014"
+spec:
+  project: nexus
+  source:
+    repoURL: https://github.com/koussayx8/nexus-platform.git
+    targetRevision: main
+    path: platform/argocd/applications
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }

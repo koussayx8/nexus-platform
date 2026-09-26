@@ -2,14 +2,12 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sample-api
-  namespace: nexus-apps
   labels:
     app.kubernetes.io/name: sample-api
     app.kubernetes.io/part-of: nexus-platform
     app.kubernetes.io/component: api
     app.kubernetes.io/version: "0.1.0"
   annotations:
-    nexus.io/autonomy-level: "0"  # Level 0: observe only (Autonomy Ladder)
     nexus.io/owner: koussay
 spec:
   replicas: 2
@@ -33,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sample-api
-          image: ghcr.io/koussayx8/nexus-platform/sample-api@sha256:c693838d11d653251ebdb44f79e93d89e39b0940a221af376bb9367d240c97bb
+          image: ghcr.io/koussayx8/nexus-platform/sample-api   # digest pinned in overlays/{dev,prod}
           ports:
             - name: http
               containerPort: 8000

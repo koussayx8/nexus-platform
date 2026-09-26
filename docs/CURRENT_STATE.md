@@ -207,3 +207,10 @@ were not read.
 | `.omo/plans/week4-crossplane.md`, `week5-observability.md` | ?? | Plans for Crossplane (84 KB) and Loki/observability (56 KB) | No: rule 8 | **Drop** (decided) |
 
 `docs/CURRENT_STATE.md` and `TASKS.md` were created after the capture. They are committed with the M0-2 triage branch.
+
+## 5. Errata (M0-4, 2026-09-25)
+
+| Claim above | Correction | Evidence |
+| --- | --- | --- |
+| sample-api: "`automountServiceAccountToken` unset" (§1 sample-api; §3 spec vs reality) | **Wrong.** It is `false`, in Git and live. `capture-state.sh` used jq's `//`, which treats `false` as missing | `apps/sample-api/k8s/base/deployment.yaml`; live read-only `kubectl get deploy sample-api -n nexus-apps -o jsonpath='{.spec.template.spec.automountServiceAccountToken}'` returns `false`; fixed in `496eb60` |
+| Grafana: "Git declaration UNKNOWN" (§2) | Settled in M0-2 once A2 was narrowed: Prometheus is the only default in Git as well; the Loki entry was `isDefault: false` | ADR-010; ADR-016 |
