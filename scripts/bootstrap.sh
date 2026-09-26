@@ -24,8 +24,9 @@
 #   i. verify-state.sh
 #
 # Usage: scripts/bootstrap.sh [--plan]
-# Timeout overrides: NEXUS_WAIT_TIMEOUT_DEFAULT (default 300), NEXUS_WAIT_TIMEOUT_OBSERVABILITY
-# (default 600), or NEXUS_WAIT_TIMEOUT_<NAME> for any specific Application.
+# Timeout overrides: NEXUS_WAIT_TIMEOUT_DEFAULT (default 600), NEXUS_WAIT_TIMEOUT_OBSERVABILITY
+# (default 1200), or NEXUS_WAIT_TIMEOUT_<NAME> for any specific Application.
+# NEXUS_ARGOCD_ROLLOUT_TIMEOUT (default 600) covers each of the three ArgoCD rollout waits.
 # Exit codes: 0 success; 1 a step failed or refused to proceed; 2 script/argument error.
 
 set -uo pipefail
@@ -69,8 +70,9 @@ MARKER_PATHS=(
   platform/bootstrap-templates/nexus-killswitch.yaml
 )
 
-WAIT_TIMEOUT_DEFAULT=${NEXUS_WAIT_TIMEOUT_DEFAULT:-300}
-WAIT_TIMEOUT_OBSERVABILITY=${NEXUS_WAIT_TIMEOUT_OBSERVABILITY:-600}
+WAIT_TIMEOUT_DEFAULT=${NEXUS_WAIT_TIMEOUT_DEFAULT:-600}
+WAIT_TIMEOUT_OBSERVABILITY=${NEXUS_WAIT_TIMEOUT_OBSERVABILITY:-1200}
+ARGOCD_ROLLOUT_TIMEOUT=${NEXUS_ARGOCD_ROLLOUT_TIMEOUT:-600}
 timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in seconds
   local name=$1
   local var=NEXUS_WAIT_TIMEOUT_${name^^}
@@ -326,6 +328,24 @@ step_c_monitoring() {
   fi
 }
 
+# wait_argocd_rollout <kind/name> <label-selector> <what> — on timeout, dumps pods, describe and
+# events to stderr before calling fatal, the same philosophy wait_for_app already uses for
+# Applications. A cold multi-image pull (ArgoCD's ~193MB image, contended across 6 pods on first
+# pull) can legitimately take several minutes — see ADR-019's account of the timeout this
+# replaces.
+wait_argocd_rollout() {
+  local resource=$1 selector=$2 what=$3
+  kubectl -n argocd rollout status "$resource" --timeout="${ARGOCD_ROLLOUT_TIMEOUT}s" && return 0
+  echo "bootstrap: $what did not roll out within ${ARGOCD_ROLLOUT_TIMEOUT}s — dumping diagnostics" >&2
+  echo "--- kubectl -n argocd get pods -o wide ---" >&2
+  kubectl -n argocd get pods -o wide >&2
+  echo "--- kubectl -n argocd describe pod -l $selector ---" >&2
+  kubectl -n argocd describe pod -l "$selector" >&2
+  echo "--- kubectl -n argocd get events --sort-by=.lastTimestamp ---" >&2
+  kubectl -n argocd get events --sort-by=.lastTimestamp >&2
+  fatal "$what did not roll out within ${ARGOCD_ROLLOUT_TIMEOUT}s"
+}
+
 # ---------------------------------------------------------------------------------------
 # d. ArgoCD
 # ---------------------------------------------------------------------------------------
@@ -340,17 +360,15 @@ step_d_argocd() {
   run_cmd "ArgoCD: install $ARGOCD_VERSION with server-side apply (its manifest exceeds the client-side annotation limit)" "" -- \
     kubectl apply --server-side --force-conflicts -n argocd -f "$ARGOCD_INSTALL_URL"
 
-  step "ArgoCD: wait for the server, the application controller and the repo server to roll out"
-  printf '  $ kubectl -n argocd rollout status deployment/argocd-server --timeout=180s\n'
-  printf '  $ kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s\n'
-  printf '  $ kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s\n'
+  step "ArgoCD: wait for the server, the application controller and the repo server to roll out (timeout ${ARGOCD_ROLLOUT_TIMEOUT}s each; a cold pull of the ~193MB ArgoCD image under contention across 6 pods took ~4-5 minutes on this machine's first run — see ADR-019)"
+  printf '  $ kubectl -n argocd rollout status deployment/argocd-server --timeout=%ss\n' "$ARGOCD_ROLLOUT_TIMEOUT"
+  printf '  $ kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=%ss\n' "$ARGOCD_ROLLOUT_TIMEOUT"
+  printf '  $ kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=%ss\n' "$ARGOCD_ROLLOUT_TIMEOUT"
+  printf '  $ # on timeout for any of the three: kubectl -n argocd get pods -o wide; describe pod -l <component>; get events --sort-by=.lastTimestamp (to stderr), then fatal\n'
   if (( ! PLAN )); then
-    kubectl -n argocd rollout status deployment/argocd-server --timeout=180s \
-      || fatal "argocd-server did not roll out"
-    kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s \
-      || fatal "argocd-application-controller did not roll out"
-    kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s \
-      || fatal "argocd-repo-server did not roll out"
+    wait_argocd_rollout deployment/argocd-server app.kubernetes.io/name=argocd-server argocd-server
+    wait_argocd_rollout statefulset/argocd-application-controller app.kubernetes.io/name=argocd-application-controller argocd-application-controller
+    wait_argocd_rollout deployment/argocd-repo-server app.kubernetes.io/name=argocd-repo-server argocd-repo-server
   fi
 
   step "argocd-admin: poll for argocd-initial-admin-secret (timeout 120s), then read it to a temp file and move it into place; a failed or empty read is fatal"
