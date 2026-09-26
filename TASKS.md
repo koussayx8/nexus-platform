@@ -190,43 +190,50 @@ tracks on `main`.
       a bare re-run will refuse at step a ("k3s is already installed") — re-run the uninstall
       first, or handle the specific failed step by hand referencing ADR-019, rather than
       re-running the whole script blindly.
-   6. **`verify-state.sh` exit 0.** Who: Claude (read-only) runs it once standalone after
-      `bootstrap.sh` finishes. The finding noted here at first draft — `bootstrap.sh`'s last step
-      called `verify-state.sh` through `run_cmd`, which didn't check or propagate its exit code, so
-      a failing `verify-state.sh` wouldn't have stopped `bootstrap.sh` from printing "done" — is
-      **fixed in #55**, along with every other unchecked real-command call site the same audit
-      found (namespace creation, the grafana Secret sequence, both AppProject/root.yaml applies,
-      the killswitch create, every sudo write). Verified by a fault-injection test in a throwaway
-      worktree: six scenarios, each forcing one specific step to fail, all stop at that exact step,
-      name it, and exit non-zero without ever printing "done." `./scripts/verify-state.sh` (writes `docs/CURRENT_STATE.md`
-      for real). Sudo: no. Expected: exit 0, all 8 checks `[PASS]`. On failure: each `[FAIL]` line
-      names what's wrong; fix the root cause, re-run — do not commit `docs/CURRENT_STATE.md` until
-      clean. Once clean: Claude opens a PR to `main` with the regenerated file; you approve the
-      merge; catch `dev` up from `main` afterward (housekeeping, not urgent).
-   7. **ADR-019 rotation test.** Who: you run the sudo parts (edit `config.yaml`, `systemctl
-      restart k3s`); Claude runs the read-only parts (the probe writes, the `stat`/`head -c1`
-      checks) and drafts the ADR update. Commands: the 8-step procedure already written in
-      ADR-019's "Rotation test procedure" section. Sudo: yes, for editing
-      `/etc/rancher/k3s/config.yaml` and restarting `k3s`. Expected: both the active and the
-      rotated-backup `audit.log` are `640 root:adm`; a plain-user `head -c1` succeeds on both
-      without `sudo`. On failure: the ACL/lumberjack-mode design doesn't hold on this filesystem —
-      stop, don't assume audit access works, reopen ADR-019 for a fallback (e.g. a periodic
-      re-`chmod`) before relying on it. Claude records the result and opens a PR to `main`; you
-      approve the merge.
-   8. **M0 exit.** Who: Claude drafts `CHANGELOG.md`'s first section from the merged PRs and opens
-      a PR to `main`; you approve the merge; tagging `v0.1.0` needs your explicit go-ahead given
-      what it signifies. Sudo: no. Expected: PR merges clean; `git tag -a v0.1.0 -m "M0 complete"
-      main && git push origin v0.1.0` succeeds. On failure: a PR failure is a `CHANGELOG.md`
-      formatting/content issue, fix and retry; a tag-push failure (e.g. already exists) is never
-      resolved by force — investigate why first.
-5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, then set the baseline tag `v0.1.0` on
-   `main` — **done when** both hold (checklist items 6 and 8). **M0 complete.**
-6. [x] ADR for bootstrap and the audit policy — ADR-019.
+   6. **Post-rebuild-attempt sequence**, revised after two real bugs surfaced on the first two
+      real `bootstrap.sh` attempts (the 180s ArgoCD rollout timeout, and `kyverno` stuck
+      `OutOfSync` forever — both diagnosed read-only against the live, partially-bootstrapped
+      cluster, neither fixed by touching the cluster directly):
+
+      **a) Fixes land on `dev`, then a `dev`→`main` gate PR, then `main`→`experiment/dev-state`.**
+      Both fixes — the configurable-timeout PR (**merged, #58**) and the `kyverno`
+      `ServerSideDiff=true` fix (pending) — go through the normal PR flow into `dev`. Once both are
+      on `dev`, Claude opens a **second `dev`→`main` gate PR**, same shape as the first (#56):
+      lists every PR merged into `dev` since the first gate PR, you approve the merge. Then, same
+      as rebuild step 4, `main` gets forward-merged into `experiment/dev-state` (another small PR,
+      never force-pushed).
+
+      **b) Confirm the *live* cluster converges, without a rebuild.** `root` tracks `main` with
+      `selfHeal: true`, so once the `ServerSideDiff=true` fix reaches `main`, ArgoCD should pick up
+      the changed `kyverno` Application spec on its own. Claude checks, read-only: `kyverno` and
+      `root` both `Synced`/`Healthy`, then a full `verify-state.sh` run passes (exit 0, all 8
+      checks) against this same live cluster — no new `bootstrap.sh` run needed for this step. On
+      failure: the fix didn't fully resolve it — diagnose again before touching anything.
+
+      **c) Final from-empty rebuild.** This confirmed-working live cluster is still not valid M0-exit
+      evidence — no attempt so far has reached `verify-state.sh` from a genuine empty state (the
+      first died at the ArgoCD rollout wait; the second at the `kyverno` wait). Rebuild steps 2–5
+      run again in full, from an uninstalled k3s, now with both fixes already on `main`.
+
+      **d) M0 exit.** Only after (c) succeeds: the regenerated `docs/CURRENT_STATE.md`, the
+      ADR-019 rotation-test results, and `CHANGELOG.md`'s first section (drafted from every merged
+      PR) go to **`dev`** first — same as everything else — then a **third** `dev`→`main` gate PR
+      (the actual M0-exit PR), then `main`→`experiment/dev-state` again, then the baseline tag:
+      `git tag -a v0.1.0 -m "M0 complete" main && git push origin v0.1.0` — needs your explicit
+      go-ahead given what it signifies. On failure at any point in a/c/d: `bootstrap.sh` names the
+      exact failed step (**known gap**: a bare re-run after k3s already installed refuses at step
+      a — re-run the uninstall first); a PR failure is a content issue in whatever it's carrying,
+      fix and retry; a tag-push failure (e.g. already exists) is never resolved by force.
+5. [ ] `verify-state.sh` exits 0 on a genuine from-empty rebuild (item 6c), the M0-exit `dev`→`main`
+   merge and its `experiment/dev-state` forward-merge are both done (item 6d), then the baseline
+   tag `v0.1.0` goes on `main` — **done when** all of that holds. **M0 complete.**
+6. [x] ADR for bootstrap and the audit policy — ADR-019. Kyverno's `ServerSideDiff=true` finding
+   recorded as an addendum to ADR-015.
 7. [ ] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
    and ADRs. First section covers M0, drafted from the merged PRs, written at M0 exit together
-   with the `v0.1.0` tag (item 5).
+   with the `v0.1.0` tag (item 5, sequence step 6d).
 - **GATE M0-5** — scripts and `bootstrap.sh --plan` ready; items 4–5 wait for separate approval
-  (the uninstall, the `dev`→`main` PR, and the real `bootstrap.sh` run each need their own).
+  (the uninstall, every `dev`→`main` PR, and every real `bootstrap.sh` run each need their own).
 
 ## Later — out of scope for M0
 
