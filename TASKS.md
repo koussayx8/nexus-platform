@@ -1,8 +1,8 @@
 # TASKS — NEXUS
 
 **Milestone:** M0 — verify, stabilise, govern (spec §25, §27).
-**Current phase:** M0-4 Git convergence — done on `dev`, waiting at its gate.
-**Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (M0-1 snapshot `docs/state/20260925T064759Z/`).
+**Current phase:** M0-5 — from-empty rebuild done (2026-09-26); M0-exit docs in this PR, gate PR and `v0.1.0` tag pending.
+**Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (now the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
 and M0-5 rebuilds it anyway. So M0-4 changes Git only: Git describes the complete target state,
@@ -162,7 +162,12 @@ tracks on `main`.
       clean. On failure: exit 2 is a script/guard error — investigate before retrying; exit 3 is a
       leak-check hit — read `LEAK-CHECK.txt`'s file list (never the match), decide if it's a real
       leak or a redaction gap, fix, re-run. Do not proceed to the uninstall until this is clean.
-   2. **k3s uninstall.** Who: you. The standard `/usr/local/bin/k3s-uninstall.sh`. Sudo: yes.
+      **UNVERIFIED for this rebuild:** `~/nexus-backup/` has no `state-<TS>` snapshot between
+      `state-20260926T072146Z` (09:24 local) and the bootstrap start (13:43:51Z) — no evidence this
+      step ran immediately before the uninstall. Low practical risk (the cluster holds no
+      persistent data per this file's own strategy note), but flagged rather than assumed.
+   2. **k3s uninstall.** Who: you. Done — 2026-09-26, before the bootstrap run below. The standard
+      `/usr/local/bin/k3s-uninstall.sh`. Sudo: yes.
       Expected: `k3s` binary/service gone; `/etc/rancher/k3s` and `/var/lib/rancher/k3s` removed.
       `/var/log/nexus-audit/`, `~/.kube/config` and `~/.nexus/*` are outside its scope and persist
       by design (`grafana-admin` is meant to survive a rebuild unless you delete it to rotate;
@@ -179,20 +184,25 @@ tracks on `main`.
       Only if a mount won't release (busy, in use by a lingering process): `wsl --shutdown` from
       Windows PowerShell (not inside WSL), then reopen the terminal and retry the loop above — this
       is the fallback, not the first move.
-   3. **`dev` → `main` PR.** Who: Claude opens it, you approve the merge (same as every PR this
+   3. **`dev` → `main` PR.** Done — [#63](https://github.com/koussayx8/nexus-platform/pull/63),
+      merged 2026-09-26T13:34:36Z. Who: Claude opens it, you approve the merge (same as every PR this
       session — a first for this specific direction, no precedent, so review the diff even though
       every file already passed `repo-checks` on `dev`). `gh pr create --base main --head dev`.
       Sudo: no. Expected: `repo-checks` passes; merge commit, matching every prior PR's convention.
       On failure: a `repo-checks` failure here would mean something environment-specific to `main`
       that `dev`'s own checks didn't catch — investigate the specific failing step before retrying.
-   4. **`main` → `experiment/dev-state`.** Who: Claude opens a PR (not a direct push, even though
+   4. **`main` → `experiment/dev-state`.** Done —
+      [#64](https://github.com/koussayx8/nexus-platform/pull/64), merged 2026-09-26T13:37:18Z. Who:
+      Claude opens a PR (not a direct push, even though
       ADR-013's ruleset allows one — a PR here is for visibility), you approve the merge. `gh pr
       create --base experiment/dev-state --head main`. Sudo: no. Expected: clean, conflict-free
       merge — `experiment/dev-state` has taken no divergent commits yet (no M1 experiment runs
       have happened), so this should just be a fast-forward-shaped merge. **Never force-push this
       branch** (ADR-013) regardless of what goes wrong. On failure (a real conflict): resolve on a
       working branch, merge commit, still no force-push.
-   5. **`bootstrap.sh`.** Who: you, from a clean checkout (any branch — the merge-order guard
+   5. **`bootstrap.sh`.** Done — 2026-09-26, "bootstrap: done", exit 0, log
+      `~/nexus-backup/bootstrap-20260926T134351Z.log` (leak-checked clean). Who: you, from a clean
+      checkout (any branch — the merge-order guard
       reads `origin/main`/`origin/experiment/dev-state` directly, not the local checkout, by
       design). `./scripts/bootstrap.sh` (no `--plan`). Sudo: yes, for the steps `--plan` already
       tags. Expected: "bootstrap: done", no `FATAL` line. On failure: `bootstrap.sh` names the
@@ -206,44 +216,51 @@ tracks on `main`.
       cluster, neither fixed by touching the cluster directly):
 
       **a) Fixes land on `dev`, then a `dev`→`main` gate PR, then `main`→`experiment/dev-state`.**
-      Both fixes — the configurable-timeout PR (**merged, #58**) and the `kyverno`
-      `ServerSideDiff=true` fix (pending) — go through the normal PR flow into `dev`. Once both are
-      on `dev`, Claude opens a **second `dev`→`main` gate PR**, same shape as the first (#56):
-      lists every PR merged into `dev` since the first gate PR, you approve the merge. Then, same
-      as rebuild step 4, `main` gets forward-merged into `experiment/dev-state` (another small PR,
-      never force-pushed).
+      — **done.** Both fixes — the configurable-timeout PR (**merged, #58**) and the `kyverno`
+      `ServerSideDiff=true` fix (**merged, #59**) — went through the normal PR flow into `dev`, then
+      the second `dev`→`main` gate PR (**#60**, same shape as #56), then forward-merged into
+      `experiment/dev-state` (**#61**).
 
-      **b) Confirm the *live* cluster converges, without a rebuild.** `root` tracks `main` with
-      `selfHeal: true`, so once the `ServerSideDiff=true` fix reaches `main`, ArgoCD should pick up
-      the changed `kyverno` Application spec on its own. Claude checks, read-only: `kyverno` and
-      `root` both `Synced`/`Healthy`, then a full `verify-state.sh` run passes (exit 0, all 8
-      checks) against this same live cluster — no new `bootstrap.sh` run needed for this step. On
-      failure: the fix didn't fully resolve it — diagnose again before touching anything.
+      **b) Confirm the *live* cluster converges, without a rebuild.** — **done**, 2026-09-26. `root`
+      tracks `main` with `selfHeal: true`, so once the `ServerSideDiff=true` fix reached `main`,
+      ArgoCD picked up the changed `kyverno` Application spec on its own. Checked read-only:
+      `kyverno` and `root` both `Synced`/`Healthy`, then `verify-state.sh` passed (exit 0, 8/8)
+      against this same live cluster — no `bootstrap.sh` run needed for this step. (This round also
+      needed the analogous `root` `ServerSideDiff=true` fix, **#62**, gated through a third
+      `dev`→`main` PR **#63** and forward-merged via **#64** — the same pattern as (a), one more
+      round, since `root` hit the identical class of bug after `kyverno` was fixed.)
 
-      **c) Final from-empty rebuild.** This confirmed-working live cluster is still not valid M0-exit
-      evidence — no attempt so far has reached `verify-state.sh` from a genuine empty state (the
-      first died at the ArgoCD rollout wait; the second at the `kyverno` wait). Rebuild steps 2–5
-      run again in full, from an uninstalled k3s, now with both fixes already on `main`.
+      **c) Final from-empty rebuild.** — **done, 2026-09-26.** `bootstrap.sh` (no `--plan`) ran to
+      "bootstrap: done", exit 0; `verify-state.sh` (both the run inside `bootstrap.sh` and an
+      independent rerun) passed 8/8; k3s confirmed `v1.34.6+k3s1`; all 6 Applications
+      `Synced`/`Healthy`, stable ≥60s. Total bootstrap duration ~27m17s; longest wait was the
+      `observability` Application's own sync (~17m47s, see the new "Later" item on its timeout
+      margin). The ADR-019 audit-log rotation test was also run against this cluster and passed
+      (see ADR-019's "Results" section) — this is the first attempt to reach `verify-state.sh` from
+      a genuine empty state (the first two attempts died at the ArgoCD rollout wait and the
+      `kyverno` wait respectively).
 
-      **d) M0 exit.** Only after (c) succeeds: the regenerated `docs/CURRENT_STATE.md`, the
+      **d) M0 exit.** — **in progress (this PR).** The regenerated `docs/CURRENT_STATE.md`, the
       ADR-019 rotation-test results, and `CHANGELOG.md`'s first section (drafted from every merged
-      PR) go to **`dev`** first — same as everything else — then a **third** `dev`→`main` gate PR
+      PR) go to **`dev`** first — same as everything else — then a **fourth** `dev`→`main` gate PR
       (the actual M0-exit PR), then `main`→`experiment/dev-state` again, then the baseline tag:
       `git tag -a v0.1.0 -m "M0 complete" main && git push origin v0.1.0` — needs your explicit
       go-ahead given what it signifies. On failure at any point in a/c/d: `bootstrap.sh` names the
       exact failed step (**known gap**: a bare re-run after k3s already installed refuses at step
       a — re-run the uninstall first); a PR failure is a content issue in whatever it's carrying,
       fix and retry; a tag-push failure (e.g. already exists) is never resolved by force.
-5. [ ] `verify-state.sh` exits 0 on a genuine from-empty rebuild (item 6c), the M0-exit `dev`→`main`
-   merge and its `experiment/dev-state` forward-merge are both done (item 6d), then the baseline
-   tag `v0.1.0` goes on `main` — **done when** all of that holds. **M0 complete.**
+5. [ ] `verify-state.sh` exits 0 on a genuine from-empty rebuild (item 6c, **done**), the M0-exit
+   `dev`→`main` merge and its `experiment/dev-state` forward-merge are both done (item 6d, **in
+   progress**), then the baseline tag `v0.1.0` goes on `main` — **done when** all of that holds.
+   **M0 complete.**
 6. [x] ADR for bootstrap and the audit policy — ADR-019. Kyverno's `ServerSideDiff=true` finding
    recorded as an addendum to ADR-015.
-7. [ ] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
-   and ADRs. First section covers M0, drafted from the merged PRs, written at M0 exit together
-   with the `v0.1.0` tag (item 5, sequence step 6d).
-- **GATE M0-5** — scripts and `bootstrap.sh --plan` ready; items 4–5 wait for separate approval
-  (the uninstall, every `dev`→`main` PR, and every real `bootstrap.sh` run each need their own).
+7. [x] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
+   and ADRs. First section covers M0, drafted from the merged PRs (this PR, ahead of the tag itself
+   — the tag still needs its own separate go-ahead per item 5).
+- **GATE M0-5** — from-empty rebuild (6c) and its ADR-019 rotation test done; M0-exit docs (6d, this
+  PR) wait for merge approval, then the fourth `dev`→`main` gate PR, the `experiment/dev-state`
+  forward-merge, and the `v0.1.0` tag each need their own separate approval.
 
 ## Later — out of scope for M0
 
@@ -253,6 +270,30 @@ tracks on `main`.
   fresh simultaneous check catches it. Change it to require all six `Synced`/`Healthy`
   *simultaneously* and stable for 60s (not just each individually, once) — and give
   `verify-state.sh`'s own M1 check a brief retry window before failing, for the same reason.
+  (Confirmed still relevant: the 2026-09-26 from-empty rebuild held all six stable through manual
+  read-only polling, but `step_h_wait_all` itself was not exercised under a flap this time — the
+  gap is unfixed, just not triggered.)
+- `bootstrap.sh` uses `set -uo pipefail`, not `set -e` — every step relies on its own explicit
+  `|| fatal` checks, with no backstop against a step whose failure isn't explicitly checked. Add
+  `set -e`, then rerun the fault-injection test (`--plan` with `k3s`/`kubectl`/`helm`/`git`/`sudo`/
+  `curl`/`systemctl`/`install` stubbed to exit 1) to confirm it still fails safely rather than
+  masking a step.
+- `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
+  wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
+  (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
+- `verify-state.sh` could report each pod's container restart count as an informational line (not a
+  pass/fail condition) — useful for spotting flapping pods across a rebuild without turning a
+  transient restart into a false failure.
+- `observability`'s Application sync took ~17m47s against bootstrap.sh's own 1200s (20 min)
+  `NEXUS_WAIT_TIMEOUT_OBSERVABILITY` budget in the 2026-09-26 from-empty rebuild — about 88% of the
+  budget, driven by a Prometheus PVC provisioning retry and the kube-prometheus-stack
+  admission-webhook hook Jobs running twice (evidence: `kubectl get events`, ADR-019/CHANGELOG).
+  Not a failure this time, but close enough to the ceiling to revisit: raise the timeout, or look at
+  why the webhook hooks re-run.
+- `bootstrap.sh`'s `step()` output has no wall-clock timestamps, so this rebuild's total-duration
+  and longest-wait numbers had to be reconstructed from `kubectl get events` (which expires on its
+  own TTL) rather than the log itself. Add a timestamp to each step header for durable, log-only
+  timing evidence on future rebuilds.
 - `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
 - M1: sample-api fault hooks and `NEXUS_FAULTS_ENABLED`, `/items` and `dependency-db`, a readiness check that is local only.
 - M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
