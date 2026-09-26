@@ -168,7 +168,17 @@ tracks on `main`.
       by design (`grafana-admin` is meant to survive a rebuild unless you delete it to rotate;
       delete `~/.nexus/argocd-admin` if you want, `bootstrap.sh` always overwrites it anyway). On
       failure: check `systemctl status k3s`; if the unit or files won't clear, stop and ask —
-      don't force anything by hand outside the script.
+      don't force anything by hand outside the script. **`/var/lib/kubelet` left over, device
+      busy** (seen in practice): it's a mount point, not an ordinary directory — never `rm -rf` a
+      mount point (it can silently write into whatever's still mounted underneath, or fail
+      partway leaving a worse mess). Unmount first, then remove the now-empty directory:
+      ```
+      while mountpoint -q /var/lib/kubelet; do sudo umount /var/lib/kubelet; done
+      sudo rmdir /var/lib/kubelet
+      ```
+      Only if a mount won't release (busy, in use by a lingering process): `wsl --shutdown` from
+      Windows PowerShell (not inside WSL), then reopen the terminal and retry the loop above — this
+      is the fallback, not the first move.
    3. **`dev` → `main` PR.** Who: Claude opens it, you approve the merge (same as every PR this
       session — a first for this specific direction, no precedent, so review the diff even though
       every file already passed `repo-checks` on `dev`). `gh pr create --base main --head dev`.
@@ -237,6 +247,12 @@ tracks on `main`.
 
 ## Later — out of scope for M0
 
+- `bootstrap.sh` step h (`step_h_wait_all`) currently checks each of the six Applications once, in
+  sequence — the real rebuild showed `root` can pass its own check early and drift back to
+  `OutOfSync` while the loop is still waiting on the others, undetected until `verify-state.sh`'s
+  fresh simultaneous check catches it. Change it to require all six `Synced`/`Healthy`
+  *simultaneously* and stable for 60s (not just each individually, once) — and give
+  `verify-state.sh`'s own M1 check a brief retry window before failing, for the same reason.
 - `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
 - M1: sample-api fault hooks and `NEXUS_FAULTS_ENABLED`, `/items` and `dependency-db`, a readiness check that is local only.
 - M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
