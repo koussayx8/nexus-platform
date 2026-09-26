@@ -7,6 +7,17 @@ metadata:
     app.kubernetes.io/part-of: nexus-platform
   annotations:
     nexus.io/adr: "ADR-015"
+    # ServerSideApply=true (below) auto-enables ArgoCD's "Structured-Merge Diff" strategy, which
+    # its own docs flag as having "challenges... for CRDs that define default values" and as being
+    # discontinued in favour of Server-Side Diff. Confirmed live (2026-09-26): 11 of the chart's
+    # policies.kyverno.io CRDs render metadata.labels/annotations as literal {} (a different
+    # subchart than the rest, which sets real app.kubernetes.io/* labels); the API server drops a
+    # genuinely-empty map on storage regardless of which field manager applied it, so the
+    # Structured-Merge comparison sees a permanent desired-vs-live gap and the Application never
+    # settles, even though every sync itself succeeds. Server-Side Diff runs an actual dry-run
+    # Server-Side Apply to compute the comparison, so it sees the same server-side normalization
+    # the real apply already produces.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
