@@ -66,7 +66,7 @@ verify() {
 # ---------------------------------------------------------------------------
 # M1. Every Application Synced and Healthy.
 # ---------------------------------------------------------------------------
-EXPECTED_APPS=(platform kyverno observability sample-api-dev sample-api-prod)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
 v_applications() {
   local name sync health rc=0 jf ef
   jf=$(mktemp); ef=$(mktemp)
@@ -110,21 +110,28 @@ v_no_removed() {
 
 # ---------------------------------------------------------------------------
 # M4. sample-api: running digest matches Git; /metrics 200 with the two metric names.
-# The digest is pinned per overlay (ADR-017), not in the base — overlays/dev and
-# overlays/prod each carry their own `images:` entry in kustomization.yaml.
+# The digest is pinned per overlay (ADR-017), not in the base. Each namespace's Application
+# tracks a different branch (ADR-013/ADR-017): sample-api-dev -> experiment/dev-state,
+# sample-api-prod -> main. Reading from the local checkout would check whatever happens to be
+# checked out here, which is neither of those — so this reads origin/<branch> after an explicit
+# fetch. This is the one deliberate exception to the shared g() wrapper's "never fetch": fetch
+# only updates remote-tracking refs, it never touches the working tree.
 # ---------------------------------------------------------------------------
 v_sample_api() {
-  local rc=0 ns overlay git_digest
-  for ns in nexus-dev nexus-prod; do
-    overlay=${ns#nexus-}   # nexus-dev -> dev, nexus-prod -> prod
-    git_digest=$(git show "HEAD:overlays/$overlay/kustomization.yaml" 2>/dev/null | grep -oE 'sha256:[0-9a-f]{64}' | head -n1)
-    echo "$ns: Git-pinned digest (overlays/$overlay/kustomization.yaml) = ${git_digest:-none found}"
+  local rc=0
+  git fetch origin main experiment/dev-state >/dev/null 2>&1
+  local pairs=("nexus-dev experiment/dev-state dev" "nexus-prod main prod")
+  local pair ns branch overlay git_digest
+  for pair in "${pairs[@]}"; do
+    read -r ns branch overlay <<<"$pair"
+    git_digest=$(git show "origin/$branch:overlays/$overlay/kustomization.yaml" 2>/dev/null | grep -oE 'sha256:[0-9a-f]{64}' | head -n1)
+    echo "$ns: Git-pinned digest from origin/$branch:overlays/$overlay/kustomization.yaml = ${git_digest:-NOT FOUND}"
     if [[ -z $git_digest ]]; then rc=1; continue; fi
-    local running
-    running=$(k get pods -n "$ns" -l app.kubernetes.io/name=sample-api -o json 2>/dev/null \
-      | jq -r --arg d "$git_digest" '[.items[].status.containerStatuses[]? | select(.imageID // "" | contains($d))] | length')
-    echo "$ns: pods running the pinned digest = ${running:-0}"
-    [[ ${running:-0} -gt 0 ]] || rc=1
+    local ready
+    ready=$(k get pods -n "$ns" -l app.kubernetes.io/name=sample-api -o json 2>/dev/null \
+      | jq -r --arg d "$git_digest" '[.items[].status.containerStatuses[]? | select((.imageID // "" | contains($d)) and .ready == true)] | length')
+    echo "$ns: ready pods running the pinned digest = ${ready:-0}"
+    [[ ${ready:-0} -gt 0 ]] || rc=1
     v_metrics_probe "$ns" || rc=1
   done
   return $rc
@@ -159,6 +166,13 @@ v_namespace_levels() {
   local rc=0 ns want got
   for ns_want in "nexus-prod:1" "nexus-data:0" "nexus-dev:0" "nexus-system:" "nexus-reasoner:" "nexus-load:"; do
     ns=${ns_want%%:*}; want=${ns_want#*:}
+    if ! k get ns "$ns" >/dev/null 2>&1; then
+      # A namespace that doesn't exist is not the same as one that exists unlabeled — even for
+      # the three namespaces where "want" is empty, an absent namespace must still fail.
+      echo "$ns: NAMESPACE NOT FOUND (want label=${want:-<unset>})"
+      rc=1
+      continue
+    fi
     got=$(k get ns "$ns" -o jsonpath='{.metadata.labels.nexus\.io/autonomy-level}' 2>/dev/null)
     echo "$ns: label=${got:-<unset>} want=${want:-<unset>}"
     [[ ${got:-} == "$want" ]] || rc=1
