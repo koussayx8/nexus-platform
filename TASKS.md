@@ -201,8 +201,8 @@ tracks on `main`.
       name it, and exit non-zero without ever printing "done." `./scripts/verify-state.sh` (writes `docs/CURRENT_STATE.md`
       for real). Sudo: no. Expected: exit 0, all 8 checks `[PASS]`. On failure: each `[FAIL]` line
       names what's wrong; fix the root cause, re-run — do not commit `docs/CURRENT_STATE.md` until
-      clean. Once clean: Claude opens a PR to `main` with the regenerated file; you approve the
-      merge; catch `dev` up from `main` afterward (housekeeping, not urgent).
+      clean. Once clean: Claude opens a PR to **`dev`** with the regenerated file (not `main`
+      directly — see the new item 8a); you approve the merge.
    7. **ADR-019 rotation test.** Who: you run the sudo parts (edit `config.yaml`, `systemctl
       restart k3s`); Claude runs the read-only parts (the probe writes, the `stat`/`head -c1`
       checks) and drafts the ADR update. Commands: the 8-step procedure already written in
@@ -211,16 +211,23 @@ tracks on `main`.
       rotated-backup `audit.log` are `640 root:adm`; a plain-user `head -c1` succeeds on both
       without `sudo`. On failure: the ACL/lumberjack-mode design doesn't hold on this filesystem —
       stop, don't assume audit access works, reopen ADR-019 for a fallback (e.g. a periodic
-      re-`chmod`) before relying on it. Claude records the result and opens a PR to `main`; you
+      re-`chmod`) before relying on it. Claude records the result and opens a PR to **`dev`**; you
       approve the merge.
-   8. **M0 exit.** Who: Claude drafts `CHANGELOG.md`'s first section from the merged PRs and opens
-      a PR to `main`; you approve the merge; tagging `v0.1.0` needs your explicit go-ahead given
-      what it signifies. Sudo: no. Expected: PR merges clean; `git tag -a v0.1.0 -m "M0 complete"
-      main && git push origin v0.1.0` succeeds. On failure: a PR failure is a `CHANGELOG.md`
-      formatting/content issue, fix and retry; a tag-push failure (e.g. already exists) is never
-      resolved by force — investigate why first.
-5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, then set the baseline tag `v0.1.0` on
-   `main` — **done when** both hold (checklist items 6 and 8). **M0 complete.**
+   8. **M0 exit — a second `dev`→`main` merge, then forward to `experiment/dev-state`, then tag.**
+      Everything from the rebuild attempt that landed on `dev` — the ArgoCD-timeout fix
+      (`fix/m0-5-bootstrap-timeouts`), the regenerated `docs/CURRENT_STATE.md` (item 6), the
+      ADR-019 rotation results (item 7), and `CHANGELOG.md`'s first section (drafted from every
+      merged PR, this bullet) — needs a **second** `dev`→`main` gate PR before tagging, the same
+      shape as the first one (#56): Claude opens it, lists every PR merged into `dev` since the
+      first gate PR, you approve the merge. Then, same as rebuild step 4, `main` gets forward-merged
+      into `experiment/dev-state` again (another small PR, never force-pushed). Only after **both**
+      merges land does the baseline tag go on `main`: `git tag -a v0.1.0 -m "M0 complete" main && git
+      push origin v0.1.0` — this needs your explicit go-ahead given what it signifies. On failure: a
+      PR failure is a content issue in whatever it's carrying, fix and retry; a tag-push failure
+      (e.g. already exists) is never resolved by force — investigate why first.
+5. [ ] `verify-state.sh` exits 0 on the rebuilt cluster, the second `dev`→`main` merge and its
+   `experiment/dev-state` forward-merge are both done, then set the baseline tag `v0.1.0` on
+   `main` — **done when** all of that holds (checklist items 6–8). **M0 complete.**
 6. [x] ADR for bootstrap and the audit policy — ADR-019.
 7. [ ] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
    and ADRs. First section covers M0, drafted from the merged PRs, written at M0 exit together
