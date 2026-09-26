@@ -8,20 +8,24 @@
 #
 # --plan prints every step's exact command, tagging the ones that need root [SUDO], and
 # executes NOTHING: no git fetch, no kubectl call, no curl, no sudo. It is meant to be read
-# before the real run.
+# before the real run. Verified by stubbing every external tool it calls and confirming the
+# stub log stays empty (see PR #53's review).
 #
 # Order (ADR-019):
+#   0. merge-order guard (preflight — before touching anything, and re-checked before step e)
 #   a. k3s (pinned version, §14 audit policy, audit-log pre-created for group-readable rotation)
 #   b. kubeconfig
 #   c. monitoring namespace + grafana-admin Secret
 #   d. ArgoCD (pinned version)
-#   e. merge-order guard, then the AppProject and the root Application
+#   e. merge-order guard (again), then the AppProject and the root Application
 #   f. wait for the platform Application
 #   g. nexus-killswitch and nexus-operator-config (created directly, never through ArgoCD)
 #   h. wait for every Application
 #   i. verify-state.sh
 #
 # Usage: scripts/bootstrap.sh [--plan]
+# Timeout overrides: NEXUS_WAIT_TIMEOUT_DEFAULT (default 300), NEXUS_WAIT_TIMEOUT_OBSERVABILITY
+# (default 600), or NEXUS_WAIT_TIMEOUT_<NAME> for any specific Application.
 # Exit codes: 0 success; 1 a step failed or refused to proceed; 2 script/argument error.
 
 set -uo pipefail
@@ -52,9 +56,31 @@ AUDIT_POLICY_FILE=/etc/rancher/k3s/audit-policy.yaml
 K3S_CONFIG=/etc/rancher/k3s/config.yaml
 NEXUS_DIR=$HOME/.nexus
 # Confirmed by `helm template observability prometheus-community/kube-prometheus-stack ...`:
-# release name "observability" + chart's own "-grafana" suffix (round 4).
+# release name "observability" + chart's own "-grafana" suffix (round 4). The chart's grafana.admin
+# keys (existingSecret: grafana-admin, userKey: admin-user, passwordKey: admin-password —
+# platform/observability/kube-prometheus-stack-values.yaml:78-81) are exactly the keys the Secret
+# below is created with.
 GRAFANA_DEPLOYMENT=observability-grafana
 EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
+MARKER_PATHS=(
+  platform/argocd/root.yaml
+  platform/argocd/projects/nexus.yaml
+  platform/kyverno/values.yaml
+  platform/bootstrap-templates/nexus-killswitch.yaml
+)
+
+WAIT_TIMEOUT_DEFAULT=${NEXUS_WAIT_TIMEOUT_DEFAULT:-300}
+WAIT_TIMEOUT_OBSERVABILITY=${NEXUS_WAIT_TIMEOUT_OBSERVABILITY:-600}
+timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in seconds
+  local name=$1
+  local var=NEXUS_WAIT_TIMEOUT_${name^^}
+  var=${var//-/_}
+  if [[ -n ${!var:-} ]]; then echo "${!var}"; return; fi
+  case $name in
+    observability) echo "$WAIT_TIMEOUT_OBSERVABILITY" ;;
+    *) echo "$WAIT_TIMEOUT_DEFAULT" ;;
+  esac
+}
 
 # ---------------------------------------------------------------------------------------
 # Plumbing
@@ -66,6 +92,8 @@ step() {   # step <label> [SUDO]
 # run_cmd <label> [SUDO|""] -- <command...>
 # Prints the label and the exact command, then runs it unless --plan is set. Single source of
 # truth: what --plan prints is exactly what would run for real, never a separately maintained copy.
+# Only for single, non-piped commands — anything with a pipe or shared state is written out by
+# hand instead, so the printed text and the executed text can never drift apart.
 run_cmd() {
   local label=$1 tag=$2
   shift 2
@@ -77,6 +105,26 @@ run_cmd() {
 }
 
 fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------------------
+# 0/e. merge-order guard — run as a preflight before step a, and again right before applying
+# the AppProject/root Application (step e), in case time passed between the two.
+# ---------------------------------------------------------------------------------------
+merge_order_guard() {   # merge_order_guard <context label>
+  local context=$1 p
+  step "merge-order guard ($context): origin/main must already contain the M0-4/M0-5 convergence, and origin/experiment/dev-state must already contain origin/main"
+  printf '  $ git fetch origin main experiment/dev-state\n'
+  for p in "${MARKER_PATHS[@]}"; do printf '  $ git cat-file -e origin/main:%s\n' "$p"; done
+  printf '  $ git merge-base --is-ancestor origin/main origin/experiment/dev-state\n'
+  (( PLAN )) && return 0
+
+  git fetch origin main experiment/dev-state
+  for p in "${MARKER_PATHS[@]}"; do
+    git cat-file -e "origin/main:$p" 2>/dev/null || fatal "origin/main does not yet contain $p — merge dev into main first"
+  done
+  git merge-base --is-ancestor origin/main origin/experiment/dev-state \
+    || fatal "origin/main is not yet merged into origin/experiment/dev-state"
+}
 
 # ---------------------------------------------------------------------------------------
 # a. k3s
@@ -157,8 +205,9 @@ step_a_k3s() {
     printf '%s' "$K3S_CONFIG_YAML" | sudo tee "$K3S_CONFIG" >/dev/null
   fi
 
+  step "k3s: optional docker.io mirror auth" SUDO
   if [[ -f $NEXUS_DIR/dockerhub.env ]]; then
-    step "k3s: optional docker.io mirror auth — ~/.nexus/dockerhub.env is present" SUDO
+    printf '  present -> ~/.nexus/dockerhub.env\n'
     printf '  $ sudo install -d -m 0755 /etc/rancher/k3s\n'
     printf '  $ sudo tee /etc/rancher/k3s/registries.yaml <<YAML   (then chmod 0600)\n'
     printf '  configs:\n    "docker.io":\n      auth:\n        username: $DOCKERHUB_USER\n        password: <REDACTED>\n  YAML\n'
@@ -172,10 +221,30 @@ step_a_k3s() {
         "$DOCKERHUB_USER" "$DOCKERHUB_TOKEN" | sudo tee /etc/rancher/k3s/registries.yaml >/dev/null
       sudo chmod 0600 /etc/rancher/k3s/registries.yaml
     fi
+  else
+    printf '  (skipped: ~/.nexus/dockerhub.env absent)\n'
   fi
 
-  run_cmd "k3s: install $K3S_VERSION, installer pinned to the same tag (not get.k3s.io)" SUDO -- \
-    bash -c "curl -fsSL '$K3S_INSTALL_URL' | INSTALL_K3S_VERSION='$K3S_VERSION' sudo sh -"
+  # Download first, run second — never pipe curl into sh. And never `VAR=... sudo cmd`: sudo does
+  # not propagate an env var set that way unless the invoking user's sudoers config explicitly
+  # keeps it (INSTALL_K3S_VERSION isn't a standard env_keep entry, so it would be silently dropped
+  # and the pin would not actually apply). install.sh is designed to be run as the normal user —
+  # it escalates via sudo itself for the specific steps that need root.
+  step "k3s: install $K3S_VERSION — download the pinned tag's install.sh, then run it (no pipe into sh)" SUDO
+  printf '  $ tmp=$(mktemp)\n'
+  printf '  $ curl -fsSL -o "$tmp" %s\n' "$K3S_INSTALL_URL"
+  printf '  $ INSTALL_K3S_VERSION=%s sh "$tmp"   # install.sh escalates via sudo itself\n' "$K3S_VERSION"
+  printf '  $ k3s --version   # must report %s, or this is fatal\n' "$K3S_VERSION"
+  printf '  $ rm -f "$tmp"\n'
+  if (( ! PLAN )); then
+    local tmp
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' RETURN
+    curl -fsSL -o "$tmp" "$K3S_INSTALL_URL"
+    INSTALL_K3S_VERSION="$K3S_VERSION" sh "$tmp"
+    k3s --version 2>/dev/null | grep -qF "$K3S_VERSION" \
+      || fatal "k3s --version does not report $K3S_VERSION after install"
+  fi
 }
 
 # ---------------------------------------------------------------------------------------
@@ -188,6 +257,9 @@ step_b_kubeconfig() {
     cp -a "$HOME/.kube/config" "$HOME/.kube/config.bak-$(date -u +%Y%m%dT%H%M%SZ)"
   fi
 
+  run_cmd "kubeconfig: create ~/.kube at 0700 as this user, before the config file is installed into it" "" -- \
+    install -d -m 0700 "$HOME/.kube"
+
   run_cmd "kubeconfig: copy from k3s, owned by this user, mode 0600" SUDO -- \
     sudo install -m 0600 -o "$USER" -g "$(id -gn)" /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
 }
@@ -196,8 +268,11 @@ step_b_kubeconfig() {
 # c. monitoring namespace and grafana-admin
 # ---------------------------------------------------------------------------------------
 step_c_monitoring() {
-  run_cmd "monitoring: create the namespace (idempotent; 'already exists' on a rerun is harmless)" "" -- \
-    kubectl create namespace monitoring
+  step "monitoring: create the namespace (idempotent)"
+  printf '  $ kubectl get namespace monitoring >/dev/null 2>&1 || kubectl create namespace monitoring\n'
+  if (( ! PLAN )); then
+    kubectl get namespace monitoring >/dev/null 2>&1 || kubectl create namespace monitoring
+  fi
 
   step "grafana-admin: generate-or-reuse ~/.nexus/grafana-admin (0600, no trailing newline, umask 077)"
   printf '  $ install -d -m 0700 %s   # if missing\n' "$NEXUS_DIR"
@@ -239,18 +314,36 @@ step_c_monitoring() {
 # d. ArgoCD
 # ---------------------------------------------------------------------------------------
 step_d_argocd() {
-  run_cmd "ArgoCD: create the namespace (idempotent; 'already exists' on a rerun is harmless)" "" -- \
-    kubectl create namespace argocd
+  step "ArgoCD: create the namespace (idempotent)"
+  printf '  $ kubectl get namespace argocd >/dev/null 2>&1 || kubectl create namespace argocd\n'
+  if (( ! PLAN )); then
+    kubectl get namespace argocd >/dev/null 2>&1 || kubectl create namespace argocd
+  fi
 
   run_cmd "ArgoCD: install $ARGOCD_VERSION with server-side apply (its manifest exceeds the client-side annotation limit)" "" -- \
     kubectl apply --server-side --force-conflicts -n argocd -f "$ARGOCD_INSTALL_URL"
 
-  run_cmd "ArgoCD: wait for the server to roll out" "" -- \
+  step "ArgoCD: wait for the server, the application controller and the repo server to roll out"
+  printf '  $ kubectl -n argocd rollout status deployment/argocd-server --timeout=180s\n'
+  printf '  $ kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s\n'
+  printf '  $ kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s\n'
+  if (( ! PLAN )); then
     kubectl -n argocd rollout status deployment/argocd-server --timeout=180s
+    kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s
+    kubectl -n argocd rollout status deployment/argocd-repo-server --timeout=180s
+  fi
 
-  step "argocd-admin: read the fresh initial password to a temp file, then move it into place; a failed or empty read is fatal"
+  step "argocd-admin: poll for argocd-initial-admin-secret (timeout 120s), then read it to a temp file and move it into place; a failed or empty read is fatal"
+  printf '  $ for up to 120s: kubectl -n argocd get secret argocd-initial-admin-secret\n'
   printf '  $ umask 077; kubectl -n argocd get secret argocd-initial-admin-secret -o go-template=... > %s/.argocd-admin.tmp; test -s <tmp> || FATAL; mv <tmp> %s/argocd-admin; chmod 0600\n' "$NEXUS_DIR" "$NEXUS_DIR"
   if (( ! PLAN )); then
+    local waited=0
+    while (( waited < 120 )); do
+      kubectl -n argocd get secret argocd-initial-admin-secret >/dev/null 2>&1 && break
+      sleep 5; waited=$((waited + 5))
+    done
+    (( waited >= 120 )) && fatal "argocd-initial-admin-secret did not appear within 120s"
+
     [[ -d $NEXUS_DIR ]] || install -d -m 0700 "$NEXUS_DIR"
     local tmp
     tmp="$NEXUS_DIR/.argocd-admin.tmp.$$"
@@ -268,40 +361,17 @@ step_d_argocd() {
 }
 
 # ---------------------------------------------------------------------------------------
-# e. merge-order guard, then the AppProject and the root Application
+# e. the AppProject and the root Application (merge-order guard re-checked first)
 # ---------------------------------------------------------------------------------------
-MARKER_PATHS=(
-  platform/argocd/root.yaml
-  platform/argocd/projects/nexus.yaml
-  platform/kyverno/values.yaml
-  platform/bootstrap-templates/nexus-killswitch.yaml
-)
-
 step_e_root_application() {
-  step "merge-order guard: origin/main must already contain the M0-4/M0-5 convergence, and origin/experiment/dev-state must already contain origin/main"
-  printf '  $ git fetch origin main experiment/dev-state\n'
-  local p
-  for p in "${MARKER_PATHS[@]}"; do printf '  $ git cat-file -e origin/main:%s\n' "$p"; done
-  printf '  $ git merge-base --is-ancestor origin/main origin/experiment/dev-state\n'
-
-  if (( PLAN )); then
-    step "root Application: apply the AppProject, then root.yaml, both read from origin/main"
-    printf '  $ git show origin/main:platform/argocd/projects/nexus.yaml | kubectl apply --server-side -f -\n'
-    printf '  $ git show origin/main:platform/argocd/root.yaml           | kubectl apply --server-side -f -\n'
-    return 0
-  fi
-
-  git fetch origin main experiment/dev-state
-  for p in "${MARKER_PATHS[@]}"; do
-    git cat-file -e "origin/main:$p" 2>/dev/null || fatal "origin/main does not yet contain $p — merge dev into main first"
-  done
-  git merge-base --is-ancestor origin/main origin/experiment/dev-state \
-    || fatal "origin/main is not yet merged into origin/experiment/dev-state"
+  merge_order_guard "before applying the AppProject/root Application"
 
   step "root Application: apply the AppProject, then root.yaml, both read from origin/main"
   printf '  $ git show origin/main:platform/argocd/projects/nexus.yaml | kubectl apply --server-side -f -\n'
-  git show origin/main:platform/argocd/projects/nexus.yaml | kubectl apply --server-side -f -
   printf '  $ git show origin/main:platform/argocd/root.yaml           | kubectl apply --server-side -f -\n'
+  (( PLAN )) && return 0
+
+  git show origin/main:platform/argocd/projects/nexus.yaml | kubectl apply --server-side -f -
   git show origin/main:platform/argocd/root.yaml | kubectl apply --server-side -f -
 }
 
@@ -309,22 +379,27 @@ step_e_root_application() {
 # f. wait for the platform Application (owns nexus-system, needed before step g)
 # ---------------------------------------------------------------------------------------
 wait_for_app() {   # wait_for_app <name> <timeout-seconds>
-  local name=$1 timeout=$2 waited=0
+  local name=$1 timeout=$2 waited=0 sync='' health=''
   while (( waited < timeout )); do
-    local sync health
     sync=$(kubectl get "applications.argoproj.io/$name" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null)
     health=$(kubectl get "applications.argoproj.io/$name" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null)
     [[ $sync == Synced && $health == Healthy ]] && return 0
     sleep 5; waited=$((waited + 5))
   done
+  echo "bootstrap: $name did not reach Synced/Healthy within ${timeout}s — last status: sync=${sync:-<none>} health=${health:-<none>}" >&2
+  echo "bootstrap: $name .status.conditions:" >&2
+  kubectl get "applications.argoproj.io/$name" -n argocd -o jsonpath='{.status.conditions}' 2>&1 >&2
+  echo >&2
   return 1
 }
 
 step_f_wait_platform() {
-  step "wait for the platform Application to be Synced/Healthy (timeout 300s) — it owns nexus-system, needed before the Kill Switch ConfigMaps can be created"
-  printf '  $ kubectl get application platform -n argocd -o jsonpath=... (polled every 5s, 300s timeout)\n'
+  local t
+  t=$(timeout_for_app platform)
+  step "wait for the platform Application to be Synced/Healthy (timeout ${t}s) — it owns nexus-system, needed before the Kill Switch ConfigMaps can be created"
+  printf '  $ kubectl get application platform -n argocd -o jsonpath=... (polled every 5s, %ss timeout)\n' "$t"
   (( PLAN )) && return 0
-  wait_for_app platform 300 || fatal "platform Application did not reach Synced/Healthy within 300s"
+  wait_for_app platform "$t" || fatal "platform Application did not reach Synced/Healthy within ${t}s"
 }
 
 # ---------------------------------------------------------------------------------------
@@ -346,14 +421,16 @@ step_g_killswitch() {
 # h. wait for every Application
 # ---------------------------------------------------------------------------------------
 step_h_wait_all() {
-  step "wait for every Application to be Synced/Healthy (timeout 300s each)"
-  local name
+  step "wait for every Application to be Synced/Healthy (timeout configurable per app; observability defaults to ${WAIT_TIMEOUT_OBSERVABILITY}s, others to ${WAIT_TIMEOUT_DEFAULT}s)"
+  local name t
   for name in "${EXPECTED_APPS[@]}"; do
-    printf '  $ kubectl get application %s -n argocd -o jsonpath=... (polled every 5s, 300s timeout)\n' "$name"
+    t=$(timeout_for_app "$name")
+    printf '  $ kubectl get application %s -n argocd -o jsonpath=... (polled every 5s, %ss timeout)\n' "$name" "$t"
   done
   (( PLAN )) && return 0
   for name in "${EXPECTED_APPS[@]}"; do
-    wait_for_app "$name" 300 || fatal "Application $name did not reach Synced/Healthy within 300s"
+    t=$(timeout_for_app "$name")
+    wait_for_app "$name" "$t" || fatal "Application $name did not reach Synced/Healthy within ${t}s"
   done
 }
 
@@ -372,6 +449,7 @@ if (( PLAN )); then
   echo "bootstrap.sh --plan — printing every step; nothing below is executed."
 fi
 
+merge_order_guard "preflight, before touching anything"
 step_a_k3s
 step_b_kubeconfig
 step_c_monitoring
