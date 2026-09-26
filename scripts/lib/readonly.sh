@@ -1,4 +1,5 @@
-# readonly.sh — shared read-only helpers for NEXUS operational scripts.
+#!/usr/bin/env bash
+# readonly.sh — shared read-only helpers for NEXUS operational scripts. Sourced, not executed.
 #
 # Sourced by scripts/capture-state.sh and scripts/verify-state.sh. The caller must set $OUT
 # (a writable directory) before calling any function here: guard_fail, sudo_needed, check and
