@@ -1,0 +1,9 @@
+# The `platform` Application (spec §3): everything cluster-wide that main declares.
+# M0: namespaces with their autonomy levels, and the AppProject. RBAC, Kyverno policies (K1-K6),
+# NetworkPolicies and the Incident CRD join here in later milestones.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespaces
+  - argocd/projects/nexus.yaml

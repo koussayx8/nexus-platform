@@ -1,49 +1,52 @@
 {
-  "dashboard": {
-    "id": null,
-    "uid": "nexus-sample-api-red",
-    "title": "NEXUS Sample API — RED",
-    "tags": ["nexus", "sample-api", "red"],
-    "timezone": "utc",
-    "schemaVersion": 36,
-    "refresh": "5s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Rate (requests/sec)",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "sum(rate(http_requests_total{job=\"sample-api\"}[5m]))",
-            "legendFormat": "Requests/sec"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
-      },
-      {
-        "id": 2,
-        "title": "Errors (%)",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "100 * (sum(rate(http_requests_total{job=\"sample-api\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"sample-api\"}[5m])))",
-            "legendFormat": "Error %"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}
-      },
-      {
-        "id": 3,
-        "title": "Duration (p95)",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"sample-api\"}[5m])) by (le))",
-            "legendFormat": "p95 latency"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}
-      }
-    ]
-  }
+  "uid": "nexus-sample-api-red",
+  "title": "NEXUS sample-api — RED",
+  "tags": ["nexus", "sample-api"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Rate (requests/s) by namespace",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (rate(http_requests_total{job=\"sample-api\",handler!~\"/health|/ready|/metrics\"}[5m]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Errors (% 5xx) by namespace",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum by (namespace) (rate(http_requests_total{job=\"sample-api\",status=\"5xx\",handler!~\"/health|/ready|/metrics\"}[5m])) / sum by (namespace) (rate(http_requests_total{job=\"sample-api\",handler!~\"/health|/ready|/metrics\"}[5m]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Duration (p95) by namespace",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (namespace, le) (rate(http_request_duration_seconds_bucket{job=\"sample-api\",handler!~\"/health|/ready|/metrics\"}[5m])))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    }
+  ]
 }
