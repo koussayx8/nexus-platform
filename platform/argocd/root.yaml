@@ -10,6 +10,13 @@ metadata:
     app.kubernetes.io/part-of: nexus-platform
   annotations:
     nexus.io/adr: "ADR-014"
+    # kyverno's chart has two helm.sh/hook: pre-delete Jobs; ArgoCD's app controller
+    # unconditionally sets pre-delete-finalizer.argocd.argoproj.io (+/cleanup) on the kyverno
+    # Application object on every reconciliation where it detects them, regardless of diff
+    # strategy (controller/appcontroller.go, v3.3.8) -- root's own comparison of that Application
+    # object never declares those finalizers, so without this it's a permanent, not transient,
+    # OutOfSync. See the ADR-014 addendum (2026-09-26).
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   project: nexus
   source:
