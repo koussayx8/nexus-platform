@@ -553,8 +553,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
     Principle: nothing auto-allowed may read arbitrary files, reach arbitrary hosts, or write
     files. So only Git reads of repository objects: `git --no-optional-locks status` (plain
     `git status` may rewrite `.git/index`), `git log`, `git show`, `git rev-parse`,
-    `git ls-remote origin`, `git worktree list`. New deny rule `Bash(*--output*)` (`git log` and
-    `git show` write files with `--output`). No entry overlaps an ask rule; none allows `cat`,
+    `git ls-remote origin`, `git worktree list`. New deny rules `Bash(*--output*)` (`git log` and
+    `git show` write files with `--output`), `Bash(*--upload-pack*)` and `Bash(*--exec*)`
+    (`--exec` is `ls-remote`'s alias for `--upload-pack`; with a local or SSH remote, either runs
+    a command). No entry overlaps an ask rule; none allows `cat`,
     `python3`, `git merge` or `gh pr`. Left out: `git diff` (`--no-index` reads any file),
     `kubectl` (`--kubeconfig` reads any file, `--server` reaches any host), `bash -n` and
     `shellcheck` (both read any path and echo its lines). Each session reports
@@ -594,6 +596,11 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
   measured 242â€“382 s, ADR-020 addendum). If NEXUS repairs through Git commits, this dominates
   measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
   or shorter cache and refresh timeouts.
+- **High priority, before M1b** (owner, #78 review, 2026-09-27): pattern rules cannot protect
+  Secrets. `kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` both bypass the
+  `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
+  with RBAC read access to everything except Secrets and no write verbs. Once it exists,
+  `kubectl` reads can be auto-allowed safely.
 - Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
@@ -620,6 +627,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
   `experiment/dev-state` accepts direct pushes (its ruleset 23998158 blocks only force-push and
   deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
   guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
+  Include the Secrets finding (#78 review): pattern rules cannot protect Secrets
+  (`kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` bypass
+  `Bash(kubectl get secret*)`); the fix is the agent kubeconfig at the identity layer (Later,
+  high priority before M1b).
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
   including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
   `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
