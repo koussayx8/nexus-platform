@@ -12,7 +12,7 @@
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
-# Env: NEXUS_VERIFY_APPS_TIMEOUT (default 660) bounds the M1 retry window, in seconds.
+# Env: NEXUS_VERIFY_APPS_TIMEOUT (default 840) bounds the M1 retry window, in seconds.
 #
 # Exit codes: 0 every check passed; 1 at least one check failed; 2 script error.
 
@@ -97,18 +97,19 @@ git fetch origin main experiment/dev-state >/dev/null 2>&1 && FETCH_OK=1
 # success; any false snapshot resets the streak. At the bound it fails with the last snapshot.
 # Every poll is written to the report. Read-only: no refresh annotation.
 #
-# Bound NEXUS_VERIFY_APPS_TIMEOUT, default 660 s, derived as additive terms (ADR-020):
+# Bound NEXUS_VERIFY_APPS_TIMEOUT, default 840 s, derived as additive terms (ADR-020 addendum):
 #   reconcile delay 180 s  ArgoCD polls Git every timeout.reconciliation 120 s + up to 60 s jitter;
 #                          argocd-server is ClusterIP with no Ingress, so no webhook (ADR-014)
-#   rollout         420 s  dependency-db's first start: startupProbe 150 x 2 s + a 120 s image pull
+#   rollout         600 s  dependency-db's first start: startupProbe 150 x 2 s + a 300 s image pull
 #   stable window    60 s
-# Not included: sync-retry backoff after a failed sync (M1-4 uses 820 s, TASKS.md). Changing the
-# startupProbe budget or the pull allowance means re-deriving this default.
+# Not included: sync-retry backoff after a failed sync (an M1-4-style race needs 1000 s). Changing
+# the startupProbe budget or the pull allowance means re-deriving all four ADR-020 values, this
+# default and bootstrap.sh's dependency-db wait included.
 # ---------------------------------------------------------------------------
 EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
 REPO_URL=https://github.com/koussayx8/nexus-platform.git
 APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
-APPS_TIMEOUT=${NEXUS_VERIFY_APPS_TIMEOUT:-660}
+APPS_TIMEOUT=${NEXUS_VERIFY_APPS_TIMEOUT:-840}
 STABLE_WINDOW=60
 POLL_INTERVAL=5
 

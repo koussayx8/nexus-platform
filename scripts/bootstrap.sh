@@ -27,7 +27,8 @@
 #
 # Usage: scripts/bootstrap.sh [--plan]
 # Timeout overrides: NEXUS_WAIT_TIMEOUT_DEFAULT (default 600), NEXUS_WAIT_TIMEOUT_OBSERVABILITY
-# (default 1200), or NEXUS_WAIT_TIMEOUT_<NAME> for any specific Application.
+# (default 1200), NEXUS_WAIT_TIMEOUT_DEPENDENCY_DB (default 900), or NEXUS_WAIT_TIMEOUT_<NAME> for
+# any specific Application.
 # NEXUS_ARGOCD_ROLLOUT_TIMEOUT (default 600) covers each of the three ArgoCD rollout waits.
 # Exit codes: 0 success; 1 a step failed or refused to proceed; 2 script/argument error.
 
@@ -82,6 +83,11 @@ MARKER_PATHS=(
 
 WAIT_TIMEOUT_DEFAULT=${NEXUS_WAIT_TIMEOUT_DEFAULT:-600}
 WAIT_TIMEOUT_OBSERVABILITY=${NEXUS_WAIT_TIMEOUT_OBSERVABILITY:-1200}
+# dependency-db, 900 s (ADR-020 addendum, counted from step h start): 160 retry backoff + 600
+# rollout (300 startupProbe + 300 pull) + 60 stable = 820, rounded up for rebuild contention.
+# Coupled with verify-state.sh's default: changing the startupProbe budget or the pull allowance
+# means re-deriving all four ADR-020 values.
+WAIT_TIMEOUT_DEPENDENCY_DB=900
 ARGOCD_ROLLOUT_TIMEOUT=${NEXUS_ARGOCD_ROLLOUT_TIMEOUT:-600}
 timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in seconds
   local name=$1
@@ -90,6 +96,7 @@ timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in
   if [[ -n ${!var:-} ]]; then echo "${!var}"; return; fi
   case $name in
     observability) echo "$WAIT_TIMEOUT_OBSERVABILITY" ;;
+    dependency-db) echo "$WAIT_TIMEOUT_DEPENDENCY_DB" ;;
     *) echo "$WAIT_TIMEOUT_DEFAULT" ;;
   esac
 }
@@ -180,7 +187,9 @@ rules:
   - level: None
 '
 
-K3S_CONFIG_YAML="disable:
+# secrets-encryption: Secrets encrypted at rest from the first server start (ADR-019 addendum).
+K3S_CONFIG_YAML="secrets-encryption: true
+disable:
   - traefik
   - servicelb
 kube-apiserver-arg:
@@ -218,7 +227,7 @@ step_a_k3s() {
     sudo install -m 0640 -o root -g adm /dev/null "$AUDIT_LOG" || fatal "pre-creating $AUDIT_LOG failed"
   fi
 
-  step "k3s: write the apiserver config (disabled addons, audit flags) to config.yaml, not INSTALL_K3S_EXEC — editable later without reinstalling" SUDO
+  step "k3s: write the apiserver config (Secrets encryption, disabled addons, audit flags) to config.yaml, not INSTALL_K3S_EXEC — editable later without reinstalling" SUDO
   printf '  $ sudo install -d -m 0755 %s\n' "$(dirname "$K3S_CONFIG")"
   printf '  $ sudo tee %s <<'"'"'YAML'"'"'\n' "$K3S_CONFIG"
   printf '%s' "$K3S_CONFIG_YAML" | sed 's/^/  /'
