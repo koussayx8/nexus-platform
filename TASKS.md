@@ -388,7 +388,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
          `--arg main <origin/main SHA>` and `--arg devstate <origin/experiment/dev-state SHA>`.
          The caller resolves the SHAs with `git rev-parse` after the `git fetch origin main
          experiment/dev-state` that both scripts already run: `bootstrap.sh`'s merge-order
-         guard, and `verify-state.sh:122`.
+         guard, and the fetch at the start of `verify-state.sh` (moved there by commit 7 so M1 and M4
+         read the same refs; M1 fails if it did not succeed).
        - **True only if** every expected Application in that same snapshot is `Synced` **and**
          `Healthy` **and** at the expected commit. The expected commit is `devstate` for
          `sample-api-dev` and `main` for every other Application.
@@ -403,7 +404,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
        - **Read-only:** no `argocd.argoproj.io/refresh` annotation and no other write; the scripts
          only wait for ArgoCD's own reconcile.
        - `step_h` polls it every 5 s and passes only after 60 s of consecutive true snapshots; any
-         false resets the streak. Per-app timeouts stay the outer bound.
+         false resets the streak. Per-app timeouts stay the outer bound: each app must first be
+         seen stable within its own timeout, and the step ends at the largest one plus 60 s.
        - Offline fixture tests for `apps-stable.jq`, run in `repo-checks`, same commit. Five
          cases: all apps at the expected SHA → true; one app at the old SHA → false; chart + Git
          multi-source → true; `revisions` shorter than `sources` → false; `repoURL` mismatch (for
@@ -438,7 +440,16 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
          `maxDuration: 3m`), for example the AppProject/Application ordering race at M1-4. For
          that case, set a larger bound with the env var and record the value used in the report.
     - Also in this PR: ADR-020 states that the owner runs the change 24 recovery delete.
-  - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
+  - [x] Validation: `--plan` and the 6-scenario fault-injection rerun (2026-09-27, a throwaway
+    worktree, removed with `git worktree remove`; only its copy had the k3s.service path override).
+    - `--plan` with every stub, `k3s` included, exiting 1: exit 0, 25 steps printed, 0 stub calls.
+    - The six #55 scenarios (`k3s_install`, `argocd_apply`, `grafana_secret`, `root_apply`,
+      `killswitch_create`, `verify_state`) and two new ones (`dependency_db_secrets`,
+      `apps_unstable`): each stops at its step with a named FATAL, exit 1, never "done".
+    - Baseline, no fault: steps a–h complete (step h stable for 60 s after 61 s); the one FATAL is
+      the real `verify-state.sh`, whose M1 passed after 61 s (13 polls) against the stub cluster.
+    - `apps-stable.jq`: the five fixture cases pass, and the live cluster evaluates true.
+  - [ ] PR merged. **GATE M1-3.**
 - **M1-4, M1-5 and M1-6 — permission mode.** Claude Code runs in default mode, not bypass. At
   the start of each session for these phases, report the permission mode, and stop if it is
   bypass.
