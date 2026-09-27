@@ -8,7 +8,27 @@ resources:
   - namespace.yaml
   - ../../apps/sample-api/k8s/base
 
-# Signed image from green main run 36136557684 at 311ad81 (ADR-017). A digest bump is a commit.
+# Signed image from green main run 36321366504 at 87e3ab3, cosign-verified at M1-5 (ADR-017).
+# A digest bump is a commit.
 images:
   - name: ghcr.io/koussayx8/nexus-platform/sample-api
-    digest: sha256:45e7a88c950a40fd6ce37a6544d95bc435c76a6aa5af2eefcc9463363150d57c
+    digest: sha256:8ea896c267d0842732e564e7c45b1606bc5347764bab7c7741e4d356c0e0e9af
+
+# The DB role for this environment (ADR-020, change 3); the rest of the DB env is in the base.
+patches:
+  - target:
+      kind: Deployment
+      name: sample-api
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: sample-api
+      spec:
+        template:
+          spec:
+            containers:
+              - name: sample-api
+                env:
+                  - name: DB_USER
+                    value: app_dev
