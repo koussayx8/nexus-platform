@@ -4,10 +4,11 @@
 # Spec §25/§27, TASKS.md M0-5 item 2. Unlike capture-state.sh's check() (findings never fail
 # the run), every verify() call here drives the script's own exit code: non-zero on any failure.
 #
-# M0 scope only (TASKS.md M0-5): Application health, one default Grafana datasource, no
+# M0 scope (TASKS.md M0-5): Application health, one default Grafana datasource, no
 # Loki/Crossplane/sample-db, the sample-api digest and /metrics, namespace autonomy levels,
-# pod readiness, the audit-log probe, and the Kill Switch. K1-K6, the Incident CRD/CEL, operator
-# and Reasoner readiness and N1-N6 arrive with their milestones (TASKS.md "Later").
+# pod readiness, the audit-log probe, and the Kill Switch. M1 (TASKS.md M1-3) adds the
+# dependency-db Application and pod, and informational container restart counts. K1-K6, the
+# Incident CRD/CEL, operator and Reasoner readiness and N1-N6 arrive with their milestones.
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
@@ -78,7 +79,7 @@ info() {
 # ---------------------------------------------------------------------------
 # M1. Every Application Synced and Healthy.
 # ---------------------------------------------------------------------------
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
 v_applications() {
   local name sync health rc=0 jf ef
   jf=$(mktemp); ef=$(mktemp)
@@ -267,6 +268,27 @@ v_killswitch() {
 }
 
 # ---------------------------------------------------------------------------
+# M9. The Dependency DB pod is Ready (TASKS.md M1-3 commit 6; ADR-020). Its probes need TCP
+# pg_isready and the init marker, so Ready means a completed init. The pod's uid and restartCount
+# are printed for the S5 discard rule (change 9).
+# ---------------------------------------------------------------------------
+v_dependency_db() {
+  local jf rc=0 phase ready uid restarts
+  jf=$(mktemp)
+  if ! k get pod dependency-db-0 -n nexus-data -o json >"$jf" 2>/dev/null; then
+    echo "nexus-data/dependency-db-0: NOT FOUND"; rm -f "$jf"; return 1
+  fi
+  phase=$(jq -r '.status.phase // "-"' "$jf")
+  ready=$(jq -r '[.status.containerStatuses[]? | select(.name == "dependency-db") | .ready][0] // false' "$jf")
+  uid=$(jq -r '.metadata.uid // "-"' "$jf")
+  restarts=$(jq -r '[.status.containerStatuses[]? | select(.name == "dependency-db") | .restartCount][0] // "-"' "$jf")
+  echo "nexus-data/dependency-db-0: phase=$phase ready=$ready uid=$uid restartCount=$restarts"
+  [[ $phase == Running && $ready == true ]] || rc=1
+  rm -f "$jf"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
 # I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
 # across a rebuild without turning a transient restart into a failure.
 # ---------------------------------------------------------------------------
@@ -294,6 +316,7 @@ verify M5 "Namespace autonomy levels (ADR-018)"          v_namespace_levels
 verify M6 "Pod readiness (Succeeded pods skipped)"       v_pod_readiness
 verify M7 "Audit log probe (§14)"                        v_audit_probe
 verify M8 "Kill Switch active"                           v_killswitch
+verify M9 "Dependency DB pod Ready"                      v_dependency_db
 info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""

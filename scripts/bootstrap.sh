@@ -68,7 +68,7 @@ NEXUS_DIR=$HOME/.nexus
 # platform/observability/kube-prometheus-stack-values.yaml:78-81) are exactly the keys the Secret
 # below is created with.
 GRAFANA_DEPLOYMENT=observability-grafana
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
 REPO_URL=https://github.com/koussayx8/nexus-platform.git
 APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
 STABLE_WINDOW=60                             # seconds of consecutive true snapshots (step h)
