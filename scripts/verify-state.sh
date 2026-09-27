@@ -63,6 +63,18 @@ verify() {
   [[ -n $detail ]] && { printf '%s\n' "$detail" | sed 's/^/       /'; log '```'; log "$detail"; log '```'; }
 }
 
+# info <id> <description> <function> [args...]
+# Informational only: reported like verify(), but never counted as a pass or a failure.
+info() {
+  local id=$1 desc=$2 detail
+  shift 2
+  detail=$("$@" 2>&1)
+  printf '[INFO] %-4s %s\n' "$id" "$desc"
+  log "### $id — $desc — INFO"
+  [[ -n $detail ]] && { printf '%s\n' "$detail" | sed 's/^/       /'; log '```'; log "$detail"; log '```'; }
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # M1. Every Application Synced and Healthy.
 # ---------------------------------------------------------------------------
@@ -255,6 +267,18 @@ v_killswitch() {
 }
 
 # ---------------------------------------------------------------------------
+# I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
+# across a rebuild without turning a transient restart into a failure.
+# ---------------------------------------------------------------------------
+v_restart_counts() {
+  k get pods -A -o json 2>/dev/null | jq -r '
+    [.items[] | {pod: "\(.metadata.namespace)/\(.metadata.name)",
+                 c: [.status.containerStatuses[]? | {name, restarts: .restartCount}]}] as $pods
+    | ($pods[] | "\(.pod): " + ([.c[] | "\(.name)=\(.restarts)"] | join(" "))),
+      "\($pods | length) pods; \([$pods[].c[] | select(.restarts > 0)] | length) containers restarted at least once"'
+}
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 log "# NEXUS — Current State"
@@ -270,6 +294,7 @@ verify M5 "Namespace autonomy levels (ADR-018)"          v_namespace_levels
 verify M6 "Pod readiness (Succeeded pods skipped)"       v_pod_readiness
 verify M7 "Audit log probe (§14)"                        v_audit_probe
 verify M8 "Kill Switch active"                           v_killswitch
+info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""
 log "## Summary"
