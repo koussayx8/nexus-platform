@@ -549,6 +549,18 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
     `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
     and the window or run is discarded. The owner disables Windows sleep during both.
+  - [x] Minimal read-only allow list in `.claude/settings.json` (PR 1, GATE M1-6 plan review).
+    Principle: nothing auto-allowed may read arbitrary files, reach arbitrary hosts, or write
+    files. So only Git reads of repository objects: `git --no-optional-locks status` (plain
+    `git status` may rewrite `.git/index`), `git log`, `git show`, `git rev-parse`,
+    `git ls-remote origin`, `git worktree list`. New deny rules `Bash(*--output*)` (`git log` and
+    `git show` write files with `--output`), `Bash(*--upload-pack*)` and `Bash(*--exec*)`
+    (`--exec` is `ls-remote`'s alias for `--upload-pack`; with a local or SSH remote, either runs
+    a command). No entry overlaps an ask rule; none allows `cat`,
+    `python3`, `git merge` or `gh pr`. Left out: `git diff` (`--no-index` reads any file),
+    `kubectl` (`--kubeconfig` reads any file, `--server` reaches any host), `bash -n` and
+    `shellcheck` (both read any path and echo its lines). Each session reports
+    `.claude/settings.local.json` after the prompt test and stops on a risky entry.
   - [ ] S5 smoke test on `app_dev` (approval first): `/items` 503 in under 3 s with the `FATAL`
     text in the log; `/ready` 200; prod unaffected; reset; DB `metadata.uid` and `restartCount`
     unchanged.
@@ -579,6 +591,16 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 
 ## Later â€” out of scope for M1
 
+- **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
+  pickup takes 4 to 6.5 minutes (the repo-server's revision cache plus the controller's refresh;
+  measured 242â€“382 s, ADR-020 addendum). If NEXUS repairs through Git commits, this dominates
+  measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
+  or shorter cache and refresh timeouts.
+- **High priority, before M1b** (owner, #78 review, 2026-09-27): pattern rules cannot protect
+  Secrets. `kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` both bypass the
+  `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
+  with RBAC read access to everything except Secrets and no write verbs. Once it exists,
+  `kubectl` reads can be auto-allowed safely.
 - Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
@@ -605,11 +627,17 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
   `experiment/dev-state` accepts direct pushes (its ruleset 23998158 blocks only force-push and
   deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
   guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
+  Include the Secrets finding (#78 review): pattern rules cannot protect Secrets
+  (`kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` bypass
+  `Bash(kubectl get secret*)`); the fix is the agent kubeconfig at the identity layer (Later,
+  high priority before M1b).
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
-  including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Build a
-  minimal read-only allow list from the commands approved during M1-4; never allow `cat` or
-  `python3`. Evidence: `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the
-  M1-4 start, 2026-09-27).
+  including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
+  `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
+  2026-09-27). It regrew by the M1-6 start (`python3 -`, `cat >> *`, `gh pr *`, `git merge *`,
+  `kubectl get *`); the owner moved it to `~/nexus-evidence/settings.local.json.m1-6.bak`
+  (2026-09-27). **Done in M1-6:** a minimal read-only allow list is tracked in
+  `.claude/settings.json` (see M1-6).
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.

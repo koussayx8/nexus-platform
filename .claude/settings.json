@@ -36,6 +36,9 @@
       "Bash(git restore *)",
       "Bash(git stash drop*)",
       "Bash(git stash clear*)",
+      "Bash(*--output*)",
+      "Bash(*--upload-pack*)",
+      "Bash(*--exec*)",
       "Read(~/.nexus/**)",
       "Edit(~/.nexus/**)"
     ],
@@ -50,6 +53,19 @@
       "Bash(kubectl exec *)",
       "Bash(gh pr merge *)",
       "Bash(gh api *)"
+    ],
+    "allow": [
+      "Bash(git --no-optional-locks status)",
+      "Bash(git --no-optional-locks status *)",
+      "Bash(git log)",
+      "Bash(git log *)",
+      "Bash(git show)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-remote origin)",
+      "Bash(git ls-remote origin *)",
+      "Bash(git worktree list)",
+      "Bash(git worktree list *)"
     ]
   }
 }
