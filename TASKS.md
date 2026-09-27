@@ -549,6 +549,16 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
     `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
     and the window or run is discarded. The owner disables Windows sleep during both.
+  - [x] Minimal read-only allow list in `.claude/settings.json` (PR 1, GATE M1-6 plan review).
+    Principle: nothing auto-allowed may read arbitrary files, reach arbitrary hosts, or write
+    files. So only Git reads of repository objects: `git --no-optional-locks status` (plain
+    `git status` may rewrite `.git/index`), `git log`, `git show`, `git rev-parse`,
+    `git ls-remote origin`, `git worktree list`. New deny rule `Bash(*--output*)` (`git log` and
+    `git show` write files with `--output`). No entry overlaps an ask rule; none allows `cat`,
+    `python3`, `git merge` or `gh pr`. Left out: `git diff` (`--no-index` reads any file),
+    `kubectl` (`--kubeconfig` reads any file, `--server` reaches any host), `bash -n` and
+    `shellcheck` (both read any path and echo its lines). Each session reports
+    `.claude/settings.local.json` after the prompt test and stops on a risky entry.
   - [ ] S5 smoke test on `app_dev` (approval first): `/items` 503 in under 3 s with the `FATAL`
     text in the log; `/ready` 200; prod unaffected; reset; DB `metadata.uid` and `restartCount`
     unchanged.
@@ -606,10 +616,12 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
   deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
   guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
-  including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Build a
-  minimal read-only allow list from the commands approved during M1-4; never allow `cat` or
-  `python3`. Evidence: `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the
-  M1-4 start, 2026-09-27).
+  including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
+  `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
+  2026-09-27). It regrew by the M1-6 start (`python3 -`, `cat >> *`, `gh pr *`, `git merge *`,
+  `kubectl get *`); the owner moved it to `~/nexus-evidence/settings.local.json.m1-6.bak`
+  (2026-09-27). **Done in M1-6:** a minimal read-only allow list is tracked in
+  `.claude/settings.json` (see M1-6).
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
