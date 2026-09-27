@@ -36,6 +36,18 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          # Dependency DB for /items (ADR-020, change 2). DB_USER is set per overlay (app_dev,
+          # app_prod); each namespace has its own dependency-db-app Secret.
+          env:
+            - name: DB_HOST
+              value: dependency-db.nexus-data
+            - name: DB_NAME
+              value: nexus
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dependency-db-app
+                  key: password
           resources:
             requests:
               cpu: 50m
