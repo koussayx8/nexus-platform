@@ -263,7 +263,8 @@ failing `Failed` pods outright.
 
 - **Found:** encryption at rest was never configured. `/etc/rancher/k3s/config.yaml` has no
   `secrets-encryption` key, the k3s unit passes no flags, and the owner's
-  `sudo k3s secrets-encrypt status` reported `Encryption Status: Disabled` (k3s's default). Every
+  `sudo k3s secrets-encrypt status`, run on 2026-09-27, reported verbatim
+  `Encryption Status: Disabled, no configuration file found` (k3s's default). Every
   Secret on the live cluster, `grafana-admin` and the three dependency-db Secrets included, is
   stored unencrypted in the k3s datastore.
 - **Decision:** `bootstrap.sh` writes `secrets-encryption: true` into the k3s config it creates
