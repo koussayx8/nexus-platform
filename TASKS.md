@@ -579,9 +579,6 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 - ruff's first-party detection depends on the working directory: `ruff check .` inside
   `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
   import order. Set `src` / `known-first-party` so local runs match CI.
-- sample-api Deployment label `app.kubernetes.io/version: "0.1.0"`
-  (`apps/sample-api/k8s/base/deployment.yaml`) no longer matches the app's `VERSION = "0.2.0"`
-  (`apps/sample-api/main.py:13`) once M1-5 pins the 0.2.0 image. Found at M1-5.
 - sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
   starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
   Move the test client off `httpx` before Starlette drops support for it.
