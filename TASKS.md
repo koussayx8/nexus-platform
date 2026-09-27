@@ -503,7 +503,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 - Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
   command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
-  `kubectl create --dry-run=server` and `rm -rf` internally).
+  `kubectl create --dry-run=server` and `rm -rf` internally). Include the branches:
+  `experiment/dev-state` accepts direct pushes (its ruleset 23998158 blocks only force-push and
+  deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
+  guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
