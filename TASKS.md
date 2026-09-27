@@ -561,7 +561,13 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 - Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
   command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
-  `kubectl create --dry-run=server` and `rm -rf` internally). Include the branches:
+  `kubectl create --dry-run=server` and `rm -rf` internally). Second instance, M1-5 step 3
+  (2026-09-27, Manual mode): an argument-validation test ran
+  `NEXUS_VERIFY_ITEMS_NAMESPACES=nexus-prod ./scripts/verify-state.sh --out /dev/null`; the value was
+  valid, so the whole script ran against the live cluster, and its `kubectl port-forward` (an
+  `ask` rule when typed) ran without a prompt, as did the fetch and the dry-run create. Exit 1,
+  output discarded; nothing persisted. Owner accepted it as harmless; rule since: offline tests
+  set `KUBECONFIG=/nonexistent` and put a stub `kubectl` first on `PATH`. Include the branches:
   `experiment/dev-state` accepts direct pushes (its ruleset 23998158 blocks only force-push and
   deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
   guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
