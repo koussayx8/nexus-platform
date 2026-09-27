@@ -1,8 +1,8 @@
 # TASKS — NEXUS
 
-**Milestone:** M0 — verify, stabilise, govern (spec §25, §27).
-**Current phase:** M0-5 — from-empty rebuild done (2026-09-26); M0-exit docs in this PR, gate PR and `v0.1.0` tag pending.
-**Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (now the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
+**Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
+**Current phase:** M1-0 — plan recorded (this PR), waiting at GATE M1-0.
+**Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
 and M0-5 rebuilds it anyway. So M0-4 changes Git only: Git describes the complete target state,
@@ -118,7 +118,7 @@ tracks on `main`.
 7. [x] Capture-script fix for false booleans; errata in `CURRENT_STATE.md` (this PR).
 - **GATE M0-4** — report with the diff by path, the rendered and validated output of every Application, and the removal list.
 
-## M0-5 Bootstrap, rebuild, verify — scripts ready, waiting at the gate
+## M0-5 Bootstrap, rebuild, verify — done
 
 1. [x] `k`, `h`, `g`, `secret_names`, `redact`, `show`, `run`, `need_jq`, `sudo_needed`, `check`
    and a new shared `leak_check` moved into `scripts/lib/readonly.sh` (#51). A `gh_ro` wrapper
@@ -241,7 +241,8 @@ tracks on `main`.
       a genuine empty state (the first two attempts died at the ArgoCD rollout wait and the
       `kyverno` wait respectively).
 
-      **d) M0 exit.** — **in progress (this PR).** The regenerated `docs/CURRENT_STATE.md`, the
+      **d) M0 exit.** — **done**: #65 → gate PR #66 → forward-merge #67 → tag `v0.1.0`
+      (annotated `6564150`, on origin, dereferences to `8f4eaac`). The regenerated `docs/CURRENT_STATE.md`, the
       ADR-019 rotation-test results, and `CHANGELOG.md`'s first section (drafted from every merged
       PR) go to **`dev`** first — same as everything else — then a **fourth** `dev`→`main` gate PR
       (the actual M0-exit PR), then `main`→`experiment/dev-state` again, then the baseline tag:
@@ -250,56 +251,156 @@ tracks on `main`.
       exact failed step (**known gap**: a bare re-run after k3s already installed refuses at step
       a — re-run the uninstall first); a PR failure is a content issue in whatever it's carrying,
       fix and retry; a tag-push failure (e.g. already exists) is never resolved by force.
-5. [ ] `verify-state.sh` exits 0 on a genuine from-empty rebuild (item 6c, **done**), the M0-exit
-   `dev`→`main` merge and its `experiment/dev-state` forward-merge are both done (item 6d, **in
-   progress**), then the baseline tag `v0.1.0` goes on `main` — **done when** all of that holds.
-   **M0 complete.**
+5. [x] `verify-state.sh` exits 0 on a genuine from-empty rebuild (item 6c), the M0-exit
+   `dev`→`main` merge (#66) and its `experiment/dev-state` forward-merge (#67) are both done
+   (item 6d), and the baseline tag `v0.1.0` is on `main` (`8f4eaac`). **M0 complete.**
 6. [x] ADR for bootstrap and the audit policy — ADR-019. Kyverno's `ServerSideDiff=true` finding
    recorded as an addendum to ADR-015.
 7. [x] `CHANGELOG.md`, Keep a Changelog format, one section per gate, each entry linking its PRs
    and ADRs. First section covers M0, drafted from the merged PRs (this PR, ahead of the tag itself
    — the tag still needs its own separate go-ahead per item 5).
-- **GATE M0-5** — from-empty rebuild (6c) and its ADR-019 rotation test done; M0-exit docs (6d, this
-  PR) wait for merge approval, then the fourth `dev`→`main` gate PR, the `experiment/dev-state`
-  forward-merge, and the `v0.1.0` tag each need their own separate approval.
+- **GATE M0-5** — passed. From-empty rebuild (6c), ADR-019 rotation test, M0-exit docs (#65), gate
+  PR #66, forward-merge #67 and the `v0.1.0` tag, each separately approved.
 
-## Later — out of scope for M0
+## M1 — Dependency DB and `/items`
 
-- `bootstrap.sh` step h (`step_h_wait_all`) currently checks each of the six Applications once, in
-  sequence — the real rebuild showed `root` can pass its own check early and drift back to
-  `OutOfSync` while the loop is still waiting on the others, undetected until `verify-state.sh`'s
-  fresh simultaneous check catches it. Change it to require all six `Synced`/`Healthy`
-  *simultaneously* and stable for 60s (not just each individually, once) — and give
-  `verify-state.sh`'s own M1 check a brief retry window before failing, for the same reason.
-  (Confirmed still relevant: the 2026-09-26 from-empty rebuild held all six stable through manual
-  read-only polling, but `step_h_wait_all` itself was not exercised under a flap this time — the
-  gap is unfixed, just not triggered.)
-- `bootstrap.sh` uses `set -uo pipefail`, not `set -e` — every step relies on its own explicit
-  `|| fatal` checks, with no backstop against a step whose failure isn't explicitly checked. Add
-  `set -e`, then rerun the fault-injection test (`--plan` with `k3s`/`kubectl`/`helm`/`git`/`sudo`/
-  `curl`/`systemctl`/`install` stubbed to exit 1) to confirm it still fails safely rather than
-  masking a step.
+Scope decided at the M1 plan gate: the Dependency DB (PostgreSQL StatefulSet in `nexus-data`,
+Application `dependency-db` on `main`) and `sample-api` `/items` reading it, so that S5 (§20:
+app role `NOLOGIN`, sessions terminated) is a gray failure: `/items` 5xx, readiness green (NF-23).
+Decisions: `emptyDir` storage; a from-empty rebuild at the M1 exit; `/items` is **not** gated by
+`NEXUS_FAULTS_ENABLED` (a reading of §3, recorded in ADR-020); path `apps/dependency-db/`; the
+other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR → `dev`, then gated
+`dev`→`main` and `main`→`experiment/dev-state`. Every merge needs explicit approval.
+
+**Approved plan changes 1–24** (the phase each lands in is in brackets):
+
+1. The `verify-state.sh` `/items` check lands in M1-5, not M1-3. [M1-5]
+2. DB env wiring (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` from `secretKeyRef`) lands only
+   in M1-5, in the same commit as the digest bump. [M1-5]
+3. Per-environment roles `app_dev` / `app_prod`. §20 names "the application role" in the
+   singular but no namespace, so S5 targets `app_dev` only. [M1-2]
+4. `/items` fails within 3 s and logs the server's error message. So: a new connection per request
+   (psycopg-pool swallows the connect error and raises `PoolTimeout` instead), `connect_timeout=2`
+   (psycopg's minimum), `statement_timeout=500`. [M1-1]
+5. `dependency-db-secrets.sh` fails if any `~/.nexus` file is missing while any of the three
+   Secrets exists. [M1-3]
+6. / 9. The S5 discard rule. `emptyDir` survives container restarts: a restart is an outage
+   that does not heal S5. A pod replacement (new `metadata.uid`) re-runs initdb and heals S5. The
+   runner records the DB pod's `metadata.uid` and `restartCount` before and after each run and
+   discards the run on either change. [ADR-020, M1-2]
+7. Audit retention: an ADR-019 addendum accepting about 10 days (the per-run extract is what §14
+   keeps); re-measure at M4. [M1-6]
+8. The Later items `step_h`, `set -e`, step timestamps and the restart-count line go into M1-3,
+   one commit each. [M1-3]
+10. `/items` is a plain `def` (threadpool), not `async def`, with a test asserting it. [M1-1]
+11. DB connections stay below `max_connections`. anyio's default threadpool is 40 per pod, which
+    gives 560 connections unbounded at 7 pods × 2 envs. A per-pod `BoundedSemaphore(5)` (0.3 s
+    acquire, else 503 `db_slots_exhausted`) caps it at 70. `CONNECTION LIMIT 35` per role backs
+    that up. 70 ≤ 97 (100 − 3 superuser-reserved). The time budget is 0.3 + 2.0 + 0.5 =
+    2.8 s. [M1-1, M1-2, ADR-020]
+12. pytest, pytest-asyncio and httpx move from `requirements.txt` (the runtime image) to
+    `requirements-dev.txt`; `ci.yml` installs both. [M1-1]
+13. Roles are created by an init `.sh` script: SQL on stdin, passwords read with psql
+    `\getenv`, never in argv or logs, and `log_min_error_statement = panic` for the session. [M1-2]
+14. The 24 h audit measurement is valid only if the boot ID (and the k3s start time) is unchanged
+    across the window. [M1-6]
+15. Probes use TCP (`pg_isready -h 127.0.0.1`), never the socket, because init runs on a
+    socket-only temporary server. [M1-2, ADR-020]
+16. / 18. dependency-db limits are provisional until the M1b Locust calibration. It passes only
+    with zero `db_slots_exhausted`, CFS throttled ÷ total periods ≤ 1%, and a working-set peak
+    ≤ 80% of the memory limit. [ADR-020, M1b]
+17. Plan-document fixes (rev 4). No task.
+19. The ConfigMap sets `defaultMode: 0555` explicitly. The entrypoint **executes** an executable
+    `*.sh` and sources a non-executable one. Test d mounts the script with the same mode and lines
+    up the probe timestamps against `init process complete`. [test d, M1-2]
+20. A half-initialised DB never goes Ready. The last line of `10-roles.sh` (under `set -e`)
+    writes `/var/lib/postgresql/data/.nexus-init-done`. Every probe runs
+    `sh -c 'pg_isready -h 127.0.0.1 -p 5432 -q && test -f <marker>'`. Test d covers the negative
+    case: failing init, PGDATA on a docker volume, `docker restart`. [test d, M1-2, ADR-020]
+21. The container is named `dependency-db`. Queries carry `namespace="nexus-data"`. An empty or
+    NaN result is a FAIL. [ADR-020, M1b]
+22. Test d positive case: the exact probe command in a timestamped loop, non-zero until
+    `init process complete`, then 0. [test d]
+23. The test d negative container runs without `--rm`. [test d]
+24. startupProbe `failureThreshold` is 150 (5 min at 2 s), since a mid-init kill with the marker is
+    a permanent CrashLoop. The init duration is recorded in test d and at the M1 exit rebuild.
+    ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, only with the owner's
+    approval. [test d, M1-2, ADR-020]
+
+**Phases**
+
+- **M1-0 — plan.**
+  - [x] Read-only live check: 6/6 Applications `Synced`/`Healthy`; `verify-state.sh --out
+    <scratch>` exit 0, 8/8, leak check clean.
+  - [x] Gate reports a–h delivered with this PR.
+  - [ ] This PR merged. **GATE M1-0.**
+- **Test d — offline Postgres test, which gates the M1-2 PR.**
+  - [ ] Owner enables Docker Desktop's WSL integration.
+  - [ ] Run the pinned `postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f`
+    (17.11) as UID 999, caps dropped, tmpfs for PGDATA and the socket, covering changes 15 and
+    19–24, the `NOLOGIN` error text, and 0 password hits in the logs. If `--read-only` is the only
+    cause of a failure, rerun without it.
+- **M1-1 — `sample-api` `/items`.**
+  - [ ] PR `feat(sample-api)`: changes 4, 10, 11 and 12; `psycopg[binary]`; tests; version 0.2.0.
+    No manifest change.
+- **M1-2 — dependency-db.**
+  - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
+    Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020.
+  - [ ] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
+    live cluster (approval first).
+- **M1-3 — scripts.**
+  - [ ] PR `feat(scripts)`, one commit each: `step_h` simultaneous-stable; `set -e`; step
+    timestamps; restart-count info line; `dependency-db-secrets.sh` + bootstrap call;
+    `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
+  - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
+- **M1-4 — DB live.**
+  - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
+  - [ ] `dev`→`main` gate PR (DB via ArgoCD; CI signs the new image), then the
+    `experiment/dev-state` forward-merge. **GATE M1-4.**
+- **M1-5 — `/items` live.**
+  - [ ] One commit: digest bump (`cosign verify` first) + DB env wiring (change 2).
+  - [ ] The `verify-state.sh` `/items` check (change 1).
+  - [ ] Gate PR, forward-merge, `verify-state.sh` live. **GATE M1-5.**
+- **M1-6 — exit.**
+  - [ ] S5 smoke test on `app_dev` (approval first): `/items` 503 in under 3 s with the `FATAL`
+    text in the log; `/ready` 200; prod unaffected; reset; DB `metadata.uid` and `restartCount`
+    unchanged.
+  - [ ] Audit-retention addendum (changes 7 and 14).
+  - [ ] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`).
+  - [ ] `CURRENT_STATE.md`, `CHANGELOG` `[0.2.0]`, tag `v0.2.0` (separate approval).
+    **GATE M1 exit.**
+
+## M1b — the rest of what the spec and TASKS tagged M1 (after M1, before M2)
+
+- The spec §3 Z-score recording rules and the four anomaly alerts, replacing the interim
+  `SampleAPIHighErrorRate`.
+- The `nexus` Application with the operator (§3, §25).
+- sample-api fault hooks `/fault/hang`, `/fault/inject-logs`, `/work/cpu` and `NEXUS_FAULTS_ENABLED`.
+- The §27 M1 verifications: the Kopf status-persistence/standalone spike; kube-state-metrics series
+  and the Alertmanager v2 API; CEL transition rules; the Locust capacity ramp and baseline
+  (this includes the change-16 dependency-db thresholds).
+
+## Later — out of scope for M1
+
 - `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
   wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
   (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
-- `verify-state.sh` could report each pod's container restart count as an informational line (not a
-  pass/fail condition) — useful for spotting flapping pods across a rebuild without turning a
-  transient restart into a false failure.
 - `observability`'s Application sync took ~17m47s against bootstrap.sh's own 1200s (20 min)
   `NEXUS_WAIT_TIMEOUT_OBSERVABILITY` budget in the 2026-09-26 from-empty rebuild — about 88% of the
   budget, driven by a Prometheus PVC provisioning retry and the kube-prometheus-stack
   admission-webhook hook Jobs running twice (evidence: `kubectl get events`, ADR-019/CHANGELOG).
   Not a failure this time, but close enough to the ceiling to revisit: raise the timeout, or look at
   why the webhook hooks re-run.
-- `bootstrap.sh`'s `step()` output has no wall-clock timestamps, so this rebuild's total-duration
-  and longest-wait numbers had to be reconstructed from `kubectl get events` (which expires on its
-  own TTL) rather than the log itself. Add a timestamp to each step header for durable, log-only
-  timing evidence on future rebuilds.
+  The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
+- Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
+  (change 7; the M1 ADR-019 addendum accepts about 10 days).
+- The WSL VM rebooted at 2026-09-26 20:57Z (`journalctl --list-boots`). All four sample-api
+  containers show last state `Unknown`, exit 255, at 20:59:58Z. The cluster recovered on its own
+  and the node IP was unchanged. Informational. Relevant to the run pre-checks and the discard
+  rules once experiments start.
 - `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
-- M1: sample-api fault hooks and `NEXUS_FAULTS_ENABLED`, `/items` and `dependency-db`, a readiness check that is local only.
 - M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
 - M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
-- M1: `dependency-db` (PostgreSQL StatefulSet in `nexus-data`) re-adds `apps/StatefulSet` to the AppProject whitelist; `nexus` Application with the operator.
 - M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
 - Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
 - `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
