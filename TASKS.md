@@ -354,13 +354,17 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     connect-time errors carry `sqlstate=None` (psycopg builds the `OperationalError` client-side),
     so the S5 evidence is the message text (`FATAL: role "app_dev" is not permitted to log in`),
     and the app has no message classifier.
-  - [ ] AppProject/Application ordering. Confirm, read-only against the live Applications
+  - [x] AppProject/Application ordering. Confirm, read-only against the live Applications
     (`.status.resources`), which Application owns the AppProject.
     - If `root`: `argocd.argoproj.io/sync-wave: "-1"` on the AppProject, in this PR.
     - If `platform`: no sync-wave (waves do not order across Applications; child Application
       health is not assessed by default, and enabling it is out of scope). Instead, write the
       M1-4 value of `NEXUS_VERIFY_APPS_TIMEOUT` into the M1-4 procedure, derived as reconcile
       delay + retry backoff + rollout + 60 s stable window.
+    - **Result (2026-09-27, read-only): `platform`.** Its `.status.resources` lists
+      `argoproj.io/AppProject argocd/nexus`, and the live AppProject's tracking-id is
+      `platform:argoproj.io/AppProject:argocd/nexus`. `root`'s `.status.resources` lists only the
+      five Applications. So no sync-wave; the timeout goes into M1-4 below.
   - [ ] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
     live cluster (approval first).
 - **M1-3 — scripts.**
@@ -423,6 +427,20 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
+  - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=760`**, recorded
+    in the report. Derivation (additive terms):
+    - Reconcile delay, 180 s: as in M1-3 commit 7.
+    - Retry backoff, 160 s: `root` (creates the `dependency-db` Application) and `platform` (adds
+      `apps/StatefulSet` to the AppProject) poll Git independently, so `dependency-db` can try to
+      sync up to 180 s before the AppProject allows a StatefulSet. With the live retry policy on
+      every Application (`limit: 10`, backoff 10 s × 2, `maxDuration: 3m`), sync attempts start at
+      +0, 10, 30, 70, 150 and 310 s after the first. The latest first attempt after the widening
+      is when `root` picks up the merge 30 s after it and `platform` 180 s after it:
+      30 + 310 = 340 s = 180 + 160.
+    - Rollout, 360 s, and stable window, 60 s: as in M1-3 commit 7.
+    - UNVERIFIED: that ArgoCD treats the project denial as a failed sync operation retried by this
+      policy, rather than re-evaluating on the AppProject change (faster). The M1-4 report's poll
+      log shows which.
   - [ ] `dev`→`main` gate PR (DB via ArgoCD; CI signs the new image), then the
     `experiment/dev-state` forward-merge. **GATE M1-4.**
 - **M1-5 — `/items` live.**
