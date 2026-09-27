@@ -135,5 +135,8 @@ can order it first; M1-4 uses a derived `NEXUS_VERIFY_APPS_TIMEOUT=820` instead 
   show it.
 - Any pod replacement loses the data and re-seeds it; that is intended.
 - A mid-init kill needs a manual, approved pod delete.
+- Until M3 there are no NetworkPolicies, so any pod in the cluster can reach
+  `dependency-db:5432` (plan assumption A5). Accepted: the roles still need passwords, and the
+  NetworkPolicies of spec §18 arrive in M3.
 - The resource figures and the pull allowance must be re-checked at M1-4 and at the M1b
   calibration.
