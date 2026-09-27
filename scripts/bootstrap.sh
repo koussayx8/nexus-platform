@@ -30,7 +30,11 @@
 # NEXUS_ARGOCD_ROLLOUT_TIMEOUT (default 600) covers each of the three ArgoCD rollout waits.
 # Exit codes: 0 success; 1 a step failed or refused to proceed; 2 script/argument error.
 
-set -uo pipefail
+# Every real command is checked explicitly and fails through fatal(), which names the step.
+# set -e is the backstop for any command that is not (TASKS.md M1-3 commit 2): the ERR trap names
+# its line and exits 1. -E carries the trap into functions; bash still skips it inside if/while
+# conditions and in any non-final part of a && or || list, so checked failures report only once.
+set -Eeuo pipefail
 
 PLAN=0
 for a in "$@"; do
@@ -97,6 +101,7 @@ step() {   # step <label> [SUDO]
 }
 
 fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
+trap 'echo "bootstrap: FATAL — unchecked command failed at line $LINENO (exit $?); set -e stopped the run" >&2; exit 1' ERR
 
 # run_cmd <label> [SUDO|""] -- <command...>
 # Prints the label and the exact command, then runs it unless --plan is set. Single source of
@@ -105,9 +110,9 @@ fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
 # hand instead, so the printed text and the executed text can never drift apart.
 #
 # A failing command is fatal, immediately, named by its label — this function does not merely
-# propagate an exit code for some caller to remember to check (nothing in this script relied on
-# `set -e`, whose semantics are suspended inside any if/while/&&/|| condition anyway, which is
-# exactly where several of this script's real command invocations live).
+# propagate an exit code for some caller to remember to check. `set -e` is only the backstop: its
+# semantics are suspended inside any if/while/&&/|| condition, which is exactly where several of
+# this script's real command invocations live.
 run_cmd() {
   local label=$1 tag=$2
   shift 2
@@ -393,12 +398,13 @@ step_d_argocd() {
     trap 'rm -f "$tmp"' EXIT
     ( umask 077
       kubectl -n argocd get secret argocd-initial-admin-secret \
-        -o go-template='{{.data.password | base64decode}}' > "$tmp" )
+        -o go-template='{{.data.password | base64decode}}' > "$tmp" ) \
+      || fatal "could not read a fresh ArgoCD admin password from argocd-initial-admin-secret"
     if [[ ! -s $tmp ]]; then
       fatal "could not read a fresh ArgoCD admin password from argocd-initial-admin-secret"
     fi
-    mv "$tmp" "$NEXUS_DIR/argocd-admin"
-    chmod 0600 "$NEXUS_DIR/argocd-admin"
+    mv "$tmp" "$NEXUS_DIR/argocd-admin" || fatal "moving the ArgoCD admin password into place failed"
+    chmod 0600 "$NEXUS_DIR/argocd-admin" || fatal "chmod on ~/.nexus/argocd-admin failed"
     trap - EXIT
   fi
 }
