@@ -66,6 +66,7 @@ for c in "${cases[@]}"; do
     source "$root/scripts/lib/readonly.sh"
     # shellcheck disable=SC1091
     source "$work/funcs.sh"
+    # shellcheck disable=SC2034  # read by v_items, sourced above
     ITEMS_NAMESPACES=$nss
     v_items
   )
@@ -74,7 +75,8 @@ for c in "${cases[@]}"; do
   if [[ $rc == "$want" ]] && grep -qE "$match" <<<"$out" && { [[ -z $nomatch ]] || ! grep -qE "$nomatch" <<<"$out"; }; then
     echo "PASS $name: rc=$rc"
   else
-    echo "FAIL $name: rc=$rc want=$want"; sed 's/^/  | /' <<<"$out"
+    echo "FAIL $name: rc=$rc want=$want"
+    while IFS= read -r line; do echo "  | $line"; done <<<"$out"
     failed=1
   fi
 done
