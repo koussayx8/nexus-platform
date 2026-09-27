@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dependency-db
+  labels:
+    app.kubernetes.io/name: dependency-db
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: database
+    app.kubernetes.io/version: "17.11"
+  annotations:
+    nexus.io/owner: koussay
+    nexus.io/adr: "ADR-020"
+spec:
+  serviceName: dependency-db-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dependency-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dependency-db
+        app.kubernetes.io/part-of: nexus-platform
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999               # postgres in the image (test d)
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dependency-db        # change 21: queries filter on this name
+          # postgres:17 (17.11) index digest, resolved at M1-0 (ADR-020).
+          image: postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: nexus
+            # A subdirectory: the emptyDir root is owned by root, and initdb must chmod PGDATA.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dependency-db
+                  key: postgres-password
+            - name: APP_DEV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dependency-db
+                  key: app-dev-password
+            - name: APP_PROD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dependency-db
+                  key: app-prod-password
+          # Provisional until the M1b Locust calibration (changes 16/18).
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # TCP, never the socket: init runs on a socket-only temporary server (change 15).
+          # The marker is written by the last line of 10-roles.sh, so a half-initialised DB
+          # never goes Ready (change 20). Probes do not authenticate, so S5 cannot fail them.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q && test -f /var/lib/postgresql/data/.nexus-init-done"]
+            periodSeconds: 2
+            failureThreshold: 150    # 5 min (change 24); coupled to the verify rollout term
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q && test -f /var/lib/postgresql/data/.nexus-init-done"]
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q && test -f /var/lib/postgresql/data/.nexus-init-done"]
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        # emptyDir (M1 Q1): survives container restarts, not pod replacement (change 9).
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: run
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: init
+          configMap:
+            name: dependency-db-init
+            defaultMode: 365           # 0555: the entrypoint executes, not sources, the script (change 19)

@@ -1,0 +1,20 @@
+# dependency-db: the PostgreSQL Dependency DB behind sample-api /items (spec §3, §20 S5; ADR-020).
+# One environment, in nexus-data. The init script ships as a generated ConfigMap, so a change to
+# it rolls the pod, which gets a fresh emptyDir and a clean init.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus-data
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - statefulset.yaml
+  - service.yaml
+
+configMapGenerator:
+  - name: dependency-db-init
+    files:
+      - 10-roles.sh
