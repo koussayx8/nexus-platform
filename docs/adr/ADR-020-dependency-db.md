@@ -161,3 +161,50 @@ rebuild.
 
 The idle DB's CFS throttling (~23 % of active periods, from probe bursts) is recorded in
 `TASKS.md` M1b; it changes no limit here.
+
+## Addendum (2026-09-27, GATE M1-5): the reconcile term is 480 s, not 180 s
+
+**Measured pickup delay** (merge or push → the Application's `.status.sync.revision` at the new
+commit, from the `verify-state.sh` poll logs, 5 s resolution):
+
+| Event | Pickups |
+|---|---|
+| M1-4, #74 merge | `platform` 242 s, `root` 356 s |
+| M1-5, #76 merge | `root` and `sample-api-prod` 262 s, `dependency-db` 269 s, `kyverno` and `observability` 352 s, `platform` **382 s** |
+| M1-5, forward-merge push | `sample-api-dev` 315 s |
+
+Every one exceeds the 180 s term.
+
+**Cause (read-only, ArgoCD v3.3.8 source and live config).** A second cache sits in front of the
+controller's poll:
+- The controller refreshes each Application every `timeout.reconciliation` 120 s plus up to
+  `timeout.reconciliation.jitter` 60 s (`defaultAppResyncPeriod = 120`, `defaultAppResyncPeriodJitter
+  = 60`).
+- The repo-server caches each repository's resolved Git references (branch → SHA) for
+  `--revision-cache-expiration`. Its default is `ARGOCD_RECONCILIATION_TIMEOUT`, else 3 min
+  (`reposerver/cache/cache.go`).
+- Live: `argocd-cm` and `argocd-cmd-params-cm` set none of these keys. The repo-server's
+  `ARGOCD_RECONCILIATION_TIMEOUT` is an optional reference to the absent `timeout.reconciliation`,
+  so the 3 min default applies.
+- Worst case: a reference cache filled just before the push serves the old SHA for up to 180 s.
+  The next controller refresh then comes up to 180 s later: 360 s, plus comparison time. The
+  measured 382 s is within 5 s polling plus that time.
+
+**Re-derived** (reconcile term 480 s = the measured worst case 382 s plus about 25 % margin,
+equivalently the 360 s model plus 120 s):
+
+| Value | Before | Now | Derivation |
+|---|---|---|---|
+| Rollout | 600 s | 600 s | unchanged |
+| `verify-state.sh` default | 840 s | **1140 s** | 480 + 600 + 60 |
+| M1-4-style bound | 1000 s | **1300 s** | 480 + 160 + 600 + 60 |
+| `bootstrap.sh` DB wait | 900 s | 900 s | unchanged: no Git-pickup term, since bootstrap creates the Applications from an empty cache |
+
+The 160 s retry term is unchanged. `root` and `platform` track the same repository, so they share
+one reference cache entry and see the new SHA at the same moment. Their pickups can then differ
+only by the controller's 180 s refresh window, which is what the 160 s term assumed.
+
+**Coupling rule, extended:** the four values derive from the startupProbe budget, the pull
+allowance and the reconcile term. Changing any of the three means re-deriving all four. Setting
+`timeout.reconciliation` or `reposerver.revision.cache.expiration` would change the reconcile term,
+and is out of scope here.
