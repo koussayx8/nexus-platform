@@ -96,8 +96,13 @@ timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in
 # ---------------------------------------------------------------------------------------
 # Plumbing
 # ---------------------------------------------------------------------------------------
+# Every step header carries its UTC wall-clock start (TASKS.md M1-3 commit 3), so a rebuild's
+# durations can be read from the log alone. Bash's printf %()T builtin, not date: --plan must call
+# no external tool.
 step() {   # step <label> [SUDO]
-  if [[ -n ${2:-} ]]; then printf '\n[%s] %s\n' "$2" "$1"; else printf '\n%s\n' "$1"; fi
+  local ts
+  TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  if [[ -n ${2:-} ]]; then printf '\n%s [%s] %s\n' "$ts" "$2" "$1"; else printf '\n%s %s\n' "$ts" "$1"; fi
 }
 
 fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
