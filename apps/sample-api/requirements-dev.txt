@@ -1,2 +1,7 @@
 # Development tools for sample-api, installed by CI (not by the image).
 ruff==0.16.9
+
+# Testing
+httpx>=0.27.0
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
