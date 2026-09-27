@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-2 — dependency-db PR. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27.
+**Current phase:** M1-3 — scripts PR. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`).
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -352,7 +352,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [x] PR `feat(sample-api)` (#69, merge `fb047e1`): changes 4, 10, 11 and 12; `psycopg[binary]`; tests; version 0.2.0.
     No manifest change.
 - **M1-2 — dependency-db.**
-  - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
+  - [x] PR `feat(dependency-db)` (#70, merge `05e859a`): StatefulSet, headless and ClusterIP Service, init ConfigMap,
     Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020. ADR-020 also
     records that the `verify-state.sh` rollout term (420 s) is derived from the startupProbe
     budget (change 24): changing one means re-deriving the other. It also records that
@@ -370,8 +370,14 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
       `argoproj.io/AppProject argocd/nexus`, and the live AppProject's tracking-id is
       `platform:argoproj.io/AppProject:argocd/nexus`. `root`'s `.status.resources` lists only the
       five Applications. So no sync-wave; the timeout goes into M1-4 below.
-  - [ ] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
+  - [x] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
     live cluster (approval first).
+    - kustomize + kubeconform `-strict` locally and in `repo-checks`; the render check in
+      `repo-checks` (`dependency-db: project=nexus objects=4`).
+    - Server-side dry-run, run by the owner on 2026-09-27: all 7 objects `(server dry run)`, no
+      PodSecurity warning (`nexus-data` is `enforce`/`warn`/`audit` `restricted`), and a Pod built
+      from the StatefulSet template admitted under `enforce`. The only warning was the API
+      server's generic one on the ArgoCD finalizer name.
 - **M1-3 — scripts.**
   - [ ] PR `feat(scripts)`, one commit each:
     1. `step_h` simultaneous-stable. It adds the shared predicate `scripts/lib/apps-stable.jq`, a
