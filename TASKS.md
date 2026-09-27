@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-5 — `/items` live. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`).
+**Current phase:** M1-6 — exit (plan first). M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`); M1-5 done (#76, `ee39cef`).
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -509,16 +509,35 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     - k3s Secrets encryption at rest: `Disabled` on the live cluster (owner's
       `sudo k3s secrets-encrypt status`); `bootstrap.sh` enables it from the M1 exit rebuild
       (ADR-019 addendum).
-  - [ ] Docs commit: this section, M1-4 ticked, the ADR-020 coupling rule, the ADR-019 addendum.
-  - [ ] Scripts commit: `verify-state.sh` default 840 s; `bootstrap.sh` DB wait 900 s;
-    `secrets-encryption: true` in `bootstrap.sh`'s k3s config.
-  - [ ] One commit: digest bump (`cosign verify` first) + DB env wiring (change 2).
-  - [ ] The `verify-state.sh` `/items` check (change 1). A setting limits it to `nexus-prod`;
-    both namespaces by default.
-  - [ ] Gate PR, forward-merge, `verify-state.sh` live. **GATE M1-5.**
-    - Run 1, after the `main` merge: `/items` on `nexus-prod` only (`nexus-dev` still runs the old
-      image until the forward-merge).
-    - Run 2, after the forward-merge: both namespaces.
+  - [x] Docs commit (`514a9e9`): this section, M1-4 ticked, the ADR-020 coupling rule, the
+    ADR-019 addendum (owner's verbatim evidence added in `d90678d`).
+  - [x] Scripts commit (`1797bb6`): `verify-state.sh` default 840 s; `bootstrap.sh` DB wait 900 s;
+    `secrets-encryption: true` in `bootstrap.sh`'s k3s config. shellcheck v0.11.0: no warnings.
+  - [x] One commit (`5ffe85f`): digest bump + DB env wiring (change 2). `cosign verify` (v2.5.2, as the
+    sign job) with the exact identity `…/ci.yml@refs/heads/main` and issuer
+    `https://token.actions.githubusercontent.com`: exit 0, workflow SHA `87e3ab3`.
+  - [x] The `verify-state.sh` `/items` check (`63f66e2`, change 1), `NEXUS_VERIFY_ITEMS_NAMESPACES`;
+    offline tests run by `repo-checks` (`999918e`). Deployment version label 0.2.0 (`34e4eac`).
+  - [x] PR #75 → `dev` (merge `b652725`); gate PR #76 → `main` (merge `ee39cef`,
+    2026-09-27T15:50:14Z); forward-merge `23d0b84` (local `--no-ff`, tree equal to `ee39cef`, pushed
+    `9bfa5ff..23d0b84`). **GATE M1-5** — passed (owner, 2026-09-27).
+    - Run 1 (`nexus-prod` only, 840 s): **failed**, 8/10, not caused by M1-5 (incident below).
+      Rerun 16:23:18 → 16:24:39Z: exit 0, 10/10; M1 stable 60 s after 61 s. prod rolled one pod at
+      a time to `8ea896c2` (15:54:37 → 15:55:56Z), restarts 0, `DB_USER=app_prod`; `/items` 200,
+      rows=20; dev skipped.
+    - Run 2 (both namespaces, 840 s): 16:27:32 → 16:33:43Z, exit 0, 10/10; M1 stable 61 s after
+      356 s. dev rolled one pod at a time (16:32:03 → 16:32:33Z), restarts 0, `DB_USER=app_dev`;
+      `/items` 200, rows=20 in both namespaces.
+    - Every run: `dependency-db-0` uid `7fff600d…`, restartCount 0; 0 `db_error` in the new pods;
+      leak checks 0; wall-clock vs `/proc/uptime` within 2.58 s (no VM pause).
+  - Incident, run 1 (owner accepted it as not caused by M1-5): the owner's open Grafana dashboards,
+    through a port-forward, drove the `grafana` container to its 200m CPU limit from 15:38–15:42Z
+    (before the merge), throttled in 99 % of periods. Liveness kill 15:45:42Z; the readiness probe
+    (1 s timeout) then failed 123×; working set 270 → 483 MiB (limit 512 MiB). `observability`
+    flapped `Healthy`/`Progressing`, so M1 and M6 failed. The owner closed the tab and the
+    port-forward; the rerun waited for 5 min of Grafana Ready + `observability` Healthy + CPU < 50m
+    (306 s held) and a working set ≤ 450 MiB (207 MiB).
+  - Incident, step 3: an unprompted live `verify-state.sh` run (guard-model Later item).
 - **M1-6 — exit.**
   - **WSL2 VM pause rule** (added at M1-4): a host sleep changes neither `boot_id` nor k3s's start
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
@@ -558,6 +577,15 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
   `cosign verify`.
+- **Gate rule until the Grafana limits are fixed:** no Grafana dashboards open (no Grafana
+  port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
+- Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
+  `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
+  readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
+  **before the M1b calibration**.
+- Set the sample-api rollout strategy explicitly before any scaling. Today it is the default
+  `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
+  replicas `maxUnavailable` becomes ≥ 1.
 - Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
   command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
