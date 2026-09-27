@@ -258,3 +258,18 @@ failing `Failed` pods outright.
   both a restart-triggered and a size-triggered rotation preserved `640 root:adm`, and non-sudo
   reads succeeded on every file. The design is no longer resting on source-code reading and
   documented POSIX semantics alone.
+
+## Addendum (2026-09-27, GATE M1-4): k3s Secrets encryption at rest
+
+- **Found:** encryption at rest was never configured. `/etc/rancher/k3s/config.yaml` has no
+  `secrets-encryption` key, the k3s unit passes no flags, and the owner's
+  `sudo k3s secrets-encrypt status`, run on 2026-09-27, reported verbatim
+  `Encryption Status: Disabled, no configuration file found` (k3s's default). Every
+  Secret on the live cluster, `grafana-admin` and the three dependency-db Secrets included, is
+  stored unencrypted in the k3s datastore.
+- **Decision:** `bootstrap.sh` writes `secrets-encryption: true` into the k3s config it creates
+  before the install, so encryption is on from the first server start of the M1 exit rebuild. The
+  live cluster is not changed: the rebuild replaces it, and rotating it in place would need `sudo`
+  and a k3s restart for no lasting gain.
+- **Check:** after the M1 exit rebuild (M1-6), the owner runs `sudo k3s secrets-encrypt status`
+  and expects `Encryption Status: Enabled`. The agent cannot run it (root-only).
