@@ -439,6 +439,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
          that case, set a larger bound with the env var and record the value used in the report.
     - Also in this PR: ADR-020 states that the owner runs the change 24 recovery delete.
   - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
+- **M1-4, M1-5 and M1-6 — permission mode.** Claude Code runs in default mode, not bypass. At
+  the start of each session for these phases, report the permission mode, and stop if it is
+  bypass.
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
   - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=820`**, recorded
@@ -482,6 +485,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 
 ## Later — out of scope for M1
 
+- Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
+  Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
+  v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
+  `cosign verify`.
 - Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
   command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
