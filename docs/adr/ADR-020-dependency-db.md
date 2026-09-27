@@ -19,11 +19,16 @@ rev 5, changes 1–24) fixed the design; this ADR records it with the evidence f
   `runAsNonRoot`, `fsGroup: 999`, all capabilities dropped, no privilege escalation, seccomp
   `RuntimeDefault`: PSS `restricted`, which `nexus-data` enforces.
 - **`emptyDir`** for the data and the socket directory (M1 Q1). The DB holds only seeded rows.
-- **`PGDATA=/var/lib/postgresql/data/pgdata`**, a subdirectory of the data `emptyDir`. The
-  `emptyDir` root is owned by root (mode 2777, group 999 with `fsGroup`), and initdb must `chmod`
-  PGDATA. Test d with a root-owned 2777 mount: PGDATA at the mount root fails
-  (`initdb: error: could not change permissions of directory "/var/lib/postgresql/data":
-  Operation not permitted`); the subdirectory initialises and goes Ready.
+- **`PGDATA=/var/lib/postgresql/data/pgdata`**, a subdirectory of the data `emptyDir`.
+  - Why: the kubelet creates the `emptyDir` root and owns it (root, mode 2777, group 999 through
+    `fsGroup`). initdb must `chmod` PGDATA to 0700, and UID 999 cannot `chmod` a directory it
+    does not own. A subdirectory that the entrypoint creates is owned by 999, so initdb can.
+  - Evidence, test d with a root-owned 2777 mount: PGDATA at the mount root fails
+    (`initdb: error: could not change permissions of directory "/var/lib/postgresql/data":
+    Operation not permitted`); the subdirectory initialises and goes Ready.
+  - The init marker sits at the volume root (`/var/lib/postgresql/data/.nexus-init-done`), not
+    inside PGDATA. It is on the same `emptyDir`, so it has the lifecycle change 20 intends: it
+    survives a container restart together with PGDATA, and a pod replacement removes both.
 - One replica, StatefulSet `dependency-db` in `nexus-data`, container named `dependency-db`;
   a headless Service (`dependency-db-headless`) and a ClusterIP Service `dependency-db:5432`.
 
