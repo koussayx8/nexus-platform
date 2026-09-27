@@ -473,6 +473,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 
 ## Later — out of scope for M1
 
+- No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
+  `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
+  shellcheck step to `repo-checks`.
 - sample-api runtime requirements use `>=`, so a signed image's contents depend on the build day
   (the psycopg tested in M1-1, 3.3.6, may differ from what M1-4 builds). Consider a lock file with
   hashes.
