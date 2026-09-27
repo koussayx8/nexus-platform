@@ -47,7 +47,9 @@
       "Bash(git branch *)",
       "Bash(git tag *)",
       "Bash(kubectl port-forward *)",
-      "Bash(kubectl exec *)"
+      "Bash(kubectl exec *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh api *)"
     ]
   }
 }

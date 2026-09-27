@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dependency-db
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: database
+  annotations:
+    nexus.io/adr: "ADR-020"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: nexus
+  source:
+    repoURL: https://github.com/koussayx8/nexus-platform.git
+    targetRevision: main
+    path: apps/dependency-db
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nexus-data          # declared, with its level, by the platform Application
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }

@@ -4,13 +4,15 @@
 # Spec §25/§27, TASKS.md M0-5 item 2. Unlike capture-state.sh's check() (findings never fail
 # the run), every verify() call here drives the script's own exit code: non-zero on any failure.
 #
-# M0 scope only (TASKS.md M0-5): Application health, one default Grafana datasource, no
+# M0 scope (TASKS.md M0-5): Application health, one default Grafana datasource, no
 # Loki/Crossplane/sample-db, the sample-api digest and /metrics, namespace autonomy levels,
-# pod readiness, the audit-log probe, and the Kill Switch. K1-K6, the Incident CRD/CEL, operator
-# and Reasoner readiness and N1-N6 arrive with their milestones (TASKS.md "Later").
+# pod readiness, the audit-log probe, and the Kill Switch. M1 (TASKS.md M1-3) adds the
+# dependency-db Application and pod, and informational container restart counts. K1-K6, the
+# Incident CRD/CEL, operator and Reasoner readiness and N1-N6 arrive with their milestones.
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
+# Env: NEXUS_VERIFY_APPS_TIMEOUT (default 660) bounds the M1 retry window, in seconds.
 #
 # Exit codes: 0 every check passed; 1 at least one check failed; 2 script error.
 
@@ -63,24 +65,87 @@ verify() {
   [[ -n $detail ]] && { printf '%s\n' "$detail" | sed 's/^/       /'; log '```'; log "$detail"; log '```'; }
 }
 
+# info <id> <description> <function> [args...]
+# Informational only: reported like verify(), but never counted as a pass or a failure.
+info() {
+  local id=$1 desc=$2 detail
+  shift 2
+  detail=$("$@" 2>&1)
+  printf '[INFO] %-4s %s\n' "$id" "$desc"
+  log "### $id — $desc — INFO"
+  [[ -n $detail ]] && { printf '%s\n' "$detail" | sed 's/^/       /'; log '```'; log "$detail"; log '```'; }
+  return 0
+}
+
 # ---------------------------------------------------------------------------
-# M1. Every Application Synced and Healthy.
+# Expected commits. Each Application tracks a branch (ADR-013/ADR-017): sample-api-dev ->
+# experiment/dev-state, every other one -> main. Reading the local checkout would check whatever
+# happens to be checked out here, so M1 and M4 read origin/<branch> after one explicit fetch at the
+# start of the run. This is the one deliberate exception to the shared g() wrapper's "never
+# fetch": fetch only updates remote-tracking refs, it never touches the working tree.
 # ---------------------------------------------------------------------------
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
+FETCH_OK=0
+git fetch origin main experiment/dev-state >/dev/null 2>&1 && FETCH_OK=1
+
+# ---------------------------------------------------------------------------
+# M1. Every Application Synced, Healthy and at the expected commit, in one snapshot, held for
+# 60 s (TASKS.md M1-3 commit 7). Judged by the same predicate as bootstrap.sh step h,
+# scripts/lib/apps-stable.jq: `Synced` alone is relative to the last revision ArgoCD fetched, so
+# for up to ~180 s after a merge every app is Synced/Healthy at the old commit.
+#
+# Polls every 5 s and passes only after 60 s of consecutive true snapshots, never on the first
+# success; any false snapshot resets the streak. At the bound it fails with the last snapshot.
+# Every poll is written to the report. Read-only: no refresh annotation.
+#
+# Bound NEXUS_VERIFY_APPS_TIMEOUT, default 660 s, derived as additive terms (ADR-020):
+#   reconcile delay 180 s  ArgoCD polls Git every timeout.reconciliation 120 s + up to 60 s jitter;
+#                          argocd-server is ClusterIP with no Ingress, so no webhook (ADR-014)
+#   rollout         420 s  dependency-db's first start: startupProbe 150 x 2 s + a 120 s image pull
+#   stable window    60 s
+# Not included: sync-retry backoff after a failed sync (M1-4 uses 820 s, TASKS.md). Changing the
+# startupProbe budget or the pull allowance means re-deriving this default.
+# ---------------------------------------------------------------------------
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
+REPO_URL=https://github.com/koussayx8/nexus-platform.git
+APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
+APPS_TIMEOUT=${NEXUS_VERIFY_APPS_TIMEOUT:-660}
+STABLE_WINDOW=60
+POLL_INTERVAL=5
+
 v_applications() {
-  local name sync health rc=0 jf ef
-  jf=$(mktemp); ef=$(mktemp)
-  for name in "${EXPECTED_APPS[@]}"; do
-    if ! k get "applications.argoproj.io/$name" -n argocd -o json >"$jf" 2>"$ef"; then
-      echo "$name: NOT FOUND ($(cat "$ef"))"; rc=1; continue
+  local main devstate start elapsed streak streak_start=-1 snap detail stable
+  (( FETCH_OK )) || { echo "git fetch origin main experiment/dev-state failed: the expected commits are unknown"; return 1; }
+  main=$(git rev-parse origin/main) || return 1
+  devstate=$(git rev-parse origin/experiment/dev-state) || return 1
+  echo "expected: origin/main=$main origin/experiment/dev-state=$devstate"
+  echo "bound ${APPS_TIMEOUT}s (NEXUS_VERIFY_APPS_TIMEOUT), stable window ${STABLE_WINDOW}s, poll every ${POLL_INTERVAL}s"
+  start=$(date +%s)
+  while :; do
+    snap=$(k get applications.argoproj.io -n argocd -o json 2>/dev/null) || snap='{"items":[]}'
+    detail=$(jq -c -f "$APPS_STABLE_JQ" --arg names "${EXPECTED_APPS[*]}" --arg repo "$REPO_URL" \
+      --arg main "$main" --arg devstate "$devstate" --arg detail 1 <<<"$snap") \
+      || { echo "evaluating $APPS_STABLE_JQ failed"; return 1; }
+    stable=$(jq -r '.stable' <<<"$detail")
+    elapsed=$(( $(date +%s) - start ))
+    if [[ $stable == true ]]; then
+      if (( streak_start < 0 )); then streak_start=$elapsed; fi
+      streak=$(( elapsed - streak_start ))
+    else
+      streak_start=-1; streak=0
     fi
-    sync=$(jq -r '.status.sync.status // "-"' "$jf")
-    health=$(jq -r '.status.health.status // "-"' "$jf")
-    echo "$name: sync=$sync health=$health"
-    [[ $sync == Synced && $health == Healthy ]] || rc=1
+    printf '%s predicate=%s streak=%ss | %s\n' "$(date -u +%FT%TZ)" "$stable" "$streak" \
+      "$(jq -r '[.apps[] | "\(.name) \(.sync // "-")/\(.health // "-") expected=\(.expected[0:7]) observed=\((.observed // ["-"]) | map(. // "-" | .[0:7]) | join(","))"] | join("; ")' <<<"$detail")"
+    if [[ $stable == true ]] && (( streak >= STABLE_WINDOW )); then
+      echo "stable at the expected commits for ${streak}s (after ${elapsed}s)"
+      return 0
+    fi
+    if (( elapsed >= APPS_TIMEOUT )); then
+      echo "not stable for ${STABLE_WINDOW}s within the ${APPS_TIMEOUT}s bound; last snapshot:"
+      jq -r '.apps[] | "\(.name): sync=\(.sync // "-") health=\(.health // "-") expected=\(.expected) observed=\((.observed // ["-"]) | map(. // "-") | join(",")) ok=\(.ok)"' <<<"$detail"
+      return 1
+    fi
+    sleep "$POLL_INTERVAL"
   done
-  rm -f "$jf" "$ef"
-  return $rc
 }
 
 # ---------------------------------------------------------------------------
@@ -110,16 +175,11 @@ v_no_removed() {
 
 # ---------------------------------------------------------------------------
 # M4. sample-api: running digest matches Git; /metrics 200 with the two metric names.
-# The digest is pinned per overlay (ADR-017), not in the base. Each namespace's Application
-# tracks a different branch (ADR-013/ADR-017): sample-api-dev -> experiment/dev-state,
-# sample-api-prod -> main. Reading from the local checkout would check whatever happens to be
-# checked out here, which is neither of those — so this reads origin/<branch> after an explicit
-# fetch. This is the one deliberate exception to the shared g() wrapper's "never fetch": fetch
-# only updates remote-tracking refs, it never touches the working tree.
+# The digest is pinned per overlay (ADR-017), not in the base, and read from origin/<branch>
+# after the fetch at the start of the run (see "Expected commits" above).
 # ---------------------------------------------------------------------------
 v_sample_api() {
   local rc=0
-  git fetch origin main experiment/dev-state >/dev/null 2>&1
   local pairs=("nexus-dev experiment/dev-state dev" "nexus-prod main prod")
   local pair ns branch overlay git_digest
   for pair in "${pairs[@]}"; do
@@ -255,6 +315,39 @@ v_killswitch() {
 }
 
 # ---------------------------------------------------------------------------
+# M9. The Dependency DB pod is Ready (TASKS.md M1-3 commit 6; ADR-020). Its probes need TCP
+# pg_isready and the init marker, so Ready means a completed init. The pod's uid and restartCount
+# are printed for the S5 discard rule (change 9).
+# ---------------------------------------------------------------------------
+v_dependency_db() {
+  local jf rc=0 phase ready uid restarts
+  jf=$(mktemp)
+  if ! k get pod dependency-db-0 -n nexus-data -o json >"$jf" 2>/dev/null; then
+    echo "nexus-data/dependency-db-0: NOT FOUND"; rm -f "$jf"; return 1
+  fi
+  phase=$(jq -r '.status.phase // "-"' "$jf")
+  ready=$(jq -r '[.status.containerStatuses[]? | select(.name == "dependency-db") | .ready][0] // false' "$jf")
+  uid=$(jq -r '.metadata.uid // "-"' "$jf")
+  restarts=$(jq -r '[.status.containerStatuses[]? | select(.name == "dependency-db") | .restartCount][0] // "-"' "$jf")
+  echo "nexus-data/dependency-db-0: phase=$phase ready=$ready uid=$uid restartCount=$restarts"
+  [[ $phase == Running && $ready == true ]] || rc=1
+  rm -f "$jf"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
+# across a rebuild without turning a transient restart into a failure.
+# ---------------------------------------------------------------------------
+v_restart_counts() {
+  k get pods -A -o json 2>/dev/null | jq -r '
+    [.items[] | {pod: "\(.metadata.namespace)/\(.metadata.name)",
+                 c: [.status.containerStatuses[]? | {name, restarts: .restartCount}]}] as $pods
+    | ($pods[] | "\(.pod): " + ([.c[] | "\(.name)=\(.restarts)"] | join(" "))),
+      "\($pods | length) pods; \([$pods[].c[] | select(.restarts > 0)] | length) containers restarted at least once"'
+}
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 log "# NEXUS — Current State"
@@ -262,7 +355,8 @@ log ""
 log "Generated $(date -u +%FT%TZ) by \`scripts/verify-state.sh\`. Never hand-edited (spec §25)."
 log ""
 
-verify M1 "Applications Synced and Healthy"              v_applications
+echo "verify-state: M1 polls every ${POLL_INTERVAL}s until every Application is stable at the expected commit for ${STABLE_WINDOW}s (bound ${APPS_TIMEOUT}s)"
+verify M1 "Applications stable at the expected commits"  v_applications
 verify M2 "Exactly one default Grafana datasource"       v_grafana_default
 verify M3 "No Loki, Crossplane, or sample-db"            v_no_removed
 verify M4 "sample-api digest and /metrics"               v_sample_api
@@ -270,6 +364,8 @@ verify M5 "Namespace autonomy levels (ADR-018)"          v_namespace_levels
 verify M6 "Pod readiness (Succeeded pods skipped)"       v_pod_readiness
 verify M7 "Audit log probe (§14)"                        v_audit_probe
 verify M8 "Kill Switch active"                           v_killswitch
+verify M9 "Dependency DB pod Ready"                      v_dependency_db
+info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""
 log "## Summary"
