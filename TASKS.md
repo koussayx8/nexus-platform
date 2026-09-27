@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-0 — plan recorded (this PR), waiting at GATE M1-0.
+**Current phase:** M1-1 — `sample-api` `/items` PR. M1-0 done (#68, merge `7cc5811`). Test d blocked on Docker's WSL integration.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -327,7 +327,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 24. startupProbe `failureThreshold` is 150 (5 min at 2 s), since a mid-init kill with the marker is
     a permanent CrashLoop. The init duration is recorded in test d and at the M1 exit rebuild.
     ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, only with the owner's
-    approval. [test d, M1-2, ADR-020]
+    approval. The `verify-state.sh` rollout term (360 s, M1-3 commit 7) is derived from this
+    startupProbe budget: changing one means re-deriving the other. [test d, M1-2, M1-3, ADR-020]
 
 **Phases**
 
@@ -335,7 +336,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [x] Read-only live check: 6/6 Applications `Synced`/`Healthy`; `verify-state.sh --out
     <scratch>` exit 0, 8/8, leak check clean.
   - [x] Gate reports a–h delivered with this PR.
-  - [ ] This PR merged. **GATE M1-0.**
+  - [x] This PR merged (#68, merge `7cc5811`). **GATE M1-0.**
 - **Test d — offline Postgres test, which gates the M1-2 PR.**
   - [ ] Owner enables Docker Desktop's WSL integration.
   - [ ] Run the pinned `postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f`
@@ -347,7 +348,16 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     No manifest change.
 - **M1-2 — dependency-db.**
   - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
-    Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020.
+    Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020. ADR-020 also
+    records that the `verify-state.sh` rollout term (360 s) is derived from the startupProbe
+    budget (change 24): changing one means re-deriving the other.
+  - [ ] AppProject/Application ordering. Confirm, read-only against the live Applications
+    (`.status.resources`), which Application owns the AppProject.
+    - If `root`: `argocd.argoproj.io/sync-wave: "-1"` on the AppProject, in this PR.
+    - If `platform`: no sync-wave (waves do not order across Applications; child Application
+      health is not assessed by default, and enabling it is out of scope). Instead, write the
+      M1-4 value of `NEXUS_VERIFY_APPS_TIMEOUT` into the M1-4 procedure, derived as reconcile
+      delay + retry backoff + rollout + 60 s stable window.
   - [ ] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
     live cluster (approval first).
 - **M1-3 — scripts.**
@@ -376,6 +386,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
          only wait for ArgoCD's own reconcile.
        - `step_h` polls it every 5 s and passes only after 60 s of consecutive true snapshots; any
          false resets the streak. Per-app timeouts stay the outer bound.
+       - Offline fixture tests for `apps-stable.jq`, run in `repo-checks`, same commit. Five
+         cases: all apps at the expected SHA → true; one app at the old SHA → false; chart + Git
+         multi-source → true; `revisions` shorter than `sources` → false; `repoURL` mismatch (for
+         example a missing or extra `.git` suffix) → false.
     2. `set -e`.
     3. Step timestamps.
     4. Restart-count info line.
