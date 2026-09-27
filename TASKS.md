@@ -350,7 +350,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
     Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020. ADR-020 also
     records that the `verify-state.sh` rollout term (360 s) is derived from the startupProbe
-    budget (change 24): changing one means re-deriving the other.
+    budget (change 24): changing one means re-deriving the other. It also records that
+    connect-time errors carry `sqlstate=None` (psycopg builds the `OperationalError` client-side),
+    so the S5 evidence is the message text (`FATAL: role "app_dev" is not permitted to log in`),
+    and the app has no message classifier.
   - [ ] AppProject/Application ordering. Confirm, read-only against the live Applications
     (`.status.resources`), which Application owns the AppProject.
     - If `root`: `argocd.argoproj.io/sync-wave: "-1"` on the AppProject, in this PR.
@@ -447,6 +450,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 
 ## Later — out of scope for M1
 
+- sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
+  starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
+  Move the test client off `httpx` before Starlette drops support for it.
 - `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
   wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
   (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
