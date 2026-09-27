@@ -7,12 +7,15 @@
 # M0 scope (TASKS.md M0-5): Application health, one default Grafana datasource, no
 # Loki/Crossplane/sample-db, the sample-api digest and /metrics, namespace autonomy levels,
 # pod readiness, the audit-log probe, and the Kill Switch. M1 (TASKS.md M1-3) adds the
-# dependency-db Application and pod, and informational container restart counts. K1-K6, the
+# dependency-db Application and pod, and informational container restart counts; M1-5 adds the
+# sample-api /items check against the Dependency DB. K1-K6, the
 # Incident CRD/CEL, operator and Reasoner readiness and N1-N6 arrive with their milestones.
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
 # Env: NEXUS_VERIFY_APPS_TIMEOUT (default 840) bounds the M1 retry window, in seconds.
+#      NEXUS_VERIFY_ITEMS_NAMESPACES (default "nexus-dev nexus-prod") limits the M10 /items check;
+#      any value outside those two is a script error.
 #
 # Exit codes: 0 every check passed; 1 at least one check failed; 2 script error.
 
@@ -29,6 +32,15 @@ while (( i < ${#args[@]} )); do
   i=$((i+1))
 done
 [[ -n $OUT_PATH ]] || { echo "verify-state: --out needs a path" >&2; exit 2; }
+
+ITEMS_NAMESPACES=${NEXUS_VERIFY_ITEMS_NAMESPACES:-nexus-dev nexus-prod}
+[[ -n ${ITEMS_NAMESPACES//[[:space:]]/} ]] || { echo "verify-state: NEXUS_VERIFY_ITEMS_NAMESPACES names no namespace" >&2; exit 2; }
+for ns in $ITEMS_NAMESPACES; do
+  case $ns in
+    nexus-dev|nexus-prod) ;;
+    *) echo "verify-state: NEXUS_VERIFY_ITEMS_NAMESPACES: unknown namespace $ns (nexus-dev, nexus-prod)" >&2; exit 2 ;;
+  esac
+done
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "verify-state: not inside a git repository" >&2; exit 2; }
 cd "$REPO_ROOT" || exit 2
@@ -337,6 +349,48 @@ v_dependency_db() {
 }
 
 # ---------------------------------------------------------------------------
+# M10. sample-api /items reads the Dependency DB (TASKS.md M1-5, change 1): HTTP 200 with at least
+# one row, per namespace in NEXUS_VERIFY_ITEMS_NAMESPACES. M1-5 run 1 sets nexus-prod only: until
+# the forward-merge, nexus-dev still runs the image without /items. A skipped namespace is named in
+# the report. Only the status, the row count and the app's own error code are printed, never rows.
+# ---------------------------------------------------------------------------
+v_items() {
+  local rc=0 ns
+  for ns in nexus-dev nexus-prod; do
+    if [[ " $ITEMS_NAMESPACES " != *" $ns "* ]]; then
+      echo "$ns: skipped (NEXUS_VERIFY_ITEMS_NAMESPACES=$ITEMS_NAMESPACES)"
+      continue
+    fi
+    v_items_probe "$ns" || rc=1
+  done
+  return $rc
+}
+
+v_items_probe() {   # <namespace> — temporary port-forward, stopped after, timeout-bounded
+  local ns=$1 port lport body pid i code rows err ok=0
+  port=$(k get svc sample-api -n "$ns" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
+  [[ -n $port ]] || { echo "$ns: no sample-api Service"; return 1; }
+  lport=$(( 20000 + RANDOM % 20000 ))
+  body=$(mktemp)
+  timeout 30 kubectl --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
+  pid=$!
+  trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' RETURN
+  for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; curl -s -o /dev/null "http://127.0.0.1:$lport/health" && break; sleep 0.2; done
+  code=$(curl -s -o "$body" -w '%{http_code}' --max-time 8 "http://127.0.0.1:$lport/items")
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  if [[ $code == 200 ]]; then
+    rows=$(jq -r '.items | length' "$body" 2>/dev/null)
+    echo "$ns: /items HTTP 200, rows=${rows:-unparseable}"
+    [[ $rows =~ ^[0-9]+$ ]] && (( rows > 0 )) && ok=1
+  else
+    err=$(jq -r '.error // empty' "$body" 2>/dev/null | grep -xE '[a-z_]{1,40}')
+    echo "$ns: /items HTTP $code${err:+ error=$err}"
+  fi
+  rm -f "$body"
+  [[ $ok == 1 ]]
+}
+
+# ---------------------------------------------------------------------------
 # I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
 # across a rebuild without turning a transient restart into a failure.
 # ---------------------------------------------------------------------------
@@ -366,6 +420,7 @@ verify M6 "Pod readiness (Succeeded pods skipped)"       v_pod_readiness
 verify M7 "Audit log probe (§14)"                        v_audit_probe
 verify M8 "Kill Switch active"                           v_killswitch
 verify M9 "Dependency DB pod Ready"                      v_dependency_db
+verify M10 "sample-api /items reads the Dependency DB"   v_items
 info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""
