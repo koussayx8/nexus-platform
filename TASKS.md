@@ -379,7 +379,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
       from the StatefulSet template admitted under `enforce`. The only warning was the API
       server's generic one on the ArgoCD finalizer name.
 - **M1-3 — scripts.**
-  - [ ] PR `feat(scripts)`, one commit each:
+  - [x] PR `feat(scripts)` (#72, merge `5d5120e`), one commit each:
     1. `step_h` simultaneous-stable. It adds the shared predicate `scripts/lib/apps-stable.jq`, a
        pure jq filter and not a shell wrapper, so `bootstrap.sh` still does not source
        `readonly.sh`.
@@ -449,10 +449,14 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     - Baseline, no fault: steps a–h complete (step h stable for 60 s after 61 s); the one FATAL is
       the real `verify-state.sh`, whose M1 passed after 61 s (13 polls) against the stub cluster.
     - `apps-stable.jq`: the five fixture cases pass, and the live cluster evaluates true.
-  - [ ] PR merged. **GATE M1-3.**
-- **M1-4, M1-5 and M1-6 — permission mode.** Claude Code runs in default mode, not bypass. At
-  the start of each session for these phases, report the permission mode, and stop if it is
-  bypass.
+  - [x] PR merged (#72, merge `5d5120e`, 2026-09-27). **GATE M1-3.**
+- **M1-4, M1-5 and M1-6 — permission mode.** The owner selects Manual mode. Each session starts
+  with the prompt test: the agent runs `gh api repos/koussayx8/nexus-platform --jq .full_name`,
+  which matches the `ask` rule `Bash(gh api *)`, and the owner confirms whether they were
+  prompted before it ran. The owner seeing the prompt is the check, not the agent's
+  self-report. If there was no prompt, the session stops. (At the M1-4 start, the first test in
+  Manual mode ran without a prompt because of the untracked local allow list; see Later. After
+  its removal, the rerun prompted.)
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
   - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=820`**, recorded
@@ -469,8 +473,14 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     - UNVERIFIED: that ArgoCD treats the project denial as a failed sync operation retried by this
       policy, rather than re-evaluating on the AppProject change (faster). The M1-4 report's poll
       log shows which.
-  - [ ] `dev`→`main` gate PR (DB via ArgoCD; CI signs the new image), then the
-    `experiment/dev-state` forward-merge. **GATE M1-4.**
+  - `verify-state.sh` runs twice (decided at the M1-4 start):
+    - Run 1, after the `main` merge, with `NEXUS_VERIFY_APPS_TIMEOUT=820`. If it fails, no
+      forward-merge.
+    - Run 2, after the forward-merge, with the default bound (660 s).
+  - [ ] `dev`→`main` gate PR (DB via ArgoCD; CI signs the new image).
+  - [ ] Verify run 1 passes.
+  - [ ] `experiment/dev-state` forward-merge (`main` → `experiment/dev-state`).
+  - [ ] Verify run 2 passes. **GATE M1-4.**
 - **M1-5 — `/items` live.**
   - [ ] One commit: digest bump (`cosign verify` first) + DB env wiring (change 2).
   - [ ] The `verify-state.sh` `/items` check (change 1).
@@ -507,6 +517,11 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   `experiment/dev-state` accepts direct pushes (its ruleset 23998158 blocks only force-push and
   deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
   guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
+- The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
+  including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Build a
+  minimal read-only allow list from the commands approved during M1-4; never allow `cat` or
+  `python3`. Evidence: `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the
+  M1-4 start, 2026-09-27).
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
