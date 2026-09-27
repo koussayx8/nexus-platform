@@ -1,0 +1,132 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Application",
+      "metadata": {
+        "name": "root",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "project": "nexus",
+        "source": {
+          "repoURL": "https://github.com/koussayx8/nexus-platform.git",
+          "path": "platform/argocd/applications",
+          "targetRevision": "main"
+        }
+      },
+      "status": {
+        "sync": {
+          "status": "Synced",
+          "revision": "0000000000000000000000000000000000000000"
+        },
+        "health": {
+          "status": "Healthy"
+        }
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Application",
+      "metadata": {
+        "name": "kyverno",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "project": "nexus",
+        "sources": [
+          {
+            "repoURL": "https://kyverno.github.io/kyverno/",
+            "chart": "kyverno",
+            "targetRevision": "3.8.0"
+          },
+          {
+            "repoURL": "https://github.com/koussayx8/nexus-platform.git",
+            "targetRevision": "main",
+            "ref": "values"
+          }
+        ]
+      },
+      "status": {
+        "sync": {
+          "status": "Synced",
+          "revisions": [
+            "3.8.0",
+            "1111111111111111111111111111111111111111"
+          ]
+        },
+        "health": {
+          "status": "Healthy"
+        }
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Application",
+      "metadata": {
+        "name": "observability",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "project": "nexus",
+        "sources": [
+          {
+            "repoURL": "https://prometheus-community.github.io/helm-charts",
+            "chart": "kube-prometheus-stack",
+            "targetRevision": "86.2.2"
+          },
+          {
+            "repoURL": "https://github.com/koussayx8/nexus-platform.git",
+            "targetRevision": "main",
+            "ref": "values"
+          },
+          {
+            "repoURL": "https://github.com/koussayx8/nexus-platform.git",
+            "targetRevision": "main",
+            "path": "platform/observability/config"
+          }
+        ]
+      },
+      "status": {
+        "sync": {
+          "status": "Synced",
+          "revisions": [
+            "86.2.2",
+            "1111111111111111111111111111111111111111",
+            "1111111111111111111111111111111111111111"
+          ]
+        },
+        "health": {
+          "status": "Healthy"
+        }
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Application",
+      "metadata": {
+        "name": "sample-api-dev",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "project": "nexus",
+        "source": {
+          "repoURL": "https://github.com/koussayx8/nexus-platform.git",
+          "path": "overlays/dev",
+          "targetRevision": "experiment/dev-state"
+        }
+      },
+      "status": {
+        "sync": {
+          "status": "Synced",
+          "revision": "2222222222222222222222222222222222222222"
+        },
+        "health": {
+          "status": "Healthy"
+        }
+      }
+    }
+  ]
+}

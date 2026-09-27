@@ -20,7 +20,8 @@
 #   e. merge-order guard (again), then the AppProject and the root Application
 #   f. wait for the platform Application
 #   g. nexus-killswitch and nexus-operator-config (created directly, never through ArgoCD)
-#   h. wait for every Application
+#   h. wait until every Application is Synced, Healthy and at the expected commit in one snapshot,
+#      held for 60 s (scripts/lib/apps-stable.jq)
 #   i. verify-state.sh
 #
 # Usage: scripts/bootstrap.sh [--plan]
@@ -63,6 +64,10 @@ NEXUS_DIR=$HOME/.nexus
 # below is created with.
 GRAFANA_DEPLOYMENT=observability-grafana
 EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
+REPO_URL=https://github.com/koussayx8/nexus-platform.git
+APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
+STABLE_WINDOW=60                             # seconds of consecutive true snapshots (step h)
+POLL_INTERVAL=5
 MARKER_PATHS=(
   platform/argocd/root.yaml
   platform/argocd/projects/nexus.yaml
@@ -459,19 +464,68 @@ step_g_killswitch() {
 }
 
 # ---------------------------------------------------------------------------------------
-# h. wait for every Application
+# h. every Application stable at the expected commit, simultaneously, for STABLE_WINDOW seconds
 # ---------------------------------------------------------------------------------------
+# One snapshot per poll, judged by the shared predicate scripts/lib/apps-stable.jq (TASKS.md M1-3
+# commit 1): Synced and Healthy alone would pass on the pre-merge state, and checking each app once,
+# in sequence, let `root` pass early and drift back to OutOfSync unnoticed (the M0-5 rebuild).
+# The expected commits are origin/main and origin/experiment/dev-state as fetched by the
+# merge-order guard. Read-only: no refresh annotation, only ArgoCD's own reconcile.
+#
+# Bounds: each Application must first be seen stable within its own timeout (timeout_for_app); the
+# whole step ends at the largest per-app timeout plus STABLE_WINDOW. Any false snapshot resets the
+# streak; the step passes only after STABLE_WINDOW seconds of consecutive true snapshots.
 step_h_wait_all() {
-  step "wait for every Application to be Synced/Healthy (timeout configurable per app; observability defaults to ${WAIT_TIMEOUT_OBSERVABILITY}s, others to ${WAIT_TIMEOUT_DEFAULT}s)"
-  local name t
+  local name t max_t=0
   for name in "${EXPECTED_APPS[@]}"; do
     t=$(timeout_for_app "$name")
-    printf '  $ kubectl get application %s -n argocd -o jsonpath=... (polled every 5s, %ss timeout)\n' "$name" "$t"
+    if (( t > max_t )); then max_t=$t; fi
+  done
+  step "wait until every Application is Synced, Healthy and at the expected commit in one snapshot, held for ${STABLE_WINDOW}s (per-app timeouts; step bound $((max_t + STABLE_WINDOW))s)"
+  printf '  $ main=$(git rev-parse origin/main); devstate=$(git rev-parse origin/experiment/dev-state)\n'
+  printf '  $ every %ss: kubectl get applications.argoproj.io -n argocd -o json | jq -f %s --arg names "%s" --arg repo %s --arg main "$main" --arg devstate "$devstate" --arg detail 1\n' \
+    "$POLL_INTERVAL" "$APPS_STABLE_JQ" "${EXPECTED_APPS[*]}" "$REPO_URL"
+  for name in "${EXPECTED_APPS[@]}"; do
+    printf '  #   %s: first seen stable within %ss\n' "$name" "$(timeout_for_app "$name")"
   done
   (( PLAN )) && return 0
-  for name in "${EXPECTED_APPS[@]}"; do
-    t=$(timeout_for_app "$name")
-    wait_for_app "$name" "$t" || fatal "Application $name did not reach Synced/Healthy within ${t}s"
+
+  local main devstate
+  main=$(git rev-parse origin/main) || fatal "resolving origin/main failed"
+  devstate=$(git rev-parse origin/experiment/dev-state) || fatal "resolving origin/experiment/dev-state failed"
+
+  local start elapsed snap detail stable streak_start=-1 ok
+  local -A seen=()
+  start=$SECONDS
+  while :; do
+    snap=$(kubectl get applications.argoproj.io -n argocd -o json 2>/dev/null) || snap='{"items":[]}'
+    detail=$(printf '%s' "$snap" | jq -c -f "$APPS_STABLE_JQ" --arg names "${EXPECTED_APPS[*]}" \
+      --arg repo "$REPO_URL" --arg main "$main" --arg devstate "$devstate" --arg detail 1) \
+      || fatal "evaluating $APPS_STABLE_JQ failed"
+    stable=$(jq -r '.stable' <<<"$detail")
+    elapsed=$((SECONDS - start))
+    for name in "${EXPECTED_APPS[@]}"; do
+      ok=$(jq -r --arg n "$name" '.apps[] | select(.name == $n) | .ok' <<<"$detail")
+      [[ $ok == true ]] && seen[$name]=1
+      if [[ -z ${seen[$name]:-} ]] && (( elapsed >= $(timeout_for_app "$name") )); then
+        echo "bootstrap: last snapshot of $name: $(jq -c --arg n "$name" '.apps[] | select(.name == $n)' <<<"$detail")" >&2
+        fatal "Application $name was not Synced/Healthy at its expected commit within $(timeout_for_app "$name")s"
+      fi
+    done
+    if [[ $stable == true ]]; then
+      if (( streak_start < 0 )); then streak_start=$elapsed; fi
+      if (( elapsed - streak_start >= STABLE_WINDOW )); then
+        printf '  every Application stable at the expected commit for %ss (after %ss)\n' "$STABLE_WINDOW" "$elapsed"
+        return 0
+      fi
+    else
+      streak_start=-1
+    fi
+    if (( elapsed >= max_t + STABLE_WINDOW )); then
+      echo "bootstrap: last snapshot: $(jq -c '.apps[] | {name, sync, health, expected, observed, ok}' <<<"$detail" | tr '\n' ' ')" >&2
+      fatal "the Applications were not stable together for ${STABLE_WINDOW}s within $((max_t + STABLE_WINDOW))s"
+    fi
+    sleep "$POLL_INTERVAL"
   done
 }
 
