@@ -19,6 +19,7 @@
 #   d. ArgoCD (pinned version)
 #   e. merge-order guard (again), then the AppProject and the root Application
 #   f. wait for the platform Application
+#   f2. the Dependency DB Secrets (scripts/dependency-db-secrets.sh; ADR-020)
 #   g. nexus-killswitch and nexus-operator-config (created directly, never through ArgoCD)
 #   h. wait until every Application is Synced, Healthy and at the expected commit in one snapshot,
 #      held for 60 s (scripts/lib/apps-stable.jq)
@@ -459,6 +460,16 @@ step_f_wait_platform() {
 }
 
 # ---------------------------------------------------------------------------------------
+# f2. the Dependency DB Secrets — after step f, because the platform Application owns nexus-data
+# and nexus-prod; the script itself waits for nexus-dev (created by sample-api-dev). It prints
+# only Secret names, "exists" or "created" each, never a value.
+# ---------------------------------------------------------------------------------------
+step_f2_dependency_db_secrets() {
+  run_cmd "dependency-db Secrets: generate-or-reuse ~/.nexus/dependency-db-*, then create the three Secrets if absent (ADR-020)" "" -- \
+    ./scripts/dependency-db-secrets.sh
+}
+
+# ---------------------------------------------------------------------------------------
 # g. nexus-killswitch and nexus-operator-config (create-only, direct, never through ArgoCD)
 # ---------------------------------------------------------------------------------------
 step_g_killswitch() {
@@ -562,6 +573,7 @@ step_c_monitoring
 step_d_argocd
 step_e_root_application
 step_f_wait_platform
+step_f2_dependency_db_secrets
 step_g_killswitch
 step_h_wait_all
 step_i_verify
