@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-3 — scripts PR. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`).
+**Current phase:** M1-5 — `/items` live. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`).
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -328,7 +328,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     a permanent CrashLoop. The init duration is recorded in test d and at the M1 exit rebuild.
     ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, run by the owner (the
     agent's guard denies `kubectl delete`), only with the owner's approval. The `verify-state.sh` rollout term (420 s, M1-3 commit 7) is derived from this
-    startupProbe budget: changing one means re-deriving the other. [test d, M1-2, M1-3, ADR-020]
+    startupProbe budget: changing one means re-deriving the other. From M1-5 the rollout term is
+    600 s and the coupling rule names four values (M1-5 below, ADR-020). [test d, M1-2, M1-3, ADR-020]
 
 **Phases**
 
@@ -458,7 +459,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   Manual mode ran without a prompt because of the untracked local allow list; see Later. After
   its removal, the rerun prompted.)
 - **M1-4 — DB live.**
-  - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
+  - [x] The owner runs `dependency-db-secrets.sh` on the live cluster: `generated:` ×3 and
+    `created:` ×3 (`nexus-data/dependency-db`, `nexus-dev/dependency-db-app`,
+    `nexus-prod/dependency-db-app`).
   - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=820`**, recorded
     in the report. Derivation (additive terms):
     - Reconcile delay, 180 s: as in M1-3 commit 7.
@@ -477,20 +480,58 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     - Run 1, after the `main` merge, with `NEXUS_VERIFY_APPS_TIMEOUT=820`. If it fails, no
       forward-merge.
     - Run 2, after the forward-merge, with the default bound (660 s).
-  - [ ] `dev`→`main` gate PR (DB via ArgoCD; CI signs the new image).
-  - [ ] Verify run 1 passes.
-  - [ ] `experiment/dev-state` forward-merge (`main` → `experiment/dev-state`).
-  - [ ] Verify run 2 passes. **GATE M1-4.**
+  - [x] `dev`→`main` gate PR #74 (merge `87e3ab3`, 2026-09-27T13:08:29Z). CI run 36321366504 signed
+    `sample-api@sha256:8ea896c267d0842732e564e7c45b1606bc5347764bab7c7741e4d356c0e0e9af` (cosign
+    v2.5.2, Rekor tlog index 2975125709).
+  - [x] Verify run 1 passes: `NEXUS_VERIFY_APPS_TIMEOUT=820`, 13:08:47 → 13:18:11Z, exit 0, 9/9;
+    M1 stable 64 s after 551 s (100 polls).
+  - [x] `experiment/dev-state` forward-merge: local `--no-ff` merge pushed as `5d01ee3..9bfa5ff`.
+  - [x] Verify run 2 passes: default bound 660 s, 13:30:41 → 13:35:21Z, exit 0, 9/9; M1 stable
+    62 s after 263 s (49 polls). **GATE M1-4** — passed (owner, 2026-09-27).
+  - Findings:
+    - AppProject race did not occur: `platform` at `87e3ab3` 13:12:31Z, `root` 13:14:25Z;
+      `dependency-db` synced once. Whether ArgoCD retries a project denial stays UNVERIFIED.
+    - DB image pull on the node: **143.2 s** (161,346,986 bytes, ~1.13 MB/s), over the 120 s
+      allowance. Init ~2.2 s; pod created → Ready 148 s.
+    - Leak checks: both verify reports and the DB log, 0 hits.
 - **M1-5 — `/items` live.**
+  - Decisions at GATE M1-4 (owner, 2026-09-27):
+    - **Pull allowance 120 → 300 s.** Derived values:
+      - rollout = 300 startupProbe + 300 pull = **600 s**;
+      - `verify-state.sh` default = 180 reconcile + 600 + 60 stable = **840 s**;
+      - M1-4-style bound (+ 160 s retry backoff) = **1000 s**;
+      - `bootstrap.sh` `dependency-db` wait = 160 + 600 + 60 = 820, rounded up for rebuild
+        contention = **900 s** (today it falls back to `NEXUS_WAIT_TIMEOUT_DEFAULT` 600 s).
+    - **Coupling rule (ADR-020):** rollout 600, verify default 840, M1-4-style bound 1000 and
+      bootstrap DB wait 900 are all derived from the startupProbe budget and the pull allowance.
+      Changing either means re-deriving all four.
+    - Re-measure the pull at the M1 exit rebuild.
+    - k3s Secrets encryption at rest: `Disabled` on the live cluster (owner's
+      `sudo k3s secrets-encrypt status`); `bootstrap.sh` enables it from the M1 exit rebuild
+      (ADR-019 addendum).
+  - [ ] Docs commit: this section, M1-4 ticked, the ADR-020 coupling rule, the ADR-019 addendum.
+  - [ ] Scripts commit: `verify-state.sh` default 840 s; `bootstrap.sh` DB wait 900 s;
+    `secrets-encryption: true` in `bootstrap.sh`'s k3s config.
   - [ ] One commit: digest bump (`cosign verify` first) + DB env wiring (change 2).
-  - [ ] The `verify-state.sh` `/items` check (change 1).
+  - [ ] The `verify-state.sh` `/items` check (change 1). A setting limits it to `nexus-prod`;
+    both namespaces by default.
   - [ ] Gate PR, forward-merge, `verify-state.sh` live. **GATE M1-5.**
+    - Run 1, after the `main` merge: `/items` on `nexus-prod` only (`nexus-dev` still runs the old
+      image until the forward-merge).
+    - Run 2, after the forward-merge: both namespaces.
 - **M1-6 — exit.**
+  - **WSL2 VM pause rule** (added at M1-4): a host sleep changes neither `boot_id` nor k3s's start
+    time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
+    `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
+    and the window or run is discarded. The owner disables Windows sleep during both.
   - [ ] S5 smoke test on `app_dev` (approval first): `/items` 503 in under 3 s with the `FATAL`
     text in the log; `/ready` 200; prod unaffected; reset; DB `metadata.uid` and `restartCount`
     unchanged.
   - [ ] Audit-retention addendum (changes 7 and 14).
-  - [ ] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`).
+  - [ ] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`). Re-measure the DB
+    image pull against the 300 s allowance.
+  - [ ] After the rebuild, the owner runs `sudo k3s secrets-encrypt status`; expected
+    `Encryption Status: Enabled` (ADR-019 addendum).
   - [ ] `CURRENT_STATE.md`, `CHANGELOG` `[0.2.0]`, tag `v0.2.0` (separate approval).
     **GATE M1 exit.**
 
@@ -503,6 +544,13 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 - The §27 M1 verifications: the Kopf status-persistence/standalone spike; kube-state-metrics series
   and the Alertmanager v2 API; CEL transition rules; the Locust capacity ramp and baseline
   (this includes the change-16 dependency-db thresholds).
+- dependency-db CPU throttling, measured at M1-4 (2026-09-27 13:29Z, no change now): the three
+  cAdvisor series exist for `{namespace="nexus-data",container="dependency-db"}` (job `kubelet`,
+  one series each). Idle DB (limits `cpu: 500m`, `memory: 512Mi`): throttled 139.5 / 608.0 periods
+  (~23 %) over 10 min after init; working-set peak 48.7 MB over 15 min. CFS counts only active
+  periods, and an idle DB is active mostly for probe bursts (`sh` + `pg_isready` + a forked
+  backend; readiness every 5 s, liveness every 10 s). **M1b measures throttling under load, or
+  uses throttled seconds, before any decision on limits.**
 
 ## Later — out of scope for M1
 
@@ -531,6 +579,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 - ruff's first-party detection depends on the working directory: `ruff check .` inside
   `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
   import order. Set `src` / `known-first-party` so local runs match CI.
+- sample-api Deployment label `app.kubernetes.io/version: "0.1.0"`
+  (`apps/sample-api/k8s/base/deployment.yaml`) no longer matches the app's `VERSION = "0.2.0"`
+  (`apps/sample-api/main.py:13`) once M1-5 pins the 0.2.0 image. Found at M1-5.
 - sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
   starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
   Move the test client off `httpx` before Starlette drops support for it.
