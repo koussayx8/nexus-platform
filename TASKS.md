@@ -450,6 +450,12 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 
 ## Later â€” out of scope for M1
 
+- sample-api runtime requirements use `>=`, so a signed image's contents depend on the build day
+  (the psycopg tested in M1-1, 3.3.6, may differ from what M1-4 builds). Consider a lock file with
+  hashes.
+- ruff's first-party detection depends on the working directory: `ruff check .` inside
+  `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
+  import order. Set `src` / `known-first-party` so local runs match CI.
 - sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
   starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
   Move the test client off `httpx` before Starlette drops support for it.
@@ -481,4 +487,3 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 - `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
 - Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
-- The stash `m0-2: dropped dashboard change` can be dropped once M0-4 rebuilds the dashboard. `git stash drop` is denied to agents, so you drop it.
