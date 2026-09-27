@@ -20,7 +20,11 @@ DB_SLOT_TIMEOUT_S = 0.3
 DB_CONNECT_TIMEOUT_S = 2  # psycopg's minimum; applied per connection attempt
 DB_STATEMENT_TIMEOUT_MS = 500
 
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+)
 logger = logging.getLogger("sample_api")
+
 
 app = FastAPI(
     title="NEXUS Sample API",
