@@ -8,9 +8,11 @@
 #   4. Every ArgoCD Application rendered as ArgoCD would (helm template with the value files from
 #      Git, kustomize build, directories), checked against its AppProject, then kubeconform -strict.
 #   5. Offline fixture tests for scripts/lib/apps-stable.jq (TASKS.md M1-3 commit 1).
+#   6. Offline tests for verify-state.sh's /items check (TASKS.md M1-5), isolated from any cluster
+#      (KUBECONFIG=/nonexistent, a stub kubectl first on PATH).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize, kubeconform, helm, yq, jq and python3 on PATH (CI installs pinned,
+# Needs gitleaks, kustomize, kubeconform, helm, yq, jq, curl and python3 on PATH (CI installs pinned,
 # checksummed builds).
 set -euo pipefail
 
@@ -69,4 +71,8 @@ echo "::endgroup::"
 
 echo "::group::apps-stable.jq fixture tests"
 bash scripts/tests/apps-stable.sh
+echo "::endgroup::"
+
+echo "::group::verify-state /items tests (offline, stub kubectl)"
+KUBECONFIG=/nonexistent bash scripts/tests/verify-items.sh
 echo "::endgroup::"

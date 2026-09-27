@@ -64,7 +64,7 @@ rev 5, changes 1–24) fixed the design; this ADR records it with the evidence f
 - **Coupling:** the `verify-state.sh` rollout term (420 s = 150 × 2 s + a 120 s pull allowance, M1-3
   commit 7) is derived from this budget. It sets the verify default (180 + 420 + 60 = 660 s) and
   the M1-4 bound (180 + 160 + 420 + 60 = 820 s). Changing the startupProbe budget or the pull
-  allowance means re-deriving all three.
+  allowance means re-deriving all three. Superseded at M1-5 by the four-value rule below.
 - Probes do not authenticate, so S5 cannot fail them. Test d: with `app_dev` `NOLOGIN`, the exact
   probe returned 0.
 
@@ -141,3 +141,23 @@ can order it first; M1-4 uses a derived `NEXUS_VERIFY_APPS_TIMEOUT=820` instead 
   NetworkPolicies of spec §18 arrive in M3.
 - The resource figures and the pull allowance must be re-checked at M1-4 and at the M1b
   calibration.
+
+## Addendum (2026-09-27, GATE M1-4): pull allowance 300 s and the four-value coupling rule
+
+M1-4 measured the node's pull of the pinned `postgres` image at **143.2 s** (161,346,986 bytes,
+~1.13 MB/s), over the 120 s allowance. Verify run 1 still passed because its bound (820 s) had
+slack. The owner raised the allowance to **300 s**. Derived values:
+
+| Value | Derivation | Where |
+|---|---|---|
+| Rollout | 300 startupProbe (150 × 2 s) + 300 pull = **600 s** | the term inside the three below |
+| `verify-state.sh` default | 180 reconcile + 600 + 60 stable = **840 s** | `NEXUS_VERIFY_APPS_TIMEOUT` |
+| M1-4-style bound | 180 + 160 retry backoff + 600 + 60 = **1000 s** | env override when a project widening races |
+| `bootstrap.sh` DB wait | 160 + 600 + 60 = 820, rounded up for rebuild contention = **900 s** | `NEXUS_WAIT_TIMEOUT_DEPENDENCY_DB` default |
+
+**Coupling rule:** all four values are derived from the startupProbe budget and the pull
+allowance. Changing either means re-deriving all four. The pull is re-measured at the M1 exit
+rebuild.
+
+The idle DB's CFS throttling (~23 % of active periods, from probe bursts) is recorded in
+`TASKS.md` M1b; it changes no limit here.
