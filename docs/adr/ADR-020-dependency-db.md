@@ -59,7 +59,8 @@ rev 5, changes 1–24) fixed the design; this ADR records it with the evidence f
   exact probe returned 1 in all 69 samples over 20 s. A half-initialised DB never goes Ready.
 - startupProbe: period 2 s, `failureThreshold: 150` (5 min). A startup kill mid-init leaves
   PGDATA without the marker, which is a permanent CrashLoop. **Recovery:** `kubectl delete pod
-  dependency-db-0` (a fresh `emptyDir` and a clean init), only with the owner's approval.
+  dependency-db-0` (a fresh `emptyDir` and a clean init), only with the owner's approval, and
+  **run by the owner**: the agent's guard (`.claude/settings.json`) denies `kubectl delete`.
 - **Coupling:** the `verify-state.sh` rollout term (420 s = 150 × 2 s + a 120 s pull allowance, M1-3
   commit 7) is derived from this budget. It sets the verify default (180 + 420 + 60 = 660 s) and
   the M1-4 bound (180 + 160 + 420 + 60 = 820 s). Changing the startupProbe budget or the pull
@@ -134,7 +135,7 @@ can order it first; M1-4 uses a derived `NEXUS_VERIFY_APPS_TIMEOUT=820` instead 
 - S5 is invisible to Kubernetes: no probe fails, nothing restarts, and only `/items` and its log
   show it.
 - Any pod replacement loses the data and re-seeds it; that is intended.
-- A mid-init kill needs a manual, approved pod delete.
+- A mid-init kill needs a manual pod delete, approved and run by the owner.
 - Until M3 there are no NetworkPolicies, so any pod in the cluster can reach
   `dependency-db:5432` (plan assumption A5). Accepted: the roles still need passwords, and the
   NetworkPolicies of spec §18 arrive in M3.

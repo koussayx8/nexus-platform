@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-2 — dependency-db PR. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27.
+**Current phase:** M1-3 — scripts PR. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`).
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -326,8 +326,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 23. The test d negative container runs without `--rm`. [test d]
 24. startupProbe `failureThreshold` is 150 (5 min at 2 s), since a mid-init kill with the marker is
     a permanent CrashLoop. The init duration is recorded in test d and at the M1 exit rebuild.
-    ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, only with the owner's
-    approval. The `verify-state.sh` rollout term (420 s, M1-3 commit 7) is derived from this
+    ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, run by the owner (the
+    agent's guard denies `kubectl delete`), only with the owner's approval. The `verify-state.sh` rollout term (420 s, M1-3 commit 7) is derived from this
     startupProbe budget: changing one means re-deriving the other. [test d, M1-2, M1-3, ADR-020]
 
 **Phases**
@@ -352,7 +352,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [x] PR `feat(sample-api)` (#69, merge `fb047e1`): changes 4, 10, 11 and 12; `psycopg[binary]`; tests; version 0.2.0.
     No manifest change.
 - **M1-2 — dependency-db.**
-  - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
+  - [x] PR `feat(dependency-db)` (#70, merge `05e859a`): StatefulSet, headless and ClusterIP Service, init ConfigMap,
     Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020. ADR-020 also
     records that the `verify-state.sh` rollout term (420 s) is derived from the startupProbe
     budget (change 24): changing one means re-deriving the other. It also records that
@@ -370,8 +370,14 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
       `argoproj.io/AppProject argocd/nexus`, and the live AppProject's tracking-id is
       `platform:argoproj.io/AppProject:argocd/nexus`. `root`'s `.status.resources` lists only the
       five Applications. So no sync-wave; the timeout goes into M1-4 below.
-  - [ ] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
+  - [x] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
     live cluster (approval first).
+    - kustomize + kubeconform `-strict` locally and in `repo-checks`; the render check in
+      `repo-checks` (`dependency-db: project=nexus objects=4`).
+    - Server-side dry-run, run by the owner on 2026-09-27: all 7 objects `(server dry run)`, no
+      PodSecurity warning (`nexus-data` is `enforce`/`warn`/`audit` `restricted`), and a Pod built
+      from the StatefulSet template admitted under `enforce`. The only warning was the API
+      server's generic one on the ArgoCD finalizer name.
 - **M1-3 — scripts.**
   - [ ] PR `feat(scripts)`, one commit each:
     1. `step_h` simultaneous-stable. It adds the shared predicate `scripts/lib/apps-stable.jq`, a
@@ -382,7 +388,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
          `--arg main <origin/main SHA>` and `--arg devstate <origin/experiment/dev-state SHA>`.
          The caller resolves the SHAs with `git rev-parse` after the `git fetch origin main
          experiment/dev-state` that both scripts already run: `bootstrap.sh`'s merge-order
-         guard, and `verify-state.sh:122`.
+         guard, and the fetch at the start of `verify-state.sh` (moved there by commit 7 so M1 and M4
+         read the same refs; M1 fails if it did not succeed).
        - **True only if** every expected Application in that same snapshot is `Synced` **and**
          `Healthy` **and** at the expected commit. The expected commit is `devstate` for
          `sample-api-dev` and `main` for every other Application.
@@ -397,7 +404,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
        - **Read-only:** no `argocd.argoproj.io/refresh` annotation and no other write; the scripts
          only wait for ArgoCD's own reconcile.
        - `step_h` polls it every 5 s and passes only after 60 s of consecutive true snapshots; any
-         false resets the streak. Per-app timeouts stay the outer bound.
+         false resets the streak. Per-app timeouts stay the outer bound: each app must first be
+         seen stable within its own timeout, and the step ends at the largest one plus 60 s.
        - Offline fixture tests for `apps-stable.jq`, run in `repo-checks`, same commit. Five
          cases: all apps at the expected SHA → true; one app at the old SHA → false; chart + Git
          multi-source → true; `revisions` shorter than `sources` → false; `repoURL` mismatch (for
@@ -405,7 +413,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     2. `set -e`.
     3. Step timestamps.
     4. Restart-count info line.
-    5. `dependency-db-secrets.sh` + the bootstrap call.
+    5. `dependency-db-secrets.sh` + the bootstrap call. It prints `exists` or `created` per
+       Secret, by name only, never values. That output is the M1-4 evidence that the three
+       Secrets exist, since the agent's guard denies `kubectl get secret*`.
     6. `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
     7. **`verify-state.sh` Application retry window.**
        - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **660 s**.
@@ -429,7 +439,20 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
        - Not included: ArgoCD sync-retry backoff after a failed sync attempt (10 s doubling up to
          `maxDuration: 3m`), for example the AppProject/Application ordering race at M1-4. For
          that case, set a larger bound with the env var and record the value used in the report.
-  - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
+    - Also in this PR: ADR-020 states that the owner runs the change 24 recovery delete.
+  - [x] Validation: `--plan` and the 6-scenario fault-injection rerun (2026-09-27, a throwaway
+    worktree, removed with `git worktree remove`; only its copy had the k3s.service path override).
+    - `--plan` with every stub, `k3s` included, exiting 1: exit 0, 25 steps printed, 0 stub calls.
+    - The six #55 scenarios (`k3s_install`, `argocd_apply`, `grafana_secret`, `root_apply`,
+      `killswitch_create`, `verify_state`) and two new ones (`dependency_db_secrets`,
+      `apps_unstable`): each stops at its step with a named FATAL, exit 1, never "done".
+    - Baseline, no fault: steps a–h complete (step h stable for 60 s after 61 s); the one FATAL is
+      the real `verify-state.sh`, whose M1 passed after 61 s (13 polls) against the stub cluster.
+    - `apps-stable.jq`: the five fixture cases pass, and the live cluster evaluates true.
+  - [ ] PR merged. **GATE M1-3.**
+- **M1-4, M1-5 and M1-6 — permission mode.** Claude Code runs in default mode, not bypass. At
+  the start of each session for these phases, report the permission mode, and stop if it is
+  bypass.
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
   - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=820`**, recorded
@@ -473,6 +496,17 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 
 ## Later — out of scope for M1
 
+- Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
+  Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
+  v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
+  `cosign verify`.
+- Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
+  behave in bypass and default permission modes, and the script gap (the rules match only the
+  command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
+  `kubectl create --dry-run=server` and `rm -rf` internally). Include the branches:
+  `experiment/dev-state` accepts direct pushes (its ruleset 23998158 blocks only force-push and
+  deletion; no required check, no pull request), so from M1-4 on the default-mode rule is its only
+  guard against an agent push. `main` and `dev` require a pull request and `repo-checks`.
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.

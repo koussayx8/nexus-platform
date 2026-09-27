@@ -19,8 +19,10 @@
 #   d. ArgoCD (pinned version)
 #   e. merge-order guard (again), then the AppProject and the root Application
 #   f. wait for the platform Application
+#   f2. the Dependency DB Secrets (scripts/dependency-db-secrets.sh; ADR-020)
 #   g. nexus-killswitch and nexus-operator-config (created directly, never through ArgoCD)
-#   h. wait for every Application
+#   h. wait until every Application is Synced, Healthy and at the expected commit in one snapshot,
+#      held for 60 s (scripts/lib/apps-stable.jq)
 #   i. verify-state.sh
 #
 # Usage: scripts/bootstrap.sh [--plan]
@@ -29,7 +31,11 @@
 # NEXUS_ARGOCD_ROLLOUT_TIMEOUT (default 600) covers each of the three ArgoCD rollout waits.
 # Exit codes: 0 success; 1 a step failed or refused to proceed; 2 script/argument error.
 
-set -uo pipefail
+# Every real command is checked explicitly and fails through fatal(), which names the step.
+# set -e is the backstop for any command that is not (TASKS.md M1-3 commit 2): the ERR trap names
+# its line and exits 1. -E carries the trap into functions; bash still skips it inside if/while
+# conditions and in any non-final part of a && or || list, so checked failures report only once.
+set -Eeuo pipefail
 
 PLAN=0
 for a in "$@"; do
@@ -62,7 +68,11 @@ NEXUS_DIR=$HOME/.nexus
 # platform/observability/kube-prometheus-stack-values.yaml:78-81) are exactly the keys the Secret
 # below is created with.
 GRAFANA_DEPLOYMENT=observability-grafana
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
+REPO_URL=https://github.com/koussayx8/nexus-platform.git
+APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
+STABLE_WINDOW=60                             # seconds of consecutive true snapshots (step h)
+POLL_INTERVAL=5
 MARKER_PATHS=(
   platform/argocd/root.yaml
   platform/argocd/projects/nexus.yaml
@@ -87,11 +97,17 @@ timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in
 # ---------------------------------------------------------------------------------------
 # Plumbing
 # ---------------------------------------------------------------------------------------
+# Every step header carries its UTC wall-clock start (TASKS.md M1-3 commit 3), so a rebuild's
+# durations can be read from the log alone. Bash's printf %()T builtin, not date: --plan must call
+# no external tool.
 step() {   # step <label> [SUDO]
-  if [[ -n ${2:-} ]]; then printf '\n[%s] %s\n' "$2" "$1"; else printf '\n%s\n' "$1"; fi
+  local ts
+  TZ=UTC0 printf -v ts '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  if [[ -n ${2:-} ]]; then printf '\n%s [%s] %s\n' "$ts" "$2" "$1"; else printf '\n%s %s\n' "$ts" "$1"; fi
 }
 
 fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
+trap 'echo "bootstrap: FATAL — unchecked command failed at line $LINENO (exit $?); set -e stopped the run" >&2; exit 1' ERR
 
 # run_cmd <label> [SUDO|""] -- <command...>
 # Prints the label and the exact command, then runs it unless --plan is set. Single source of
@@ -100,9 +116,9 @@ fatal() { echo "bootstrap: FATAL — $*" >&2; exit 1; }
 # hand instead, so the printed text and the executed text can never drift apart.
 #
 # A failing command is fatal, immediately, named by its label — this function does not merely
-# propagate an exit code for some caller to remember to check (nothing in this script relied on
-# `set -e`, whose semantics are suspended inside any if/while/&&/|| condition anyway, which is
-# exactly where several of this script's real command invocations live).
+# propagate an exit code for some caller to remember to check. `set -e` is only the backstop: its
+# semantics are suspended inside any if/while/&&/|| condition, which is exactly where several of
+# this script's real command invocations live.
 run_cmd() {
   local label=$1 tag=$2
   shift 2
@@ -388,12 +404,13 @@ step_d_argocd() {
     trap 'rm -f "$tmp"' EXIT
     ( umask 077
       kubectl -n argocd get secret argocd-initial-admin-secret \
-        -o go-template='{{.data.password | base64decode}}' > "$tmp" )
+        -o go-template='{{.data.password | base64decode}}' > "$tmp" ) \
+      || fatal "could not read a fresh ArgoCD admin password from argocd-initial-admin-secret"
     if [[ ! -s $tmp ]]; then
       fatal "could not read a fresh ArgoCD admin password from argocd-initial-admin-secret"
     fi
-    mv "$tmp" "$NEXUS_DIR/argocd-admin"
-    chmod 0600 "$NEXUS_DIR/argocd-admin"
+    mv "$tmp" "$NEXUS_DIR/argocd-admin" || fatal "moving the ArgoCD admin password into place failed"
+    chmod 0600 "$NEXUS_DIR/argocd-admin" || fatal "chmod on ~/.nexus/argocd-admin failed"
     trap - EXIT
   fi
 }
@@ -443,6 +460,16 @@ step_f_wait_platform() {
 }
 
 # ---------------------------------------------------------------------------------------
+# f2. the Dependency DB Secrets — after step f, because the platform Application owns nexus-data
+# and nexus-prod; the script itself waits for nexus-dev (created by sample-api-dev). It prints
+# only Secret names, "exists" or "created" each, never a value.
+# ---------------------------------------------------------------------------------------
+step_f2_dependency_db_secrets() {
+  run_cmd "dependency-db Secrets: generate-or-reuse ~/.nexus/dependency-db-*, then create the three Secrets if absent (ADR-020)" "" -- \
+    ./scripts/dependency-db-secrets.sh
+}
+
+# ---------------------------------------------------------------------------------------
 # g. nexus-killswitch and nexus-operator-config (create-only, direct, never through ArgoCD)
 # ---------------------------------------------------------------------------------------
 step_g_killswitch() {
@@ -459,19 +486,68 @@ step_g_killswitch() {
 }
 
 # ---------------------------------------------------------------------------------------
-# h. wait for every Application
+# h. every Application stable at the expected commit, simultaneously, for STABLE_WINDOW seconds
 # ---------------------------------------------------------------------------------------
+# One snapshot per poll, judged by the shared predicate scripts/lib/apps-stable.jq (TASKS.md M1-3
+# commit 1): Synced and Healthy alone would pass on the pre-merge state, and checking each app once,
+# in sequence, let `root` pass early and drift back to OutOfSync unnoticed (the M0-5 rebuild).
+# The expected commits are origin/main and origin/experiment/dev-state as fetched by the
+# merge-order guard. Read-only: no refresh annotation, only ArgoCD's own reconcile.
+#
+# Bounds: each Application must first be seen stable within its own timeout (timeout_for_app); the
+# whole step ends at the largest per-app timeout plus STABLE_WINDOW. Any false snapshot resets the
+# streak; the step passes only after STABLE_WINDOW seconds of consecutive true snapshots.
 step_h_wait_all() {
-  step "wait for every Application to be Synced/Healthy (timeout configurable per app; observability defaults to ${WAIT_TIMEOUT_OBSERVABILITY}s, others to ${WAIT_TIMEOUT_DEFAULT}s)"
-  local name t
+  local name t max_t=0
   for name in "${EXPECTED_APPS[@]}"; do
     t=$(timeout_for_app "$name")
-    printf '  $ kubectl get application %s -n argocd -o jsonpath=... (polled every 5s, %ss timeout)\n' "$name" "$t"
+    if (( t > max_t )); then max_t=$t; fi
+  done
+  step "wait until every Application is Synced, Healthy and at the expected commit in one snapshot, held for ${STABLE_WINDOW}s (per-app timeouts; step bound $((max_t + STABLE_WINDOW))s)"
+  printf '  $ main=$(git rev-parse origin/main); devstate=$(git rev-parse origin/experiment/dev-state)\n'
+  printf '  $ every %ss: kubectl get applications.argoproj.io -n argocd -o json | jq -f %s --arg names "%s" --arg repo %s --arg main "$main" --arg devstate "$devstate" --arg detail 1\n' \
+    "$POLL_INTERVAL" "$APPS_STABLE_JQ" "${EXPECTED_APPS[*]}" "$REPO_URL"
+  for name in "${EXPECTED_APPS[@]}"; do
+    printf '  #   %s: first seen stable within %ss\n' "$name" "$(timeout_for_app "$name")"
   done
   (( PLAN )) && return 0
-  for name in "${EXPECTED_APPS[@]}"; do
-    t=$(timeout_for_app "$name")
-    wait_for_app "$name" "$t" || fatal "Application $name did not reach Synced/Healthy within ${t}s"
+
+  local main devstate
+  main=$(git rev-parse origin/main) || fatal "resolving origin/main failed"
+  devstate=$(git rev-parse origin/experiment/dev-state) || fatal "resolving origin/experiment/dev-state failed"
+
+  local start elapsed snap detail stable streak_start=-1 ok
+  local -A seen=()
+  start=$SECONDS
+  while :; do
+    snap=$(kubectl get applications.argoproj.io -n argocd -o json 2>/dev/null) || snap='{"items":[]}'
+    detail=$(printf '%s' "$snap" | jq -c -f "$APPS_STABLE_JQ" --arg names "${EXPECTED_APPS[*]}" \
+      --arg repo "$REPO_URL" --arg main "$main" --arg devstate "$devstate" --arg detail 1) \
+      || fatal "evaluating $APPS_STABLE_JQ failed"
+    stable=$(jq -r '.stable' <<<"$detail")
+    elapsed=$((SECONDS - start))
+    for name in "${EXPECTED_APPS[@]}"; do
+      ok=$(jq -r --arg n "$name" '.apps[] | select(.name == $n) | .ok' <<<"$detail")
+      [[ $ok == true ]] && seen[$name]=1
+      if [[ -z ${seen[$name]:-} ]] && (( elapsed >= $(timeout_for_app "$name") )); then
+        echo "bootstrap: last snapshot of $name: $(jq -c --arg n "$name" '.apps[] | select(.name == $n)' <<<"$detail")" >&2
+        fatal "Application $name was not Synced/Healthy at its expected commit within $(timeout_for_app "$name")s"
+      fi
+    done
+    if [[ $stable == true ]]; then
+      if (( streak_start < 0 )); then streak_start=$elapsed; fi
+      if (( elapsed - streak_start >= STABLE_WINDOW )); then
+        printf '  every Application stable at the expected commit for %ss (after %ss)\n' "$STABLE_WINDOW" "$elapsed"
+        return 0
+      fi
+    else
+      streak_start=-1
+    fi
+    if (( elapsed >= max_t + STABLE_WINDOW )); then
+      echo "bootstrap: last snapshot: $(jq -c '.apps[] | {name, sync, health, expected, observed, ok}' <<<"$detail" | tr '\n' ' ')" >&2
+      fatal "the Applications were not stable together for ${STABLE_WINDOW}s within $((max_t + STABLE_WINDOW))s"
+    fi
+    sleep "$POLL_INTERVAL"
   done
 }
 
@@ -497,6 +573,7 @@ step_c_monitoring
 step_d_argocd
 step_e_root_application
 step_f_wait_platform
+step_f2_dependency_db_secrets
 step_g_killswitch
 step_h_wait_all
 step_i_verify

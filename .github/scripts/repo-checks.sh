@@ -7,9 +7,10 @@
 #   3. kubeconform -strict on that output, with pinned Kubernetes and CRD schemas.
 #   4. Every ArgoCD Application rendered as ArgoCD would (helm template with the value files from
 #      Git, kustomize build, directories), checked against its AppProject, then kubeconform -strict.
+#   5. Offline fixture tests for scripts/lib/apps-stable.jq (TASKS.md M1-3 commit 1).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize, kubeconform, helm, yq and python3 on PATH (CI installs pinned,
+# Needs gitleaks, kustomize, kubeconform, helm, yq, jq and python3 on PATH (CI installs pinned,
 # checksummed builds).
 set -euo pipefail
 
@@ -64,4 +65,8 @@ kubeconform -strict -summary -output text \
   -schema-location "$CRD_SCHEMAS" \
   -skip CustomResourceDefinition \
   "$work/render/apps"
+echo "::endgroup::"
+
+echo "::group::apps-stable.jq fixture tests"
+bash scripts/tests/apps-stable.sh
 echo "::endgroup::"
