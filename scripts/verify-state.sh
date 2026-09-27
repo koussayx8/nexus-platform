@@ -12,6 +12,7 @@
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
+# Env: NEXUS_VERIFY_APPS_TIMEOUT (default 660) bounds the M1 retry window, in seconds.
 #
 # Exit codes: 0 every check passed; 1 at least one check failed; 2 script error.
 
@@ -77,23 +78,74 @@ info() {
 }
 
 # ---------------------------------------------------------------------------
-# M1. Every Application Synced and Healthy.
+# Expected commits. Each Application tracks a branch (ADR-013/ADR-017): sample-api-dev ->
+# experiment/dev-state, every other one -> main. Reading the local checkout would check whatever
+# happens to be checked out here, so M1 and M4 read origin/<branch> after one explicit fetch at the
+# start of the run. This is the one deliberate exception to the shared g() wrapper's "never
+# fetch": fetch only updates remote-tracking refs, it never touches the working tree.
+# ---------------------------------------------------------------------------
+FETCH_OK=0
+git fetch origin main experiment/dev-state >/dev/null 2>&1 && FETCH_OK=1
+
+# ---------------------------------------------------------------------------
+# M1. Every Application Synced, Healthy and at the expected commit, in one snapshot, held for
+# 60 s (TASKS.md M1-3 commit 7). Judged by the same predicate as bootstrap.sh step h,
+# scripts/lib/apps-stable.jq: `Synced` alone is relative to the last revision ArgoCD fetched, so
+# for up to ~180 s after a merge every app is Synced/Healthy at the old commit.
+#
+# Polls every 5 s and passes only after 60 s of consecutive true snapshots, never on the first
+# success; any false snapshot resets the streak. At the bound it fails with the last snapshot.
+# Every poll is written to the report. Read-only: no refresh annotation.
+#
+# Bound NEXUS_VERIFY_APPS_TIMEOUT, default 660 s, derived as additive terms (ADR-020):
+#   reconcile delay 180 s  ArgoCD polls Git every timeout.reconciliation 120 s + up to 60 s jitter;
+#                          argocd-server is ClusterIP with no Ingress, so no webhook (ADR-014)
+#   rollout         420 s  dependency-db's first start: startupProbe 150 x 2 s + a 120 s image pull
+#   stable window    60 s
+# Not included: sync-retry backoff after a failed sync (M1-4 uses 820 s, TASKS.md). Changing the
+# startupProbe budget or the pull allowance means re-deriving this default.
 # ---------------------------------------------------------------------------
 EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
+REPO_URL=https://github.com/koussayx8/nexus-platform.git
+APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
+APPS_TIMEOUT=${NEXUS_VERIFY_APPS_TIMEOUT:-660}
+STABLE_WINDOW=60
+POLL_INTERVAL=5
+
 v_applications() {
-  local name sync health rc=0 jf ef
-  jf=$(mktemp); ef=$(mktemp)
-  for name in "${EXPECTED_APPS[@]}"; do
-    if ! k get "applications.argoproj.io/$name" -n argocd -o json >"$jf" 2>"$ef"; then
-      echo "$name: NOT FOUND ($(cat "$ef"))"; rc=1; continue
+  local main devstate start elapsed streak streak_start=-1 snap detail stable
+  (( FETCH_OK )) || { echo "git fetch origin main experiment/dev-state failed: the expected commits are unknown"; return 1; }
+  main=$(git rev-parse origin/main) || return 1
+  devstate=$(git rev-parse origin/experiment/dev-state) || return 1
+  echo "expected: origin/main=$main origin/experiment/dev-state=$devstate"
+  echo "bound ${APPS_TIMEOUT}s (NEXUS_VERIFY_APPS_TIMEOUT), stable window ${STABLE_WINDOW}s, poll every ${POLL_INTERVAL}s"
+  start=$(date +%s)
+  while :; do
+    snap=$(k get applications.argoproj.io -n argocd -o json 2>/dev/null) || snap='{"items":[]}'
+    detail=$(jq -c -f "$APPS_STABLE_JQ" --arg names "${EXPECTED_APPS[*]}" --arg repo "$REPO_URL" \
+      --arg main "$main" --arg devstate "$devstate" --arg detail 1 <<<"$snap") \
+      || { echo "evaluating $APPS_STABLE_JQ failed"; return 1; }
+    stable=$(jq -r '.stable' <<<"$detail")
+    elapsed=$(( $(date +%s) - start ))
+    if [[ $stable == true ]]; then
+      if (( streak_start < 0 )); then streak_start=$elapsed; fi
+      streak=$(( elapsed - streak_start ))
+    else
+      streak_start=-1; streak=0
     fi
-    sync=$(jq -r '.status.sync.status // "-"' "$jf")
-    health=$(jq -r '.status.health.status // "-"' "$jf")
-    echo "$name: sync=$sync health=$health"
-    [[ $sync == Synced && $health == Healthy ]] || rc=1
+    printf '%s predicate=%s streak=%ss | %s\n' "$(date -u +%FT%TZ)" "$stable" "$streak" \
+      "$(jq -r '[.apps[] | "\(.name) \(.sync // "-")/\(.health // "-") expected=\(.expected[0:7]) observed=\((.observed // ["-"]) | map(. // "-" | .[0:7]) | join(","))"] | join("; ")' <<<"$detail")"
+    if [[ $stable == true ]] && (( streak >= STABLE_WINDOW )); then
+      echo "stable at the expected commits for ${streak}s (after ${elapsed}s)"
+      return 0
+    fi
+    if (( elapsed >= APPS_TIMEOUT )); then
+      echo "not stable for ${STABLE_WINDOW}s within the ${APPS_TIMEOUT}s bound; last snapshot:"
+      jq -r '.apps[] | "\(.name): sync=\(.sync // "-") health=\(.health // "-") expected=\(.expected) observed=\((.observed // ["-"]) | map(. // "-") | join(",")) ok=\(.ok)"' <<<"$detail"
+      return 1
+    fi
+    sleep "$POLL_INTERVAL"
   done
-  rm -f "$jf" "$ef"
-  return $rc
 }
 
 # ---------------------------------------------------------------------------
@@ -123,16 +175,11 @@ v_no_removed() {
 
 # ---------------------------------------------------------------------------
 # M4. sample-api: running digest matches Git; /metrics 200 with the two metric names.
-# The digest is pinned per overlay (ADR-017), not in the base. Each namespace's Application
-# tracks a different branch (ADR-013/ADR-017): sample-api-dev -> experiment/dev-state,
-# sample-api-prod -> main. Reading from the local checkout would check whatever happens to be
-# checked out here, which is neither of those — so this reads origin/<branch> after an explicit
-# fetch. This is the one deliberate exception to the shared g() wrapper's "never fetch": fetch
-# only updates remote-tracking refs, it never touches the working tree.
+# The digest is pinned per overlay (ADR-017), not in the base, and read from origin/<branch>
+# after the fetch at the start of the run (see "Expected commits" above).
 # ---------------------------------------------------------------------------
 v_sample_api() {
   local rc=0
-  git fetch origin main experiment/dev-state >/dev/null 2>&1
   local pairs=("nexus-dev experiment/dev-state dev" "nexus-prod main prod")
   local pair ns branch overlay git_digest
   for pair in "${pairs[@]}"; do
@@ -308,7 +355,8 @@ log ""
 log "Generated $(date -u +%FT%TZ) by \`scripts/verify-state.sh\`. Never hand-edited (spec §25)."
 log ""
 
-verify M1 "Applications Synced and Healthy"              v_applications
+echo "verify-state: M1 polls every ${POLL_INTERVAL}s until every Application is stable at the expected commit for ${STABLE_WINDOW}s (bound ${APPS_TIMEOUT}s)"
+verify M1 "Applications stable at the expected commits"  v_applications
 verify M2 "Exactly one default Grafana datasource"       v_grafana_default
 verify M3 "No Loki, Crossplane, or sample-db"            v_no_removed
 verify M4 "sample-api digest and /metrics"               v_sample_api
