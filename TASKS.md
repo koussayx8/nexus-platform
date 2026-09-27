@@ -539,6 +539,12 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     (306 s held) and a working set ≤ 450 MiB (207 MiB).
   - Incident, step 3: an unprompted live `verify-state.sh` run (guard-model Later item).
 - **M1-6 — exit.**
+  - **Finding at GATE M1-5 — ArgoCD pickup delay.** Measured merge/push → new revision: 242 and
+    356 s (M1-4); 262–382 s and 315 s (M1-5); all above the 180 s reconcile term. Cause: the
+    repo-server's Git reference cache (`--revision-cache-expiration`, default 3 min, not set live)
+    in front of the controller's 120 + 60 s refresh, a worst case of about 360 s. Reconcile term
+    re-derived to **480 s**: `verify-state.sh` default **1140 s**, M1-4-style bound **1300 s**,
+    bootstrap DB wait unchanged at 900 s (ADR-020 addendum, GATE M1-5).
   - **WSL2 VM pause rule** (added at M1-4): a host sleep changes neither `boot_id` nor k3s's start
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
     `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
