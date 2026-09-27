@@ -291,7 +291,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 7. Audit retention: an ADR-019 addendum accepting about 10 days (the per-run extract is what §14
    keeps); re-measure at M4. [M1-6]
 8. The Later items `step_h`, `set -e`, step timestamps and the restart-count line go into M1-3,
-   one commit each. [M1-3]
+   one commit each. The `verify-state.sh` retry window, the second clause of the `step_h` Later
+   item that the first pruning pass dropped, becomes its own commit 7, because it lives in a
+   different script (added at the #68 follow-up gate). [M1-3]
 10. `/items` is a plain `def` (threadpool), not `async def`, with a test asserting it. [M1-1]
 11. DB connections stay below `max_connections`. anyio's default threadpool is 40 per pod, which
     gives 560 connections unbounded at 7 pods × 2 envs. A per-pod `BoundedSemaphore(5)` (0.3 s
@@ -349,9 +351,29 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [ ] Validation: kustomize, kubeconform, render check, then a server-side dry-run against the
     live cluster (approval first).
 - **M1-3 — scripts.**
-  - [ ] PR `feat(scripts)`, one commit each: `step_h` simultaneous-stable; `set -e`; step
-    timestamps; restart-count info line; `dependency-db-secrets.sh` + bootstrap call;
-    `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
+  - [ ] PR `feat(scripts)`, one commit each:
+    1. `step_h` simultaneous-stable. It adds the shared predicate `scripts/lib/apps-stable.jq`, a
+       pure jq filter and not a shell wrapper, so `bootstrap.sh` still does not source
+       `readonly.sh`. Given one `kubectl get applications -n argocd -o json` snapshot and the
+       expected names, it is true only if every expected Application is `Synced` **and** `Healthy`
+       in that same snapshot. `step_h` polls it every 5 s and passes only after 60 s of
+       consecutive true snapshots; any false resets the streak. Per-app timeouts stay the outer
+       bound.
+    2. `set -e`.
+    3. Step timestamps.
+    4. Restart-count info line.
+    5. `dependency-db-secrets.sh` + the bootstrap call.
+    6. `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
+    7. **`verify-state.sh` Application retry window.**
+       - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **300 s**.
+       - Every poll is written to the report: UTC timestamp, each app's sync/health, predicate
+         result, current streak.
+       - Pass only when the **same** `apps-stable.jq` predicate as commit 1 has held for 60 s of
+         consecutive snapshots, never on the first success.
+       - At the bound: FAIL, with the last snapshot.
+       - Why 300 s: the 60 s window plus 240 s to converge, which covers ArgoCD's reconciliation
+         interval (v3.3.8 default 120 s plus ≤60 s jitter, so ≤180 s; live `argocd-cm` sets
+         neither) and the Applications' `maxDuration: 3m` retry-backoff ceiling.
   - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
