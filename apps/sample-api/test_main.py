@@ -138,3 +138,18 @@ def test_items_slots_exhausted_returns_503_without_connecting(
     assert response.json() == {"error": "db_slots_exhausted"}
     assert "db_slots_exhausted" in caplog.text
     assert connect_calls == []
+
+
+def test_items_multiline_error_is_logged_on_one_line(monkeypatch, caplog):
+    def fake_connect(*args, **kwargs):
+        raise psycopg.OperationalError(NOLOGIN_MESSAGE + "\nDETAIL: forged\r\nline")
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    with caplog.at_level(logging.ERROR, logger="sample_api"):
+        response = client.get("/items")
+    assert response.status_code == 503
+    [record] = [r for r in caplog.records if r.name == "sample_api"]
+    message = record.getMessage()
+    assert "\n" not in message
+    assert "\r" not in message
+    assert "not permitted to log in\\nDETAIL: forged\\r\\nline" in message

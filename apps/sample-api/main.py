@@ -26,6 +26,11 @@ logging.basicConfig(
 logger = logging.getLogger("sample_api")
 
 
+def _one_line(text: str) -> str:
+    """Escape backslashes and line breaks so each log event stays on one line."""
+    return text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
 app = FastAPI(
     title="NEXUS Sample API",
     description="Sample microservice for validating the NEXUS CI/CD pipeline",
@@ -83,7 +88,7 @@ def items():
             "db_error type=%s sqlstate=%s message=%s",
             type(exc).__name__,
             exc.sqlstate,
-            exc,
+            _one_line(str(exc)),
         )
         return JSONResponse(status_code=503, content={"error": "db_unavailable"})
     finally:
