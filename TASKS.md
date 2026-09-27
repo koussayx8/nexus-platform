@@ -326,8 +326,8 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 23. The test d negative container runs without `--rm`. [test d]
 24. startupProbe `failureThreshold` is 150 (5 min at 2 s), since a mid-init kill with the marker is
     a permanent CrashLoop. The init duration is recorded in test d and at the M1 exit rebuild.
-    ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, only with the owner's
-    approval. The `verify-state.sh` rollout term (420 s, M1-3 commit 7) is derived from this
+    ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, run by the owner (the
+    agent's guard denies `kubectl delete`), only with the owner's approval. The `verify-state.sh` rollout term (420 s, M1-3 commit 7) is derived from this
     startupProbe budget: changing one means re-deriving the other. [test d, M1-2, M1-3, ADR-020]
 
 **Phases**
@@ -411,7 +411,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
     2. `set -e`.
     3. Step timestamps.
     4. Restart-count info line.
-    5. `dependency-db-secrets.sh` + the bootstrap call.
+    5. `dependency-db-secrets.sh` + the bootstrap call. It prints `exists` or `created` per
+       Secret, by name only, never values. That output is the M1-4 evidence that the three
+       Secrets exist, since the agent's guard denies `kubectl get secret*`.
     6. `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
     7. **`verify-state.sh` Application retry window.**
        - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **660 s**.
@@ -435,6 +437,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
        - Not included: ArgoCD sync-retry backoff after a failed sync attempt (10 s doubling up to
          `maxDuration: 3m`), for example the AppProject/Application ordering race at M1-4. For
          that case, set a larger bound with the env var and record the value used in the report.
+    - Also in this PR: ADR-020 states that the owner runs the change 24 recovery delete.
   - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
 - **M1-4 â€” DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
@@ -479,6 +482,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
 
 ## Later â€” out of scope for M1
 
+- Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
+  behave in bypass and default permission modes, and the script gap (the rules match only the
+  command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
+  `kubectl create --dry-run=server` and `rm -rf` internally).
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
