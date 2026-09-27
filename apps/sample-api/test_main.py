@@ -4,13 +4,12 @@ import inspect
 import logging
 import threading
 
+import main
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from psycopg.conninfo import conninfo_to_dict, make_conninfo
-
-import main
 from main import app
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 client = TestClient(app)
 
