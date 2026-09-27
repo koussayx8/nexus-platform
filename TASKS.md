@@ -589,6 +589,11 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 
 ## Later — out of scope for M1
 
+- **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
+  pickup takes 4 to 6.5 minutes (the repo-server's revision cache plus the controller's refresh;
+  measured 242–382 s, ADR-020 addendum). If NEXUS repairs through Git commits, this dominates
+  measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
+  or shorter cache and refresh timeouts.
 - Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
