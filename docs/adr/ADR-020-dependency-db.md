@@ -14,7 +14,7 @@ rev 5, changes 1–24) fixed the design; this ADR records it with the evidence f
 ### Image, identity, storage
 - `postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f`
   (`postgres:17` index, `PG_VERSION=17.11-1.pgdg13+2`, 161.3 MB compressed). Pulled in 55.9 s
-  through Docker Desktop at test d; the 60 s image-pull allowance below is tight.
+  through Docker Desktop at test d, so the image-pull allowance below is 120 s, not the planned 60 s.
 - UID/GID **999** (`id postgres` in the image: `uid=999(postgres) gid=999(postgres)`), with
   `runAsNonRoot`, `fsGroup: 999`, all capabilities dropped, no privilege escalation, seccomp
   `RuntimeDefault`: PSS `restricted`, which `nexus-data` enforces.
@@ -55,8 +55,10 @@ rev 5, changes 1–24) fixed the design; this ADR records it with the evidence f
 - startupProbe: period 2 s, `failureThreshold: 150` (5 min). A startup kill mid-init leaves
   PGDATA without the marker, which is a permanent CrashLoop. **Recovery:** `kubectl delete pod
   dependency-db-0` (a fresh `emptyDir` and a clean init), only with the owner's approval.
-- **Coupling:** the `verify-state.sh` rollout term (360 s = 150 × 2 s + a 60 s pull allowance, M1-3
-  commit 7) is derived from this budget. Changing one means re-deriving the other.
+- **Coupling:** the `verify-state.sh` rollout term (420 s = 150 × 2 s + a 120 s pull allowance, M1-3
+  commit 7) is derived from this budget. It sets the verify default (180 + 420 + 60 = 660 s) and
+  the M1-4 bound (180 + 160 + 420 + 60 = 820 s). Changing the startupProbe budget or the pull
+  allowance means re-deriving all three.
 - Probes do not authenticate, so S5 cannot fail them. Test d: with `app_dev` `NOLOGIN`, the exact
   probe returned 0.
 
@@ -121,7 +123,7 @@ run, and discards the run on either change.
 Application `dependency-db` (tracks `main`, `apps/dependency-db`, automated sync with prune and
 selfHeal, the same retry policy as every Application). The AppProject gains `apps/StatefulSet` in
 the same PR (standing rule). The AppProject is managed by `platform`, not `root`, so no sync-wave
-can order it first; M1-4 uses a derived `NEXUS_VERIFY_APPS_TIMEOUT=760` instead (`TASKS.md`).
+can order it first; M1-4 uses a derived `NEXUS_VERIFY_APPS_TIMEOUT=820` instead (`TASKS.md`).
 
 ## Consequences
 - S5 is invisible to Kubernetes: no probe fails, nothing restarts, and only `/items` and its log

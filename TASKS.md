@@ -327,7 +327,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 24. startupProbe `failureThreshold` is 150 (5 min at 2 s), since a mid-init kill with the marker is
     a permanent CrashLoop. The init duration is recorded in test d and at the M1 exit rebuild.
     ADR-020 names the recovery: `kubectl delete pod dependency-db-0`, only with the owner's
-    approval. The `verify-state.sh` rollout term (360 s, M1-3 commit 7) is derived from this
+    approval. The `verify-state.sh` rollout term (420 s, M1-3 commit 7) is derived from this
     startupProbe budget: changing one means re-deriving the other. [test d, M1-2, M1-3, ADR-020]
 
 **Phases**
@@ -349,7 +349,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 - **M1-2 — dependency-db.**
   - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
     Application, AppProject `apps/StatefulSet` (same PR, standing rule), ADR-020. ADR-020 also
-    records that the `verify-state.sh` rollout term (360 s) is derived from the startupProbe
+    records that the `verify-state.sh` rollout term (420 s) is derived from the startupProbe
     budget (change 24): changing one means re-deriving the other. It also records that
     connect-time errors carry `sqlstate=None` (psycopg builds the `OperationalError` client-side),
     so the S5 evidence is the message text (`FATAL: role "app_dev" is not permitted to log in`),
@@ -403,22 +403,22 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     5. `dependency-db-secrets.sh` + the bootstrap call.
     6. `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
     7. **`verify-state.sh` Application retry window.**
-       - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **600 s**.
+       - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **660 s**.
        - Every poll is written to the report: UTC timestamp, each app's sync/health, expected vs
          observed revision(s), predicate result, current streak.
        - Pass only when the **same** `apps-stable.jq` predicate as commit 1 (revision check
          included) has held for 60 s of consecutive snapshots, never on the first success.
        - At the bound: FAIL, with the last snapshot.
-       - **Default, derived as additive terms:** reconcile delay 180 s + rollout 360 s + stable
-         window 60 s = **600 s**.
+       - **Default, derived as additive terms:** reconcile delay 180 s + rollout 420 s + stable
+         window 60 s = **660 s**.
          - Reconcile delay, 180 s: ArgoCD v3.3.8 polls Git every `timeout.reconciliation` 120 s
            plus up to `timeout.reconciliation.jitter` 60 s. The live `argocd-cm` overrides
            neither. A GitHub webhook cannot shorten it, because `argocd-server` is `ClusterIP` with no
            Ingress (ADR-014).
-         - Rollout, 360 s: the slowest M1 rollout is dependency-db's first start. Its startupProbe
-           ceiling is 150 × 2 s = 300 s (change 24), plus a 60 s image-pull allowance for
-           `postgres` 17.11, 161.3 MB compressed (implies ≥ 2.7 MB/s; UNVERIFIED, measured at test
-           d and M1-4). This dominates sample-api: 2 pods rolled one at a time (`maxSurge` 1,
+         - Rollout, 420 s: the slowest M1 rollout is dependency-db's first start. Its startupProbe
+           ceiling is 150 × 2 s = 300 s (change 24), plus a 120 s image-pull allowance for
+           `postgres` 17.11, 161.3 MB compressed (implies ≥ 1.35 MB/s). Test d pulled it in 55.9 s
+           through Docker Desktop, so 60 s was too tight; the node's pull is measured at M1-4. This dominates sample-api: 2 pods rolled one at a time (`maxSurge` 1,
            `maxUnavailable` 0), each ≤ 52 s startupProbe + 10 s readiness, about 124 s.
          - Stable window, 60 s: the commit-1 streak.
        - Not included: ArgoCD sync-retry backoff after a failed sync attempt (10 s doubling up to
@@ -427,7 +427,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
-  - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=760`**, recorded
+  - `verify-state.sh` after the gate merge runs with **`NEXUS_VERIFY_APPS_TIMEOUT=820`**, recorded
     in the report. Derivation (additive terms):
     - Reconcile delay, 180 s: as in M1-3 commit 7.
     - Retry backoff, 160 s: `root` (creates the `dependency-db` Application) and `platform` (adds
@@ -437,7 +437,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
       +0, 10, 30, 70, 150 and 310 s after the first. The latest first attempt after the widening
       is when `root` picks up the merge 30 s after it and `platform` 180 s after it:
       30 + 310 = 340 s = 180 + 160.
-    - Rollout, 360 s, and stable window, 60 s: as in M1-3 commit 7.
+    - Rollout, 420 s, and stable window, 60 s: as in M1-3 commit 7.
     - UNVERIFIED: that ArgoCD treats the project denial as a failed sync operation retried by this
       policy, rather than re-evaluating on the AppProject change (faster). The M1-4 report's poll
       log shows which.
