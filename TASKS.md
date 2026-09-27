@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-1 — `sample-api` `/items` PR. M1-0 done (#68, merge `7cc5811`). Test d blocked on Docker's WSL integration.
+**Current phase:** M1-2 — dependency-db PR. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -338,13 +338,18 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [x] Gate reports a–h delivered with this PR.
   - [x] This PR merged (#68, merge `7cc5811`). **GATE M1-0.**
 - **Test d — offline Postgres test, which gates the M1-2 PR.**
-  - [ ] Owner enables Docker Desktop's WSL integration.
-  - [ ] Run the pinned `postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f`
+  - [x] Owner enables Docker Desktop's WSL integration.
+  - [x] Run the pinned `postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f`
     (17.11) as UID 999, caps dropped, tmpfs for PGDATA and the socket, covering changes 15 and
     19–24, the `NOLOGIN` error text, and 0 password hits in the logs. If `--read-only` is the only
     cause of a failure, rerun without it.
+    - **Passed 2026-09-27**, against the M1-2 drafts, all runs with `--read-only`. Evidence and
+      figures are in ADR-020: UID 999; the execute branch; socket before TCP, and the probe 0 only
+      after `init process complete`; the negative case non-zero in 69/69 samples after
+      `Skipping initialization`; the `NOLOGIN` text; 0 password hits; the PGDATA subdirectory
+      required on a root-owned mount; pull 55.9 s (hence the 120 s allowance).
 - **M1-1 — `sample-api` `/items`.**
-  - [ ] PR `feat(sample-api)`: changes 4, 10, 11 and 12; `psycopg[binary]`; tests; version 0.2.0.
+  - [x] PR `feat(sample-api)` (#69, merge `fb047e1`): changes 4, 10, 11 and 12; `psycopg[binary]`; tests; version 0.2.0.
     No manifest change.
 - **M1-2 — dependency-db.**
   - [ ] PR `feat(dependency-db)`: StatefulSet, headless and ClusterIP Service, init ConfigMap,
