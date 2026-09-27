@@ -354,26 +354,55 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   - [ ] PR `feat(scripts)`, one commit each:
     1. `step_h` simultaneous-stable. It adds the shared predicate `scripts/lib/apps-stable.jq`, a
        pure jq filter and not a shell wrapper, so `bootstrap.sh` still does not source
-       `readonly.sh`. Given one `kubectl get applications -n argocd -o json` snapshot and the
-       expected names, it is true only if every expected Application is `Synced` **and** `Healthy`
-       in that same snapshot. `step_h` polls it every 5 s and passes only after 60 s of
-       consecutive true snapshots; any false resets the streak. Per-app timeouts stay the outer
-       bound.
+       `readonly.sh`.
+       - **Input:** one `kubectl get applications -n argocd -o json` snapshot, plus jq args: the
+         expected names, `--arg repo https://github.com/koussayx8/nexus-platform.git`,
+         `--arg main <origin/main SHA>` and `--arg devstate <origin/experiment/dev-state SHA>`.
+         The caller resolves the SHAs with `git rev-parse` after the `git fetch origin main
+         experiment/dev-state` that both scripts already run: `bootstrap.sh`'s merge-order
+         guard, and `verify-state.sh:122`.
+       - **True only if** every expected Application in that same snapshot is `Synced` **and**
+         `Healthy` **and** at the expected commit. The expected commit is `devstate` for
+         `sample-api-dev` and `main` for every other Application.
+       - **Revision check:** a single-source app compares `.status.sync.revision`. A multi-source
+         app (live today: `kyverno`, `observability`) compares every
+         `.status.sync.revisions[i]` whose `.spec.sources[i].repoURL` equals `repo`, by index.
+         Chart sources (`3.8.0`, `86.2.2`) are skipped. An app with no Git source, or a
+         `revisions` array shorter than `sources`, is false.
+       - **Why:** `Synced` is relative to the last revision ArgoCD fetched. For up to about 180 s
+         after a merge (reconcile delay below), every app is `Synced`/`Healthy` at the *old*
+         commit, and a status-only predicate would pass on the pre-merge state.
+       - **Read-only:** no `argocd.argoproj.io/refresh` annotation and no other write; the scripts
+         only wait for ArgoCD's own reconcile.
+       - `step_h` polls it every 5 s and passes only after 60 s of consecutive true snapshots; any
+         false resets the streak. Per-app timeouts stay the outer bound.
     2. `set -e`.
     3. Step timestamps.
     4. Restart-count info line.
     5. `dependency-db-secrets.sh` + the bootstrap call.
     6. `dependency-db` in both `EXPECTED_APPS` + a DB-pod-Ready check.
     7. **`verify-state.sh` Application retry window.**
-       - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **300 s**.
-       - Every poll is written to the report: UTC timestamp, each app's sync/health, predicate
-         result, current streak.
-       - Pass only when the **same** `apps-stable.jq` predicate as commit 1 has held for 60 s of
-         consecutive snapshots, never on the first success.
+       - Bounded wait: poll every 5 s, total bound `NEXUS_VERIFY_APPS_TIMEOUT`, default **600 s**.
+       - Every poll is written to the report: UTC timestamp, each app's sync/health, expected vs
+         observed revision(s), predicate result, current streak.
+       - Pass only when the **same** `apps-stable.jq` predicate as commit 1 (revision check
+         included) has held for 60 s of consecutive snapshots, never on the first success.
        - At the bound: FAIL, with the last snapshot.
-       - Why 300 s: the 60 s window plus 240 s to converge, which covers ArgoCD's reconciliation
-         interval (v3.3.8 default 120 s plus ≤60 s jitter, so ≤180 s; live `argocd-cm` sets
-         neither) and the Applications' `maxDuration: 3m` retry-backoff ceiling.
+       - **Default, derived as additive terms:** reconcile delay 180 s + rollout 360 s + stable
+         window 60 s = **600 s**.
+         - Reconcile delay, 180 s: ArgoCD v3.3.8 polls Git every `timeout.reconciliation` 120 s
+           plus up to `timeout.reconciliation.jitter` 60 s. The live `argocd-cm` overrides
+           neither. A GitHub webhook cannot shorten it, because `argocd-server` is `ClusterIP` with no
+           Ingress (ADR-014).
+         - Rollout, 360 s: the slowest M1 rollout is dependency-db's first start. Its startupProbe
+           ceiling is 150 × 2 s = 300 s (change 24), plus a 60 s image-pull allowance for
+           `postgres` 17.11, 161.3 MB compressed (implies ≥ 2.7 MB/s; UNVERIFIED, measured at test
+           d and M1-4). This dominates sample-api: 2 pods rolled one at a time (`maxSurge` 1,
+           `maxUnavailable` 0), each ≤ 52 s startupProbe + 10 s readiness, about 124 s.
+         - Stable window, 60 s: the commit-1 streak.
+       - Not included: ArgoCD sync-retry backoff after a failed sync attempt (10 s doubling up to
+         `maxDuration: 3m`), for example the AppProject/Application ordering race at M1-4. For
+         that case, set a larger bound with the env var and record the value used in the report.
   - [ ] Validation: `--plan` and the 6-scenario fault-injection rerun. **GATE M1-3.**
 - **M1-4 — DB live.**
   - [ ] The owner runs `dependency-db-secrets.sh` on the live cluster.
