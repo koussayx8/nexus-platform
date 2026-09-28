@@ -273,6 +273,11 @@ failing `Failed` pods outright.
   and a k3s restart for no lasting gain.
 - **Check:** after the M1 exit rebuild (M1-6), the owner runs `sudo k3s secrets-encrypt status`
   and expects `Encryption Status: Enabled`. The agent cannot run it (root-only).
+- **Result (2026-09-28, GATE M1-6 b6):** after the from-empty rebuild, the owner's
+  `sudo k3s secrets-encrypt status` reported `Encryption Status: Enabled`, `Current Rotation
+  Stage: start`, `Server Encryption Hashes: All hashes match`, active key `AES-CBC` `aescbckey`.
+  k3s's default provider is AES-CBC; the Kubernetes documentation prefers secretbox or a KMS
+  provider (Later item).
 
 ## Addendum (2026-09-28, M1-6): measured audit retention (changes 7 and 14)
 
