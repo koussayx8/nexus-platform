@@ -1,0 +1,402 @@
+# Unit tests for platform/observability/alerts/nexus-detection.yaml (ADR-024). Run by
+# scripts/tests/promtool-rules.sh, which extracts the rule file's .spec as nexus-detection.rules.yaml.
+#
+# promtool starts at time 0, so timestamps are seconds from the start. Inputs are scraped every
+# 15 s (the sample-api ServiceMonitor interval); the rules run every 30 s (the group interval).
+# Baseline: 20 requests/s on /items, all under 100 ms, 0.1 cores, nothing in flight. Each fault
+# starts at 20m15s (sample 81), when the 15 min windows hold only baseline.
+#
+# Every scenario asserts which alerts fired, for how many 30 s evaluations
+# (count_over_time(ALERTS{alertstate="firing"})), and the first firing time (seconds). These pin the
+# detector's behaviour (ADR-024): the first firing comes 75-105 s after the onset at 20m15s, and a
+# step keeps Z above 3 only while the new values are a small part of the 15 min window, so with
+# "for: 1m" an alert fires for 1-2 evaluations and then resolves while the fault goes on. A ramp
+# lasts longer: from a flat baseline, Z = 5.39, 4.80, 4.29, 3.89, 3.58, 3.32, 3.11, 2.94 at
+# evaluations 1-8, whatever the slope, so the deadlock (case 9) fires at evaluations 3-7.
+rule_files:
+  - nexus-detection.rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  # 1. Steady baseline in both namespaces; epsilon keeps every Z at 0 with zero variance; probes
+  #    (/health) and the scrape's own in-flight request (/metrics) are excluded.
+  - name: steady baseline, no alert
+    interval: 15s
+    input_series:
+      - &prod_cpu
+        series: 'container_cpu_usage_seconds_total{job="kubelet",namespace="nexus-prod",pod="sample-api-a",container="sample-api"}'
+        values: '0+1.5x160'
+      - &prod_ok
+        series: 'http_requests_total{job="sample-api",namespace="nexus-prod",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x160'
+      - &prod_b01
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-prod",handler="/items",method="GET",le="0.1"}'
+        values: '0+300x160'
+      - &prod_b05
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-prod",handler="/items",method="GET",le="0.5"}'
+        values: '0+300x160'
+      - &prod_b1
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-prod",handler="/items",method="GET",le="1"}'
+        values: '0+300x160'
+      - &prod_binf
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-prod",handler="/items",method="GET",le="+Inf"}'
+        values: '0+300x160'
+      - &prod_inflight
+        series: 'http_requests_inprogress{job="sample-api",namespace="nexus-prod",handler="/items",method="GET"}'
+        values: '0x160'
+      - &dev_cpu
+        series: 'container_cpu_usage_seconds_total{job="kubelet",namespace="nexus-dev",pod="sample-api-a",container="sample-api"}'
+        values: '0+1.5x160'
+      - &dev_ok
+        series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x160'
+      - &dev_b01
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.1"}'
+        values: '0+300x160'
+      - &dev_b05
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.5"}'
+        values: '0+300x160'
+      - &dev_b1
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="1"}'
+        values: '0+300x160'
+      - &dev_binf
+        series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="+Inf"}'
+        values: '0+300x160'
+      - &dev_inflight
+        series: 'http_requests_inprogress{job="sample-api",namespace="nexus-dev",handler="/items",method="GET"}'
+        values: '0x160'
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/health",method="GET",status="2xx"}'
+        values: '0+15x160'
+      - series: 'http_requests_inprogress{job="sample-api",namespace="nexus-dev",handler="/metrics",method="GET"}'
+        values: '1x160'
+    promql_expr_test:
+      - expr: count_over_time(ALERTS[40m])
+        eval_time: 40m
+        exp_samples: []
+      # rate() extrapolation gives 19.999999999999996, and promtool compares exactly.
+      - expr: round(namespace:nexus_sample_api_requests:rate2m{namespace="nexus-dev"}, 0.001)
+        eval_time: 30m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 20
+      - expr: '{__name__=~"namespace:nexus_sample_api_(inflight:sum|latency_p95:2m|error_ratio:rate2m)",namespace="nexus-dev"}'
+        eval_time: 30m
+        exp_samples:
+          - labels: 'namespace:nexus_sample_api_inflight:sum{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_latency_p95:2m{namespace="nexus-dev"}'
+            value: 0.095
+          - labels: 'namespace:nexus_sample_api_error_ratio:rate2m{namespace="nexus-dev"}'
+            value: 0
+      - expr: '{__name__=~"namespace:nexus_sample_api_.*:zscore15m",namespace="nexus-dev"}'
+        eval_time: 30m
+        exp_samples:
+          - labels: 'namespace:nexus_sample_api_cpu:zscore15m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_latency_p95:zscore15m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_inflight:zscore15m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_error_ratio:zscore15m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"}'
+            value: 0
+
+  # 2. Latency step (slow handlers): every request moves from under 100 ms to 100-500 ms.
+  - name: latency step fires NexusLatencyAnomaly in nexus-dev only
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - *dev_cpu
+      - *dev_ok
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.1"}'
+        values: '0+300x80 24000x79'
+      - *dev_b05
+      - *dev_b1
+      - *dev_binf
+      - *dev_inflight
+    promql_expr_test:
+      - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1
+      - expr: min_over_time(timestamp(ALERTS{alertname="NexusLatencyAnomaly",alertstate="firing"})[40m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1290
+
+  # 3. CPU step: 0.1 -> 0.4 cores.
+  - name: CPU step fires NexusCpuAnomaly in nexus-dev only
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - series: 'container_cpu_usage_seconds_total{job="kubelet",namespace="nexus-dev",pod="sample-api-a",container="sample-api"}'
+        values: '0+1.5x80 126+6x79'
+      - *dev_ok
+      - *dev_b01
+      - *dev_b05
+      - *dev_b1
+      - *dev_binf
+      - *dev_inflight
+    promql_expr_test:
+      - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusCpuAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 2
+      - expr: min_over_time(timestamp(ALERTS{alertname="NexusCpuAnomaly",alertstate="firing"})[40m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusCpuAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1290
+
+  # 4. S5 shape: 20 % of requests become 5xx. The 5xx series does not exist before the fault (the
+  #    instrumentator creates it on the first 5xx); the baseline ratio is still recorded as 0.
+  - name: errors 0 -> 20 % fire NexusErrorRateAnomaly in nexus-dev only
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - *dev_cpu
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x80 24240+240x79'
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="5xx"}'
+        values: '_x80 60+60x79'
+      - *dev_b01
+      - *dev_b05
+      - *dev_b1
+      - *dev_binf
+      - *dev_inflight
+    promql_expr_test:
+      - expr: namespace:nexus_sample_api_error_ratio:avg15m{namespace="nexus-dev"}
+        eval_time: 20m
+        exp_samples:
+          - labels: 'namespace:nexus_sample_api_error_ratio:avg15m{namespace="nexus-dev"}'
+            value: 0
+      - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusErrorRateAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 2
+      - expr: min_over_time(timestamp(ALERTS{alertname="NexusErrorRateAnomaly",alertstate="firing"})[40m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusErrorRateAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1290
+
+  # 5. The 5 % floor: errors 0 -> 4 % push the Z-score above 3 (4 % > 3 x epsilon 0.01), but no
+  #    alert fires.
+  - name: errors 0 -> 4 % stay under the floor
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - *dev_cpu
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x80 24288+288x79'
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="5xx"}'
+        values: '_x80 12+12x79'
+      - *dev_b01
+      - *dev_b05
+      - *dev_b1
+      - *dev_binf
+      - *dev_inflight
+    promql_expr_test:
+      - expr: max_over_time((namespace:nexus_sample_api_error_ratio:zscore15m{namespace="nexus-dev"} > bool 3)[20m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
+      - expr: count_over_time(ALERTS[40m])
+        eval_time: 40m
+        exp_samples: []
+
+  # 6. S4 shape: traffic x1.5 (20 -> 30 requests/s), latency and CPU unchanged.
+  - name: traffic x1.5 fires NexusTrafficAnomaly in nexus-dev only
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - *dev_cpu
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x80 24450+450x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.1"}'
+        values: '0+300x80 24450+450x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.5"}'
+        values: '0+300x80 24450+450x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="1"}'
+        values: '0+300x80 24450+450x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="+Inf"}'
+        values: '0+300x80 24450+450x79'
+      - *dev_inflight
+    promql_expr_test:
+      - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusTrafficAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1
+      - expr: min_over_time(timestamp(ALERTS{alertname="NexusTrafficAnomaly",alertstate="firing"})[40m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusTrafficAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1320
+
+  # 7. Epsilon: a CPU step of 0.04 cores (under 3 x 0.02) moves the Z-score but never past 3.
+  - name: sub-threshold CPU step stays silent
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - series: 'container_cpu_usage_seconds_total{job="kubelet",namespace="nexus-dev",pod="sample-api-a",container="sample-api"}'
+        values: '0+1.5x80 122.1+2.1x79'
+      - *dev_ok
+      - *dev_b01
+      - *dev_b05
+      - *dev_b1
+      - *dev_binf
+      - *dev_inflight
+    promql_expr_test:
+      - expr: max_over_time((namespace:nexus_sample_api_cpu:zscore15m{namespace="nexus-dev"} > bool 1.5)[20m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
+      - expr: max_over_time((namespace:nexus_sample_api_cpu:zscore15m{namespace="nexus-dev"} > bool 3)[20m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 0
+      - expr: count_over_time(ALERTS[40m])
+        eval_time: 40m
+        exp_samples: []
+
+  # 8. Missing data: nexus-dev has no traffic, no in-flight gauge and no CPU series. No p95, no
+  #    error ratio, no Z-scores except the request rate (0), and no alert.
+  - name: no traffic and missing series give no alert
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0x160'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="+Inf"}'
+        values: '0x160'
+    promql_expr_test:
+      - expr: '{__name__=~"namespace:nexus_sample_api_.*",namespace="nexus-dev"}'
+        eval_time: 30m
+        exp_samples:
+          - labels: 'namespace:nexus_sample_api_requests:rate2m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_requests:avg15m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_requests:stddev15m{namespace="nexus-dev"}'
+            value: 0
+          - labels: 'namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"}'
+            value: 0
+      - expr: count_over_time(ALERTS[40m])
+        eval_time: 40m
+        exp_samples: []
+
+  # 9. S1, a real deadlock (T-hang, ADR-022): from 20m15s no request completes, so the counters
+  #    and the latency histogram stop; the in-flight gauge rises by 20 per second (T-hang v2 counted
+  #    100 hung requests, past the 40-thread pool, while an async /metrics kept answering in 2-3 ms).
+  #    Only NexusLatencyAnomaly fires, through the in-flight Z-score; p95 goes absent, and the
+  #    traffic drop (negative Z) raises nothing.
+  - name: real deadlock fires NexusLatencyAnomaly through in-flight
+    interval: 15s
+    input_series:
+      - *prod_cpu
+      - *prod_ok
+      - *prod_b01
+      - *prod_b05
+      - *prod_b1
+      - *prod_binf
+      - *prod_inflight
+      - *dev_cpu
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x80 24000x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.1"}'
+        values: '0+300x80 24000x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.5"}'
+        values: '0+300x80 24000x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="1"}'
+        values: '0+300x80 24000x79'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="+Inf"}'
+        values: '0+300x80 24000x79'
+      - series: 'http_requests_inprogress{job="sample-api",namespace="nexus-dev",handler="/items",method="GET"}'
+        values: '0x80 300+300x79'
+      - series: 'http_requests_inprogress{job="sample-api",namespace="nexus-dev",handler="/metrics",method="GET"}'
+        values: '1x160'
+    alert_rule_test:
+      - eval_time: 21m30s
+        alertname: NexusLatencyAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api latency anomaly in nexus-dev"
+              description: "p95 latency or in-flight Z-score above 3 for 1 min"
+      - eval_time: 21m30s
+        alertname: NexusTrafficAnomaly
+        exp_alerts: []
+      - eval_time: 21m30s
+        alertname: NexusErrorRateAnomaly
+        exp_alerts: []
+    promql_expr_test:
+      - expr: absent(namespace:nexus_sample_api_latency_p95:2m{namespace="nexus-dev"})
+        eval_time: 25m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
+      - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 5
+      - expr: min_over_time(timestamp(ALERTS{alertname="NexusLatencyAnomaly",alertstate="firing"})[40m:30s])
+        eval_time: 40m
+        exp_samples:
+          - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
+            value: 1290
