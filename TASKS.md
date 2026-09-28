@@ -621,6 +621,15 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   measured 242–382 s, ADR-020 addendum). If NEXUS repairs through Git commits, this dominates
   measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
   or shorter cache and refresh timeouts.
+  - **Correction** (M1b plan gate, 2026-09-28): the premise contradicts the spec. NEXUS never
+    writes Git: the operator mutates only through the Scale and Eviction subresources, and
+    desired-state fixes escalate to a human (§13, AD-12). Git commits come from the Experiment
+    Runner (S3 inject, `experiment/dev-state` reset) and from humans (escalated fixes, C5), so the
+    pickup delay affects injection timing, reset time and human-fix recovery, not NEXUS's own
+    act phase. **Decision (owner):** the runner hard-refreshes the Application after each commit
+    it makes, and a run's injection time is when ArgoCD applied the revision, not the commit time.
+    `verify-state.sh` stays read-only. Still open: whether selfHeal touches the refresh annotation
+    (one approved live test in M1b).
 - **High priority, before M1b** (owner, #78 review, 2026-09-27): pattern rules cannot protect
   Secrets. `kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` both bypass the
   `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
