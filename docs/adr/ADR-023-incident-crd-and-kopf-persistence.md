@@ -91,6 +91,11 @@ The live checks follow the M1 exit.
   progress purge and the diff-base in one write, so the terminal write always comes after it, and
   nothing writes a terminal Incident (§7). In the spike, only the L0 path follows this rule so far
   (it waits for intake); the timeout path does not (see Consequences).
+- **The rule is bounded (owner, 6b gate): every Kopf handler gets a timeout, and the loop escalates
+  an Incident whose handler exceeded it.** Kopf checks `timeout=` only before each attempt and
+  after a failed one (`kopf/_core/actions/execution.py`, lines 245, 276 and 312). It does not stop
+  a handler that is still running. The loop's own check of the handler's `started` time in
+  `status.kopf.progress` against that timeout is therefore the bound.
 
 Reconcile rules in the spike (§7; plan M1b-8), with a missing or invalid `nexus.io/autonomy-level`
 label read as L0 (§12):
@@ -147,6 +152,11 @@ Other observations:
   - The spike's timeout path does not follow this yet: it can escalate while an intake handler is
     pending, and Kopf's late patch would then write a terminal Incident.
   - M1b-8 tests that interleaving with a forced hook, as P5 did.
+  - Every handler gets a timeout, and the loop escalates an Incident whose handler exceeded it,
+    even with progress still pending (owner, 6b gate). A handler that finishes after that
+    escalation would still write a terminal Incident, so M1b-8 must decide how to prevent it.
+    One option: bound each handler body to the same timeout (`asyncio.wait_for`), and let the
+    loop escalate one tick later.
 - The spike's `timestamps.intake`, the race hook and its handler sleeps are test scaffolding, not
   operator design.
 - Live confirmation comes with M1b-8's deployment on k3s: the API audit log should show the same
