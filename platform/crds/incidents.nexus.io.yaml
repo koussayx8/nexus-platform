@@ -1,0 +1,124 @@
+# The Incident CRD (spec §8; CRD Validation C1-C4, §11; M1b-6 6a). The creator writes spec once,
+# an Approver writes spec.approval once, and only the NEXUS Operator writes status, through the
+# status subresource (RBAC grants incidents/status only). The Reasoner writes nothing.
+#
+# CRD Validation, enforced by the API server (each message starts with its ID; tests:
+# scripts/tests/incident-crd.sh):
+#   C1  source, target and detectedAt equal their old values on every update (spec frozen)
+#   C2  if an old approval exists, the new approval equals it (write-once)
+#   C3  target.kind is Deployment and target.namespace is nexus-dev, nexus-prod or nexus-data
+#   C4  schema bounds: approval.parameters.replicas in [1, 5]
+# C1 and C2 are transition rules (they compare with oldSelf), so they run on updates only.
+# Who may create or approve, and what an approval may contain, is Kyverno's (K5, K6; M3).
+# status holds the operator's working record; its sub-objects stay open until M2 types them, and
+# status.kopf holds Kopf's progress and diff-base (spec §4: status-based persistence).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: incidents.nexus.io
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-023"
+spec:
+  group: nexus.io
+  scope: Namespaced
+  names:
+    kind: Incident
+    listKind: IncidentList
+    plural: incidents
+    singular: incident
+    shortNames: [inc]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Namespace, type: string, jsonPath: .spec.target.namespace}
+        - {name: Target, type: string, jsonPath: .spec.target.name}
+        - {name: Action, type: string, jsonPath: .status.proposal.actionId}
+        - {name: Level, type: integer, jsonPath: .status.autonomyLevel}
+        - {name: Reason, type: string, jsonPath: .status.reason}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [source, target, detectedAt]
+              x-kubernetes-validations:
+                - rule: >-
+                    self.source == oldSelf.source && self.target == oldSelf.target &&
+                    self.detectedAt == oldSelf.detectedAt
+                  message: "C1: spec.source, spec.target and spec.detectedAt are immutable"
+                - rule: "!has(oldSelf.approval) || (has(self.approval) && self.approval == oldSelf.approval)"
+                  message: "C2: spec.approval is write-once"
+              properties:
+                source:
+                  type: object
+                  required: [type]
+                  properties:
+                    type: {type: string, enum: [detector, human]}
+                    alertname: {type: string, maxLength: 128}
+                    fingerprint: {type: string, maxLength: 64}
+                    requester: {type: string, maxLength: 256}   # stamped by Kyverno (M3)
+                target:
+                  type: object
+                  required: [namespace, kind, name]
+                  x-kubernetes-validations:
+                    - rule: "self.kind == 'Deployment' && self.namespace in ['nexus-dev', 'nexus-prod', 'nexus-data']"
+                      message: "C3: target must be a Deployment in nexus-dev, nexus-prod or nexus-data"
+                  properties:
+                    namespace: {type: string, maxLength: 63}
+                    kind: {type: string, maxLength: 63}
+                    name: {type: string, maxLength: 253}
+                detectedAt: {type: string, format: date-time}
+                approval:
+                  type: object
+                  required: [decision]
+                  properties:
+                    decision: {type: string, enum: [approved, rejected]}
+                    actionId: {type: string, maxLength: 64}
+                    parameters:
+                      type: object
+                      properties:
+                        replicas: {type: integer, minimum: 1, maximum: 5}   # C4
+                    proposalHash: {type: string, maxLength: 80}
+                    expiresAt: {type: string, format: date-time}
+                    reason: {type: string, maxLength: 1024}
+                    approvedBy: {type: string, maxLength: 256}           # stamped by Kyverno (M3)
+                    approvedAt: {type: string, format: date-time}        # stamped by Kyverno (M3)
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Detected, Diagnosing, Proposed, AwaitingApproval, Executing, Verifying,
+                         Compensating, Recorded, Recommended, Dismissed, Resolved, Escalated,
+                         Blocked, Rejected, Expired]
+                reason:
+                  type: string
+                  enum: [level_observe, level_recommend, no_action_required, remediation_verified,
+                         proposed_escalation, abstain, reasoner_unavailable, schema_invalid,
+                         not_in_catalogue, bounds_exceeded, target_mismatch, autonomy_denied,
+                         killswitch, circuit_open, remediation_induced, precondition_failed,
+                         dry_run_denied, rbac_denied, admission_denied, pdb_denied,
+                         recorder_unavailable, approval_rejected, approval_expired,
+                         verification_failed, compensation_failed, compensation_blocked,
+                         execution_timeout, evidence_error, gate_timeout]
+                autonomyLevel: {type: integer, minimum: 0, maximum: 3}
+                timestamps:
+                  type: object
+                  additionalProperties: {type: string, format: date-time}
+                evidence: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                reasoner: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                proposal: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                gate: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                execution: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                verification: {type: object, x-kubernetes-preserve-unknown-fields: true}
+                kopf: {type: object, x-kubernetes-preserve-unknown-fields: true}
