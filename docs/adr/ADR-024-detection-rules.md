@@ -74,6 +74,16 @@ cleared while the fault went on.
   15 of 20 req/s. A lagged baseline of only those samples raised Z with no fault; promtool showed
   pending alerts at the start of every steady case. While the baseline is absent the Z-score is
   absent: no alert, and a failed pre-check.
+- **After a Prometheus restart, detection is blind for about 18 min (15 + 3), by design.** Once
+  samples come back, the Z-scores return only when the lagged window again holds 27 samples.
+  - Fresh start (empty TSDB): 16.5 min after the first sample. promtool case 1: absent at 16m,
+    present at 16m30s.
+  - 5 min outage (a stale marker, then no samples): 16.25 min after samples resume. Case 10:
+    absent from 26m30s to 41m, back at 41m30s.
+  - By the guard's arithmetic, a restart that keeps its TSDB and misses at most 3 evaluations
+    (1.5 min) is not blind.
+  - The guard fails safe: no Z-score, no alert, and the §20 pre-check fails, rather than raising
+    false alerts. Cases 1 and 10 assert that nothing fires, not even pending.
 
 ### Alerts
 - `NexusLatencyAnomaly`: p95 Z > 3 **or** in-flight Z > 3 (owner, U1 decision, 2026-09-28).
@@ -99,10 +109,10 @@ cleared while the fault went on.
 ### Verification
 - `scripts/tests/promtool-rules.sh` runs in `repo-checks`: promtool 3.12.0, the Prometheus that
   chart 86.2.2 runs, SHA-256 pinned.
-- `platform/observability/tests/nexus-detection.test.yaml` covers nine scenarios: steady
-  baseline, which also covers a fresh series; latency step; CPU step; errors 0 → 20 % (S5 shape);
-  errors 0 → 4 % (floor); traffic ×1.5 (S4 shape); a sub-threshold CPU step (epsilon); missing
-  series; a real deadlock (S1, T-hang numbers).
+- `platform/observability/tests/nexus-detection.test.yaml` covers ten scenarios: steady
+  baseline, which also covers a fresh series and its blind period; latency step; CPU step;
+  errors 0 → 20 % (S5 shape); errors 0 → 4 % (floor); traffic ×1.5 (S4 shape); a sub-threshold
+  CPU step (epsilon); missing series; a real deadlock (S1, T-hang numbers); a 5 min outage.
 - Each sustained step is also checked to be still firing 3 min after its first firing.
 - Six negative controls each fail their tests: in-flight branch removed; the `or … * 0` baseline
   removed; the NaN filter removed; CPU epsilon 0.001; no offset (a self-including window); the
@@ -113,12 +123,14 @@ cleared while the fault went on.
 |---|---|---|---|
 | Latency step (<0.1 s → 0.1–0.5 s) | `NexusLatencyAnomaly` | 21m30s (+75 s) | 7 |
 | CPU 0.1 → 0.4 cores | `NexusCpuAnomaly` | 21m30s (+75 s) | 8 |
-| Errors 0 → 20 % | `NexusErrorRateAnomaly` | 21m30s (+75 s) | 8 |
+| Errors 0 → 20 % | `NexusErrorRateAnomaly` | 22m00s (+105 s) | 8 |
 | Traffic ×1.5 | `NexusTrafficAnomaly` | 22m00s (+105 s) | 7 |
 | Deadlock, in-flight +20/s | `NexusLatencyAnomaly` | 21m30s (+75 s) | 21 |
-| Errors 0 → 4 %; CPU +0.04 cores; no data; steady from a fresh series | none | — | 0 |
+| Errors 0 → 4 %; CPU +0.04 cores; no data; steady from a fresh series; 5 min outage | none | — | 0 |
 
 With the self-including window the same steps fired for 1–2 evaluations, and the deadlock for 5.
+The S5 shape fires one evaluation after a pure Z step: at 20m30s the rate ramp gives a ratio near
+4 %, so Z is above 3 but the 5 % floor holds.
 
 ## Consequences
 - **An alert that clears is not a recovery (M2 note).** A sustained fault enters the baseline
