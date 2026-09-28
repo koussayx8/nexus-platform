@@ -84,10 +84,13 @@ The live checks follow the M1 exit.
   re-read, recompute and retry; there is never a blind overwrite.
 - The loop computes each transition from fields the intake handlers own. Its writes therefore also
   carry the `resourceVersion` they were computed from (the spike tries 3 times).
-- Handlers write only their intake fields, or just trigger the loop. The loop goes terminal on the
-  L0 path only once intake is done. Kopf's last patch holds the last handler's fields, the progress
-  purge and the diff-base in one write, so it lands before the terminal write, and nothing writes a
-  terminal Incident (§7).
+- Handlers write only their intake fields, or just trigger the loop.
+- **The loop never moves an Incident to a terminal phase while Kopf handler progress is pending in
+  `status.kopf`** (owner, 6b gate). It waits a tick, or finishes after Kopf does. Pending means an
+  entry is left in `status.kopf.progress`. Kopf's last patch holds the last handler's fields, the
+  progress purge and the diff-base in one write, so the terminal write always comes after it, and
+  nothing writes a terminal Incident (§7). In the spike, only the L0 path follows this rule so far
+  (it waits for intake); the timeout path does not (see Consequences).
 
 Reconcile rules in the spike (§7; plan M1b-8), with a missing or invalid `nexus.io/autonomy-level`
 label read as L0 (§12):
@@ -96,7 +99,7 @@ label read as L0 (§12):
 | --- | --- |
 | No phase | `Detected`; entry is creation, so `timestamps.detected` = `metadata.creationTimestamp` |
 | `Detected`, intake done, L0 | `Recorded`, reason `level_observe` |
-| `Detected`, 20 s after creation | `Escalated`, reason `evidence_error` (no Evidence Collector yet) |
+| `Detected` past the timeout: 20 s, checked every 5 s (fires within ≤ 25 s) | `Escalated`, reason `evidence_error` (no Evidence Collector yet) |
 
 ## Measured behaviour (run 2, 2026-09-28T21:13Z; `~/nexus-evidence/m1b-6/kopf-spike-run-2*`)
 Incident A (L0) was killed mid-handler and resumed, Incident C (L0) was the race, and Incident B
@@ -109,7 +112,7 @@ Incident A (L0) was killed mid-handler and resumed, Incident C (L0) was the race
 | P3 resume after SIGKILL mid-handler | PASS. `intake_level` ran once; `intake_stamp` started in both runs and finished only in run 2 |
 | P4 every 403 listed | 0, in the audit log and in Kopf's logs |
 | P5 no lost updates | PASS (see below) |
-| P6 20 s Detected timeout | PASS. B `Escalated` / `evidence_error` 23 s after creation (20–25 s with a 5 s loop). A and C `Recorded` 9 s after creation |
+| P6 Detected timeout: 20 s, checked every 5 s (fires within ≤ 25 s) | PASS. B `Escalated` / `evidence_error` 23 s after creation. A and C `Recorded` 9 s after creation |
 
 P5 forced the interleaving on C:
 - the loop read C, Kopf's intake patch landed, and the loop's write carrying the old
@@ -137,11 +140,13 @@ Other observations:
   (`operator/spikes/kopf-status/run-spike.sh`) after any Kopf upgrade.
 - The loop needs its own API client (aiohttp in the spike) with the operator identity only. M1b-8
   chooses the client.
-- A transition waits up to 5 s for the next tick, and the timeout fires 20–25 s after creation. A
-  handler could wake the loop at once instead; M1b-8 decides.
-- Open for M1b-8: the timeout goes terminal even while an intake handler is still pending, and
-  Kopf's late patch would then write a terminal Incident. Either the loop must not go terminal
-  while intake is pending, or the intake handlers must skip terminal Incidents.
+- A transition waits up to 5 s for the next tick. The Detected timeout is 20 s, checked every 5 s
+  (fires within ≤ 25 s). A handler could wake the loop at once instead; M1b-8 decides.
+- Direction for M1b-8 (owner, 6b gate): the loop never moves an Incident to a terminal phase while
+  Kopf handler progress is pending in `status.kopf`; it waits a tick, or finishes after Kopf does.
+  - The spike's timeout path does not follow this yet: it can escalate while an intake handler is
+    pending, and Kopf's late patch would then write a terminal Incident.
+  - M1b-8 tests that interleaving with a forced hook, as P5 did.
 - The spike's `timestamps.intake`, the race hook and its handler sleeps are test scaffolding, not
   operator design.
 - Live confirmation comes with M1b-8's deployment on k3s: the API audit log should show the same
