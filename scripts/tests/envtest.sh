@@ -14,11 +14,13 @@
 #
 # It never touches the k3s cluster:
 #   - up, status and down refuse to run unless KUBECONFIG=/nonexistent (the offline rule);
-#   - it listens on free ports other than 6443, serves a certificate from its own CA, and writes
-#     kubeconfigs that name only https://127.0.0.1:<its port> and that CA, so a request that
-#     reached k3s would fail TLS;
+#   - it listens on three distinct free ports, none of them 6443, serves a certificate from its own
+#     CA, and writes kubeconfigs that name only https://127.0.0.1:<its port> and that CA, so a
+#     request that reached k3s would fail TLS;
 #   - it calls its own kubectl by absolute path with --kubeconfig, so ~/.kube/config is never read;
 #   - `check <kubeconfig>` is the guard its callers (6a, 6b) run before they use a kubeconfig.
+# CI never runs it: repo-checks.sh and ci.yml call named test scripts only, and it refuses to run
+# when CI or GITHUB_ACTIONS is set. It is run by hand, and the owner reviews each run.
 # Tokens and keys are generated once per directory, stay 0600 (umask 077), and are never printed.
 # Nothing is deleted recursively: each `up` gets a new run directory.
 #
@@ -47,6 +49,8 @@ OPERATOR_USER=system:serviceaccount:nexus-system:nexus-operator
 K3S_PORT=6443
 
 die() { echo "envtest: $*" >&2; exit 2; }
+
+[[ -z ${CI:-} && -z ${GITHUB_ACTIONS:-} ]] || die "refusing to run in CI; envtest.sh is run by hand"
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 repo=$(cd "$here/../.." && pwd -P)
@@ -84,11 +88,17 @@ kctl() {
   "$dir/bin/kubectl" --kubeconfig "$kc" "$@"
 }
 
-free_port() {
-  local p
-  p=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
-  [[ $p != "$K3S_PORT" ]] || die "picked port $K3S_PORT; run up again"
-  echo "$p"
+# free_ports: three free ports on 127.0.0.1. All three sockets are bound at the same time, so the
+# kernel cannot hand out one port twice; up() still checks that they differ and are not 6443.
+free_ports() {
+  python3 -c '
+import socket
+socks = [socket.socket() for _ in range(3)]
+for s in socks:
+    s.bind(("127.0.0.1", 0))
+print(" ".join(str(s.getsockname()[1]) for s in socks))
+for s in socks:
+    s.close()'
 }
 
 fetch() {
@@ -164,10 +174,15 @@ up() {
   fetch
   pki
   tokens
-  local run etcd_port peer_port api_port i
+  local run etcd_port peer_port api_port i p
+  read -r etcd_port peer_port api_port < <(free_ports)
+  for p in "$etcd_port" "$peer_port" "$api_port"; do
+    [[ $p =~ ^[0-9]+$ && $p != "$K3S_PORT" ]] || die "unusable port '$p'; run up again"
+  done
+  [[ $etcd_port != "$peer_port" && $etcd_port != "$api_port" && $peer_port != "$api_port" ]] \
+    || die "ports not distinct ($etcd_port $peer_port $api_port); run up again"
   run=$dir/run/$(date -u +%Y%m%dT%H%M%SZ)
   mkdir -p "$run"
-  etcd_port=$(free_port); peer_port=$(free_port); api_port=$(free_port)
   printf 'etcd=%s\npeer=%s\napi=%s\n' "$etcd_port" "$peer_port" "$api_port" > "$run/ports"
   cat > "$run/audit-policy.yaml" <<'EOF'
 apiVersion: audit.k8s.io/v1
