@@ -662,6 +662,22 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
 - Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
   (change 7; the M1 ADR-019 addendum accepts about 10 days).
+- Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
+  filled a 100 MiB file every 4.8–6.0 h, about 2.2–2.8 days of retention with `maxbackup=10`,
+  not the ~10 days of change 7; the M1-6 window result is in the ADR-019 addendum. Or narrow the
+  §14 policy. Changing it needs a k3s restart, so do it at a rebuild or between measurement
+  windows.
+- k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
+  prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
+  config.
+- `bootstrap.sh` hardening, from the first M1-6 bootstrap (FATAL 03:57:38Z): (1) a preflight that
+  fails before the k3s install if any `/proc/mounts` line has other than 6 fields, naming the
+  mount — Docker Desktop's WSL-integration mount `/Docker/host` has an unescaped space in its
+  `path=` option, and the kubelet then exits with `system validation failed - wrong number of
+  fields (expected 6, got 7)`; (2) after the install, wait for `/readyz` and check that `k3s` is
+  still active about 30 s later, so the FATAL names k3s instead of "creating namespace monitoring
+  failed". Until then, keep Docker Desktop closed (or its WSL integration off) whenever k3s may
+  start.
 - The WSL VM rebooted at 2026-09-26 20:57Z (`journalctl --list-boots`). All four sample-api
   containers show last state `Unknown`, exit 255, at 20:59:58Z. The cluster recovered on its own
   and the node IP was unchanged. Informational. Relevant to the run pre-checks and the discard
