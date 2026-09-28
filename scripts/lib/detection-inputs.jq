@@ -19,9 +19,10 @@
 #     nexus-prod, every value finite (not NaN or ±Inf), and the labels the rules select or group
 #     on. http_requests_total's status must be grouped ("2xx"): the M1b-7 error ratio matches
 #     status="5xx" literally.
-#   Prometheus metadata: the metric is known with the expected type. kube-state-metrics emits the
-#     CrashLoopBackOff series only while a container waits, so at idle only the name can be
-#     checked; the reason value needs a real CrashLoopBackOff.
+#   Prometheus metadata: the metric is known with the expected type. kube-state-metrics v2 is
+#     expected to emit the waiting-reason series only while a container waits (UNVERIFIED until
+#     the live run), so at idle only the name is checked; the reason value "CrashLoopBackOff"
+#     needs a real crash loop.
 #   Alertmanager: the v2 status fields; alerts carry what the Alert Poller reads (fingerprint,
 #     labels.alertname, status.state, startsAt) and include an active Watchdog; groups carry
 #     labels, a receiver and alerts, and one of them holds the Watchdog.
