@@ -74,6 +74,19 @@ tests:
       - series: 'http_requests_inprogress{job="sample-api",namespace="nexus-dev",handler="/metrics",method="GET"}'
         values: '1x160'
     promql_expr_test:
+      # Fresh series (as after Prometheus starts with an empty TSDB): the baseline needs 27 samples
+      # in the 15 min window that ends 3 min ago, so the rate-based Z-scores first exist at 16m30s.
+      # Detection is blind until then by design: no Z-score, no alert.
+      - expr: absent(namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"})
+        eval_time: 16m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
+      - expr: count by (namespace) (namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"})
+        eval_time: 16m30s
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
       - expr: count_over_time(ALERTS[40m])
         eval_time: 40m
         exp_samples: []
@@ -193,7 +206,9 @@ tests:
             value: 1290
 
   # 4. S5 shape: 20 % of requests become 5xx. The 5xx series does not exist before the fault (the
-  #    instrumentator creates it on the first 5xx); the baseline ratio is still recorded as 0.
+  #    instrumentator creates it on the first 5xx); the baseline ratio is still recorded as 0. At
+  #    20m30s the rate ramp gives a ratio near 4 %: Z is above 3 but the 5 % floor holds, so the
+  #    alert fires 105 s after the onset, one evaluation later than a pure Z step.
   - name: errors 0 -> 20 % fire NexusErrorRateAnomaly in nexus-dev only
     interval: 15s
     input_series:
@@ -208,7 +223,7 @@ tests:
       - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
         values: '0+300x80 24240+240x79'
       - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="5xx"}'
-        values: '_x80 60+60x79'
+        values: '_x81 60+60x79'
       - *dev_b01
       - *dev_b05
       - *dev_b1
@@ -216,7 +231,7 @@ tests:
       - *dev_inflight
     # Still firing 3 min (the lag) after its first firing.
     alert_rule_test:
-      - eval_time: 24m30s
+      - eval_time: 25m
         alertname: NexusErrorRateAnomaly
         exp_alerts:
           - exp_labels:
@@ -241,7 +256,7 @@ tests:
         eval_time: 40m
         exp_samples:
           - labels: '{alertname="NexusErrorRateAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
-            value: 1290
+            value: 1320
 
   # 5. The 5 % floor: errors 0 -> 4 % push the Z-score above 3 (4 % > 3 x epsilon 0.01), but no
   #    alert fires.
@@ -259,7 +274,7 @@ tests:
       - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
         values: '0+300x80 24288+288x79'
       - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="5xx"}'
-        values: '_x80 12+12x79'
+        values: '_x81 12+12x79'
       - *dev_b01
       - *dev_b05
       - *dev_b1
@@ -451,3 +466,46 @@ tests:
         exp_samples:
           - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
             value: 1290
+
+  # 10. Outage: from 20m15s nexus-dev has a stale marker and then 5 min without samples, as after a
+  #     Prometheus restart that loses 5 min, or a scrape outage. Nothing alerts, not even pending:
+  #     the current values are missing or low (rate() restarts at 3.75 req/s), and while the gap is
+  #     inside the 15 min window that ends 3 min ago the baseline holds fewer than 27 samples, so the
+  #     Z-scores are absent (blind by design) until the gap has left the window: from 26m30s to 41m,
+  #     back at 41m30s, 16.25 min after samples resume.
+  - name: outage leaves detection blind, never alerting
+    interval: 15s
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{job="kubelet",namespace="nexus-dev",pod="sample-api-a",container="sample-api"}'
+        values: '0+1.5x80 stale _x19 151.5+1.5x139'
+      - series: 'http_requests_total{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",status="2xx"}'
+        values: '0+300x80 stale _x19 30300+300x139'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.1"}'
+        values: '0+300x80 stale _x19 30300+300x139'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="0.5"}'
+        values: '0+300x80 stale _x19 30300+300x139'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="1"}'
+        values: '0+300x80 stale _x19 30300+300x139'
+      - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="+Inf"}'
+        values: '0+300x80 stale _x19 30300+300x139'
+      - series: 'http_requests_inprogress{job="sample-api",namespace="nexus-dev",handler="/items",method="GET"}'
+        values: '0x80 stale _x19 0x139'
+    promql_expr_test:
+      - expr: count_over_time(ALERTS[60m])
+        eval_time: 60m
+        exp_samples: []
+      - expr: absent(namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"})
+        eval_time: 26m30s
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
+      - expr: absent(namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"})
+        eval_time: 41m
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
+      - expr: count by (namespace) (namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"})
+        eval_time: 41m30s
+        exp_samples:
+          - labels: '{namespace="nexus-dev"}'
+            value: 1
