@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-6 — exit (plan first). M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`); M1-5 done (#76, `ee39cef`).
+**Current phase:** M1-6 — exit (rebuild, secrets check and S5 done; 24 h audit window open). M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`); M1-5 done (#76, `ee39cef`).
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -549,6 +549,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
     `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
     and the window or run is discarded. The owner disables Windows sleep during both.
+  - **Mount check** (added at GATE M1-6 b5): the S5 preconditions and the audit window's start and
+    end records include `awk 'NF!=6' /proc/mounts`, which must print nothing. A 7-field line (Docker
+    Desktop's `/Docker/host`) makes the kubelet exit on any k3s start.
   - [x] Minimal read-only allow list in `.claude/settings.json` (PR 1, GATE M1-6 plan review).
     Principle: nothing auto-allowed may read arbitrary files, reach arbitrary hosts, or write
     files. So only Git reads of repository objects: `git --no-optional-locks status` (plain
@@ -561,16 +564,38 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     `kubectl` (`--kubeconfig` reads any file, `--server` reaches any host), `bash -n` and
     `shellcheck` (both read any path and echo its lines). Each session reports
     `.claude/settings.local.json` after the prompt test and stops on a risky entry.
-  - [ ] S5 smoke test on `app_dev` (approval first): `/items` 503 in under 3 s with the `FATAL`
-    text in the log; `/ready` 200; prod unaffected; reset; DB `metadata.uid` and `restartCount`
-    unchanged.
-  - [ ] Audit-retention addendum (changes 7 and 14).
-  - [ ] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`). Re-measure the DB
-    image pull against the 300 s allowance.
-  - [ ] After the rebuild, the owner runs `sudo k3s secrets-encrypt status`; expected
-    `Encryption Status: Enabled` (ADR-019 addendum).
-  - [ ] `CURRENT_STATE.md`, `CHANGELOG` `[0.2.0]`, tag `v0.2.0` (separate approval).
-    **GATE M1 exit.**
+  - [x] Before the rebuild: the M1-4/M1-5 verify reports and poll logs archived to
+    `~/nexus-evidence/m1-4` and `m1-5` (checksums match; the originals lived only in `/tmp`,
+    which is emptied at boot); a pre-rebuild record; `/var/log/nexus-audit` archived to
+    `~/nexus-evidence/m1-6/audit-pre-rebuild/` (8 source files byte-identical), because
+    `bootstrap.sh` empties the active audit log (ADR-019 M1-6 addendum).
+  - [x] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`), scripts from a
+    detached worktree at `dev` `0cfe6c7` (identical `bootstrap.sh` behaviour to `main`, and #77's
+    1140 s verify default; its `docs/CURRENT_STATE.md` write stays out of the main checkout).
+    - First attempt: FATAL at 03:57:38Z, "creating namespace monitoring failed". k3s was
+      crash-looping: the kubelet exited with `system validation failed - wrong number of fields
+      (expected 6, got 7)`, from Docker Desktop's `/Docker/host` 9p mount (enabled for test d,
+      after the M0-5 rebuild). The owner uninstalled, unmounted it, and reran (Later: bootstrap
+      preflight).
+    - Second attempt: 04:05:40 → 04:34:05Z (28 min 25 s), `bootstrap: done`, exit 0. ArgoCD rollout
+      5 min 13 s; step h stable after 1146 s; `observability` Healthy after about 1108 s (62 % of
+      1800 s); `verify-state.sh` 10/10, M1 stable 65 s after 65 s. DB Secrets `created:` ×3 from
+      the existing `~/.nexus` files. k3s `v1.34.6+k3s1`, `boot_id` unchanged.
+    - DB image pull **377.3 s**, alongside 12 other pulls; init about 2 s; new uid
+      `c8436079…`. Owner decision (a): keep the 300 s allowance, scoped to an uncontended pull;
+      rebuild pulls fall under `bootstrap.sh`'s 900 s DB wait (390 s used). ADR-020 addendum.
+  - [x] After the rebuild, the owner's `sudo k3s secrets-encrypt status`: `Encryption Status:
+    Enabled`, all hashes match, AES-CBC (ADR-019 addendum; Later: secretbox).
+  - [x] S5 smoke test on `app_dev` (2026-09-28, 05:45–05:47Z): dev `/items` 503
+    `db_unavailable` in 12–17 ms (×5) with `FATAL:  role "app_dev" is not permitted to log in` in
+    the log (`sqlstate=None`); dev `/ready` 200; prod `/items` 200, 20 rows, 0 `db_error`; all 7
+    Applications Healthy and 0 restarts during the fault; reset → 200, 20 rows; DB uid and
+    restartCount unchanged; \|Δwall − Δuptime\| 3.71 s. Evidence `~/nexus-evidence/m1-6/s5/`.
+  - [ ] 24 h audit window: start 2026-09-28T06:11:24.709Z, end `⟨TBD d2⟩`; validity `⟨TBD d2⟩`;
+    daily growth `⟨TBD d2⟩`, retention `⟨TBD d2⟩` days. Audit-retention addendum (changes 7 and
+    14) drafted in ADR-019, result pending.
+  - [ ] `CURRENT_STATE.md` from a `verify-state.sh` run after d2 (approval A8); `CHANGELOG`
+    `[0.2.0]` (drafted); tag `v0.2.0` (separate approval). **GATE M1 exit.**
 
 ## M1b — the rest of what the spec and TASKS tagged M1 (after M1, before M2)
 
