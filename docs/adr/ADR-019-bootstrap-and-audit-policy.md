@@ -273,3 +273,43 @@ failing `Failed` pods outright.
   and a k3s restart for no lasting gain.
 - **Check:** after the M1 exit rebuild (M1-6), the owner runs `sudo k3s secrets-encrypt status`
   and expects `Encryption Status: Enabled`. The agent cannot run it (root-only).
+
+## Addendum (2026-09-28, M1-6): measured audit retention (changes 7 and 14)
+
+> **DRAFT — the window result is filled in at d2.** Every `⟨TBD d2⟩` below comes from
+> `~/nexus-evidence/m1-6/audit-window-result.txt`.
+
+**Question.** Change 7 accepted "about 10 days" of effective retention (the 2026-09-26 estimate
+above, ~4 MB/h). Change 14: a 24 h measurement is valid only with an unchanged boot ID and k3s
+start time, and no VM pause.
+
+**Earlier evidence, before the window (old cluster, informational).** The rotated file names
+give the time each 100 MiB file took to fill: 5.0 h (21:02 → 02:03Z, overnight), 6.0 h, 5.8 h,
+4.8 h and 4.9 h (2026-09-26/27, including the M1-4 and M1-5 gates). That is about 400–500 MiB per
+day, or about 2.2–2.8 days of retention, not 10.
+
+**Method.** A 24 h window on the from-empty M1-6 cluster, opened after S5, with no dashboards, no
+port-forwards and no agent `kubectl`:
+- start (d1) 2026-09-28T06:11:24.709Z and end (d2) `⟨TBD d2⟩`: wall clock, `/proc/uptime`,
+  `boot_id`, k3s `MainPID`/`ActiveEnterTimestamp`/`NRestarts`, the `/proc/mounts` field check, and
+  `stat` of every file in `/var/log/nexus-audit/`;
+- growth = Σ end sizes − Σ start sizes + Σ start sizes of files evicted in the window;
+- daily growth = growth × 86,400 ÷ Δwall;
+- retention = (`maxbackup` 10 + the active file) × `maxsize` 100 MiB = 1,153,433,600 B ÷ daily
+  growth.
+
+**Validity.** `boot_id` `⟨TBD d2⟩`; k3s `MainPID`/`ActiveEnterTimestamp`/`NRestarts`
+`⟨TBD d2⟩`; \|Δwall − Δuptime\| = `⟨TBD d2⟩` s (≤ 60); Δwall = `⟨TBD d2⟩` s (≥ 86,400).
+
+**Result.** Growth `⟨TBD d2⟩` B in `⟨TBD d2⟩` s; daily growth `⟨TBD d2⟩` MiB/day; retention
+**`⟨TBD d2⟩` days**, against change 7's ~10 days.
+
+**Decision (owner, M1-6 plan gate, G2 option a).** The cluster was rebuilt unchanged; this
+addendum records the measured retention. Raising `maxbackup` (or narrowing the policy) is a Later
+item. §14 keeps the per-run extract, not the raw log, so retention bounds how long after a run the
+extract can still be taken, not what is kept. M4 re-measures under experiment load.
+
+**Also found at M1-6.** Step a of `bootstrap.sh` runs `install -m 0640 -o root -g adm /dev/null`
+on `audit.log` unconditionally, so a rebuild empties the previous cluster's active audit log.
+Rotated backups survive, and the new cluster's rotations evict them. The M1-6 rebuild archived
+the directory first (`~/nexus-evidence/m1-6/audit-pre-rebuild/`, byte-identical).
