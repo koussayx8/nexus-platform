@@ -203,6 +203,7 @@ EOF
       --listen-client-urls "http://127.0.0.1:$etcd_port" --advertise-client-urls "http://127.0.0.1:$etcd_port" \
       --listen-peer-urls "http://127.0.0.1:$peer_port" --initial-advertise-peer-urls "http://127.0.0.1:$peer_port" \
       --initial-cluster "envtest=http://127.0.0.1:$peer_port" > "$run/etcd.log" 2>&1 &
+    echo $! > "$run/etcd.pid"
     exec "$dir/bin/kube-apiserver" \
       --bind-address 127.0.0.1 --advertise-address 127.0.0.1 --secure-port "$api_port" \
       --etcd-servers "http://127.0.0.1:$etcd_port" \
@@ -238,18 +239,34 @@ status() {
   fi
 }
 
+# stop_pid <name> <pid> <seconds>: SIGTERM one process, wait up to <seconds> for it to exit.
+stop_pid() {
+  local name=$1 pid=$2 max=$3 i
+  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  for i in $(seq 0 "$max"); do
+    kill -0 "$pid" 2>/dev/null || { echo "envtest: $name stopped ${i}s after SIGTERM"; return 0; }
+    sleep 1
+  done
+  echo "envtest: $name still running ${max}s after SIGTERM" >&2
+  return 1
+}
+
 down() {
   kubeconfig_env_guard
   [[ -e $dir/run/current ]] || { echo "envtest: not up"; return 0; }
-  local run pgid i p
+  local run pgid p
   run=$(cat "$dir/run/current")
   pgid=$(cat "$run/pgid" 2>/dev/null || true)
   if [[ $pgid =~ ^[0-9]+$ ]] && kill -0 -- "-$pgid" 2>/dev/null; then
-    kill -TERM -- "-$pgid" 2>/dev/null || true
-    for i in $(seq 1 10); do kill -0 -- "-$pgid" 2>/dev/null || break; sleep 1; done
+    # kube-apiserver (the group leader) first, while etcd still answers, then etcd. Stopped
+    # together, the apiserver's shutdown waited on the stopped etcd and needed SIGKILL (first
+    # run, 2026-09-28). SIGKILL to the group stays as the last resort.
+    stop_pid kube-apiserver "$pgid" 30 || true
+    stop_pid etcd "$(cat "$run/etcd.pid" 2>/dev/null || true)" 30 || true
     if kill -0 -- "-$pgid" 2>/dev/null; then
       kill -KILL -- "-$pgid" 2>/dev/null || true; sleep 1
-      echo "envtest: process group $pgid ignored SIGTERM for ${i}s; sent SIGKILL"
+      echo "envtest: process group $pgid still alive after SIGTERM; sent SIGKILL"
     fi
   fi
   while IFS="=" read -r _ p; do
