@@ -8,11 +8,14 @@
 #
 # Every scenario asserts which alerts fired, for how many 30 s evaluations
 # (count_over_time(ALERTS{alertstate="firing"})), and the first firing time (seconds). These pin the
-# detector's behaviour (ADR-024): the first firing comes 75-105 s after the onset at 20m15s, and a
-# step keeps Z above 3 only while the new values are a small part of the 15 min window, so with
-# "for: 1m" an alert fires for 1-2 evaluations and then resolves while the fault goes on. A ramp
-# lasts longer: from a flat baseline, Z = 5.39, 4.80, 4.29, 3.89, 3.58, 3.32, 3.11, 2.94 at
-# evaluations 1-8, whatever the slope, so the deadlock (case 9) fires at evaluations 3-7.
+# detector's behaviour (ADR-024). The first firing comes 75-105 s after the onset at 20m15s. The
+# baseline is the 15 min window that ends 3 min ago, so it stays clean until 23m30s and Z holds at
+# step / baseline stddev; after that the step enters the window and Z falls (22.1, 9.9, 5.8, 3.9,
+# 3.1, 2.6 for the 2 min rate ramp). Each sustained step therefore fires for 7-8 evaluations and is
+# still firing 3 min (the lag) after its first firing; the deadlock ramp fires for 21.
+# Steady inputs start at time 0, so every case also covers a fresh series: rate() reads 5, 10, 15,
+# then 20 req/s over the first 2 min, and the baseline is recorded only once it holds 27 samples.
+
 rule_files:
   - nexus-detection.rules.yaml
 
@@ -122,12 +125,24 @@ tests:
       - *dev_b1
       - *dev_binf
       - *dev_inflight
+    # Still firing 3 min (the lag) after its first firing.
+    alert_rule_test:
+      - eval_time: 24m30s
+        alertname: NexusLatencyAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api latency anomaly in nexus-dev"
+              description: "p95 latency or in-flight Z-score above 3 for 1 min"
     promql_expr_test:
       - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
         eval_time: 40m
         exp_samples:
           - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
-            value: 1
+            value: 7
       - expr: min_over_time(timestamp(ALERTS{alertname="NexusLatencyAnomaly",alertstate="firing"})[40m:30s])
         eval_time: 40m
         exp_samples:
@@ -153,12 +168,24 @@ tests:
       - *dev_b1
       - *dev_binf
       - *dev_inflight
+    # Still firing 3 min (the lag) after its first firing.
+    alert_rule_test:
+      - eval_time: 24m30s
+        alertname: NexusCpuAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api CPU anomaly in nexus-dev"
+              description: "CPU Z-score above 3 for 1 min"
     promql_expr_test:
       - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
         eval_time: 40m
         exp_samples:
           - labels: '{alertname="NexusCpuAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
-            value: 2
+            value: 8
       - expr: min_over_time(timestamp(ALERTS{alertname="NexusCpuAnomaly",alertstate="firing"})[40m:30s])
         eval_time: 40m
         exp_samples:
@@ -187,17 +214,29 @@ tests:
       - *dev_b1
       - *dev_binf
       - *dev_inflight
+    # Still firing 3 min (the lag) after its first firing.
+    alert_rule_test:
+      - eval_time: 24m30s
+        alertname: NexusErrorRateAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api error-rate anomaly in nexus-dev"
+              description: "Error-ratio Z-score above 3 and error ratio above 5 % for 1 min"
     promql_expr_test:
-      - expr: namespace:nexus_sample_api_error_ratio:avg15m{namespace="nexus-dev"}
+      - expr: namespace:nexus_sample_api_error_ratio:baseline_avg15m{namespace="nexus-dev"}
         eval_time: 20m
         exp_samples:
-          - labels: 'namespace:nexus_sample_api_error_ratio:avg15m{namespace="nexus-dev"}'
+          - labels: 'namespace:nexus_sample_api_error_ratio:baseline_avg15m{namespace="nexus-dev"}'
             value: 0
       - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
         eval_time: 40m
         exp_samples:
           - labels: '{alertname="NexusErrorRateAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
-            value: 2
+            value: 8
       - expr: min_over_time(timestamp(ALERTS{alertname="NexusErrorRateAnomaly",alertstate="firing"})[40m:30s])
         eval_time: 40m
         exp_samples:
@@ -259,12 +298,24 @@ tests:
       - series: 'http_request_duration_seconds_bucket{job="sample-api",namespace="nexus-dev",handler="/items",method="GET",le="+Inf"}'
         values: '0+300x80 24450+450x79'
       - *dev_inflight
+    # Still firing 3 min (the lag) after its first firing.
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: NexusTrafficAnomaly
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api traffic anomaly in nexus-dev"
+              description: "Request-rate Z-score above 3 for 1 min"
     promql_expr_test:
       - expr: count_over_time(ALERTS{alertstate="firing"}[40m])
         eval_time: 40m
         exp_samples:
           - labels: '{alertname="NexusTrafficAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
-            value: 1
+            value: 7
       - expr: min_over_time(timestamp(ALERTS{alertname="NexusTrafficAnomaly",alertstate="firing"})[40m:30s])
         eval_time: 40m
         exp_samples:
@@ -327,9 +378,9 @@ tests:
         exp_samples:
           - labels: 'namespace:nexus_sample_api_requests:rate2m{namespace="nexus-dev"}'
             value: 0
-          - labels: 'namespace:nexus_sample_api_requests:avg15m{namespace="nexus-dev"}'
+          - labels: 'namespace:nexus_sample_api_requests:baseline_avg15m{namespace="nexus-dev"}'
             value: 0
-          - labels: 'namespace:nexus_sample_api_requests:stddev15m{namespace="nexus-dev"}'
+          - labels: 'namespace:nexus_sample_api_requests:baseline_stddev15m{namespace="nexus-dev"}'
             value: 0
           - labels: 'namespace:nexus_sample_api_requests:zscore15m{namespace="nexus-dev"}'
             value: 0
@@ -394,7 +445,7 @@ tests:
         eval_time: 40m
         exp_samples:
           - labels: '{alertname="NexusLatencyAnomaly",alertstate="firing",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}'
-            value: 5
+            value: 21
       - expr: min_over_time(timestamp(ALERTS{alertname="NexusLatencyAnomaly",alertstate="firing"})[40m:30s])
         eval_time: 40m
         exp_samples:

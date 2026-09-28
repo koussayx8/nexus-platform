@@ -11,11 +11,19 @@
 #              no duration sample (T-hang, ADR-022), so NexusLatencyAnomaly fires on either one
 #   errors     5xx ratio
 #   requests   request rate, requests per second
-# Z = (value - 15 min mean) / max(15 min stddev, epsilon); threshold 3 for 1 min; error-ratio floor
-# 5 %. The epsilons are provisional until the M1b-9 clean baseline (ADR-024).
+# Z = (value - baseline mean) / max(baseline stddev, epsilon). The baseline is the 15 min window
+# that ends 3 min ago: avg/stddev_over_time(x[15m] offset 3m). Threshold 3 for 1 min; error-ratio
+# floor 5 %. The epsilons are provisional until the M1b-9 clean baseline (ADR-024).
 #
-# The window includes the current sample (spec: "value - 15-minute mean"), so Z decays as an
-# anomaly fills it: each alert marks an onset and resolves while the fault may persist.
+# Why the lag (ADR-024; spec v1.1 clarification "the baseline excludes the most recent 3 minutes"):
+# in a window that includes the current sample, a step covering a fraction f of it gives
+# Z = sqrt((1-f)/f) whatever its size, so Z > 3 only while f < 0.1, about 90 s. With the lag the
+# baseline stays clean for 3 min after an onset, Z = step / baseline stddev until then, and a
+# sustained step keeps its alert firing for at least 3 min. The 3 min cover detection (up to
+# 105 s) plus Incident creation and evidence capture (up to 30 s). A longer lag would push the
+# §20 pre-check (a clean baseline needs 15 min + lag + the 2 min rate tail) past its 20 min
+# budget. An alert that clears is not a recovery: repair verification compares the raw signal
+# with the pre-fault baseline (ADR-024, M2).
 # Rules in a group run in order, so every rule reads the values recorded earlier at the same time.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -75,49 +83,72 @@ spec:
               rate(http_requests_total{job="sample-api",namespace=~"nexus-dev|nexus-prod",handler!~"/health|/ready|/metrics"}[2m])
             )
 
-        # --- 15 min mean and standard deviation (also the §20 pre-check inputs) ---
-        - record: namespace:nexus_sample_api_cpu:avg15m
-          expr: avg_over_time(namespace:nexus_sample_api_cpu:rate2m[15m])
-        - record: namespace:nexus_sample_api_cpu:stddev15m
-          expr: stddev_over_time(namespace:nexus_sample_api_cpu:rate2m[15m])
-        - record: namespace:nexus_sample_api_latency_p95:avg15m
-          expr: avg_over_time(namespace:nexus_sample_api_latency_p95:2m[15m])
-        - record: namespace:nexus_sample_api_latency_p95:stddev15m
-          expr: stddev_over_time(namespace:nexus_sample_api_latency_p95:2m[15m])
-        - record: namespace:nexus_sample_api_inflight:avg15m
-          expr: avg_over_time(namespace:nexus_sample_api_inflight:sum[15m])
-        - record: namespace:nexus_sample_api_inflight:stddev15m
-          expr: stddev_over_time(namespace:nexus_sample_api_inflight:sum[15m])
-        - record: namespace:nexus_sample_api_error_ratio:avg15m
-          expr: avg_over_time(namespace:nexus_sample_api_error_ratio:rate2m[15m])
-        - record: namespace:nexus_sample_api_error_ratio:stddev15m
-          expr: stddev_over_time(namespace:nexus_sample_api_error_ratio:rate2m[15m])
-        - record: namespace:nexus_sample_api_requests:avg15m
-          expr: avg_over_time(namespace:nexus_sample_api_requests:rate2m[15m])
-        - record: namespace:nexus_sample_api_requests:stddev15m
-          expr: stddev_over_time(namespace:nexus_sample_api_requests:rate2m[15m])
+        # --- baseline: the 15 min window that ends 3 min ago. Also the §20 pre-check inputs: the
+        # baseline the next fault will be compared with. Recorded only when the window holds at
+        # least 27 of its 30 samples: a fresh series (or one after a gap) starts with rate() at 5,
+        # 10, 15 of 20 req/s, and a baseline of only those samples would raise Z at no fault ---
+        - record: namespace:nexus_sample_api_cpu:baseline_avg15m
+          expr: |
+            avg_over_time(namespace:nexus_sample_api_cpu:rate2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_cpu:rate2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_cpu:baseline_stddev15m
+          expr: |
+            stddev_over_time(namespace:nexus_sample_api_cpu:rate2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_cpu:rate2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_latency_p95:baseline_avg15m
+          expr: |
+            avg_over_time(namespace:nexus_sample_api_latency_p95:2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_latency_p95:2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_latency_p95:baseline_stddev15m
+          expr: |
+            stddev_over_time(namespace:nexus_sample_api_latency_p95:2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_latency_p95:2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_inflight:baseline_avg15m
+          expr: |
+            avg_over_time(namespace:nexus_sample_api_inflight:sum[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_inflight:sum[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_inflight:baseline_stddev15m
+          expr: |
+            stddev_over_time(namespace:nexus_sample_api_inflight:sum[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_inflight:sum[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_error_ratio:baseline_avg15m
+          expr: |
+            avg_over_time(namespace:nexus_sample_api_error_ratio:rate2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_error_ratio:rate2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_error_ratio:baseline_stddev15m
+          expr: |
+            stddev_over_time(namespace:nexus_sample_api_error_ratio:rate2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_error_ratio:rate2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_requests:baseline_avg15m
+          expr: |
+            avg_over_time(namespace:nexus_sample_api_requests:rate2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_requests:rate2m[15m] offset 3m) >= 27
+        - record: namespace:nexus_sample_api_requests:baseline_stddev15m
+          expr: |
+            stddev_over_time(namespace:nexus_sample_api_requests:rate2m[15m] offset 3m)
+            and count_over_time(namespace:nexus_sample_api_requests:rate2m[15m] offset 3m) >= 27
 
         # --- Z-scores; epsilon: cpu 0.02 cores, latency 0.01 s, inflight 1, errors 0.01, requests 1/s ---
         - record: namespace:nexus_sample_api_cpu:zscore15m
           expr: |
-            (namespace:nexus_sample_api_cpu:rate2m - namespace:nexus_sample_api_cpu:avg15m)
-            / clamp_min(namespace:nexus_sample_api_cpu:stddev15m, 0.02)
+            (namespace:nexus_sample_api_cpu:rate2m - namespace:nexus_sample_api_cpu:baseline_avg15m)
+            / clamp_min(namespace:nexus_sample_api_cpu:baseline_stddev15m, 0.02)
         - record: namespace:nexus_sample_api_latency_p95:zscore15m
           expr: |
-            (namespace:nexus_sample_api_latency_p95:2m - namespace:nexus_sample_api_latency_p95:avg15m)
-            / clamp_min(namespace:nexus_sample_api_latency_p95:stddev15m, 0.01)
+            (namespace:nexus_sample_api_latency_p95:2m - namespace:nexus_sample_api_latency_p95:baseline_avg15m)
+            / clamp_min(namespace:nexus_sample_api_latency_p95:baseline_stddev15m, 0.01)
         - record: namespace:nexus_sample_api_inflight:zscore15m
           expr: |
-            (namespace:nexus_sample_api_inflight:sum - namespace:nexus_sample_api_inflight:avg15m)
-            / clamp_min(namespace:nexus_sample_api_inflight:stddev15m, 1)
+            (namespace:nexus_sample_api_inflight:sum - namespace:nexus_sample_api_inflight:baseline_avg15m)
+            / clamp_min(namespace:nexus_sample_api_inflight:baseline_stddev15m, 1)
         - record: namespace:nexus_sample_api_error_ratio:zscore15m
           expr: |
-            (namespace:nexus_sample_api_error_ratio:rate2m - namespace:nexus_sample_api_error_ratio:avg15m)
-            / clamp_min(namespace:nexus_sample_api_error_ratio:stddev15m, 0.01)
+            (namespace:nexus_sample_api_error_ratio:rate2m - namespace:nexus_sample_api_error_ratio:baseline_avg15m)
+            / clamp_min(namespace:nexus_sample_api_error_ratio:baseline_stddev15m, 0.01)
         - record: namespace:nexus_sample_api_requests:zscore15m
           expr: |
-            (namespace:nexus_sample_api_requests:rate2m - namespace:nexus_sample_api_requests:avg15m)
-            / clamp_min(namespace:nexus_sample_api_requests:stddev15m, 1)
+            (namespace:nexus_sample_api_requests:rate2m - namespace:nexus_sample_api_requests:baseline_avg15m)
+            / clamp_min(namespace:nexus_sample_api_requests:baseline_stddev15m, 1)
 
         # --- alerts: nexus_target names namespace and Deployment (spec §3); "max by (namespace)"
         # gives one series per namespace, so an alert never holds two series with one label set ---
