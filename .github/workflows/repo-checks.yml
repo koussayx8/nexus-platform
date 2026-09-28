@@ -26,6 +26,8 @@ env:
   HELM_SHA256: 258e830a9e613c8a7a302d6059b4bb3b9758f2f3e1bb8ea0d707ce10a9a72fea
   YQ_VERSION: 4.53.6
   YQ_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
+  PROMETHEUS_VERSION: 3.12.0    # promtool from the Prometheus that chart 86.2.2 runs (ADR-024)
+  PROMETHEUS_SHA256: 20da47f8e5303f74aecb78edd7f7e39041dac08ac4939dba75efd7a900ae8867
 
 jobs:
   repo-checks:
@@ -58,6 +60,10 @@ jobs:
           curl -fsSL -o "$bin/yq" "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
           echo "$YQ_SHA256  $bin/yq" | sha256sum -c -
           chmod +x "$bin/yq"
+          curl -fsSL -o pkg.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          echo "$PROMETHEUS_SHA256  pkg.tgz" | sha256sum -c -
+          tar -xzf pkg.tgz -C "$bin" --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          rm -f pkg.tgz
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit range
