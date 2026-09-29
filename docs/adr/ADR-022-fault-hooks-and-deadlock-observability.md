@@ -57,9 +57,37 @@ M1-5 finding 3: the rollout strategy was the implicit default (25 % / 25 %).
   - `?variant=` picks one line; without it, all three are written. An unknown variant gets 422.
   - No request text ever reaches the log.
 
+### Blinding: a fault leaves no trace that names it (owner D2, 2026-09-29)
+- **Principle:** the Evidence Collector reads pod logs (up to 200 lines per pod, §16) and
+  Prometheus. What it gets must be the failure, never the injection. A Reasoner that reads
+  `POST /fault/hang` diagnoses the test harness, not the incident, and the evaluation measures
+  nothing. So the fault routes (`/fault/` prefix) leave three kinds of trace out:
+  - **Access log:** a `logging.Filter` on `uvicorn.access` drops every record whose path starts
+    with `/fault/` (query string included). uvicorn configures its loggers before it imports the
+    app, and `dictConfig` keeps logger filters, so the filter holds under `uvicorn main:app`.
+  - **Metrics:** the instrumentator's `excluded_handlers=["^/fault/"]`, which also skips the
+    in-flight gauge: no series with `handler="/fault/..."`.
+  - **Application log:** no line announces an injection. `/fault/hang` logs nothing; S6 writes
+    only its payload lines.
+- **What stays visible, by design:**
+  - every effect of a fault: hung `/`, `/items`, `/work/cpu` in the in-flight gauge, the traffic
+    drop, the S6 payload text, CPU;
+  - `/work/cpu` in the access log and the metrics: it is S2's real workload, not an
+    announcement, and hiding it would reshape the fault;
+  - `NEXUS_FAULTS_ENABLED` in the Deployment (Git and the pod spec): it tells a reader that
+    hooks exist, not whether or when one fired;
+  - an unknown `/fault/...` path (for example `POST /fault/reset`, 404) is filtered from the
+    access log by the same prefix and, observed with the 8.1.0 instrumentator, adds no metric
+    series at all.
+- **Tests:** a subprocess test builds `uvicorn.Config("main:app")`, loads it as the CLI does and
+  logs one access record per path in uvicorn's format: no `/fault` in the output, `/items`,
+  `/work/cpu` and `/health` present. A metrics test injects S1 and S6 and finds no `/fault`
+  handler label in any family. Two log tests capture every server-side record at DEBUG: none
+  for the hang, exactly the three payload lines for S6.
+
 ### Rollout strategy
-- `RollingUpdate`, `maxSurge: 1`, `maxUnavailable: 0`. These are the plan's proposed values;
-  **the owner confirms them at the M1b-5 gate.**
+- `RollingUpdate`, `maxSurge: 1`, `maxUnavailable: 0`, **confirmed by the owner (D3,
+  2026-09-29)**. The message of commit `fc2255b` called them confirmed before this decision.
 - A rollout never removes a pod before its replacement is Ready. At the 5-replica bound (C4, K2)
   a namespace has at most 6 pods: 2 × 6 × 5 = 60 DB connections, within the 70 that `main.py`
   budgets.
@@ -89,17 +117,21 @@ M1-5 finding 3: the rollout strategy was the implicit default (25 % / 25 %).
     - one CPU (`taskset -c 0`): 1572 requests, worst 0.385 s.
     - Both are under the plan's 1 s stop.
   - S6: 3 one-line ERROR lines; an unknown variant got 422.
+- **Blinding** (2026-09-29T05:31Z, `~/nexus-evidence/m1b-5/blinding/`):
+  - `pytest`: 42 pass. Three negative controls on `main.py` each fail exactly their own test:
+    no access filter; no `excluded_handlers`; a `logger.info("fault injected: hang")` line.
+  - Real local uvicorn with the hooks on: `/health`, `/work/cpu`, `/fault/inject-logs`,
+    `/fault/hang`, `/ready`, then a hung `GET /`. The access log has no `/fault` line; the S6
+    payload line is there; `/metrics` has no `/fault` label, and `handler="/"` counts the hung
+    request.
 
 ## Open, for the owner
-- **Access log reveals the injection.** uvicorn's access log records `POST /fault/hang` and
-  `POST /fault/inject-logs` in the pod log (2 lines each in the rerun). The Evidence Collector
-  takes up to 200 log lines per pod (§16), so the Reasoner could read the injection itself.
-  Proposal: drop those two routes from `uvicorn.access` with a logging filter. This must be
-  decided before the image is built.
+- ~~Access log reveals the injection.~~ Decided (D2): see "Blinding".
 - **F5, termination with hung requests.** On SIGTERM with 111 requests hung, uvicorn was still
   running 10 s later and needed SIGKILL. The kubelet sends SIGKILL after
   `terminationGracePeriodSeconds` (30 s by default), so an S1 restart or eviction costs about
-  30 s per pod. To be decided in M2 (for example, uvicorn's `--timeout-graceful-shutdown`).
+  30 s per pod. **Stays an M2 decision** (owner, 2026-09-29), for example uvicorn's
+  `--timeout-graceful-shutdown`.
 - The manifests' `NEXUS_FAULTS_ENABLED: "true"` and the `app.kubernetes.io/version: "0.3.0"`
   label come with the digest bump (PR B).
 
