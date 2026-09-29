@@ -642,14 +642,15 @@ merging `dev` in.
 **Exit criterion (owner):** an end-to-end demo under baseline load: S5 injected on `app_dev`,
 `NexusErrorRateAnomaly` fires for `nexus-dev`, and an Incident reaches `Recorded`
 (`level_observe`, L0); then the reset, DB uid and restartCount unchanged. The demo runs the
-detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`: the rule files
-under `alerts/` that Prometheus loads, which is `platform/observability/alerts/nexus-detection.yaml`
-(the only resource in `alerts/kustomization.yaml` there; 20 recording rules, 4 alerts). The S5
-record names the full graded SHA (the `main` commit the demo ran on) and the values in effect,
-read live: the sample-api scrape interval (ServiceMonitor, 15 s in Git), Prometheus's rule
-evaluation interval and Alertmanager's `group_wait` (neither is set in Git: chart defaults). A
-later change to the pinned file (`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> --
-platform/observability/alerts/nexus-detection.yaml` non-empty) or to those values means a rerun;
+detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`: the 5
+rule-defining files, `platform/observability/alerts/kustomization.yaml`, `nexus-detection.yaml` and
+`sample-api-error-rate.yaml` (deleted there), `platform/observability/tests/nexus-detection.test.yaml`
+and `scripts/tests/promtool-rules.sh`. The S5 record names the full graded SHA (the `main` commit
+the demo ran on) and the values in effect, read live: the sample-api scrape interval
+(ServiceMonitor, 15 s in Git), Prometheus's rule evaluation interval and Alertmanager's
+`group_wait` (neither is set in Git: chart defaults). A change to those files
+(`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> -- <the 5 paths>` non-empty) or
+to the recorded values means a rerun;
 `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
 
