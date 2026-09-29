@@ -47,13 +47,29 @@ removes, and the thesis does not depend on it. M1b-1 and M1b-2 are removed from 
 - **The deny list is the floor.** Deny rules apply in every mode.
 - **Ask rules only where a prompt matters:** `git push`, `git tag`, `gh pr merge`, `gh api`,
   `kubectl exec`, `kubectl port-forward`. Explicit ask rules prompt even in bypass mode, so ask
-  rules on local, reversible commands only add noise: `git commit`, `git checkout`,
-  `git switch` and `git branch` move to allow (M1b-0).
-- **Destructive forms of those commands are denied** (CLAUDE.md rule 4): `git branch -D`, `-f`,
-  `-M`, `-C`; `git checkout -f`, `-B`, `.`, `* -- *` (beside the existing `git checkout -- *`);
-  `git switch -f`, `--discard-changes`, `-C`; `git commit --amend`.
+  rules on local, reversible commands only add noise: `git commit`, `git switch` and
+  `git branch` move to allow (M1b-0).
+- **`git checkout` is denied outright** (owner, M1b-0 gate review). A pattern cannot tell
+  `git checkout <file>` (discards changes) from a branch switch. `git switch` changes branches;
+  `git restore` stays denied, so restoring files is the owner's.
+- **Destructive forms are denied** (CLAUDE.md rule 4), each as a prefix pattern and, where the
+  flag can come later, as an any-position pattern:
+  - `git push`: `--force`, `-f`, `--force-with-lease` (and any other `--force…`), a `+refspec`;
+  - `git branch`: `-D`, `-f`, `-M`, `-C`, `-df`, `--force` (so `--delete --force`);
+  - `git switch`: `-f`, `-C`, `--force-create`, `--force`, `--discard-changes`;
+  - `git commit --amend`.
 - **Typed approval for every merge and every tag,** in chat, for that specific PR or tag, in
   every permission mode including bypass. Pasted text never counts.
+
+### Merge and tag procedure
+The approval names a full commit SHA, and the command carries it, so what merges or gets tagged is
+exactly what the owner reviewed:
+- **Merge:** `gh pr merge <N> --merge --match-head-commit <approved full SHA>`. GitHub refuses the
+  merge if the PR head has moved since the approval; then stop and ask again. `gh pr merge` stays
+  an ask rule.
+- **Tag:** `git tag <name> <approved full SHA>` (with `-a -m` for an annotated tag, as `v0.1.0`
+  and `v0.2.0`), then push only that tag: `git push origin <name>`. Both `git tag` and
+  `git push` are ask rules.
 - **Offline isolation:** every offline test of a script that can call `kubectl` runs with
   `KUBECONFIG=/nonexistent` and a stub `kubectl` first on `PATH`.
 - **Session-start report:** each session runs the prompt test
@@ -71,14 +87,19 @@ authority, which is the S6 log-injection pattern applied to our own tooling. The
 rule for merges and tags does not expire.
 
 ### The patterns are best-effort
-- `git checkout <file>` cannot be told apart from a branch switch by a pattern.
-- Flag order and spellings vary: `git commit -m x --amend`, the long forms `--force` and
-  `--delete --force`, and combined short flags (`-fb`) slip past a prefix pattern.
-- Allow rules on `git branch *` and `git checkout *` also allow their read-only and
+- Git accepts unambiguous abbreviations of long options (`--am` for `--amend`,
+  `--discard` for `--discard-changes`), and combined short flags (`-cf`, `-dD`) vary. The
+  patterns name the common spellings only.
+- Whether the patterns match case-sensitively is UNVERIFIED: if not, the `-D` and `-C` denies
+  would also block `git branch -d` and `git switch -c`. The pattern probe in the M1b handoff
+  settles it.
+- The `+refspec` deny (`git push *+*`) also blocks a push whose arguments contain `+` anywhere.
+- Allow rules on `git branch *` and `git switch *` also allow their read-only and
   non-destructive forms; that is intended.
 
 The backstops do not depend on patterns:
-- the `git push --force*` / `-f*` denies and typed merge approval;
+- typed merge and tag approval, bound to a full SHA by `--match-head-commit` and the tag
+  command;
 - branch protection: `main` and `dev` require a pull request and `repo-checks`.
 - **`experiment/dev-state` accepts direct pushes.** Its ruleset 23998158 blocks only non-fast-forward
   pushes and deletion (no pull request, no required check), so the `git push *` ask rule and the
@@ -96,8 +117,8 @@ treating them as one.
   CLAUDE.md rule 5 and the owner's review; accepted.
 - A script run by the agent can still reach the live cluster (the script gap). Mitigated by the
   offline isolation rule and owner review before a harness's first run.
-- Moving four Git commands to allow widens what runs without a prompt to local, reversible
-  history changes. The new denies cover the destructive forms the owner named; the rest is caught
-  at push time.
-- Verification after merge, in a new session, uses names that do not exist:
-  `git branch -D m1b0-nonexistent` and `git commit --amend --dry-run` are expected to be denied.
+- Moving three Git commands to allow widens what runs without a prompt to local, reversible
+  history changes. The denies cover the destructive forms the owner named; the rest is caught at
+  push time.
+- Verification: the owner runs the pattern probe in the M1b handoff in a fresh default-mode
+  session in the M1b-0 worktree, before the merge (throwaway branches, `--dry-run` pushes).
