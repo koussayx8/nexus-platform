@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import psycopg
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from prometheus_fastapi_instrumentator import Instrumentator
 
 VERSION = "0.2.0"
@@ -19,6 +20,25 @@ DB_SLOTS = threading.BoundedSemaphore(5)
 DB_SLOT_TIMEOUT_S = 0.3
 DB_CONNECT_TIMEOUT_S = 2  # psycopg's minimum; applied per connection attempt
 DB_STATEMENT_TIMEOUT_MS = 500
+
+# Latency histogram buckets (ADR-022): prometheus_client's defaults, 5 ms to 10 s. The
+# instrumentator's (0.1, 0.5, 1) left p95 blind below 100 ms.
+LATENCY_BUCKETS = (
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.075,
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    1,
+    2.5,
+    5,
+    7.5,
+    10,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -37,7 +57,22 @@ app = FastAPI(
     version=VERSION,
 )
 
-Instrumentator().instrument(app).expose(app)
+# The in-flight gauge (http_requests_inprogress, labels method and handler) counts requests
+# that never complete; the latency histogram records a request only when it returns (U1,
+# ADR-022). /metrics is served by the async route below, not by the instrumentator.
+Instrumentator(
+    should_instrument_requests_inprogress=True, inprogress_labels=True
+).instrument(app, latency_lowr_buckets=LATENCY_BUCKETS)
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    """Prometheus exposition on the event loop, never on the threadpool.
+
+    The instrumentator's own route is a plain def: past 40 hung sync requests the pod could
+    not be scraped (T-hang). Observability must not share the workload's failure domain.
+    """
+    return Response(generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/")

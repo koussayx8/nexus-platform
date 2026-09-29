@@ -9,6 +9,8 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from main import app
+from prometheus_client.parser import text_string_to_metric_families
+from prometheus_client.utils import floatToGoString
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 client = TestClient(app)
@@ -153,3 +155,36 @@ def test_items_multiline_error_is_logged_on_one_line(monkeypatch, caplog):
     assert "\n" not in message
     assert "\r" not in message
     assert "not permitted to log in\\nDETAIL: forged\\r\\nline" in message
+
+
+# --- metrics (ADR-022) ---
+
+
+def _families():
+    return {
+        f.name: f for f in text_string_to_metric_families(client.get("/metrics").text)
+    }
+
+
+def test_metrics_is_served_async():
+    [route] = [r for r in app.routes if getattr(r, "path", None) == "/metrics"]
+    assert inspect.iscoroutinefunction(route.endpoint)
+
+
+def test_metrics_has_the_inflight_gauge_per_handler():
+    client.get("/health")
+    gauge = _families()["http_requests_inprogress"]
+    assert gauge.type == "gauge"
+    assert {"handler": "/health", "method": "GET"} in [s.labels for s in gauge.samples]
+
+
+def test_latency_histogram_has_the_finer_buckets():
+    client.get("/health")
+    histogram = _families()["http_request_duration_seconds"]
+    les = {
+        s.labels["le"]
+        for s in histogram.samples
+        if s.name.endswith("_bucket") and s.labels["handler"] == "/health"
+    }
+    assert les == {floatToGoString(b) for b in main.LATENCY_BUCKETS} | {"+Inf"}
+    assert "0.005" in les and "0.075" in les
