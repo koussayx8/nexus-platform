@@ -3,9 +3,7 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2.0] - ⟨TBD tag date⟩
-
-> **DRAFT — the tag date is filled in when `v0.2.0` is tagged (separate approval).**
+## [0.2.0] - 2026-09-29
 
 M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Dependency DB in
 `nexus-data`, and `sample-api` `/items` reading it, so that scenario S5 (application role
