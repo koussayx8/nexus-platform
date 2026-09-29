@@ -635,23 +635,29 @@ with the owner's gate changes on 2026-09-28. Rules for every phase: its §2. Bra
 PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
 **Exit criterion (owner):** an end-to-end demo under baseline load: S5 injected on `app_dev`,
 `NexusErrorRateAnomaly` fires for `nexus-dev`, and an Incident reaches `Recorded`
-(`level_observe`, L0); then the reset, DB uid and restartCount unchanged; `CURRENT_STATE.md`,
+(`level_observe`, L0); then the reset, DB uid and restartCount unchanged. The demo runs the
+detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`; a change to
+those rules after the pin means a rerun of the demo; `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
   - [x] ADR-021: the guard findings, the heavier design rejected for proportionality, the model
     we run, and that only a typed message renews the pasted-reply rule.
-  - [x] `.claude/settings.json`: `git commit`, `git checkout`, `git switch` and `git branch` move
-    from ask to allow; the destructive forms are denied (best-effort, ADR-021).
+  - [x] `.claude/settings.json`: `git commit`, `git switch` and `git branch` move from ask to
+    allow; `git checkout` is denied; the destructive forms of push, branch, switch and commit are
+    denied (best-effort, ADR-021). `git push`, `git tag` and `gh pr merge` stay in ask.
+  - [x] Merge and tag procedure (ADR-021, CLAUDE.md rule 11):
+    `gh pr merge <N> --merge --match-head-commit <approved full SHA>`;
+    `git tag <name> <approved full SHA>`, then push only that tag.
   - [x] ADR-020 addendum: the M1 exit pickups widen the ArgoCD range to 162–382 s.
   - [x] This M1b list and the queued Later items.
   - **#79 merge condition 2 (owner):** #79 deletes
     `platform/observability/alerts/sample-api-error-rate.yaml` (the interim
     `SampleAPIHighErrorRate` rule, commit `81ead2f` on `feat/m1b-7-detection`), replaced by
     `nexus-detection.yaml`. Listed here before #79 merges.
-  - [ ] After the merge, in a new session: negative controls with names that don't exist,
-    `git branch -D m1b0-nonexistent` and `git commit --amend --dry-run`, expected denied.
-    **GATE M1b-0.**
+  - [ ] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
+    worktree, throwaway branches only, pushes with `--dry-run`; commands and results table in
+    `~/nexus-handoff-m1b.md`. **GATE M1b-0.**
 - **M1b-1 (Guard A) and M1b-2 (Guard B) — removed** (owner, 2026-09-28; ADR-021).
 - **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
   in `kube-prometheus-stack-values.yaml`, after a node headroom read; ADR-016 addendum; acceptance
@@ -670,6 +676,9 @@ PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
   (`feat/m1b-6b-kopf-spike` `4091baa`, stacked on 6a, ADR-023); 6c offline checker for the KSM and
   Alertmanager v2 reads (`test/m1b-6c-detection-inputs` `75b5743`). Live after merge: the CRD
   through `platform`, one rejected spec patch, the 6c reads through the service proxy.
+  **6a exit criterion (owner, M1b-0 gate):** before the CRD goes live, it carries
+  `argocd.argoproj.io/sync-options: Prune=false,Delete=false`. Deleting a CRD deletes every
+  Incident, and `platform` syncs with `prune: true`. `8706587` does not have it yet.
 - **M1b-7 — Z-score rules and the four anomaly alerts** (draft #79, `feat/m1b-7-detection`
   `d351d96`): lagged baseline (`[15m] offset 3m`, 27-sample guard), promtool tests in
   `repo-checks`, ADR-024. Live: rule health `ok`, series present, no alert at idle.
@@ -816,12 +825,13 @@ PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
 - M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
   gate).
 - M2: an alert that clears is not a recovery; repair verification compares the raw signal with
-  its pre-fault baseline (M1b-7 gate, ADR-024).
-- M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022).
+  its pre-fault baseline (M1b-7 gate; ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`).
+- M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022 on `feat/m1b-5-fault-hooks`, not yet on `dev`).
 - M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
-  15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024). Measure it in M4.
+  15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
 - Spec v1.1 notes (M1b-5, M1b-7): the Z-score baseline excludes the most recent 3 minutes; the
-  latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3; ADR-022, ADR-024).
+  latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3). ADR-022 and ADR-024 are on `feat/m1b-5-fault-hooks` and
+  `feat/m1b-7-detection` (#79), not yet on `dev`.
 - Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
 - `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
 - CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
