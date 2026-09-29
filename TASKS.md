@@ -606,8 +606,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     still growing about 34 s/h); covered by D1." Growth 509,060,759 B: 502.3 MiB/day per uptime
     (485.3 per wall clock); **retention 2.19 days** (2.27), CONTRADICTING change 7's ~10 and
     agreeing with the 2.2–2.8 estimate. ADR-019 addendum.
-  - [ ] `CURRENT_STATE.md` from a `verify-state.sh` run after d2 (approval A8); `CHANGELOG`
-    `[0.2.0]` (drafted); tag `v0.2.0` (separate approval). **GATE M1 exit.**
+  - [x] `CURRENT_STATE.md` from a `verify-state.sh` run after d2 (approval A8): 2026-09-29T06:57:46Z,
+    10/10, exit 0, 77 s, wall vs uptime within 1.1 s. `CHANGELOG` `[0.2.0]` filled but for the tag
+    date.
+  - [ ] Tag `v0.2.0` (separate approval). **GATE M1 exit.**
 
 ## M1b — the rest of what the spec and TASKS tagged M1 (after M1, before M2)
 
