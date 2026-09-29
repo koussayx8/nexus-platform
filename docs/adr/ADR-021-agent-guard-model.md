@@ -58,6 +58,14 @@ removes, and the thesis does not depend on it. M1b-1 and M1b-2 are removed from 
   - `git branch`: `-D`, `-f`, `-M`, `-C`, `-df`, `--force` (so `--delete --force`);
   - `git switch`: `-f`, `-C`, `--force-create`, `--force`, `--discard-changes`;
   - `git commit --amend`.
+- **Rules that a prefix pattern can dodge get an any-position twin** (owner, round 3):
+  - every denied `kubectl` verb also as `kubectl * <verb> *` (deny), and `port-forward` and `exec`
+    as `kubectl * <verb> *` (ask), so `kubectl -n x delete …` is caught;
+  - `kubectl *secret*` (deny), which also catches `get -n x secrets` and `get --raw …/secrets/…`;
+  - `*.nexus*` (deny): the `Read`/`Edit` denies on `~/.nexus/**` do not cover Bash;
+  - git's global options are denied (`git -C`, `-c`, `--no-pager`, `--git-dir`, `--work-tree`),
+    since they push the subcommand out of the prefix position. CLAUDE.md rule 12: `cd` instead
+    of `-C`, and `export VAR=… && <command>` instead of a `VAR=… <command>` prefix.
 - **Typed approval for every merge and every tag,** in chat, for that specific PR or tag, in
   every permission mode including bypass. Pasted text never counts.
 
@@ -70,6 +78,9 @@ exactly what the owner reviewed:
 - **Tag:** `git tag <name> <approved full SHA>` (with `-a -m` for an annotated tag, as `v0.1.0`
   and `v0.2.0`), then push only that tag: `git push origin <name>`. Both `git tag` and
   `git push` are ask rules.
+- **Forward-merge into `experiment/dev-state`:** the approval names `main`'s full SHA; the local
+  `--no-ff` merge commit's tree must equal that SHA's tree; the push names the merge commit,
+  `git push origin <merge SHA>:experiment/dev-state`.
 - **Offline isolation:** every offline test of a script that can call `kubectl` runs with
   `KUBECONFIG=/nonexistent` and a stub `kubectl` first on `PATH`.
 - **Session-start report:** each session runs the prompt test
@@ -94,6 +105,12 @@ rule for merges and tags does not expire.
   would also block `git branch -d` and `git switch -c`. The pattern probe in the M1b handoff
   settles it.
 - The `+refspec` deny (`git push *+*`) also blocks a push whose arguments contain `+` anywhere.
+- `*.nexus*` also denies commands naming `incidents.nexus.io` (the CRD and its file),
+  `dependency-db.nexus-data` or `.nexus-init-done`. That errs on the safe side; use the short name
+  `inc`, or the Read tool, instead.
+- Whether a `VAR=… ` prefix is stripped before matching is UNVERIFIED; the probe settles it.
+- Secrets stay reachable by forms no pattern names (a shell variable holding the resource name,
+  `curl` with a token), so finding 4 of the Context still stands.
 - Allow rules on `git branch *` and `git switch *` also allow their read-only and
   non-destructive forms; that is intended.
 
