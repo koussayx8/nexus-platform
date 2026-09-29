@@ -672,7 +672,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
   Include the Secrets finding (#78 review): pattern rules cannot protect Secrets
   (`kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` bypass
   `Bash(kubectl get secret*)`); the fix is the agent kubeconfig at the identity layer (Later,
-  high priority before M1b).
+  high priority before M1b). **Finding 4, CONTRADICTED (M1b, 2026-09-28):** the Claude Code docs
+  (permissions, settings precedence) say an `ask` rule outranks a local `allow`; observed the
+  opposite: with the project `ask` `Bash(kubectl exec *)` and a local allow, no prompt appeared.
+  Cause UNKNOWN; no test planned.
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
   including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
   `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
