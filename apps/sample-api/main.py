@@ -81,6 +81,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sample_api")
 
+# Blinding (ADR-022): the fault routes leave no trace the Evidence Collector could read as
+# "a fault was injected". No access-log line, no metric series, no announcing log line.
+# The faults' effects stay visible; so do /work/cpu (S2's real workload) and
+# NEXUS_FAULTS_ENABLED in the Deployment.
+FAULT_ROUTE_PREFIX = "/fault/"
+
+
+class FaultRouteAccessFilter(logging.Filter):
+    """Drop uvicorn access-log records for the fault routes.
+
+    uvicorn.access logs with args (client, method, path with query, http version, status).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        return not (
+            isinstance(args, tuple)
+            and len(args) >= 3
+            and str(args[2]).startswith(FAULT_ROUTE_PREFIX)
+        )
+
+
+# uvicorn configures its loggers before it imports the app, and dictConfig keeps filters.
+logging.getLogger("uvicorn.access").addFilter(FaultRouteAccessFilter())
+
 
 def _one_line(text: str) -> str:
     """Escape backslashes and line breaks so each log event stays on one line."""
@@ -105,9 +130,12 @@ app = FastAPI(
 
 # The in-flight gauge (http_requests_inprogress, labels method and handler) counts requests
 # that never complete; the latency histogram records a request only when it returns (U1,
-# ADR-022). /metrics is served by the async route below, not by the instrumentator.
+# ADR-022). /metrics is served by the async route below, not by the instrumentator. The
+# fault routes are excluded from every series, the in-flight gauge included (blinding).
 Instrumentator(
-    should_instrument_requests_inprogress=True, inprogress_labels=True
+    should_instrument_requests_inprogress=True,
+    inprogress_labels=True,
+    excluded_handlers=[f"^{FAULT_ROUTE_PREFIX}"],
 ).instrument(app, latency_lowr_buckets=LATENCY_BUCKETS)
 
 
