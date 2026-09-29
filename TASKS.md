@@ -549,6 +549,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
     `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
     and the window or run is discarded. The owner disables Windows sleep during both.
+    **M1-6 window:** the sleep setting was off and the VM paused anyway (2,921.9 s); the owner
+    kept the window under D1, normalized per uptime second (ADR-019 addendum). The rule stands
+    for S5 and verify runs; see the pause-cause Later item.
   - **Mount check** (added at GATE M1-6 b5): the S5 preconditions and the audit window's start and
     end records include `awk 'NF!=6' /proc/mounts`, which must print nothing. A 7-field line (Docker
     Desktop's `/Docker/host`) makes the kubelet exit on any k3s start.
@@ -591,9 +594,14 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     the log (`sqlstate=None`); dev `/ready` 200; prod `/items` 200, 20 rows, 0 `db_error`; all 7
     Applications Healthy and 0 restarts during the fault; reset → 200, 20 rows; DB uid and
     restartCount unchanged; \|Δwall − Δuptime\| 3.71 s. Evidence `~/nexus-evidence/m1-6/s5/`.
-  - [ ] 24 h audit window: start 2026-09-28T06:11:24.709Z, end `⟨TBD d2⟩`; validity `⟨TBD d2⟩`;
-    daily growth `⟨TBD d2⟩`, retention `⟨TBD d2⟩` days. Audit-retention addendum (changes 7 and
-    14) drafted in ADR-019, result pending.
+  - [x] 24 h audit window: start 2026-09-28T06:11:24.709Z, end 2026-09-29T06:11:54.837Z
+    (Δwall 86,430.1 s). `boot_id`, k3s start and mounts unchanged; DB unchanged; 7/7 Healthy.
+    VM pause 2,921.9 s (rule: 60 s), `boot_id` unchanged: kept by owner override D1,
+    uptime-normalized (Δuptime 83,508.2 s). Owner, check 7: "no dashboards or port-forwards were
+    open during the window. The sleep setting was off, but the VM paused anyway (about 2,922 s,
+    still growing about 34 s/h); covered by D1." Growth 509,060,759 B: 502.3 MiB/day per uptime
+    (485.3 per wall clock); **retention 2.19 days** (2.27), CONTRADICTING change 7's ~10 and
+    agreeing with the 2.2–2.8 estimate. ADR-019 addendum.
   - [ ] `CURRENT_STATE.md` from a `verify-state.sh` run after d2 (approval A8); `CHANGELOG`
     `[0.2.0]` (drafted); tag `v0.2.0` (separate approval). **GATE M1 exit.**
 
@@ -695,12 +703,17 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   why the webhook hooks re-run.
   The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
 - Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
-  (change 7; the M1 ADR-019 addendum accepts about 10 days).
+  (change 7 assumed about 10 days; the M1-6 window measured 2.19 at idle, ADR-019 addendum).
 - Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
   filled a 100 MiB file every 4.8–6.0 h, about 2.2–2.8 days of retention with `maxbackup=10`,
-  not the ~10 days of change 7; the M1-6 window result is in the ADR-019 addendum. Or narrow the
-  §14 policy. Changing it needs a k3s restart, so do it at a rebuild or between measurement
-  windows.
+  not the ~10 days of change 7. **Measured in the M1-6 window:** about 500 MiB per idle day
+  (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
+  `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
+  restart: do it at a planned k3s restart (a rebuild or between measurement windows).
+- **Before M1b-9: find the WSL2 VM pause cause** (owner). The M1-6 window paused 2,921.9 s with
+  Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. The owner runs
+  `powercfg /sleepstudy`. Also consider a rate-based pause check (seconds of pause per hour) for
+  long runs, beside the 60 s start/end rule.
 - k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
   prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
   config.
