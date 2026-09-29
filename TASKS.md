@@ -457,7 +457,11 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   prompted before it ran. The owner seeing the prompt is the check, not the agent's
   self-report. If there was no prompt, the session stops. (At the M1-4 start, the first test in
   Manual mode ran without a prompt because of the untracked local allow list; see Later. After
-  its removal, the rerun prompted.)
+  its removal, the rerun prompted.) **Ended 2026-09-28 (owner):** the local allow list regrew
+  three times, and the owner chose prompts at their discretion over added tooling. Since then:
+  prompts (Allow once / Always allow at the owner's discretion), bypass mode for tasks the owner
+  picks, the deny list as the floor, typed approval for every merge; each session reports
+  `.claude/settings.local.json` after the prompt test, and neither stops the session.
 - **M1-4 — DB live.**
   - [x] The owner runs `dependency-db-secrets.sh` on the live cluster: `generated:` ×3 and
     `created:` ×3 (`nexus-data/dependency-db`, `nexus-dev/dependency-db-app`,
