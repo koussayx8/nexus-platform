@@ -679,7 +679,10 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch â†’ PR â
   2026-09-27). It regrew by the M1-6 start (`python3 -`, `cat >> *`, `gh pr *`, `git merge *`,
   `kubectl get *`); the owner moved it to `~/nexus-evidence/settings.local.json.m1-6.bak`
   (2026-09-27). **Done in M1-6:** a minimal read-only allow list is tracked in
-  `.claude/settings.json` (see M1-6).
+  `.claude/settings.json` (see M1-6). **Third regrowth (M1b, 2026-09-28):** the owner clicked
+  "don't ask again" on purpose, to let the agent work while away; the file was written at
+  05:45:38Z, 13 s after the first S5 `kubectl exec`, and the S5 inject and reset then ran without
+  prompts (the S5 result stands). Moved to `~/nexus-evidence/settings.local.json.m1b.bak`.
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
