@@ -161,3 +161,71 @@ rebuild.
 
 The idle DB's CFS throttling (~23 % of active periods, from probe bursts) is recorded in
 `TASKS.md` M1b; it changes no limit here.
+
+## Addendum (2026-09-27, GATE M1-5): the reconcile term is 480 s, not 180 s
+
+**Measured pickup delay** (merge or push → the Application's `.status.sync.revision` at the new
+commit, from the `verify-state.sh` poll logs, 5 s resolution):
+
+| Event | Pickups |
+|---|---|
+| M1-4, #74 merge | `platform` 242 s, `root` 356 s |
+| M1-5, #76 merge | `root` and `sample-api-prod` 262 s, `dependency-db` 269 s, `kyverno` and `observability` 352 s, `platform` **382 s** |
+| M1-5, forward-merge push | `sample-api-dev` 315 s |
+
+Every one exceeds the 180 s term.
+
+**Cause (read-only, ArgoCD v3.3.8 source and live config).** A second cache sits in front of the
+controller's poll:
+- The controller refreshes each Application every `timeout.reconciliation` 120 s plus up to
+  `timeout.reconciliation.jitter` 60 s (`defaultAppResyncPeriod = 120`, `defaultAppResyncPeriodJitter
+  = 60`).
+- The repo-server caches each repository's resolved Git references (branch → SHA) for
+  `--revision-cache-expiration`. Its default is `ARGOCD_RECONCILIATION_TIMEOUT`, else 3 min
+  (`reposerver/cache/cache.go`).
+- Live: `argocd-cm` and `argocd-cmd-params-cm` set none of these keys. The repo-server's
+  `ARGOCD_RECONCILIATION_TIMEOUT` is an optional reference to the absent `timeout.reconciliation`,
+  so the 3 min default applies.
+- Worst case: a reference cache filled just before the push serves the old SHA for up to 180 s.
+  The next controller refresh then comes up to 180 s later: 360 s, plus comparison time. The
+  measured 382 s is within 5 s polling plus that time.
+
+**Re-derived** (reconcile term 480 s = the measured worst case 382 s plus about 25 % margin,
+equivalently the 360 s model plus 120 s):
+
+| Value | Before | Now | Derivation |
+|---|---|---|---|
+| Rollout | 600 s | 600 s | unchanged |
+| `verify-state.sh` default | 840 s | **1140 s** | 480 + 600 + 60 |
+| M1-4-style bound | 1000 s | **1300 s** | 480 + 160 + 600 + 60 |
+| `bootstrap.sh` DB wait | 900 s | 900 s | unchanged: no Git-pickup term, since bootstrap creates the Applications from an empty cache |
+
+The 160 s retry term is unchanged. `root` and `platform` track the same repository, so they share
+one reference cache entry and see the new SHA at the same moment. Their pickups can then differ
+only by the controller's 180 s refresh window, which is what the 160 s term assumed.
+
+**Coupling rule, extended:** the four values derive from the startupProbe budget, the pull
+allowance and the reconcile term. Changing any of the three means re-deriving all four. Setting
+`timeout.reconciliation` or `reposerver.revision.cache.expiration` would change the reconcile term,
+and is out of scope here.
+
+## Addendum (2026-09-28, GATE M1-6 b5): which budget covers which pull
+
+The M1 exit rebuild re-measured the `postgres` pull (161,346,986 bytes): **377.3 s**
+(04:13:35 → 04:20:06Z), over the 300 s allowance. It ran alongside 12 other image pulls
+(`sample-api` ×4 at about 70 s each, `kyverno` 2 min 24 s to 5 min 13 s, `prometheus` 7 min 55 s,
+`grafana` 10 min 23 s), so the node's bandwidth was shared. Init took about 2 s (container start
+04:20:06, Ready 04:20:08Z).
+
+**Decision (owner, GATE M1-6 b5): keep the 300 s allowance, scoped explicitly.** No value in the
+coupling rule changes.
+
+| Situation | Measured | Budget that covers it |
+|---|---|---|
+| A single, uncontended pull in a running cluster: `dependency-db`'s first start after a merge | 143.2 s (M1-4) | the 300 s pull allowance, inside the 600 s rollout term of the `verify-state.sh` default (1140 s) and the M1-4-style bound (1300 s) |
+| A rebuild: every image pulled at once from an empty node | 377.3 s (M1-6) | `bootstrap.sh`'s own 900 s DB wait, counted from step h; 390 s used |
+
+A gate that makes the node pull several images at once (for example a digest bump of more than
+one workload, or a new Application with its own images) is closer to the rebuild case than to the
+single-pull case. For that run, raise `NEXUS_VERIFY_APPS_TIMEOUT` and record the value used in the
+report, as for the M1-4 project-widening race.
