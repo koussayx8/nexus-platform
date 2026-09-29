@@ -81,7 +81,12 @@
       "Bash(*--output*)",
       "Bash(*--upload-pack*)",
       "Bash(*--exec*)",
-      "Bash(*.nexus*)",
+      "Bash(*/.nexus/*)",
+      "Bash(*/.nexus)",
+      "Bash(*/.nexus *)",
+      "Bash(* .nexus/*)",
+      "Bash(* .nexus)",
+      "Bash(* .nexus *)",
       "Read(~/.nexus/**)",
       "Edit(~/.nexus/**)"
     ],
