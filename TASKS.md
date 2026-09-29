@@ -633,11 +633,18 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 **Plan:** `~/.claude/plans/m1b-planning-plan-only-abundant-globe.md` (owner's local file), approved
 with the owner's gate changes on 2026-09-28. Rules for every phase: its §2. Branches reach `dev` by
 PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
+**Merge order into `dev` (gate position, 2026-09-29; Koussay confirms):** #82 →
+`test/m1b-6-envtest` → `test/m1b-6c-detection-inputs` → `feat/m1b-6a-incident-crd` (the
+`Prune=false,Delete=false` annotation committed on its branch first) → `feat/m1b-6b-kopf-spike` →
+`feat/m1b-5-fault-hooks` → the M1b-3 branch and #79 together, for the observability gate. #79
+conflicts with 6c in `.github/scripts/repo-checks.sh` (both add a step 7); fixed on #79 by
+merging `dev` in.
 **Exit criterion (owner):** an end-to-end demo under baseline load: S5 injected on `app_dev`,
 `NexusErrorRateAnomaly` fires for `nexus-dev`, and an Incident reaches `Recorded`
 (`level_observe`, L0); then the reset, DB uid and restartCount unchanged. The demo runs the
-detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`; a change to
-those rules after the pin means a rerun of the demo; `CURRENT_STATE.md`,
+detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`. A rule change
+means `git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> -- platform/observability/alerts/`
+is non-empty, where the graded SHA is the `main` commit the demo ran on; then the demo reruns; `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
@@ -676,9 +683,10 @@ those rules after the pin means a rerun of the demo; `CURRENT_STATE.md`,
   (`feat/m1b-6b-kopf-spike` `4091baa`, stacked on 6a, ADR-023); 6c offline checker for the KSM and
   Alertmanager v2 reads (`test/m1b-6c-detection-inputs` `75b5743`). Live after merge: the CRD
   through `platform`, one rejected spec patch, the 6c reads through the service proxy.
-  **6a exit criterion (owner, M1b-0 gate):** before the CRD goes live, it carries
-  `argocd.argoproj.io/sync-options: Prune=false,Delete=false`. Deleting a CRD deletes every
-  Incident, and `platform` syncs with `prune: true`. `8706587` does not have it yet.
+  **6a exit criterion (owner, M1b-0 gate):** the CRD carries
+  `argocd.argoproj.io/sync-options: Prune=false,Delete=false`, committed on
+  `feat/m1b-6a-incident-crd` before that branch merges. Deleting a CRD deletes every Incident,
+  and `platform` syncs with `prune: true`. `8706587` does not have it yet.
 - **M1b-7 — Z-score rules and the four anomaly alerts** (draft #79, `feat/m1b-7-detection`
   `d351d96`): lagged baseline (`[15m] offset 3m`, 27-sample guard), promtool tests in
   `repo-checks`, ADR-024. Live: rule health `ok`, series present, no alert at idle.
@@ -688,6 +696,11 @@ those rules after the pin means a rerun of the demo; `CURRENT_STATE.md`,
   never moves an Incident to a terminal phase while Kopf progress is pending, and every Kopf
   handler has a timeout that bounds that wait (ADR-023). `nexus-operator-config` gets its real
   schema (`advisoryChecks: on`, `approvalTTL: 15m`); ADR-025.
+  **Base (gate position, 2026-09-29; Koussay confirms):** the 6b spike. M1b-8 moves its loop,
+  `decide()` and `reconcile()` into `operator/` with unit tests, and turns `run-spike.sh` into the
+  operator's envtest integration test.
+  **M1b-8 exit criterion (owner):** `operator/spikes/kopf-status/` is deleted; `_race_hold` and
+  the envtest token login exist only in tests.
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
   `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
