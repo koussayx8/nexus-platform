@@ -43,11 +43,7 @@
       "Edit(~/.nexus/**)"
     ],
     "ask": [
-      "Bash(git commit *)",
       "Bash(git push *)",
-      "Bash(git checkout *)",
-      "Bash(git switch *)",
-      "Bash(git branch *)",
       "Bash(git tag *)",
       "Bash(kubectl port-forward *)",
       "Bash(kubectl exec *)",
@@ -65,7 +61,11 @@
       "Bash(git ls-remote origin)",
       "Bash(git ls-remote origin *)",
       "Bash(git worktree list)",
-      "Bash(git worktree list *)"
+      "Bash(git worktree list *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)"
     ]
   }
 }
