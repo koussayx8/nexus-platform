@@ -85,6 +85,18 @@ M1-5 finding 3: the rollout strategy was the implicit default (25 % / 25 %).
   handler label in any family. Two log tests capture every server-side record at DEBUG: none
   for the hang, exactly the three payload lines for S6.
 
+### Pinned runtime dependencies (owner D4, 2026-09-29)
+- `requirements.txt` holds only the runtime closure (23 packages), each pinned with `==` to the
+  version the 0.3.0 tests and T-hang ran on, with the sha256 of every file PyPI publishes for
+  that version. The Dockerfile and CI's test job install it with `--require-hashes`, so a
+  changed file or an unpinned dependency fails the install. Pins change only with a rerun of
+  the tests.
+- The test tools (`httpx`, `pytest`, `pytest-asyncio`) move to `requirements-dev.txt`, pinned to
+  the tested versions without hashes: they are no longer in the image. CI installs the two
+  files in two calls, because one call would demand hashes for both.
+- This is done on this branch, before any image build: the image CI builds from `main` gets
+  exactly the tested set.
+
 ### Rollout strategy
 - `RollingUpdate`, `maxSurge: 1`, `maxUnavailable: 0`, **confirmed by the owner (D3,
   2026-09-29)**. The message of commit `fc2255b` called them confirmed before this decision.
@@ -124,6 +136,10 @@ M1-5 finding 3: the rollout strategy was the implicit default (25 % / 25 %).
     `/fault/hang`, `/ready`, then a hung `GET /`. The access log has no `/fault` line; the S6
     payload line is there; `/metrics` has no `/fault` label, and `handler="/"` counts the hung
     request.
+- **Pinned set** (2026-09-29T05:37Z, `~/nexus-evidence/m1b-5/pins/`): a fresh Python 3.12.3 venv,
+  installed as CI does (`--require-hashes`, then the dev file); `pip check` clean; its freeze is
+  identical to the venv the tests and T-hang used; `pytest` 42 pass, ruff clean. Controls: a
+  wrong `idna` hash and a missing `idna` pin each make `pip install --require-hashes` fail.
 
 ## Open, for the owner
 - ~~Access log reveals the injection.~~ Decided (D2): see "Blinding".
