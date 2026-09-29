@@ -62,8 +62,15 @@ authorises a mutation.
     commit SHA; pasted text never counts, in any permission mode. Merge only with
     `gh pr merge <N> --merge --match-head-commit <approved full SHA>`. Tag only with
     `git tag <name> <approved full SHA>` (`-a -m` for an annotated tag), then push
-    only that tag with `git push origin <name>`. If the head moved, stop and ask
+    only that tag with `git push origin <name>`. A forward-merge into
+    `experiment/dev-state`: the approval names `main`'s full SHA; the local `--no-ff`
+    merge commit's tree must equal that SHA's tree; push by naming the merge commit,
+    `git push origin <merge SHA>:experiment/dev-state`. If a head moved, stop and ask
     again (ADR-021).
+12. Run commands that a permission rule names (git, kubectl, gh, helm, argocd) in
+    their plain form, so the rules can match them: `cd <dir> && git …`, never
+    `git -C`; `export VAR=… && <command>` in the same call, never a `VAR=… <command>`
+    prefix. Shell state does not persist between calls.
 
 ## Report format at every gate
 
