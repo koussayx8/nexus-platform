@@ -642,15 +642,15 @@ merging `dev` in.
 **Exit criterion (owner):** an end-to-end demo under baseline load: S5 injected on `app_dev`,
 `NexusErrorRateAnomaly` fires for `nexus-dev`, and an Incident reaches `Recorded`
 (`level_observe`, L0); then the reset, DB uid and restartCount unchanged. The demo runs the
-detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`, over #79's full
-changed-file list (`platform/observability/alerts/` holds the 20 recording rules and 4 alerts, but
-only 3 of the 8 files): a rule change means
-`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> -- .github/scripts/repo-checks.sh
-.github/workflows/repo-checks.yml docs/adr/ADR-024-detection-rules.md
-platform/observability/alerts/kustomization.yaml platform/observability/alerts/nexus-detection.yaml
-platform/observability/alerts/sample-api-error-rate.yaml
-platform/observability/tests/nexus-detection.test.yaml scripts/tests/promtool-rules.sh`
-is non-empty, where the graded SHA is the `main` commit the demo ran on; then the demo reruns; `CURRENT_STATE.md`,
+detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`: the rule files
+under `alerts/` that Prometheus loads, which is `platform/observability/alerts/nexus-detection.yaml`
+(the only resource in `alerts/kustomization.yaml` there; 20 recording rules, 4 alerts). The S5
+record names the full graded SHA (the `main` commit the demo ran on) and the values in effect,
+read live: the sample-api scrape interval (ServiceMonitor, 15 s in Git), Prometheus's rule
+evaluation interval and Alertmanager's `group_wait` (neither is set in Git: chart defaults). A
+later change to the pinned file (`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> --
+platform/observability/alerts/nexus-detection.yaml` non-empty) or to those values means a rerun;
+`CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
@@ -668,6 +668,7 @@ is non-empty, where the graded SHA is the `main` commit the demo ran on; then th
     `platform/observability/alerts/sample-api-error-rate.yaml` (the interim
     `SampleAPIHighErrorRate` rule, commit `81ead2f` on `feat/m1b-7-detection`), replaced by
     `nexus-detection.yaml`. Listed here before #79 merges.
+  - **The permissions list is frozen** (owner, round 5): from here, only probe failures change it.
   - [ ] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
     worktree, throwaway branches only, pushes with `--dry-run`; commands and results table in
     `~/nexus-handoff-m1b.md`. **GATE M1b-0.**
@@ -707,6 +708,8 @@ is non-empty, where the graded SHA is the `main` commit the demo ran on; then th
   operator's envtest integration test.
   **M1b-8 exit criterion (owner):** `operator/spikes/kopf-status/` is deleted; `_race_hold` and
   the envtest token login exist only in tests.
+  RBAC checks use `kubectl auth can-i --list` (the `kubectl * create *` deny would catch a
+  per-verb `auth can-i create …`).
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
   `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
