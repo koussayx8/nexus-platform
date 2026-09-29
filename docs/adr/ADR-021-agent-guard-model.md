@@ -113,18 +113,35 @@ rule for merges and tags does not expire.
 - `~/.nexus` residuals: quoted or substituted forms with no segment boundary the patterns see,
   such as `"$HOME/.nexus"` and `$(ls ~/.nexus)`, and globs such as `~/.nex*`.
 - Whether a `VAR=… ` prefix is stripped before matching is UNVERIFIED; the probe settles it.
-- Secrets stay reachable by forms no pattern names (a shell variable holding the resource name,
-  `curl` with a token), so finding 4 of the Context still stands.
 - Allow rules on `git branch *` and `git switch *` also allow their read-only and
   non-destructive forms; that is intended.
 
-The backstops do not depend on patterns:
-- typed merge and tag approval, bound to a full SHA by `--match-head-commit` and the tag
-  command;
-- branch protection: `main` and `dev` require a pull request and `repo-checks`.
-- **`experiment/dev-state` accepts direct pushes.** Its ruleset 23998158 blocks only non-fast-forward
-  pushes and deletion (no pull request, no required check), so the `git push *` ask rule and the
-  typed approval of each forward-merge are its only guards against an agent push.
+### Residuals: accepted risks and their backstops
+The patterns are frozen at their M1b-0 content (round 4, `b0ca274`); only a pattern-probe failure
+changes them. What they miss is accepted, as follows.
+
+**Git residuals** (option abbreviations, combined flags, spellings the patterns don't name).
+Backstops that do not depend on patterns:
+- GitHub refuses force-pushes and deletions on all three long-lived branches: `main` and `dev`
+  through branch protection (force pushes and deletions disallowed, admins included; a pull
+  request and `repo-checks` required), `experiment/dev-state` through ruleset 23998158
+  (non-fast-forward and deletion).
+- Typed approval bound to a full SHA: `gh pr merge --match-head-commit` for merges, the tag
+  command for tags, and the pushed merge commit for forward-merges.
+- `experiment/dev-state` needs no pull request or check, so a fast-forward push to it is guarded
+  only by the `git push *` ask rule and the forward-merge approval.
+
+**Accepted with no technical backstop:**
+- **Secrets:** forms no pattern names (a shell variable holding the resource name, `curl` with a
+  token). Context finding 4 stands.
+- **`~/.nexus`:** quoted or substituted forms with no segment boundary the patterns see, such as
+  `"$HOME/.nexus"` and `$(ls ~/.nexus)`, and globs such as `~/.nex*`.
+- **`kubectl` through scripts** (the script gap): rules match only the command typed.
+
+Neither control below is a backstop for these. k3s encryption at rest protects Secrets in etcd
+and on disk, not reads through the API. ArgoCD selfHeal, where it is enabled, reverts drift only on
+the objects it manages, and it reads nothing. The mitigations are CLAUDE.md rule 5, the offline
+isolation rule, and the owner's review.
 
 ## Rationale
 The thesis claims that safety should not depend on the reasoner's quality when authority sits
