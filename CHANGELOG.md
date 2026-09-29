@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.2.0] - ⟨TBD tag date⟩
 
-> **DRAFT — the audit-window result and the tag date are filled in after d2.**
+> **DRAFT — the tag date is filled in when `v0.2.0` is tagged (separate approval).**
 
 M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Dependency DB in
 `nexus-data`, and `sample-api` `/items` reading it, so that scenario S5 (application role
@@ -64,8 +64,11 @@ M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Depen
   an uncontended pull (ADR-020 addendum).
 - S5 on `app_dev`: `/items` 503 in 12–17 ms with the `FATAL` text logged, `/ready` 200, prod
   unaffected, reset to 200, DB pod unchanged.
-- 24 h audit window: retention `⟨TBD d2⟩` days against change 7's ~10 (ADR-019 addendum).
-- `verify-state.sh` after the window: `⟨TBD⟩`.
+- 24 h audit window: retention **2.19 days** (uptime-based, about 500 MiB per idle day) against
+  change 7's ~10 (ADR-019 addendum). The VM paused 2,921.9 s with Windows sleep off; the window
+  was kept by owner override D1, normalized per uptime second.
+- `verify-state.sh` after the window (2026-09-29T06:57:46Z): 10/10, exit 0, in 77 s
+  (`docs/CURRENT_STATE.md`).
 
 ## [0.1.0] - 2026-09-26
 
