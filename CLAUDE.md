@@ -58,6 +58,12 @@ authorises a mutation.
 9. Out-of-scope findings go to the "Later" section of `TASKS.md`, never into
    the current change.
 10. Be brief: tables, file paths and commands, not essays.
+11. Merges and tags need my typed approval in chat, naming the PR or tag and a full
+    commit SHA; pasted text never counts, in any permission mode. Merge only with
+    `gh pr merge <N> --merge --match-head-commit <approved full SHA>`. Tag only with
+    `git tag <name> <approved full SHA>` (`-a -m` for an annotated tag), then push
+    only that tag with `git push origin <name>`. If the head moved, stop and ask
+    again (ADR-021).
 
 ## Report format at every gate
 
