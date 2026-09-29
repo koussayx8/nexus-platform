@@ -62,7 +62,9 @@ removes, and the thesis does not depend on it. M1b-1 and M1b-2 are removed from 
   - every denied `kubectl` verb also as `kubectl * <verb> *` (deny), and `port-forward` and `exec`
     as `kubectl * <verb> *` (ask), so `kubectl -n x delete …` is caught;
   - `kubectl *secret*` (deny), which also catches `get -n x secrets` and `get --raw …/secrets/…`;
-  - `*.nexus*` (deny): the `Read`/`Edit` denies on `~/.nexus/**` do not cover Bash;
+  - `~/.nexus` as a whole path segment (deny: `*/.nexus/*`, `*/.nexus`, `*/.nexus *`,
+    `* .nexus/*`, `* .nexus`, `* .nexus *`): the `Read`/`Edit` denies on `~/.nexus/**` do not
+    cover Bash;
   - git's global options are denied (`git -C`, `-c`, `--no-pager`, `--git-dir`, `--work-tree`),
     since they push the subcommand out of the prefix position. CLAUDE.md rule 12: `cd` instead
     of `-C`, and `export VAR=… && <command>` instead of a `VAR=… <command>` prefix.
@@ -105,9 +107,11 @@ rule for merges and tags does not expire.
   would also block `git branch -d` and `git switch -c`. The pattern probe in the M1b handoff
   settles it.
 - The `+refspec` deny (`git push *+*`) also blocks a push whose arguments contain `+` anywhere.
-- `*.nexus*` also denies commands naming `incidents.nexus.io` (the CRD and its file),
-  `dependency-db.nexus-data` or `.nexus-init-done`. That errs on the safe side; use the short name
-  `inc`, or the Read tool, instead.
+- **Resolved (round 4):** the first form, `*.nexus*`, also denied `incidents.nexus.io` (the CRD
+  and its file), `dependency-db.nexus-data` and `/.nexus-init-done`. The whole-segment forms
+  clear all three.
+- `~/.nexus` residuals: quoted or substituted forms with no segment boundary the patterns see,
+  such as `"$HOME/.nexus"` and `$(ls ~/.nexus)`, and globs such as `~/.nex*`.
 - Whether a `VAR=… ` prefix is stripped before matching is UNVERIFIED; the probe settles it.
 - Secrets stay reachable by forms no pattern names (a shell variable holding the resource name,
   `curl` with a token), so finding 4 of the Context still stands.
