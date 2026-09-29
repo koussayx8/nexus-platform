@@ -47,7 +47,10 @@ jobs:
       - name: Install dependencies
         run: |
           cd apps/sample-api
-          pip install -r requirements.txt -r requirements-dev.txt
+          # Two installs: the hashed runtime set exactly as the image gets it, then the
+          # unhashed dev tools (one pip call would demand hashes for both files).
+          pip install --require-hashes -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Run tests
         run: |
           cd apps/sample-api
