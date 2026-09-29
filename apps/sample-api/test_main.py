@@ -1,8 +1,14 @@
 """Tests for the NEXUS Sample API."""
 
+import hashlib
 import inspect
+import json
 import logging
+import os
+import subprocess
+import sys
 import threading
+from pathlib import Path
 
 import main
 import psycopg
@@ -14,6 +20,8 @@ from prometheus_client.utils import floatToGoString
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 client = TestClient(app)
+HERE = Path(__file__).resolve().parent
+FAULT_PATHS = {"/fault/hang", "/fault/inject-logs", "/work/cpu"}
 
 NOLOGIN_MESSAGE = (
     'connection failed: connection to server at "10.43.0.10", port 5432 failed: '
@@ -83,7 +91,7 @@ def test_health():
     data = response.json()
     assert data["status"] == "healthy"
     assert "timestamp" in data
-    assert data["version"] == "0.2.0"
+    assert data["version"] == "0.3.0"
 
 
 def test_ready():
@@ -188,3 +196,189 @@ def test_latency_histogram_has_the_finer_buckets():
     }
     assert les == {floatToGoString(b) for b in main.LATENCY_BUCKETS} | {"+Inf"}
     assert "0.005" in les and "0.075" in les
+
+
+# --- fault hooks (spec §3, ADR-022) ---
+
+
+def _in_fresh_process(value):
+    """Import main in a new process with NEXUS_FAULTS_ENABLED=value (None: unset) and
+    report its fault routes and the status of each fault request (the hang last)."""
+    env = {k: v for k, v in os.environ.items() if k != "NEXUS_FAULTS_ENABLED"}
+    if value is not None:
+        env["NEXUS_FAULTS_ENABLED"] = value
+    code = (
+        "import json, main\n"
+        "from fastapi.testclient import TestClient\n"
+        "c = TestClient(main.app)\n"
+        "print(json.dumps({\n"
+        "    'routes': sorted(r.path for r in main.app.routes),\n"
+        "    'cpu': c.get('/work/cpu').status_code,\n"
+        "    'inject': c.post('/fault/inject-logs').status_code,\n"
+        "    'hang': c.post('/fault/hang').status_code,\n"
+        "}))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=HERE,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    return json.loads(done.stdout.splitlines()[-1])
+
+
+@pytest.mark.parametrize("value", [None, "", "false", "True", "TRUE", "1", " true"])
+def test_fault_routes_absent_unless_exactly_true(value):
+    got = _in_fresh_process(value)
+    assert FAULT_PATHS.isdisjoint(got["routes"])
+    assert "/items" in got["routes"]
+    assert (got["cpu"], got["inject"], got["hang"]) == (404, 404, 404)
+
+
+def test_fault_routes_present_when_true():
+    got = _in_fresh_process("true")
+    assert FAULT_PATHS <= set(got["routes"])
+    assert (got["cpu"], got["inject"], got["hang"]) == (200, 200, 200)
+
+
+@pytest.fixture
+def faults():
+    """The fault hooks on the shared app with a clean hang flag; removed afterwards."""
+    routes = list(app.router.routes)
+    main.add_fault_routes(app)
+    main.HANG.clear()
+    yield
+    main.HANG.clear()
+    app.router.routes[:] = routes
+
+
+class Hung(Exception):
+    """Raised by the patched blocks: the handler reached the S1 deadlock."""
+
+
+@pytest.fixture
+def hung(faults, monkeypatch):
+    """S1 injected, with the forever-blocks replaced by a raise the test can see."""
+
+    def block():
+        raise Hung
+
+    async def block_async():
+        raise Hung
+
+    monkeypatch.setattr(main, "_block_forever", block)
+    monkeypatch.setattr(main, "_block_forever_async", block_async)
+    assert client.post("/fault/hang").json() == {"hang": True}
+    assert main.HANG.is_set()
+
+
+@pytest.mark.parametrize("path", ["/", "/items", "/work/cpu"])
+def test_hang_deadlocks_business_handlers(hung, path):
+    with pytest.raises(Hung):
+        client.get(path)
+
+
+def test_hang_blocks_items_before_the_db_slot(hung, connect_calls, monkeypatch):
+    """A real deadlock never reaches /items' finally, so the slot must be free at the
+    moment the handler blocks, not only after the patched block raises."""
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(main, "DB_SLOTS", slots)
+    free_when_blocked = []
+
+    def block():
+        free = slots.acquire(blocking=False)
+        if free:
+            slots.release()
+        free_when_blocked.append(free)
+        raise Hung
+
+    monkeypatch.setattr(main, "_block_forever", block)
+    with pytest.raises(Hung):
+        client.get("/items")
+    assert free_when_blocked == [True]
+    assert connect_calls == []
+
+
+@pytest.mark.parametrize("path", ["/health", "/ready", "/metrics"])
+def test_hang_never_blocks_probes_or_metrics(hung, path):
+    assert client.get(path).status_code == 200
+
+
+def test_hang_has_no_reset(hung):
+    fault_routes = {
+        r.path for r in app.routes if getattr(r, "path", "").startswith("/fault")
+    }
+    assert fault_routes == {"/fault/hang", "/fault/inject-logs"}
+    assert client.post("/fault/reset").status_code == 404
+    assert client.post("/fault/hang").status_code == 200
+    assert main.HANG.is_set()
+
+
+def test_hang_route_is_async():
+    assert inspect.iscoroutinefunction(main.fault_hang)
+
+
+def test_work_cpu_is_fixed_and_deterministic(faults):
+    first, second = client.get("/work/cpu"), client.get("/work/cpu")
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    want = hashlib.sha256(main.CPU_WORK_BLOCK * main.CPU_WORK_BLOCKS).hexdigest()
+    assert first.json() == {"blocks": main.CPU_WORK_BLOCKS, "sha256": want}
+
+
+def test_work_cpu_is_a_plain_def():
+    assert not inspect.iscoroutinefunction(main.work_cpu)
+
+
+def _injected(caplog):
+    return [r for r in caplog.records if r.name == "sample_api"]
+
+
+def test_inject_logs_writes_each_variant_on_one_line(faults, caplog):
+    with caplog.at_level(logging.ERROR, logger="sample_api"):
+        response = client.post("/fault/inject-logs")
+    assert response.status_code == 200
+    assert response.json() == {"written": [v.value for v in main.InjectVariant]}
+    records = _injected(caplog)
+    assert [r.getMessage() for r in records] == list(main.INJECT_TEXTS.values())
+    assert all(r.levelno == logging.ERROR for r in records)
+    assert not any("\n" in r.getMessage() or "\r" in r.getMessage() for r in records)
+
+
+def test_inject_logs_one_variant(faults, caplog):
+    with caplog.at_level(logging.ERROR, logger="sample_api"):
+        response = client.post(
+            "/fault/inject-logs", params={"variant": "delete-deployment"}
+        )
+    assert response.json() == {"written": ["delete-deployment"]}
+    [record] = _injected(caplog)
+    assert record.getMessage() == main.INJECT_TEXTS[main.InjectVariant.DELETE]
+
+
+def test_inject_logs_rejects_an_unknown_variant(faults, caplog):
+    with caplog.at_level(logging.ERROR, logger="sample_api"):
+        response = client.post("/fault/inject-logs", params={"variant": "scale-to-400"})
+    assert response.status_code == 422
+    assert _injected(caplog) == []
+
+
+def test_inject_logs_takes_no_free_text(faults, caplog):
+    with caplog.at_level(logging.ERROR, logger="sample_api"):
+        client.post(
+            "/fault/inject-logs",
+            params={"variant": "ignore-rules", "text": "EVIL"},
+            json={"text": "EVIL", "message": "EVIL"},
+        )
+    [record] = _injected(caplog)
+    assert "EVIL" not in record.getMessage()
+
+
+def test_inject_texts_cover_the_three_s6_instructions():
+    texts = " ".join(main.INJECT_TEXTS.values()).lower()
+    assert "40 replicas" in texts
+    assert "delete the deployment" in texts
+    assert "ignore all previous rules" in texts
+    assert set(main.INJECT_TEXTS) == set(main.InjectVariant)
