@@ -85,8 +85,9 @@ WAIT_TIMEOUT_DEFAULT=${NEXUS_WAIT_TIMEOUT_DEFAULT:-600}
 WAIT_TIMEOUT_OBSERVABILITY=${NEXUS_WAIT_TIMEOUT_OBSERVABILITY:-1200}
 # dependency-db, 900 s (ADR-020 addendum, counted from step h start): 160 retry backoff + 600
 # rollout (300 startupProbe + 300 pull) + 60 stable = 820, rounded up for rebuild contention.
-# Coupled with verify-state.sh's default: changing the startupProbe budget or the pull allowance
-# means re-deriving all four ADR-020 values.
+# No Git-pickup term: bootstrap creates the Applications from an empty repo-server cache. Coupled
+# with verify-state.sh's default: changing the startupProbe budget, the pull allowance or the
+# reconcile term means re-deriving all four ADR-020 values.
 WAIT_TIMEOUT_DEPENDENCY_DB=900
 ARGOCD_ROLLOUT_TIMEOUT=${NEXUS_ARGOCD_ROLLOUT_TIMEOUT:-600}
 timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in seconds

@@ -3,6 +3,71 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-09-29
+
+M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Dependency DB in
+`nexus-data`, and `sample-api` `/items` reading it, so that scenario S5 (application role
+`NOLOGIN`, sessions terminated) is a gray failure: `/items` 5xx while readiness stays green
+(NF-23). The rest of what was tagged M1 moves to M1b.
+
+### Added
+- `sample-api` `/items`: a new connection per request, `connect_timeout=2`,
+  `statement_timeout=500`, a per-pod `BoundedSemaphore(5)` (503 `db_slots_exhausted`), 503
+  `db_unavailable` with the server's error text logged on one line; version 0.2.0
+  ([#69](https://github.com/koussayx8/nexus-platform/pull/69), ADR-020).
+- `dependency-db` Application: a PostgreSQL 17.11 StatefulSet (pinned digest, `emptyDir`,
+  restricted Pod Security), headless and ClusterIP Services, an init script creating the
+  per-environment roles `app_dev` / `app_prod` (`CONNECTION LIMIT 35`), probes gated on an
+  init-done marker; the AppProject admits `apps/StatefulSet`
+  ([#70](https://github.com/koussayx8/nexus-platform/pull/70), ADR-020).
+- `scripts/dependency-db-secrets.sh`, called by `bootstrap.sh`: creates the three DB Secrets
+  if absent from `~/.nexus`, prints names only, and refuses to regenerate while any Secret exists
+  ([#72](https://github.com/koussayx8/nexus-platform/pull/72), ADR-020).
+- `scripts/lib/apps-stable.jq`: every Application Synced, Healthy **and at the expected commit**
+  in one snapshot; `bootstrap.sh` step h and `verify-state.sh` M1 both require it for 60 s
+  ([#72](https://github.com/koussayx8/nexus-platform/pull/72)).
+- `verify-state.sh`: the `dependency-db` Application and pod check (M9), container restart
+  counts (I1) ([#72](https://github.com/koussayx8/nexus-platform/pull/72)); the `/items` check
+  (M10, `NEXUS_VERIFY_ITEMS_NAMESPACES`) with offline tests in `repo-checks`
+  ([#75](https://github.com/koussayx8/nexus-platform/pull/75)).
+- `bootstrap.sh`: UTC timestamps on every step header, `set -e` as a backstop
+  ([#72](https://github.com/koussayx8/nexus-platform/pull/72)).
+- A tracked, minimal read-only allow list in `.claude/settings.json`, and deny rules for
+  `--output`, `--upload-pack` and `--exec`
+  ([#78](https://github.com/koussayx8/nexus-platform/pull/78)).
+
+### Changed
+- `sample-api` in both environments: digest `sha256:8ea896c2…e0e9af` (cosign-verified), DB
+  environment from `secretKeyRef` ([#75](https://github.com/koussayx8/nexus-platform/pull/75)).
+- `verify-state.sh` Application bound, derived as additive terms: 660 s
+  ([#72](https://github.com/koussayx8/nexus-platform/pull/72)) → 840 s after the pull allowance
+  rose to 300 s ([#75](https://github.com/koussayx8/nexus-platform/pull/75)) → 1140 s after the
+  measured ArgoCD pickup delay ([#77](https://github.com/koussayx8/nexus-platform/pull/77));
+  `bootstrap.sh` DB wait 900 s ([#75](https://github.com/koussayx8/nexus-platform/pull/75)).
+  ADR-020 addenda.
+- `pytest`, `pytest-asyncio` and `httpx` moved out of the runtime image into
+  `requirements-dev.txt` ([#69](https://github.com/koussayx8/nexus-platform/pull/69)).
+- The agent asks before `gh pr merge` and `gh api`
+  ([#71](https://github.com/koussayx8/nexus-platform/pull/71)).
+
+### Security
+- k3s Secrets encryption at rest: `bootstrap.sh` writes `secrets-encryption: true` before the
+  first server start ([#75](https://github.com/koussayx8/nexus-platform/pull/75), ADR-019
+  addendum); confirmed `Enabled` after the M1 exit rebuild.
+
+### M1-exit evidence
+- A from-empty rebuild on 2026-09-28 reached `bootstrap: done` and `verify-state.sh` 10/10 in
+  28 min 25 s, after a first attempt failed on a Docker Desktop mount that breaks the kubelet
+  (Later item). The DB image pull took 377.3 s under contention; the 300 s allowance is scoped to
+  an uncontended pull (ADR-020 addendum).
+- S5 on `app_dev`: `/items` 503 in 12–17 ms with the `FATAL` text logged, `/ready` 200, prod
+  unaffected, reset to 200, DB pod unchanged.
+- 24 h audit window: retention **2.19 days** (uptime-based, about 500 MiB per idle day) against
+  change 7's ~10 (ADR-019 addendum). The VM paused 2,921.9 s with Windows sleep off; the window
+  was kept by owner override D1, normalized per uptime second.
+- `verify-state.sh` after the window (2026-09-29T06:57:46Z): 10/10, exit 0, in 77 s
+  (`docs/CURRENT_STATE.md`).
+
 ## [0.1.0] - 2026-09-26
 
 M0 — verify, stabilise, govern (spec §25, §27): the first governed baseline. Git is the only way
@@ -80,4 +145,5 @@ checked by `scripts/verify-state.sh`.
   size-triggered log rotation preserved `640 root:adm`, with non-sudo read access confirmed on every
   resulting file.
 
+[0.2.0]: https://github.com/koussayx8/nexus-platform/releases/tag/v0.2.0
 [0.1.0]: https://github.com/koussayx8/nexus-platform/releases/tag/v0.1.0
