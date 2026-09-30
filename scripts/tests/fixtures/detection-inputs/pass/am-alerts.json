@@ -1,0 +1,1 @@
+[{"annotations":{"summary":"(fixture)"},"endsAt":"2026-10-01T00:04:00.000Z","fingerprint":"a1b2c3d4e5f60718","generatorURL":"http://prometheus.fixture/graph","labels":{"alertname":"Watchdog","severity":"none"},"receivers":[{"name":"null"}],"startsAt":"2026-10-01T00:00:00.000Z","status":{"inhibitedBy":[],"silencedBy":[],"state":"active"},"updatedAt":"2026-10-01T00:00:30.000Z"}]

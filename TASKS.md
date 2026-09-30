@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
-**Milestone:** M1 — Dependency DB and `/items` (spec §3, §20, §25). M0 complete: `v0.1.0` on `8f4eaac`.
-**Current phase:** M1-6 — exit (plan first). M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`); M1-5 done (#76, `ee39cef`).
+**Milestone:** M1b — the rest of what the spec tagged M1 (see M1b below). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`.
+**Current phase:** M1b-0 — guard ADR, settings and the M1b task list. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`); M1-5 done (#76, `ee39cef`); M1-6 done (#80, #81, `ce2b174`).
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -457,7 +457,11 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   prompted before it ran. The owner seeing the prompt is the check, not the agent's
   self-report. If there was no prompt, the session stops. (At the M1-4 start, the first test in
   Manual mode ran without a prompt because of the untracked local allow list; see Later. After
-  its removal, the rerun prompted.)
+  its removal, the rerun prompted.) **Ended 2026-09-28 (owner):** the local allow list regrew
+  three times, and the owner chose prompts at their discretion over added tooling. Since then:
+  prompts (Allow once / Always allow at the owner's discretion), bypass mode for tasks the owner
+  picks, the deny list as the floor, typed approval for every merge; each session reports
+  `.claude/settings.local.json` after the prompt test, and neither stops the session.
 - **M1-4 — DB live.**
   - [x] The owner runs `dependency-db-secrets.sh` on the live cluster: `generated:` ×3 and
     `created:` ×3 (`nexus-data/dependency-db`, `nexus-dev/dependency-db-app`,
@@ -549,6 +553,12 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     time. The 24 h audit window (change 14) and every S5 run record wall-clock time and
     `/proc/uptime` at start and end; if the two deltas differ by more than 60 s, the VM was paused
     and the window or run is discarded. The owner disables Windows sleep during both.
+    **M1-6 window:** the sleep setting was off and the VM paused anyway (2,921.9 s); the owner
+    kept the window under D1, normalized per uptime second (ADR-019 addendum). The rule stands
+    for S5 and verify runs; see the pause-cause Later item.
+  - **Mount check** (added at GATE M1-6 b5): the S5 preconditions and the audit window's start and
+    end records include `awk 'NF!=6' /proc/mounts`, which must print nothing. A 7-field line (Docker
+    Desktop's `/Docker/host`) makes the kubelet exit on any k3s start.
   - [x] Minimal read-only allow list in `.claude/settings.json` (PR 1, GATE M1-6 plan review).
     Principle: nothing auto-allowed may read arbitrary files, reach arbitrary hosts, or write
     files. So only Git reads of repository objects: `git --no-optional-locks status` (plain
@@ -561,16 +571,47 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
     `kubectl` (`--kubeconfig` reads any file, `--server` reaches any host), `bash -n` and
     `shellcheck` (both read any path and echo its lines). Each session reports
     `.claude/settings.local.json` after the prompt test and stops on a risky entry.
-  - [ ] S5 smoke test on `app_dev` (approval first): `/items` 503 in under 3 s with the `FATAL`
-    text in the log; `/ready` 200; prod unaffected; reset; DB `metadata.uid` and `restartCount`
-    unchanged.
-  - [ ] Audit-retention addendum (changes 7 and 14).
-  - [ ] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`). Re-measure the DB
-    image pull against the 300 s allowance.
-  - [ ] After the rebuild, the owner runs `sudo k3s secrets-encrypt status`; expected
-    `Encryption Status: Enabled` (ADR-019 addendum).
-  - [ ] `CURRENT_STATE.md`, `CHANGELOG` `[0.2.0]`, tag `v0.2.0` (separate approval).
-    **GATE M1 exit.**
+  - [x] Before the rebuild: the M1-4/M1-5 verify reports and poll logs archived to
+    `~/nexus-evidence/m1-4` and `m1-5` (checksums match; the originals lived only in `/tmp`,
+    which is emptied at boot); a pre-rebuild record; `/var/log/nexus-audit` archived to
+    `~/nexus-evidence/m1-6/audit-pre-rebuild/` (8 source files byte-identical), because
+    `bootstrap.sh` empties the active audit log (ADR-019 M1-6 addendum).
+  - [x] From-empty rebuild (owner; `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800`), scripts from a
+    detached worktree at `dev` `0cfe6c7` (identical `bootstrap.sh` behaviour to `main`, and #77's
+    1140 s verify default; its `docs/CURRENT_STATE.md` write stays out of the main checkout).
+    - First attempt: FATAL at 03:57:38Z, "creating namespace monitoring failed". k3s was
+      crash-looping: the kubelet exited with `system validation failed - wrong number of fields
+      (expected 6, got 7)`, from Docker Desktop's `/Docker/host` 9p mount (enabled for test d,
+      after the M0-5 rebuild). The owner uninstalled, unmounted it, and reran (Later: bootstrap
+      preflight).
+    - Second attempt: 04:05:40 → 04:34:05Z (28 min 25 s), `bootstrap: done`, exit 0. ArgoCD rollout
+      5 min 13 s; step h stable after 1146 s; `observability` Healthy after about 1108 s (62 % of
+      1800 s); `verify-state.sh` 10/10, M1 stable 65 s after 65 s. DB Secrets `created:` ×3 from
+      the existing `~/.nexus` files. k3s `v1.34.6+k3s1`, `boot_id` unchanged.
+    - DB image pull **377.3 s**, alongside 12 other pulls; init about 2 s; new uid
+      `c8436079…`. Owner decision (a): keep the 300 s allowance, scoped to an uncontended pull;
+      rebuild pulls fall under `bootstrap.sh`'s 900 s DB wait (390 s used). ADR-020 addendum.
+  - [x] After the rebuild, the owner's `sudo k3s secrets-encrypt status`: `Encryption Status:
+    Enabled`, all hashes match, AES-CBC (ADR-019 addendum; Later: secretbox).
+  - [x] S5 smoke test on `app_dev` (2026-09-28, 05:45–05:47Z): dev `/items` 503
+    `db_unavailable` in 12–17 ms (×5) with `FATAL:  role "app_dev" is not permitted to log in` in
+    the log (`sqlstate=None`); dev `/ready` 200; prod `/items` 200, 20 rows, 0 `db_error`; all 7
+    Applications Healthy and 0 restarts during the fault; reset → 200, 20 rows; DB uid and
+    restartCount unchanged; \|Δwall − Δuptime\| 3.71 s. Evidence `~/nexus-evidence/m1-6/s5/`.
+  - [x] 24 h audit window: start 2026-09-28T06:11:24.709Z, end 2026-09-29T06:11:54.837Z
+    (Δwall 86,430.1 s). `boot_id`, k3s start and mounts unchanged; DB unchanged; 7/7 Healthy.
+    VM pause 2,921.9 s (rule: 60 s), `boot_id` unchanged: kept by owner override D1,
+    uptime-normalized (Δuptime 83,508.2 s). Owner, check 7: "no dashboards or port-forwards were
+    open during the window. The sleep setting was off, but the VM paused anyway (about 2,922 s,
+    still growing about 34 s/h); covered by D1." Growth 509,060,759 B: 502.3 MiB/day per uptime
+    (485.3 per wall clock); **retention 2.19 days** (2.27), CONTRADICTING change 7's ~10 and
+    agreeing with the 2.2–2.8 estimate. ADR-019 addendum.
+  - [x] `CURRENT_STATE.md` from a `verify-state.sh` run after d2 (approval A8): 2026-09-29T06:57:46Z,
+    10/10, exit 0, 77 s, wall vs uptime within 1.1 s. `CHANGELOG` `[0.2.0]` filled but for the tag
+    date.
+  - [x] Tag `v0.2.0` (A14, the owner's typed approval, 2026-09-29): annotated tag object `1be13f1`
+    → `ce2b174` (merge of #81). Verify runs after the gate merge: A11 10/10 (pause gap 5.09 s),
+    A13 10/10 after the forward-merge `801043e` (3.80 s); no pod rolled. **GATE M1 exit passed.**
 
 ## M1b — the rest of what the spec and TASKS tagged M1 (after M1, before M2)
 
@@ -589,14 +630,113 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   backend; readiness every 5 s, liveness every 10 s). **M1b measures throttling under load, or
   uses throttled seconds, before any decision on limits.**
 
-## Later — out of scope for M1
+**Plan:** `~/.claude/plans/m1b-planning-plan-only-abundant-globe.md` (owner's local file), approved
+with the owner's gate changes on 2026-09-28. Rules for every phase: its §2. Branches reach `dev` by
+PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
+**Merge order into `dev` (gate position, 2026-09-29; confirmed by Koussay, typed, 2026-09-30):** #82 →
+`test/m1b-6-envtest` → `test/m1b-6c-detection-inputs` → `feat/m1b-6a-incident-crd` (the
+`Prune=false,Delete=false` annotation committed on its branch first) → `feat/m1b-6b-kopf-spike` →
+`feat/m1b-5-fault-hooks` → the M1b-3 branch and #79 together, for the observability gate. #79
+conflicts with 6c in `.github/scripts/repo-checks.sh` (both add a step 7); fixed on #79 by
+merging `dev` in.
+**Exit criterion (owner):** an end-to-end demo under baseline load: S5 injected on `app_dev`,
+`NexusErrorRateAnomaly` fires for `nexus-dev`, and an Incident reaches `Recorded`
+(`level_observe`, L0); then the reset, DB uid and restartCount unchanged. The demo runs the
+detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`: the 5
+rule-defining files, `platform/observability/alerts/kustomization.yaml`, `nexus-detection.yaml` and
+`sample-api-error-rate.yaml` (deleted there), `platform/observability/tests/nexus-detection.test.yaml`
+and `scripts/tests/promtool-rules.sh`. The S5 record names the full graded SHA (the `main` commit
+the demo ran on) and the values in effect, read live: the sample-api scrape interval
+(ServiceMonitor, 15 s in Git), Prometheus's rule evaluation interval and Alertmanager's
+`group_wait` (neither is set in Git: chart defaults). A change to those files
+(`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> -- <the 5 paths>` non-empty) or
+to the recorded values means a rerun;
+`CURRENT_STATE.md`,
+`CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
+
+- **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
+  - [x] ADR-021: the guard findings, the heavier design rejected for proportionality, the model
+    we run, and that only a typed message renews the pasted-reply rule.
+  - [x] `.claude/settings.json`: `git commit`, `git switch` and `git branch` move from ask to
+    allow; `git checkout` is denied; the destructive forms of push, branch, switch and commit are
+    denied (best-effort, ADR-021). `git push`, `git tag` and `gh pr merge` stay in ask.
+  - [x] Merge and tag procedure (ADR-021, CLAUDE.md rule 11):
+    `gh pr merge <N> --merge --match-head-commit <approved full SHA>`;
+    `git tag <name> <approved full SHA>`, then push only that tag.
+  - [x] ADR-020 addendum: the M1 exit pickups widen the ArgoCD range to 162–382 s.
+  - [x] This M1b list and the queued Later items.
+  - **#79 merge condition 2 (owner):** #79 deletes
+    `platform/observability/alerts/sample-api-error-rate.yaml` (the interim
+    `SampleAPIHighErrorRate` rule, commit `81ead2f` on `feat/m1b-7-detection`), replaced by
+    `nexus-detection.yaml`. Listed here before #79 merges.
+  - **The permissions list is frozen** (owner, round 5): from here, only probe failures change it.
+  - [x] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
+    worktree, throwaway branches only, pushes with `--dry-run`; commands and results table in
+    `~/nexus-handoff-m1b.md`. Result (reported 2026-09-30, Manual mode): 12 of 13 rows pass; row 6
+    fails, `git push` ran without a prompt (cause unknown), so ask prompts are no longer counted
+    as a backstop (ADR-021). #82 merged by the owner at head `2c72e0e` (merge `e59e535`).
+    **GATE M1b-0.**
+- **M1b-1 (Guard A) and M1b-2 (Guard B) — removed** (owner, 2026-09-28; ADR-021).
+- **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
+  in `kube-prometheus-stack-values.yaml`, after a node headroom read; ADR-016 addendum; acceptance
+  with one dashboard open for 15 min, then a verify run with none.
+- **M1b-4 — ArgoCD refresh after runner commits:** the "applied at" definition and, only if
+  cheap, the offline jq filter with fixtures. The live tests (refresh annotation vs selfHeal,
+  commit → applied timing) move to the runner milestone.
+- **M1b-5 — fault hooks and rollout strategy** (branch `feat/m1b-5-fault-hooks` `39eefec`, no PR):
+  sample-api 0.3.0 behind `NEXUS_FAULTS_ENABLED`, `/fault/hang` (a real deadlock, not bounded),
+  `/work/cpu`, `/fault/inject-logs`; async `/metrics`, in-flight gauge, finer buckets; blinding
+  (D2); hash-pinned runtime set (D4); `RollingUpdate` `maxSurge: 1`, `maxUnavailable: 0` (D3);
+  ADR-022. Two-merge pattern: code → `main` builds and signs, then the digest bump on path L; a
+  fault smoke on `nexus-dev` only.
+- **M1b-6 — §27 spikes on envtest:** harness `test/m1b-6-envtest` `b9f62f0`; 6a Incident CRD with
+  C1–C4 (`feat/m1b-6a-incident-crd` `8706587`, stacked on the harness); 6b Kopf spike
+  (`feat/m1b-6b-kopf-spike` `4091baa`, stacked on 6a, ADR-023); 6c offline checker for the KSM and
+  Alertmanager v2 reads (`test/m1b-6c-detection-inputs` `75b5743`). Live after merge: the CRD
+  through `platform`, one rejected spec patch, the 6c reads through the service proxy.
+  **6a exit criterion (owner, M1b-0 gate):** the CRD carries
+  `argocd.argoproj.io/sync-options: Prune=false,Delete=false`, committed on
+  `feat/m1b-6a-incident-crd` before that branch merges. Deleting a CRD deletes every Incident,
+  and `platform` syncs with `prune: true`. `8706587` does not have it yet.
+- **M1b-7 — Z-score rules and the four anomaly alerts** (draft #79, `feat/m1b-7-detection`
+  `d351d96`): lagged baseline (`[15m] offset 3m`, 27-sample guard), promtool tests in
+  `repo-checks`, ADR-024. Live: rule health `ok`, series present, no alert at idle.
+- **M1b-8 — the `nexus` Application and the operator skeleton:** staged §11 RBAC (Incidents create
+  and status, the M1b reads; no `deployments/scale` or `pods/eviction` until M2), Alert Poller and
+  a 5 s status-only loop (single writer), L0 → `Recorded`, L1–L3 → `Escalated` after 20 s. The loop
+  never moves an Incident to a terminal phase while Kopf progress is pending, and every Kopf
+  handler has a timeout that bounds that wait (ADR-023). `nexus-operator-config` gets its real
+  schema (`advisoryChecks: on`, `approvalTTL: 15m`); ADR-025.
+  **Base (gate position, 2026-09-29; confirmed by Koussay, typed, 2026-09-30):** the 6b spike. M1b-8 moves its loop,
+  `decide()` and `reconcile()` into `operator/` with unit tests, and turns `run-spike.sh` into the
+  operator's envtest integration test.
+  **M1b-8 exit criterion (owner):** `operator/spikes/kopf-status/` is deleted; `_race_hold` and
+  the envtest token login exist only in tests.
+  RBAC checks use `kubectl auth can-i --list` (the `kubectl * create *` deny would catch a
+  per-verb `auth can-i create …`).
+- **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
+  `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
+  R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
+  first-fire time re-measured (+105 s in promtool at a 20 % error share).
+
+## Later — out of scope for M1b
 
 - **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
-  pickup takes 4 to 6.5 minutes (the repo-server's revision cache plus the controller's refresh;
-  measured 242–382 s, ADR-020 addendum). If NEXUS repairs through Git commits, this dominates
+  pickup takes about 2.7 to 6.4 minutes (the repo-server's revision cache plus the controller's
+  refresh; measured 162–382 s, ADR-020 addenda). If NEXUS repairs through Git commits, this dominates
   measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
   or shorter cache and refresh timeouts.
-- **High priority, before M1b** (owner, #78 review, 2026-09-27): pattern rules cannot protect
+  - **Correction** (M1b plan gate, 2026-09-28): the premise contradicts the spec. NEXUS never
+    writes Git: the operator mutates only through the Scale and Eviction subresources, and
+    desired-state fixes escalate to a human (§13, AD-12). Git commits come from the Experiment
+    Runner (S3 inject, `experiment/dev-state` reset) and from humans (escalated fixes, C5), so the
+    pickup delay affects injection timing, reset time and human-fix recovery, not NEXUS's own
+    act phase. **Decision (owner):** the runner hard-refreshes the Application after each commit
+    it makes, and a run's injection time is when ArgoCD applied the revision, not the commit time.
+    `verify-state.sh` stays read-only. Still open: whether selfHeal touches the refresh annotation
+    (one approved live test, moved from M1b-4 to the runner milestone).
+- **Rejected (owner, 2026-09-28; ADR-021): no agent kubeconfig, now or later.** Was: high
+  priority, before M1b (owner, #78 review, 2026-09-27): pattern rules cannot protect
   Secrets. `kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` both bypass the
   `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
   with RBAC read access to everything except Secrets and no write verbs. Once it exists,
@@ -605,16 +745,18 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
   `cosign verify`.
-- **Gate rule until the Grafana limits are fixed:** no Grafana dashboards open (no Grafana
+- **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
 - Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
   `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
   readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
   **before the M1b calibration**.
-- Set the sample-api rollout strategy explicitly before any scaling. Today it is the default
+- Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
+  branch: `maxSurge: 1`, `maxUnavailable: 0`). Today it is the default
   `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
   replicas `maxUnavailable` becomes ≥ 1.
-- Write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
+- **Done: ADR-021** (M1b-0) records the guard model; the heavier design is rejected there. Was:
+  write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
   command typed, not what a script calls; `verify-state.sh` runs `kubectl port-forward`,
   `kubectl create --dry-run=server` and `rm -rf` internally). Second instance, M1-5 step 3
@@ -630,26 +772,34 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   Include the Secrets finding (#78 review): pattern rules cannot protect Secrets
   (`kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` bypass
   `Bash(kubectl get secret*)`); the fix is the agent kubeconfig at the identity layer (Later,
-  high priority before M1b).
+  high priority before M1b). **Finding 4, CONTRADICTED (M1b, 2026-09-28):** the Claude Code docs
+  (permissions, settings precedence) say an `ask` rule outranks a local `allow`; observed the
+  opposite: with the project `ask` `Bash(kubectl exec *)` and a local allow, no prompt appeared.
+  Cause UNKNOWN; no test planned.
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
   including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
   `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
   2026-09-27). It regrew by the M1-6 start (`python3 -`, `cat >> *`, `gh pr *`, `git merge *`,
   `kubectl get *`); the owner moved it to `~/nexus-evidence/settings.local.json.m1-6.bak`
   (2026-09-27). **Done in M1-6:** a minimal read-only allow list is tracked in
-  `.claude/settings.json` (see M1-6).
+  `.claude/settings.json` (see M1-6). **Third regrowth (M1b, 2026-09-28):** the owner clicked
+  "don't ask again" on purpose, to let the agent work while away; the file was written at
+  05:45:38Z, 13 s after the first S5 `kubectl exec`, and the S5 inject and reset then ran without
+  prompts (the S5 result stands). Moved to `~/nexus-evidence/settings.local.json.m1b.bak`.
 - No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
 - sample-api runtime requirements use `>=`, so a signed image's contents depend on the build day
   (the psycopg tested in M1-1, 3.3.6, may differ from what M1-4 builds). Consider a lock file with
-  hashes.
+  hashes. **Covered by `036e7aa`** on `feat/m1b-5-fault-hooks` (hash-pinned runtime closure,
+  `--require-hashes`, ADR-022); closed when M1b-5 merges.
 - ruff's first-party detection depends on the working directory: `ruff check .` inside
   `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
   import order. Set `src` / `known-first-party` so local runs match CI.
 - sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
   starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
-  Move the test client off `httpx` before Starlette drops support for it.
+  Move the test client off `httpx` before Starlette drops support for it. Still seen with
+  Starlette 1.7 on `feat/m1b-5-fault-hooks`.
 - `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
   wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
   (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
@@ -661,7 +811,28 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
   why the webhook hooks re-run.
   The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
 - Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
-  (change 7; the M1 ADR-019 addendum accepts about 10 days).
+  (change 7 assumed about 10 days; the M1-6 window measured 2.19 at idle, ADR-019 addendum).
+- Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
+  filled a 100 MiB file every 4.8–6.0 h, about 2.2–2.8 days of retention with `maxbackup=10`,
+  not the ~10 days of change 7. **Measured in the M1-6 window:** about 500 MiB per idle day
+  (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
+  `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
+  restart: do it at a planned k3s restart (a rebuild or between measurement windows).
+- **Before M1b-9: find the WSL2 VM pause cause** (owner). The M1-6 window paused 2,921.9 s with
+  Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. The owner runs
+  `powercfg /sleepstudy`. Also consider a rate-based pause check (seconds of pause per hour) for
+  long runs, beside the 60 s start/end rule.
+- k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
+  prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
+  config.
+- `bootstrap.sh` hardening, from the first M1-6 bootstrap (FATAL 03:57:38Z): (1) a preflight that
+  fails before the k3s install if any `/proc/mounts` line has other than 6 fields, naming the
+  mount — Docker Desktop's WSL-integration mount `/Docker/host` has an unescaped space in its
+  `path=` option, and the kubelet then exits with `system validation failed - wrong number of
+  fields (expected 6, got 7)`; (2) after the install, wait for `/readyz` and check that `k3s` is
+  still active about 30 s later, so the FATAL names k3s instead of "creating namespace monitoring
+  failed". Until then, keep Docker Desktop closed (or its WSL integration off) whenever k3s may
+  start.
 - The WSL VM rebooted at 2026-09-26 20:57Z (`journalctl --list-boots`). All four sample-api
   containers show last state `Unknown`, exit 255, at 20:59:58Z. The cluster recovered on its own
   and the node IP was unchanged. Informational. Relevant to the run pre-checks and the discard
@@ -670,6 +841,23 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 - M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
 - M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
 - M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
+- A deliberate CI job that runs `scripts/tests/incident-crd.sh` on the envtest harness (owner, 6a
+  gate, 2026-09-28).
+- The envtest harness PKI (7-day certificates) in `~/nexus-envtest` expires 2026-10-05T21:12Z.
+  `test/m1b-6-envtest` `b9f62f0` renews it at `up`; 6a and 6b still carry the older harness. Merge
+  the harness forward into 6a/6b only if a rerun after that date is needed (owner).
+- The §3 kube-state-metrics alerts `NexusRolloutStuck` and `NexusCrashLooping`, and Alertmanager
+  `group_by: [nexus_target]` (M1b-7 plan; `TASKS.md` M1b lists only the four anomaly alerts).
+- M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
+  gate).
+- M2: an alert that clears is not a recovery; repair verification compares the raw signal with
+  its pre-fault baseline (M1b-7 gate; ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`).
+- M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022 on `feat/m1b-5-fault-hooks`, not yet on `dev`).
+- M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
+  15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
+- Spec v1.1 notes (M1b-5, M1b-7): the Z-score baseline excludes the most recent 3 minutes; the
+  latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3). ADR-022 and ADR-024 are on `feat/m1b-5-fault-hooks` and
+  `feat/m1b-7-detection` (#79), not yet on `dev`.
 - Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
 - `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
 - CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
