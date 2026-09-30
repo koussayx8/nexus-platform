@@ -633,7 +633,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 **Plan:** `~/.claude/plans/m1b-planning-plan-only-abundant-globe.md` (owner's local file), approved
 with the owner's gate changes on 2026-09-28. Rules for every phase: its §2. Branches reach `dev` by
 PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
-**Merge order into `dev` (gate position, 2026-09-29; Koussay confirms):** #82 →
+**Merge order into `dev` (gate position, 2026-09-29; confirmed by Koussay, typed, 2026-09-30):** #82 →
 `test/m1b-6-envtest` → `test/m1b-6c-detection-inputs` → `feat/m1b-6a-incident-crd` (the
 `Prune=false,Delete=false` annotation committed on its branch first) → `feat/m1b-6b-kopf-spike` →
 `feat/m1b-5-fault-hooks` → the M1b-3 branch and #79 together, for the observability gate. #79
@@ -707,7 +707,7 @@ to the recorded values means a rerun;
   never moves an Incident to a terminal phase while Kopf progress is pending, and every Kopf
   handler has a timeout that bounds that wait (ADR-023). `nexus-operator-config` gets its real
   schema (`advisoryChecks: on`, `approvalTTL: 15m`); ADR-025.
-  **Base (gate position, 2026-09-29; Koussay confirms):** the 6b spike. M1b-8 moves its loop,
+  **Base (gate position, 2026-09-29; confirmed by Koussay, typed, 2026-09-30):** the 6b spike. M1b-8 moves its loop,
   `decide()` and `reconcile()` into `operator/` with unit tests, and turns `run-spike.sh` into the
   operator's envtest integration test.
   **M1b-8 exit criterion (owner):** `operator/spikes/kopf-status/` is deleted; `_race_hold` and
