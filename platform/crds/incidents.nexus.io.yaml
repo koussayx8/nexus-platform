@@ -20,6 +20,9 @@ metadata:
     app.kubernetes.io/part-of: nexus-platform
   annotations:
     nexus.io/adr: "ADR-023"
+    # Deleting a CRD deletes every Incident, and `platform` syncs with prune: true. ArgoCD never
+    # prunes this CRD or deletes it with its Application (6a exit criterion, TASKS.md M1b-6).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   group: nexus.io
   scope: Namespaced

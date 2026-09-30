@@ -21,7 +21,9 @@
 #   - `check <kubeconfig>` is the guard its callers (6a, 6b) run before they use a kubeconfig.
 # CI never runs it: repo-checks.sh and ci.yml call named test scripts only, and it refuses to run
 # when CI or GITHUB_ACTIONS is set. It is run by hand, and the owner reviews each run.
-# Tokens and keys are generated once per directory, stay 0600 (umask 077), and are never printed.
+# Tokens are generated once per directory. The PKI is generated once and renewed at `up` when a
+# certificate expires within 24 h (the old set is moved aside). Both stay 0600 (umask 077) and are
+# never printed.
 # Nothing is deleted recursively: each `up` gets a new run directory.
 #
 # Usage (NEXUS_ENVTEST_DIR must be outside the repository and outside ~/.kube):
@@ -120,10 +122,25 @@ fetch() {
   rm -f "$tgz"
 }
 
+# pki: a CA, a server certificate it signs (both valid 7 days) and the ServiceAccount key pair.
+# At each up, a set whose CA or server certificate expires within 24 h (or is missing or
+# unreadable) is moved aside to pki.expired-<UTC timestamp> and replaced; nothing is deleted.
+# tokens.csv is kept: static tokens are not tied to the PKI, and the kubeconfigs, rewritten at
+# every up, name the same CA path.
 pki() {
-  [[ -s $dir/pki/ca.crt ]] && return 0
-  mkdir -p "$dir/pki"
-  local p=$dir/pki
+  local p=$dir/pki c old
+  if [[ -e $p ]]; then
+    for c in ca.crt server.crt; do
+      if ! openssl x509 -checkend 86400 -noout -in "$p/$c" > /dev/null 2>&1; then
+        old=$dir/pki.expired-$(date -u +%Y%m%dT%H%M%SZ)
+        mv -T "$p" "$old"
+        echo "envtest: pki/$c expires within 24 h or is unreadable; moved the PKI to $old and generating a new one"
+        break
+      fi
+    done
+  fi
+  [[ -s $p/ca.crt ]] && return 0
+  mkdir -p "$p"
   openssl req -x509 -newkey rsa:2048 -nodes -days 7 -subj /CN=nexus-envtest-ca \
     -keyout "$p/ca.key" -out "$p/ca.crt" 2>/dev/null
   openssl req -newkey rsa:2048 -nodes -subj /CN=nexus-envtest-apiserver \
