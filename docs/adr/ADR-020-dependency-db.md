@@ -229,3 +229,18 @@ A gate that makes the node pull several images at once (for example a digest bum
 one workload, or a new Application with its own images) is closer to the rebuild case than to the
 single-pull case. For that run, raise `NEXUS_VERIFY_APPS_TIMEOUT` and record the value used in the
 report, as for the M1-4 project-widening race.
+
+## Addendum (2026-09-29, M1b-0): the M1 exit pickups widen the range to 162–382 s
+
+Same method as the GATE M1-5 addendum (first poll with the new revision, 5 s resolution), from the
+M1 exit verify runs (`~/nexus-evidence/m1-6/verify-a11.md`, `verify-a13.md`):
+
+| Event | Pickups |
+|---|---|
+| M1 exit, #81 merge (07:32:27Z) | `platform` 196 s, `kyverno` 201 s, `root` 207 s, `sample-api-prod` and `dependency-db` 250 s, `observability` 376 s |
+| M1 exit, forward-merge push (~07:43:35Z) | `sample-api-dev` 162 s |
+
+The measured range is now **162–382 s** (about 2.7 to 6.4 min). The worst case is unchanged, so
+the 480 s reconcile term and the four derived values stand. 162 s is below the 180 s term: a
+pickup can be fast when the reference cache happens to expire just before the controller's next
+refresh.
