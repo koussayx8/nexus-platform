@@ -670,9 +670,12 @@ to the recorded values means a rerun;
     `SampleAPIHighErrorRate` rule, commit `81ead2f` on `feat/m1b-7-detection`), replaced by
     `nexus-detection.yaml`. Listed here before #79 merges.
   - **The permissions list is frozen** (owner, round 5): from here, only probe failures change it.
-  - [ ] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
+  - [x] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
     worktree, throwaway branches only, pushes with `--dry-run`; commands and results table in
-    `~/nexus-handoff-m1b.md`. **GATE M1b-0.**
+    `~/nexus-handoff-m1b.md`. Result (reported 2026-09-30, Manual mode): 12 of 13 rows pass; row 6
+    fails, `git push` ran without a prompt (cause unknown), so ask prompts are no longer counted
+    as a backstop (ADR-021). #82 merged by the owner at head `2c72e0e` (merge `e59e535`).
+    **GATE M1b-0.**
 - **M1b-1 (Guard A) and M1b-2 (Guard B) — removed** (owner, 2026-09-28; ADR-021).
 - **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
   in `kube-prometheus-stack-values.yaml`, after a node headroom read; ADR-016 addendum; acceptance
