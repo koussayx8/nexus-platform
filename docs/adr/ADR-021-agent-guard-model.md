@@ -48,7 +48,8 @@ removes, and the thesis does not depend on it. M1b-1 and M1b-2 are removed from 
 - **Ask rules only where a prompt matters:** `git push`, `git tag`, `gh pr merge`, `gh api`,
   `kubectl exec`, `kubectl port-forward`. Explicit ask rules prompt even in bypass mode, so ask
   rules on local, reversible commands only add noise: `git commit`, `git switch` and
-  `git branch` move to allow (M1b-0).
+  `git branch` move to allow (M1b-0). Since the M1b-0 probe, their prompts are not counted as a
+  backstop (see "Probe result" below).
 - **`git checkout` is denied outright** (owner, M1b-0 gate review). A pattern cannot tell
   `git checkout <file>` (discards changes) from a branch switch. `git switch` changes branches;
   `git restore` stays denied, so restoring files is the owner's.
@@ -76,10 +77,10 @@ The approval names a full commit SHA, and the command carries it, so what merges
 exactly what the owner reviewed:
 - **Merge:** `gh pr merge <N> --merge --match-head-commit <approved full SHA>`. GitHub refuses the
   merge if the PR head has moved since the approval; then stop and ask again. `gh pr merge` stays
-  an ask rule.
+  an ask rule, but its prompt is untested and not counted.
 - **Tag:** `git tag <name> <approved full SHA>` (with `-a -m` for an annotated tag, as `v0.1.0`
   and `v0.2.0`), then push only that tag: `git push origin <name>`. Both `git tag` and
-  `git push` are ask rules.
+  `git push` are ask rules; their prompts are not counted.
 - **Forward-merge into `experiment/dev-state`:** the approval names `main`'s full SHA; the local
   `--no-ff` merge commit's tree must equal that SHA's tree; the push names the merge commit,
   `git push origin <merge SHA>:experiment/dev-state`.
@@ -116,6 +117,20 @@ rule for merges and tags does not expire.
 - Allow rules on `git branch *` and `git switch *` also allow their read-only and
   non-destructive forms; that is intended.
 
+### Probe result: ask prompts are not a backstop
+The M1b-0 pattern probe (13 rows, one per family; the owner, in Manual mode, reported 2026-09-30)
+passed 12 of 13. Every deny row was denied, and `git switch -c` ran. **Row 6 failed:** the ask rule
+`Bash(git push *)` did not prompt. `git push --dry-run …` ran unprompted, and so did a real push
+of a missing ref; nothing reached `origin` (no `m1b0-*` branches or tags afterwards). No saved
+approvals exist: the worktree's `.claude/` holds only `settings.json`, there is no
+`~/.claude/settings.json` or managed settings, and `~/.claude.json` has no `allowedTools` for the
+worktree. Cause UNKNOWN, as in finding 4. `gh pr merge`'s ask rule is untested.
+
+**Decision (owner):** ask prompts are not counted as a backstop anywhere. Merges and tags rest on
+the owner's typed approval, CLAUDE.md rule 11, the SHA pin (`--match-head-commit`, the tag
+command, the pushed merge commit) and GitHub protection. The ask rules stay as written; there is
+no pattern change.
+
 ### Residuals: accepted risks and their backstops
 The patterns are frozen at their M1b-0 content (round 4, `b0ca274`); only a pattern-probe failure
 changes them. What they miss is accepted, as follows.
@@ -128,8 +143,9 @@ Backstops that do not depend on patterns:
   (non-fast-forward and deletion).
 - Typed approval bound to a full SHA: `gh pr merge --match-head-commit` for merges, the tag
   command for tags, and the pushed merge commit for forward-merges.
-- `experiment/dev-state` needs no pull request or check, so a fast-forward push to it is guarded
-  only by the `git push *` ask rule and the forward-merge approval.
+- `experiment/dev-state` needs no pull request or check, and the `git push *` ask rule is not
+  counted, so a fast-forward push to it is guarded only by the typed forward-merge approval and
+  CLAUDE.md rule 11. No technical control stops an agent's fast-forward push there.
 
 **Accepted with no technical backstop:**
 - **Secrets:** forms no pattern names (a shell variable holding the resource name, `curl` with a
