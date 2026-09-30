@@ -273,3 +273,75 @@ failing `Failed` pods outright.
   and a k3s restart for no lasting gain.
 - **Check:** after the M1 exit rebuild (M1-6), the owner runs `sudo k3s secrets-encrypt status`
   and expects `Encryption Status: Enabled`. The agent cannot run it (root-only).
+- **Result (2026-09-28, GATE M1-6 b6):** after the from-empty rebuild, the owner's
+  `sudo k3s secrets-encrypt status` reported `Encryption Status: Enabled`, `Current Rotation
+  Stage: start`, `Server Encryption Hashes: All hashes match`, active key `AES-CBC` `aescbckey`.
+  k3s's default provider is AES-CBC; the Kubernetes documentation prefers secretbox or a KMS
+  provider (Later item).
+
+## Addendum (2026-09-28, M1-6): measured audit retention (changes 7 and 14)
+
+**Question.** Change 7 accepted "about 10 days" of effective retention (the 2026-09-26 estimate
+above, ~4 MB/h). Change 14: a 24 h measurement is valid only with an unchanged boot ID and k3s
+start time, and no VM pause.
+
+**Earlier evidence, before the window (old cluster, informational).** The rotated file names
+give the time each 100 MiB file took to fill: 5.0 h (21:02 → 02:03Z, overnight), 6.0 h, 5.8 h,
+4.8 h and 4.9 h (2026-09-26/27, including the M1-4 and M1-5 gates). That is about 400–500 MiB per
+day, or about 2.2–2.8 days of retention, not 10.
+
+**Method.** A 24 h window on the from-empty M1-6 cluster, opened after S5, with no dashboards, no
+port-forwards and no agent `kubectl`:
+- start (d1) 2026-09-28T06:11:24.709Z and end (d2) 2026-09-29T06:11:54.837Z: wall clock, `/proc/uptime`,
+  `boot_id`, k3s `MainPID`/`ActiveEnterTimestamp`/`NRestarts`, the `/proc/mounts` field check, and
+  `stat` of every file in `/var/log/nexus-audit/`;
+- growth = Σ end sizes − Σ start sizes + Σ start sizes of files evicted in the window;
+- daily growth = growth × 86,400 ÷ Δwall (as planned), and ÷ Δuptime (owner override D1, below);
+- retention = (`maxbackup` 10 + the active file) × `maxsize` 100 MiB = 1,153,433,600 B ÷ daily
+  growth.
+
+**Validity.**
+- `boot_id` unchanged (`e059f2de…`); k3s `MainPID` 598820, `ActiveEnterTimestamp` and
+  `NRestarts` 0 unchanged; `/proc/mounts` field check 0 at both ends; Δwall = 86,430.1 s
+  (≥ 86,400); DB pod uid and restartCount unchanged; 7/7 Applications Synced/Healthy at the end.
+- **VM-pause rule failed:** \|Δwall − Δuptime\| = 86,430.1 − 83,508.2 = **2,921.9 s** (limit 60).
+  The guard first found it on 2026-09-29 before d2: 2,858.3 s at 04:05:38Z, 2,883.2 s at
+  05:03:23Z, then 2,921.9 s at d2, growing about 25–34 s/h. `boot_id` never changed. When the
+  pauses happened is unknown (S5, just before the window, had 3.71 s).
+- **Owner statement (check 7):** "no dashboards or port-forwards were open during the window.
+  The sleep setting was off, but the VM paused anyway (about 2,922 s, still growing about
+  34 s/h); covered by D1."
+
+**Owner override D1 (2026-09-29): the window is kept, uptime-normalized.** Under the planned
+rule the window would be discarded. The owner kept it instead, with no new window:
+- A paused VM runs nothing, so the API server writes no audit events while it is frozen. The
+  bytes counted are the bytes written in 83,508.2 s of running time, so growth ÷ Δuptime is the
+  true write rate, and growth ÷ Δwall understates it by the pause share (3.4 %).
+- The uptime rate is therefore valid and conservative (it gives the shorter retention).
+  Retention uses it; both are reported.
+- Every other validity check still applies and passed.
+
+**Result** (`~/nexus-evidence/m1-6/audit-window-result.txt`, `audit-window-result-d1.txt`).
+- Growth **509,060,759 B**: end 1,076,382,232 − start 598,632,643 + 31,311,170 evicted (the two
+  2026-09-26 backups). The oldest file at the end existed at the start, so no file created in the
+  window was evicted. `maxbackup=10` was reached (11 files).
+
+| Rate | B/s | Daily growth | Retention |
+|---|---|---|---|
+| per wall-clock second (planned) | 5,889.9 | 485.3 MiB/day | 2.27 days |
+| **per uptime second (D1, used)** | **6,095.9** | **502.3 MiB/day** | **2.19 days** |
+
+- **CONTRADICTED:** change 7's "about 10 days". The measured 2.19 days agrees with the
+  pre-window estimate of 2.2–2.8 days. The window was an idle cluster (no agent `kubectl`, no
+  dashboards), so load shortens it further.
+
+**Decision (owner, M1-6 plan gate, G2 option a).** The cluster was rebuilt unchanged; this
+addendum records the measured retention. Raising `maxbackup` (or narrowing the policy) is a Later
+item: at about 500 MiB per idle day, 7 days needs `maxbackup` of about 35, more under load; it is
+changed at a planned k3s restart. §14 keeps the per-run extract, not the raw log, so retention bounds how long after a run the
+extract can still be taken, not what is kept. M4 re-measures under experiment load.
+
+**Also found at M1-6.** Step a of `bootstrap.sh` runs `install -m 0640 -o root -g adm /dev/null`
+on `audit.log` unconditionally, so a rebuild empties the previous cluster's active audit log.
+Rotated backups survive, and the new cluster's rotations evict them. The M1-6 rebuild archived
+the directory first (`~/nexus-evidence/m1-6/audit-pre-rebuild/`, byte-identical).
