@@ -633,7 +633,7 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 **Plan:** `~/.claude/plans/m1b-planning-plan-only-abundant-globe.md` (owner's local file), approved
 with the owner's gate changes on 2026-09-28. Rules for every phase: its §2. Branches reach `dev` by
 PR with typed approval, bringing `dev` in by a merge commit, never a rebase.
-**Merge order into `dev` (gate position, 2026-09-29; Koussay confirms):** #82 →
+**Merge order into `dev` (gate position, 2026-09-29; confirmed by Koussay, typed, 2026-09-30):** #82 →
 `test/m1b-6-envtest` → `test/m1b-6c-detection-inputs` → `feat/m1b-6a-incident-crd` (the
 `Prune=false,Delete=false` annotation committed on its branch first) → `feat/m1b-6b-kopf-spike` →
 `feat/m1b-5-fault-hooks` → the M1b-3 branch and #79 together, for the observability gate. #79
@@ -670,9 +670,12 @@ to the recorded values means a rerun;
     `SampleAPIHighErrorRate` rule, commit `81ead2f` on `feat/m1b-7-detection`), replaced by
     `nexus-detection.yaml`. Listed here before #79 merges.
   - **The permissions list is frozen** (owner, round 5): from here, only probe failures change it.
-  - [ ] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
+  - [x] Pattern probe (owner, before the merge): a fresh default-mode session in the M1b-0
     worktree, throwaway branches only, pushes with `--dry-run`; commands and results table in
-    `~/nexus-handoff-m1b.md`. **GATE M1b-0.**
+    `~/nexus-handoff-m1b.md`. Result (reported 2026-09-30, Manual mode): 12 of 13 rows pass; row 6
+    fails, `git push` ran without a prompt (cause unknown), so ask prompts are no longer counted
+    as a backstop (ADR-021). #82 merged by the owner at head `2c72e0e` (merge `e59e535`).
+    **GATE M1b-0.**
 - **M1b-1 (Guard A) and M1b-2 (Guard B) — removed** (owner, 2026-09-28; ADR-021).
 - **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
   in `kube-prometheus-stack-values.yaml`, after a node headroom read; ADR-016 addendum; acceptance
@@ -704,7 +707,7 @@ to the recorded values means a rerun;
   never moves an Incident to a terminal phase while Kopf progress is pending, and every Kopf
   handler has a timeout that bounds that wait (ADR-023). `nexus-operator-config` gets its real
   schema (`advisoryChecks: on`, `approvalTTL: 15m`); ADR-025.
-  **Base (gate position, 2026-09-29; Koussay confirms):** the 6b spike. M1b-8 moves its loop,
+  **Base (gate position, 2026-09-29; confirmed by Koussay, typed, 2026-09-30):** the 6b spike. M1b-8 moves its loop,
   `decide()` and `reconcile()` into `operator/` with unit tests, and turns `run-spike.sh` into the
   operator's envtest integration test.
   **M1b-8 exit criterion (owner):** `operator/spikes/kopf-status/` is deleted; `_race_hold` and
