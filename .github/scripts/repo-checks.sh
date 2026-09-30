@@ -47,11 +47,15 @@ done
 echo "built ${#dirs[@]} kustomizations"
 echo "::endgroup::"
 
+# CRD objects are skipped here too (no pinned top-level CustomResourceDefinition schema). The
+# Incident CRD in platform/crds/ is validated by a real API server instead: incident-crd.sh on the
+# envtest harness (M1b-6), run by hand.
 echo "::group::kubeconform (Kubernetes $K8S_VERSION, pinned CRD catalog)"
 kubeconform -strict -summary -output text \
   -kubernetes-version "$K8S_VERSION" \
   -schema-location "$K8S_SCHEMAS" \
   -schema-location "$CRD_SCHEMAS" \
+  -skip CustomResourceDefinition \
   "$work/out"
 echo "::endgroup::"
 
