@@ -1,0 +1,6 @@
+{"status":"success","data":{"resultType":"vector","result":[
+{"metric":{"__name__":"http_request_duration_seconds_bucket","handler":"/health","instance":"pod.fixture:8000","job":"sample-api","le":"0.1","method":"GET","namespace":"nexus-dev","pod":"sample-api-fixture-a"},"value":[1790600000,"1519"]},
+{"metric":{"__name__":"http_request_duration_seconds_bucket","handler":"/health","instance":"pod.fixture:8000","job":"sample-api","le":"0.5","method":"GET","namespace":"nexus-dev","pod":"sample-api-fixture-a"},"value":[1790600000,"1520"]},
+{"metric":{"__name__":"http_request_duration_seconds_bucket","handler":"/health","instance":"pod.fixture:8000","job":"sample-api","le":"1.0","method":"GET","namespace":"nexus-dev","pod":"sample-api-fixture-a"},"value":[1790600000,"1520"]},
+{"metric":{"__name__":"http_request_duration_seconds_bucket","handler":"/health","instance":"pod.fixture:8000","job":"sample-api","le":"+Inf","method":"GET","namespace":"nexus-dev","pod":"sample-api-fixture-a"},"value":[1790600000,"1520"]},
+{"metric":{"__name__":"http_request_duration_seconds_bucket","handler":"/health","instance":"pod.fixture:8000","job":"sample-api","le":"+Inf","method":"GET","namespace":"nexus-prod","pod":"sample-api-fixture-c"},"value":[1790600000,"1498"]}]}}
