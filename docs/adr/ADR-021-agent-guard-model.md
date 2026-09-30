@@ -131,6 +131,13 @@ the owner's typed approval, CLAUDE.md rule 11, the SHA pin (`--match-head-commit
 command, the pushed merge commit) and GitHub protection. The ask rules stay as written; there is
 no pattern change.
 
+The same holds for every other ask family, none of which was probed: `git tag`, `gh api`,
+`kubectl exec` and `kubectl port-forward` (with their `kubectl * <verb> *` twins). Their
+prompts are not counted either. `gh api` matters most: the `gh` token belongs to the repository
+admin (`admin=true`; scopes `repo`, `workflow`, `read:org`, `read:packages`, `gist`), so an
+unprompted `gh api` call can edit branch protection and rulesets, the GitHub backstop this ADR
+relies on. Checked read-only on 2026-09-30; no write was tried.
+
 ### Residuals: accepted risks and their backstops
 The patterns are frozen at their M1b-0 content (round 4, `b0ca274`); only a pattern-probe failure
 changes them. What they miss is accepted, as follows.
