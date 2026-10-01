@@ -1,0 +1,5 @@
+{"status":"success","data":{"resultType":"vector","result":[
+{"metric":{"__name__":"container_cpu_usage_seconds_total","container":"sample-api","instance":"node.fixture:10250","job":"kubelet","metrics_path":"/metrics/cadvisor","namespace":"nexus-dev","pod":"sample-api-fixture-a"},"value":[1790600000,"12.5"]},
+{"metric":{"__name__":"container_cpu_usage_seconds_total","container":"sample-api","instance":"node.fixture:10250","job":"kubelet","metrics_path":"/metrics/cadvisor","namespace":"nexus-dev","pod":"sample-api-fixture-b"},"value":[1790600000,"11.75"]},
+{"metric":{"__name__":"container_cpu_usage_seconds_total","container":"sample-api","instance":"node.fixture:10250","job":"kubelet","metrics_path":"/metrics/cadvisor","namespace":"nexus-prod","pod":"sample-api-fixture-c"},"value":[1790600000,"13"]},
+{"metric":{"__name__":"container_cpu_usage_seconds_total","container":"sample-api","instance":"node.fixture:10250","job":"kubelet","metrics_path":"/metrics/cadvisor","namespace":"nexus-prod","pod":"sample-api-fixture-d"},"value":[1790600000,"12.25"]}]}}
