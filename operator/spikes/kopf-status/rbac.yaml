@@ -1,0 +1,58 @@
+# The staged M1b RBAC of the nexus-operator ServiceAccount (plan M1b-8, owner decision
+# 2026-09-28): only the spec §11 rows that M1b uses. Applied to the envtest harness by
+# run-spike.sh; M1b-8 moves it to platform/rbac/. Not granted until M2: the other §11 reads (pods,
+# logs, events, services, endpoints, deployments, replicasets, endpointslices, ArgoCD
+# applications), deployments/scale and pods/eviction.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-operator
+  namespace: nexus-system
+rules:
+  - apiGroups: [nexus.io]
+    resources: [incidents]
+    verbs: [get, list, watch, create]
+  - apiGroups: [nexus.io]
+    resources: [incidents/status]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [nexus-killswitch, nexus-operator-config]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-operator
+  namespace: nexus-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-operator
+subjects:
+  - kind: ServiceAccount
+    name: nexus-operator
+    namespace: nexus-system
+---
+# Namespaces are cluster-scoped: the operator reads the nexus.io/autonomy-level label.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-operator-namespaces
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-operator-namespaces
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-operator-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: nexus-operator
+    namespace: nexus-system

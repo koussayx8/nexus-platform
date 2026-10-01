@@ -8,11 +8,12 @@ namespace: nexus-prod
 resources:
   - ../../apps/sample-api/k8s/base
 
-# Signed image from green main run 36321366504 at 87e3ab3, cosign-verified at M1-5 (ADR-017).
+# Signed image from green main run 36759413828 at 3a09737 (sample-api 0.3.0), cosign-verified at
+# M1b gate 1, Rekor index 3023614646 (ADR-017, ADR-022).
 # A digest bump is a commit.
 images:
   - name: ghcr.io/koussayx8/nexus-platform/sample-api
-    digest: sha256:8ea896c267d0842732e564e7c45b1606bc5347764bab7c7741e4d356c0e0e9af
+    digest: sha256:90fa807b711322dd54414c17bb3dd4b4a050cb43220b1e3874949829eff5827c
 
 # The DB role for this environment (ADR-020, change 3); the rest of the DB env is in the base.
 patches:
@@ -32,3 +33,6 @@ patches:
                 env:
                   - name: DB_USER
                     value: app_prod
+                  # Fault hooks on (spec §3: set in Git for nexus-dev and nexus-prod; ADR-022).
+                  - name: NEXUS_FAULTS_ENABLED
+                    value: "true"

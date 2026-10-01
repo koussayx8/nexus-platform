@@ -10,7 +10,8 @@
 #   5. Offline fixture tests for scripts/lib/apps-stable.jq (TASKS.md M1-3 commit 1).
 #   6. Offline tests for verify-state.sh's /items check (TASKS.md M1-5), isolated from any cluster
 #      (KUBECONFIG=/nonexistent, a stub kubectl first on PATH).
-#   7. promtool check and unit tests for the PrometheusRules in platform/observability/alerts
+#   7. Offline fixture tests for scripts/lib/detection-inputs.jq (M1b-6c; jq only).
+#   8. promtool check and unit tests for the PrometheusRules in platform/observability/alerts
 #      (TASKS.md M1b-7, ADR-024).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
@@ -48,11 +49,15 @@ done
 echo "built ${#dirs[@]} kustomizations"
 echo "::endgroup::"
 
+# CRD objects are skipped here too (no pinned top-level CustomResourceDefinition schema). The
+# Incident CRD in platform/crds/ is validated by a real API server instead: incident-crd.sh on the
+# envtest harness (M1b-6), run by hand.
 echo "::group::kubeconform (Kubernetes $K8S_VERSION, pinned CRD catalog)"
 kubeconform -strict -summary -output text \
   -kubernetes-version "$K8S_VERSION" \
   -schema-location "$K8S_SCHEMAS" \
   -schema-location "$CRD_SCHEMAS" \
+  -skip CustomResourceDefinition \
   "$work/out"
 echo "::endgroup::"
 
@@ -77,6 +82,10 @@ echo "::endgroup::"
 
 echo "::group::verify-state /items tests (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-items.sh
+echo "::endgroup::"
+
+echo "::group::detection-inputs.jq fixture tests (M1b-6c)"
+bash scripts/tests/detection-inputs.sh
 echo "::endgroup::"
 
 echo "::group::PrometheusRule check and unit tests (promtool)"
