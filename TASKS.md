@@ -796,6 +796,10 @@ to the recorded values means a rerun;
 - ruff's first-party detection depends on the working directory: `ruff check .` inside
   `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
   import order. Set `src` / `known-first-party` so local runs match CI.
+- `apps/sample-api/requirements-dev.txt` (from #88, `036e7aa`): lines 9–12 keep the old
+  `httpx>=0.27.0`, `pytest>=8.3.0`, `pytest-asyncio>=0.24.0` lines beside the `==` pins above them.
+  Harmless (the `==` pins win; dev only, never in the image). Remove the leftover lines (owner,
+  #88 gate review, 2026-09-30).
 - sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
   starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
   Move the test client off `httpx` before Starlette drops support for it. Still seen with
