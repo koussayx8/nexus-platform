@@ -33,3 +33,6 @@ patches:
                 env:
                   - name: DB_USER
                     value: app_dev
+                  # Fault hooks on (spec §3: set in Git for nexus-dev and nexus-prod; ADR-022).
+                  - name: NEXUS_FAULTS_ENABLED
+                    value: "true"
