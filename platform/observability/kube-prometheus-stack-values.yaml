@@ -79,13 +79,21 @@ grafana:
     existingSecret: grafana-admin
     userKey: admin-user
     passwordKey: admin-password
+  # M1b-3 (ADR-016 addendum). Basis, M1-5 run 1 (2026-09-27): with one dashboard open, the
+  # container was throttled in 99 % of CFS periods at the 200m limit, the working set grew
+  # 270 -> 483 MiB of 512 MiB, the readiness probe (chart default: no timeout, so 1 s) failed 123
+  # times, and liveness killed it once.
   resources:
     limits:
-      memory: 512Mi
-      cpu: 200m
+      memory: 1Gi
+      cpu: 1000m
     requests:
       memory: 256Mi
-      cpu: 100m
+      cpu: 200m
+  # Only timeoutSeconds is set; the chart keeps httpGet /api/health on port grafana. Liveness
+  # stays at the chart default (timeout 30 s, failureThreshold 10, initialDelay 60 s).
+  readinessProbe:
+    timeoutSeconds: 5
   sidecar:
     dashboards:
       enabled: true

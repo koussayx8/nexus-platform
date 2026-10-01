@@ -11,10 +11,12 @@
 #   6. Offline tests for verify-state.sh's /items check (TASKS.md M1-5), isolated from any cluster
 #      (KUBECONFIG=/nonexistent, a stub kubectl first on PATH).
 #   7. Offline fixture tests for scripts/lib/detection-inputs.jq (M1b-6c; jq only).
+#   8. promtool check and unit tests for the PrometheusRules in platform/observability/alerts
+#      (TASKS.md M1b-7, ADR-024).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize, kubeconform, helm, yq, jq, curl and python3 on PATH (CI installs pinned,
-# checksummed builds).
+# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
+# installs pinned, checksummed builds).
 set -euo pipefail
 
 RANGE=${1:?usage: repo-checks.sh "<git log range>"}
@@ -84,4 +86,8 @@ echo "::endgroup::"
 
 echo "::group::detection-inputs.jq fixture tests (M1b-6c)"
 bash scripts/tests/detection-inputs.sh
+echo "::endgroup::"
+
+echo "::group::PrometheusRule check and unit tests (promtool)"
+bash scripts/tests/promtool-rules.sh
 echo "::endgroup::"

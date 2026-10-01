@@ -53,3 +53,39 @@ NEXUS's own ServiceMonitor, alert and dashboard were deployed by no Application.
 ## Tradeoff
 `bootstrap.sh` must create `grafana-admin` before the Application syncs, or Grafana does not start.
 M0-5 orders it that way.
+
+## Addendum (2026-10-01, M1b-3): Grafana limits sized to an open dashboard
+
+**Basis (M1-5 run 1, 2026-09-27, `TASKS.md` M1-5).** With one dashboard open through a
+port-forward, the `grafana` container was throttled in 99 % of CFS periods at its 200m limit. Its
+working set grew from 270 to 483 MiB of 512 MiB. The readiness probe failed 123 times: the chart
+sets no `timeoutSeconds`, so Kubernetes' 1 s applies. Liveness killed it once, and `observability`
+flapped between Healthy and Progressing.
+
+**Decision.** In `kube-prometheus-stack-values.yaml` under `grafana`:
+
+| Value | Before | After | Why |
+|---|---|---|---|
+| CPU limit | 200m | **1000m** | the throttling ceiling. A burst is bounded per container, not reserved. |
+| CPU request | 100m | **200m** | covers the open-dashboard steady state that hit 200m |
+| Memory limit | 512Mi | **1Gi** | 483 MiB peak; 1Gi keeps the 80 % acceptance bound at about 819 MiB |
+| Memory request | 256Mi | 256Mi | unchanged |
+| `readinessProbe.timeoutSeconds` | unset (1 s) | **5** | the 123 failures were 1 s timeouts under load |
+| Liveness | chart default | unchanged | timeout 30 s, failureThreshold 10, initialDelay 60 s (U4, read from the 86.2.2 render) |
+
+**Render (chart 86.2.2, `helm template` before and after):** only `Deployment/observability-grafana`
+changes, in exactly these fields. Prometheus, the operator and Alertmanager render identically, so
+none of them restarts. Grafana runs 1 replica with RollingUpdate and no PVC (dashboards come from the
+sidecar), so a new pod starts before the old one stops.
+
+**Acceptance (live, on the observability gate):** one dashboard open for 15 min. Pass:
+- 0 liveness kills and 0 readiness failures;
+- CFS throttled periods ≤ 5 % of periods over the window;
+- working set ≤ 80 % of the limit;
+- `observability` Healthy throughout.
+
+Then a `verify-state.sh` run with no dashboard open. Only then is the "no dashboards during verify
+runs" gate rule retired.
+
+**Left as is.** The dashboard and datasource sidecars render with no resources. That is outside this
+change and recorded in `TASKS.md` Later.
