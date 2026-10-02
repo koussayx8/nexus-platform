@@ -1,7 +1,10 @@
 # GitLeaks findings reviewed and accepted, one exact fingerprint each (commit:file:rule:line).
 # Add an entry only for a reviewed false positive in history that cannot be rewritten (CLAUDE.md
-# rule 4); fix the line itself in a later commit so the tree at HEAD stays clean.
+# rule 4); fix the line itself in a later commit so the tree at HEAD stays clean. Never quote the
+# matched text here: the quote matches the rule too.
 #
-# PR #96 (M1b-8): generic-api-key on `fp_count(api, "a1b2c3d4e5f60718")`, a test Alertmanager
-# fingerprint next to a variable named `api`. Line rewritten in the next commit.
+# PR #96 (M1b-8), rule generic-api-key: a 16-hex-digit test Alertmanager fingerprint passed next
+# to a variable named api (test_poller.py, fixed in 8ceddf1), and this file's first version, which
+# quoted that line.
 bfddecacfd671a707f28bb8af33d038ce37bb9d1:operator/tests/unit/test_poller.py:generic-api-key:148
+e4e133470bc8a41933553214130ff87060064998:.gitleaksignore:generic-api-key:5
