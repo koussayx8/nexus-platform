@@ -2,3 +2,7 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests/unit"]
+
+# First-party modules for import sorting, the same whether ruff runs here or from the repo root.
+[tool.ruff]
+src = [".", "tests/unit"]

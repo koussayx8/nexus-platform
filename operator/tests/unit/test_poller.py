@@ -2,15 +2,16 @@ import asyncio
 import logging
 
 import pytest
-from fakes import FakeApi
 
+from fakes import FakeApi
 from nexus_operator.poller import Poller, incident_name, parse_alert
 
 ACTIVE = {"data": {"state": "active"}}
+FP = "a1b2c3d4e5f60718"  # an Alertmanager fingerprint: 16 hex digits
 
 
 def alert(
-    fp="a1b2c3d4e5f60718",
+    fp=FP,
     starts="2026-10-02T09:00:00.123456789Z",
     ns="nexus-dev",
     name="NexusErrorRateAnomaly",
@@ -145,7 +146,7 @@ def test_same_alert_new_starts_at_creates_a_new_incident():
     api.set_status(next(iter(api.incidents)), {"phase": "Recorded"})
     current = [alert(starts="2026-10-02T09:30:00.5Z")]
     assert poll(p)["created"] == 1
-    assert fp_count(api, "a1b2c3d4e5f60718") == 2
+    assert fp_count(api, FP) == 2
 
 
 def test_restart_creates_no_duplicate():

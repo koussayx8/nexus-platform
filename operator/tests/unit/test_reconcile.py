@@ -2,8 +2,8 @@ import asyncio
 import datetime
 
 import pytest
-from fakes import T0, FakeApi
 
+from fakes import T0, FakeApi
 from nexus_operator import hooks
 from nexus_operator.model import iso
 from nexus_operator.reconcile import Timing, decide, level_of, reconcile
