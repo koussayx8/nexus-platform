@@ -842,10 +842,13 @@ to the recorded values means a rerun;
   (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
   `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
   restart: do it at a planned k3s restart (a rebuild or between measurement windows).
-- **Before M1b-9: find the WSL2 VM pause cause** (owner). The M1-6 window paused 2,921.9 s with
-  Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. The owner runs
-  `powercfg /sleepstudy`. Also consider a rate-based pause check (seconds of pause per hour) for
-  long runs, beside the 60 s start/end rule.
+- ~~**Before M1b-9: find the WSL2 VM pause cause**~~ **Closed (owner, 2026-10-02).** The M1-6 window
+  paused 2,921.9 s with Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. **Cause
+  (owner):** Koussay put the PC to sleep and shut it down several times; that accounts for the
+  pauses and the five reboots between 2026-09-29 and 2026-10-02 (the observability gate's 113.3 s
+  pause stopped its first run). With the PC kept awake, the gate rerun stayed at 19.0 s over about
+  23 min. **Rule from now on:** every timed run (S5, M1b-9) records its own pause gap (wall clock
+  vs `/proc/uptime`, and `boot_id`) at start and end; M1b-9's plan sets when a run is discarded.
 - k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
   prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
   config.
