@@ -677,9 +677,16 @@ to the recorded values means a rerun;
     as a backstop (ADR-021). #82 merged by the owner at head `2c72e0e` (merge `e59e535`).
     **GATE M1b-0.**
 - **M1b-1 (Guard A) and M1b-2 (Guard B) — removed** (owner, 2026-09-28; ADR-021).
-- **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
+- [x] **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
   in `kube-prometheus-stack-values.yaml`, after a node headroom read; ADR-016 addendum; acceptance
   with one dashboard open for 15 min, then a verify run with none.
+  **Done** (#93 `f923b95`; gate #94, M3 `c05d91b`, 2026-10-01; forward-merge `38d37bd`,
+  2026-10-02): CPU 1000m limit / 200m request, memory 1Gi limit, readiness timeout 5 s; only the
+  Grafana Deployment rendered differently, so Prometheus did not restart. Acceptance (rerun
+  2026-10-02 06:50–07:05Z, one dashboard open, 420 panel queries): throttled 0.11 %, peak working
+  set 580 MiB (57 % of 1Gi), 0 restarts, 0 failed probes, `observability` Healthy at every poll,
+  `nexus-detection` 0 missed evaluations (≤ 3.5 ms); then verify 10/10 with no dashboard.
+  Evidence `~/nexus-evidence/m1b-gate3/`.
 - **M1b-4 — ArgoCD refresh after runner commits:** the "applied at" definition and, only if
   cheap, the offline jq filter with fixtures. The live tests (refresh annotation vs selfHeal,
   commit → applied timing) move to the runner milestone.
@@ -698,9 +705,16 @@ to the recorded values means a rerun;
   `argocd.argoproj.io/sync-options: Prune=false,Delete=false`, committed on
   `feat/m1b-6a-incident-crd` before that branch merges. Deleting a CRD deletes every Incident,
   and `platform` syncs with `prune: true`. `8706587` does not have it yet.
-- **M1b-7 — Z-score rules and the four anomaly alerts** (draft #79, `feat/m1b-7-detection`
+- [x] **M1b-7 — Z-score rules and the four anomaly alerts** (#79, `feat/m1b-7-detection`
   `d351d96`): lagged baseline (`[15m] offset 3m`, 27-sample guard), promtool tests in
   `repo-checks`, ADR-024. Live: rule health `ok`, series present, no alert at idle.
+  **Done** (#79 `9607344`, `dev` brought in by merge with the step-7 conflict resolved: 6c step 7,
+  promtool step 8; the five pinned rule files equal `d351d964`; gate #94, M3 `c05d91b`): rules
+  loaded 2026-10-01T13:41:39Z without a Prometheus restart, 24/24 `health: ok`,
+  `SampleAPIHighErrorRate` pruned; after the ~16.5 min warm-up no Nexus alert at idle (CPU
+  Z ≈ 0.007). **At idle only the CPU signal has data**: `/` and `/items` have no series without
+  business traffic, so requests, error ratio, in-flight and p95 (and their baselines) stay empty
+  until M1b-9's baseline load, which the S5 exit demo therefore needs first.
 - **M1b-8 — the `nexus` Application and the operator skeleton:** staged §11 RBAC (Incidents create
   and status, the M1b reads; no `deployments/scale` or `pods/eviction` until M2), Alert Poller and
   a 5 s status-only loop (single writer), L0 → `Recorded`, L1–L3 → `Escalated` after 20 s. The loop
