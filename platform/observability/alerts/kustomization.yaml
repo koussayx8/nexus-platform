@@ -5,4 +5,4 @@ metadata:
   name: observability-alerts
 
 resources:
-  - sample-api-error-rate.yaml
+  - nexus-detection.yaml
