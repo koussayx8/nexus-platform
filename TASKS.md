@@ -761,13 +761,16 @@ to the recorded values means a rerun;
   `cosign verify`.
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
+  **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
+  acceptance pass). **Dashboards stay closed during timed runs: S5 and the M1b-9 calibration.**
 - Grafana's sidecar containers `grafana-sc-dashboard` and `grafana-sc-datasources` render with no
   `resources` (chart 86.2.2, seen in the M1b-3 render). Set requests and limits under
   `grafana.sidecar.resources` once their usage is measured (ADR-016 M1b-3 addendum).
 - Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
   `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
   readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
-  **before the M1b calibration**.
+  **before the M1b calibration**. **Done: M1b-3** (#93, live at M3 `c05d91b`; acceptance passed
+  2026-10-02).
 - Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
   branch: `maxSurge: 1`, `maxUnavailable: 0`). Today it is the default
   `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
