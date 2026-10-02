@@ -736,8 +736,8 @@ to the recorded values means a rerun;
 ## Later — out of scope for M1b
 
 - **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
-  pickup takes about 2.7 to 6.4 minutes (the repo-server's revision cache plus the controller's
-  refresh; measured 162–382 s, ADR-020 addenda). If NEXUS repairs through Git commits, this dominates
+  pickup takes about 1.8 to 6.4 minutes (the repo-server's revision cache plus the controller's
+  refresh; measured 108–382 s, ADR-020 addenda). If NEXUS repairs through Git commits, this dominates
   measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
   or shorter cache and refresh timeouts.
   - **Correction** (M1b plan gate, 2026-09-28): the premise contradicts the spec. NEXUS never
