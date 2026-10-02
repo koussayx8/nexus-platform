@@ -849,6 +849,13 @@ to the recorded values means a rerun;
   pause stopped its first run). With the PC kept awake, the gate rerun stayed at 19.0 s over about
   23 min. **Rule from now on:** every timed run (S5, M1b-9) records its own pause gap (wall clock
   vs `/proc/uptime`, and `boot_id`) at start and end; M1b-9's plan sets when a run is discarded.
+- `AlertmanagerClusterCrashlooping` (kube-prometheus-stack rule) has fired since the 2026-10-01
+  12:52:46Z reboot and kept firing across later reboots, while Alertmanager stayed Ready with
+  clean (`Completed`) last terminations. **Hypothesis (owner):** clock jumps after VM pauses shift
+  `process_start_time_seconds`, so `changes(process_start_time_seconds{job="alertmanager"}[10m])`
+  counts restarts that did not happen. Settle read-only with that query and the series' raw
+  samples around a pause; then decide whether the rule needs a guard or is accepted noise on this
+  host. Not a Nexus alert; not a gate stop condition.
 - k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
   prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
   config.
