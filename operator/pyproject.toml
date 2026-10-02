@@ -1,0 +1,4 @@
+# Test and lint settings for the NEXUS Operator (M1b-8). Runtime dependencies: requirements.txt.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests/unit"]
