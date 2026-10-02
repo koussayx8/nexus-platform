@@ -77,7 +77,7 @@ The approval names a full commit SHA, and the command carries it, so what merges
 exactly what the owner reviewed:
 - **Merge:** `gh pr merge <N> --merge --match-head-commit <approved full SHA>`. GitHub refuses the
   merge if the PR head has moved since the approval; then stop and ask again. `gh pr merge` stays
-  an ask rule, but its prompt is untested and not counted.
+  an ask rule; it prompted once (#83, below), but its prompt is not counted.
 - **Tag:** `git tag <name> <approved full SHA>` (with `-a -m` for an annotated tag, as `v0.1.0`
   and `v0.2.0`), then push only that tag: `git push origin <name>`. Both `git tag` and
   `git push` are ask rules; their prompts are not counted.
@@ -124,7 +124,9 @@ passed 12 of 13. Every deny row was denied, and `git switch -c` ran. **Row 6 fai
 of a missing ref; nothing reached `origin` (no `m1b0-*` branches or tags afterwards). No saved
 approvals exist: the worktree's `.claude/` holds only `settings.json`, there is no
 `~/.claude/settings.json` or managed settings, and `~/.claude.json` has no `allowedTools` for the
-worktree. Cause UNKNOWN, as in finding 4. `gh pr merge`'s ask rule is untested.
+worktree. Cause UNKNOWN, as in finding 4. **`gh pr merge` prompted when #83 was merged**
+(owner's observation, 2026-09-30): one observation, of one ask family. It does not change the
+decision below.
 
 **Decision (owner):** ask prompts are not counted as a backstop anywhere. Merges and tags rest on
 the owner's typed approval, CLAUDE.md rule 11, the SHA pin (`--match-head-commit`, the tag
