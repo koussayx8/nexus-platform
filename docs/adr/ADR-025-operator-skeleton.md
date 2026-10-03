@@ -160,3 +160,58 @@ ADR-023's single-writer table holds unchanged:
     not when it became pending.
   - It is settled read-only against Prometheus `/api/v1/alerts` (`activeAt`) when a real alert
     fires: at the live acceptance, or in M1b-9.
+
+## Addendum (2026-10-03, M1b-8 PR B): the deploy
+
+### What deploys
+- **The `nexus` Application** tracks `main` at `operator/k8s` (automated, prune, selfHeal), with
+  `/spec/replicas` excluded from diffing and `RespectIgnoreDifferences=true` (§3). `root` creates it.
+- **The image** is pinned by the digest CI built and Cosign-signed on `main` `3ea41f8`:
+  `sha256:ef3c695542d308977d0909656dc40ddb5dfaf1c2168853c95b57c80959083b53`. `cosign verify`
+  against `operator.yml@refs/heads/main` returned exit 0, with workflow SHA `3ea41f8`.
+- **The image workflow** now ignores `operator/k8s/**`, so a manifest change builds no new image.
+- **The Deployment.** 1 replica, `Recreate`, restricted security context, read-only root
+  filesystem, the ServiceAccount token mounted, no readiness probe and no metrics port.
+- **RBAC.** `platform/rbac` joins the `platform` kustomization.
+- **The template.** `nexus-operator-config` gets its real schema. The live ConfigMap is admin-owned
+  (ADR-019), so the owner updates it by hand before the merge.
+
+### RBAC can arrive after the operator starts; the operator waits without restarting
+`platform` (RBAC) and `nexus` (the operator) sync independently, so the pod can start first.
+
+**What happens, measured** on envtest by `operator/tests/envtest/run-rbac-late.sh`, run 1, with the
+code of image `ef3c6955`:
+- The startup handler's ConfigMap read gets 403. That is an ordinary error, so Kopf retries the
+  handler every 60 s (`default_backoff`) and the process never exits.
+- Kopf starts no watcher, no loop and no `/healthz` before startup succeeds.
+- Startup succeeded 47 s after the RBAC was applied. The only 403s were 2 `get configmaps/
+  nexus-operator-config`, and there were none after startup.
+
+**The probes follow from that.**
+- `startupProbe`: `/healthz` every 10 s, `failureThreshold` 36, so 360 s. It covers the worst skew:
+  `root` and `platform` share one Git reference cache, so their pickups differ by at most the
+  controller's 180 s refresh window (ADR-020). Adding the 60 s retry gives 240 s, under 360 s.
+- `livenessProbe`: 15 s × 3. It runs only after startup.
+
+**The 403 rule at the live gate.**
+- 403s on `get configmaps/nexus-operator-config` are allowed until the operator logs
+  `config alertmanagerURL=`, its startup success.
+- Any other 403, or any 403 after that line, is a stop condition.
+
+### ADR-020 coupling
+- **Rollout term.** The operator's is the 360 s startupProbe plus a 240 s pull allowance (49 MiB
+  compressed; about 45 s at the 1.13 MB/s measured in M1-4, and up to 4× under contention) =
+  600 s. That equals the existing rollout term, so none of the four ADR-020 values change.
+- **Bootstrap wait.** `bootstrap.sh` waits 900 s for `nexus`, derived as for `dependency-db`:
+  160 retry + 600 rollout + 60 stable = 820, rounded up.
+- **Verify.** `verify-state.sh` keeps its 1140 s default and adds M11 (the CRD with C1–C4 and
+  `Prune=false,Delete=false`) and M12 (the operator Ready on its Git-pinned digest).
+
+### Known gap (Later)
+- **A fresh bootstrap.** Step g creates `nexus-operator-config` after `root` exists. Image
+  `ef3c6955` treats a missing ConfigMap as permanent (`ConfigError` → `PermanentError`), so the
+  pod can restart until step g runs, then recover.
+- **The live gate is not affected**, because the ConfigMap exists before the merge.
+- **The fix** is a Later item, in either of two ways:
+  - treat a 404 like a 403 (retry) in the next image;
+  - create the ConfigMaps before `root`.
