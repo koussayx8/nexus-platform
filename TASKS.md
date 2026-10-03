@@ -653,6 +653,10 @@ the demo ran on) and the values in effect, read live: the sample-api scrape inte
 to the recorded values means a rerun;
 `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
+- [ ] After S5 is graded: remove or re-pin the S5 pin guard (`repo-checks.sh` step 9) through an
+  ADR (plan M1b-8 rev 3, ADR-025).
+- [ ] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
+  dev-state SHA and live, and `sample-api-dev` is Synced at that SHA; all three in the S5 record.
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
   - [x] ADR-021: the guard findings, the heavier design rejected for proportionality, the model
@@ -728,6 +732,16 @@ to the recorded values means a rerun;
   the envtest token login exist only in tests.
   RBAC checks use `kubectl auth can-i --list` (the `kubectl * create *` deny would catch a
   per-verb `auth can-i create …`).
+  Plan: `~/nexus-m1b8-plan.md` revision 3 (approved by Koussay, typed, 2026-10-02).
+  - [ ] PR A (code, branch `feat/m1b-8-operator`): `operator/nexus_operator/` (Alert Poller with
+    episode dedupe, reconcile loop, intake, liveness), unit tests, the envtest integration test
+    `operator/tests/envtest/` (P1–P6, episodes, smoke, absorb), `platform/rbac/` (not yet listed
+    in `platform/kustomization.yaml`), `operator.yml`, the S5 pin guard, ADR-025; the spike
+    deleted.
+  - [ ] PR B (deploy, after `cosign verify` of PR A's digest): `operator/k8s/`, `rbac` in the
+    `platform` kustomization, the `nexus` Application, verify/bootstrap checks, the
+    `nexus-operator-config` template (owner applies it live).
+  - [ ] Live acceptance (plan §3), including the `startsAt` semantics check (ADR-025 UNVERIFIED).
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
   `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5

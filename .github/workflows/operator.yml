@@ -1,0 +1,163 @@
+name: NEXUS Operator
+
+# The operator's pipeline (spec §19; M1b-8, ADR-025): lint, unit tests, image build and Trivy
+# scan on every pull request that touches it; push and Cosign keyless signing on main only, as
+# ci.yml does for sample-api. The envtest integration test (operator/tests/envtest/) is run by
+# hand, never here; the unit tests check P6 as an order of events (owner, M1b-8 point 3).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'operator/**'
+      - '.github/workflows/operator.yml'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'operator/**'
+      - '.github/workflows/operator.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/nexus-operator
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r operator/requirements-dev.txt
+      - run: ruff check operator/
+      - run: ruff format --check operator/
+
+  test:
+    name: Test (Pytest, offline)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          # The hashed runtime set exactly as the image gets it, then the unhashed dev tools.
+          pip install --only-binary=:all: --require-hashes -r operator/requirements.txt
+          pip install -r operator/requirements-dev.txt
+      - name: Run unit tests
+        env:
+          KUBECONFIG: /nonexistent
+        run: |
+          cd operator
+          pytest -v
+
+  build:
+    name: Build, Scan & Push
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (pull request, not pushed)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: operator
+          load: true
+          push: false
+          tags: nexus-operator:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan (pull request image)
+        if: github.event_name == 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: nexus-operator:pr-${{ github.event.pull_request.number }}
+          format: table
+          severity: 'CRITICAL,HIGH'
+
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+
+      - name: Build and push (main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: operator
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan (pushed image, by digest)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true
+
+  sign:
+    name: Sign Image (Cosign)
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      packages: write
+      id-token: write
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign image
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
