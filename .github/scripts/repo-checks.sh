@@ -13,6 +13,8 @@
 #   7. Offline fixture tests for scripts/lib/detection-inputs.jq (M1b-6c; jq only).
 #   8. promtool check and unit tests for the PrometheusRules in platform/observability/alerts
 #      (TASKS.md M1b-7, ADR-024).
+#   9. The S5 pin guard (M1b-8, ADR-025): the 5 rule-defining files equal #79's head d351d964.
+#      Expires at the M1b exit: after S5 is graded, removed or re-pinned through an ADR.
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
@@ -90,4 +92,25 @@ echo "::endgroup::"
 
 echo "::group::PrometheusRule check and unit tests (promtool)"
 bash scripts/tests/promtool-rules.sh
+echo "::endgroup::"
+
+# The S5 exit demo runs the detection rules pinned at #79's head (TASKS.md M1b exit); a change to
+# any of these 5 paths means an S5 rerun. sample-api-error-rate.yaml is absent at the pin, so its
+# absence is pinned too. Expires at the M1b exit: after S5 is graded, this step is removed or
+# re-pinned through an ADR (plan M1b-8 rev 3, ADR-025).
+S5_PIN=d351d964f2a50ffd07916e69f30e6c067e567cb9
+S5_PATHS=(
+  platform/observability/alerts/kustomization.yaml
+  platform/observability/alerts/nexus-detection.yaml
+  platform/observability/alerts/sample-api-error-rate.yaml
+  platform/observability/tests/nexus-detection.test.yaml
+  scripts/tests/promtool-rules.sh
+)
+echo "::group::S5 pin guard (the 5 rule-defining files at ${S5_PIN:0:8})"
+if ! git diff --quiet "$S5_PIN" HEAD -- "${S5_PATHS[@]}"; then
+  git diff --stat "$S5_PIN" HEAD -- "${S5_PATHS[@]}"
+  echo "::error::the S5-pinned rule files differ from ${S5_PIN}; a change here means an S5 rerun (TASKS.md M1b exit)"
+  exit 1
+fi
+echo "the 5 pinned paths equal ${S5_PIN}"
 echo "::endgroup::"

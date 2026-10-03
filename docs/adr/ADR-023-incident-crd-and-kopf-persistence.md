@@ -142,7 +142,8 @@ Other observations:
 ## Consequences
 - M1b-8's operator uses the startup loop and this single-writer table: no `@kopf.timer`,
   `@kopf.daemon` or delete handlers. Kopf stays pinned (1.44.6). Rerun this spike
-  (`operator/spikes/kopf-status/run-spike.sh`) after any Kopf upgrade.
+  (`operator/spikes/kopf-status/run-spike.sh`) after any Kopf upgrade. M1b-8 deleted the spike;
+  its successor is `operator/tests/envtest/run-envtest.sh` (ADR-025).
 - The loop needs its own API client (aiohttp in the spike) with the operator identity only. M1b-8
   chooses the client.
 - A transition waits up to 5 s for the next tick. The Detected timeout is 20 s, checked every 5 s

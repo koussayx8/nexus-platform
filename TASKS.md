@@ -653,6 +653,10 @@ the demo ran on) and the values in effect, read live: the sample-api scrape inte
 to the recorded values means a rerun;
 `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
+- [ ] After S5 is graded: remove or re-pin the S5 pin guard (`repo-checks.sh` step 9) through an
+  ADR (plan M1b-8 rev 3, ADR-025).
+- [ ] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
+  dev-state SHA and live, and `sample-api-dev` is Synced at that SHA; all three in the S5 record.
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
   - [x] ADR-021: the guard findings, the heavier design rejected for proportionality, the model
@@ -677,9 +681,16 @@ to the recorded values means a rerun;
     as a backstop (ADR-021). #82 merged by the owner at head `2c72e0e` (merge `e59e535`).
     **GATE M1b-0.**
 - **M1b-1 (Guard A) and M1b-2 (Guard B) — removed** (owner, 2026-09-28; ADR-021).
-- **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
+- [x] **M1b-3 — Grafana limits** (one observability gate with M1b-7): resources and readiness timeout
   in `kube-prometheus-stack-values.yaml`, after a node headroom read; ADR-016 addendum; acceptance
   with one dashboard open for 15 min, then a verify run with none.
+  **Done** (#93 `f923b95`; gate #94, M3 `c05d91b`, 2026-10-01; forward-merge `38d37bd`,
+  2026-10-02): CPU 1000m limit / 200m request, memory 1Gi limit, readiness timeout 5 s; only the
+  Grafana Deployment rendered differently, so Prometheus did not restart. Acceptance (rerun
+  2026-10-02 06:50–07:05Z, one dashboard open, 420 panel queries): throttled 0.11 %, peak working
+  set 580 MiB (57 % of 1Gi), 0 restarts, 0 failed probes, `observability` Healthy at every poll,
+  `nexus-detection` 0 missed evaluations (≤ 3.5 ms); then verify 10/10 with no dashboard.
+  Evidence `~/nexus-evidence/m1b-gate3/`.
 - **M1b-4 — ArgoCD refresh after runner commits:** the "applied at" definition and, only if
   cheap, the offline jq filter with fixtures. The live tests (refresh annotation vs selfHeal,
   commit → applied timing) move to the runner milestone.
@@ -698,9 +709,16 @@ to the recorded values means a rerun;
   `argocd.argoproj.io/sync-options: Prune=false,Delete=false`, committed on
   `feat/m1b-6a-incident-crd` before that branch merges. Deleting a CRD deletes every Incident,
   and `platform` syncs with `prune: true`. `8706587` does not have it yet.
-- **M1b-7 — Z-score rules and the four anomaly alerts** (draft #79, `feat/m1b-7-detection`
+- [x] **M1b-7 — Z-score rules and the four anomaly alerts** (#79, `feat/m1b-7-detection`
   `d351d96`): lagged baseline (`[15m] offset 3m`, 27-sample guard), promtool tests in
   `repo-checks`, ADR-024. Live: rule health `ok`, series present, no alert at idle.
+  **Done** (#79 `9607344`, `dev` brought in by merge with the step-7 conflict resolved: 6c step 7,
+  promtool step 8; the five pinned rule files equal `d351d964`; gate #94, M3 `c05d91b`): rules
+  loaded 2026-10-01T13:41:39Z without a Prometheus restart, 24/24 `health: ok`,
+  `SampleAPIHighErrorRate` pruned; after the ~16.5 min warm-up no Nexus alert at idle (CPU
+  Z ≈ 0.007). **At idle only the CPU signal has data**: `/` and `/items` have no series without
+  business traffic, so requests, error ratio, in-flight and p95 (and their baselines) stay empty
+  until M1b-9's baseline load, which the S5 exit demo therefore needs first.
 - **M1b-8 — the `nexus` Application and the operator skeleton:** staged §11 RBAC (Incidents create
   and status, the M1b reads; no `deployments/scale` or `pods/eviction` until M2), Alert Poller and
   a 5 s status-only loop (single writer), L0 → `Recorded`, L1–L3 → `Escalated` after 20 s. The loop
@@ -714,6 +732,16 @@ to the recorded values means a rerun;
   the envtest token login exist only in tests.
   RBAC checks use `kubectl auth can-i --list` (the `kubectl * create *` deny would catch a
   per-verb `auth can-i create …`).
+  Plan: `~/nexus-m1b8-plan.md` revision 3 (approved by Koussay, typed, 2026-10-02).
+  - [ ] PR A (code, branch `feat/m1b-8-operator`): `operator/nexus_operator/` (Alert Poller with
+    episode dedupe, reconcile loop, intake, liveness), unit tests, the envtest integration test
+    `operator/tests/envtest/` (P1–P6, episodes, smoke, absorb), `platform/rbac/` (not yet listed
+    in `platform/kustomization.yaml`), `operator.yml`, the S5 pin guard, ADR-025; the spike
+    deleted.
+  - [ ] PR B (deploy, after `cosign verify` of PR A's digest): `operator/k8s/`, `rbac` in the
+    `platform` kustomization, the `nexus` Application, verify/bootstrap checks, the
+    `nexus-operator-config` template (owner applies it live).
+  - [ ] Live acceptance (plan §3), including the `startsAt` semantics check (ADR-025 UNVERIFIED).
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
   `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
@@ -722,8 +750,8 @@ to the recorded values means a rerun;
 ## Later — out of scope for M1b
 
 - **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
-  pickup takes about 2.7 to 6.4 minutes (the repo-server's revision cache plus the controller's
-  refresh; measured 162–382 s, ADR-020 addenda). If NEXUS repairs through Git commits, this dominates
+  pickup takes about 1.8 to 6.4 minutes (the repo-server's revision cache plus the controller's
+  refresh; measured 108–382 s, ADR-020 addenda). If NEXUS repairs through Git commits, this dominates
   measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
   or shorter cache and refresh timeouts.
   - **Correction** (M1b plan gate, 2026-09-28): the premise contradicts the spec. NEXUS never
@@ -747,13 +775,16 @@ to the recorded values means a rerun;
   `cosign verify`.
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
+  **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
+  acceptance pass). **Dashboards stay closed during timed runs: S5 and the M1b-9 calibration.**
 - Grafana's sidecar containers `grafana-sc-dashboard` and `grafana-sc-datasources` render with no
   `resources` (chart 86.2.2, seen in the M1b-3 render). Set requests and limits under
   `grafana.sidecar.resources` once their usage is measured (ADR-016 M1b-3 addendum).
 - Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
   `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
   readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
-  **before the M1b calibration**.
+  **before the M1b calibration**. **Done: M1b-3** (#93, live at M3 `c05d91b`; acceptance passed
+  2026-10-02).
 - Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
   branch: `maxSurge: 1`, `maxUnavailable: 0`). Today it is the default
   `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
@@ -825,10 +856,20 @@ to the recorded values means a rerun;
   (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
   `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
   restart: do it at a planned k3s restart (a rebuild or between measurement windows).
-- **Before M1b-9: find the WSL2 VM pause cause** (owner). The M1-6 window paused 2,921.9 s with
-  Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. The owner runs
-  `powercfg /sleepstudy`. Also consider a rate-based pause check (seconds of pause per hour) for
-  long runs, beside the 60 s start/end rule.
+- ~~**Before M1b-9: find the WSL2 VM pause cause**~~ **Closed (owner, 2026-10-02).** The M1-6 window
+  paused 2,921.9 s with Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. **Cause
+  (owner):** Koussay put the PC to sleep and shut it down several times; that accounts for the
+  pauses and the five reboots between 2026-09-29 and 2026-10-02 (the observability gate's 113.3 s
+  pause stopped its first run). With the PC kept awake, the gate rerun stayed at 19.0 s over about
+  23 min. **Rule from now on:** every timed run (S5, M1b-9) records its own pause gap (wall clock
+  vs `/proc/uptime`, and `boot_id`) at start and end; M1b-9's plan sets when a run is discarded.
+- `AlertmanagerClusterCrashlooping` (kube-prometheus-stack rule) has fired since the 2026-10-01
+  12:52:46Z reboot and kept firing across later reboots, while Alertmanager stayed Ready with
+  clean (`Completed`) last terminations. **Hypothesis (owner):** clock jumps after VM pauses shift
+  `process_start_time_seconds`, so `changes(process_start_time_seconds{job="alertmanager"}[10m])`
+  counts restarts that did not happen. Settle read-only with that query and the series' raw
+  samples around a pause; then decide whether the rule needs a guard or is accepted noise on this
+  host. Not a Nexus alert; not a gate stop condition.
 - k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
   prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
   config.
