@@ -1,0 +1,9 @@
+# The `nexus` Application (M1b-8 PR B; ADR-025): the NEXUS Operator's ServiceAccount and
+# Deployment. Its RBAC is platform/rbac/ (the `platform` Application); the Incident CRD is
+# platform/crds/. The operator waits for that RBAC at startup without restarting (deployment.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - serviceaccount.yaml
+  - deployment.yaml

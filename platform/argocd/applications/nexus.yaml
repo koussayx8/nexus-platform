@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nexus
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: application
+  annotations:
+    nexus.io/adr: "ADR-023, ADR-025"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: nexus
+  source:
+    repoURL: https://github.com/koussayx8/nexus-platform.git
+    targetRevision: main
+    path: operator/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nexus-system        # declared by the platform Application, with the CRD and RBAC
+  # Replicas are runtime state, as for sample-api (spec §3); Git keeps the baseline of 1.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: nexus-operator
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }

@@ -1,7 +1,7 @@
 # The `platform` Application (spec §3): everything cluster-wide that main declares.
 # M0: namespaces with their autonomy levels, and the AppProject. M1b: the Incident CRD (spec §8,
-# CRD Validation C1-C4). RBAC, Kyverno policies (K1-K6) and NetworkPolicies join here in later
-# milestones.
+# CRD Validation C1-C4) and the operator's staged §11 RBAC (M1b-8, ADR-025). Kyverno policies
+# (K1-K6) and NetworkPolicies join here in later milestones.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -9,3 +9,4 @@ resources:
   - namespaces
   - argocd/projects/nexus.yaml
   - crds/incidents.nexus.io.yaml
+  - rbac

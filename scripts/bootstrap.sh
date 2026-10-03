@@ -27,8 +27,8 @@
 #
 # Usage: scripts/bootstrap.sh [--plan]
 # Timeout overrides: NEXUS_WAIT_TIMEOUT_DEFAULT (default 600), NEXUS_WAIT_TIMEOUT_OBSERVABILITY
-# (default 1200), NEXUS_WAIT_TIMEOUT_DEPENDENCY_DB (default 900), or NEXUS_WAIT_TIMEOUT_<NAME> for
-# any specific Application.
+# (default 1200), NEXUS_WAIT_TIMEOUT_DEPENDENCY_DB and NEXUS_WAIT_TIMEOUT_NEXUS (default 900 each),
+# or NEXUS_WAIT_TIMEOUT_<NAME> for any specific Application.
 # NEXUS_ARGOCD_ROLLOUT_TIMEOUT (default 600) covers each of the three ArgoCD rollout waits.
 # Exit codes: 0 success; 1 a step failed or refused to proceed; 2 script/argument error.
 
@@ -69,7 +69,7 @@ NEXUS_DIR=$HOME/.nexus
 # platform/observability/kube-prometheus-stack-values.yaml:78-81) are exactly the keys the Secret
 # below is created with.
 GRAFANA_DEPLOYMENT=observability-grafana
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db nexus)
 REPO_URL=https://github.com/koussayx8/nexus-platform.git
 APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
 STABLE_WINDOW=60                             # seconds of consecutive true snapshots (step h)
@@ -89,6 +89,10 @@ WAIT_TIMEOUT_OBSERVABILITY=${NEXUS_WAIT_TIMEOUT_OBSERVABILITY:-1200}
 # with verify-state.sh's default: changing the startupProbe budget, the pull allowance or the
 # reconcile term means re-deriving all four ADR-020 values.
 WAIT_TIMEOUT_DEPENDENCY_DB=900
+# nexus, 900 s (ADR-025, same derivation as dependency-db): 160 retry backoff (a sync before the
+# `platform` Application has created nexus-system) + 600 rollout (360 startupProbe + 240 pull) + 60
+# stable = 820, rounded up. Coupled with the operator's startupProbe and the ADR-020 values.
+WAIT_TIMEOUT_NEXUS=900
 ARGOCD_ROLLOUT_TIMEOUT=${NEXUS_ARGOCD_ROLLOUT_TIMEOUT:-600}
 timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in seconds
   local name=$1
@@ -98,6 +102,7 @@ timeout_for_app() {   # timeout_for_app <name> -> echoes the resolved timeout in
   case $name in
     observability) echo "$WAIT_TIMEOUT_OBSERVABILITY" ;;
     dependency-db) echo "$WAIT_TIMEOUT_DEPENDENCY_DB" ;;
+    nexus) echo "$WAIT_TIMEOUT_NEXUS" ;;
     *) echo "$WAIT_TIMEOUT_DEFAULT" ;;
   esac
 }

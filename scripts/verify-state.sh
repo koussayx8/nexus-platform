@@ -8,8 +8,9 @@
 # Loki/Crossplane/sample-db, the sample-api digest and /metrics, namespace autonomy levels,
 # pod readiness, the audit-log probe, and the Kill Switch. M1 (TASKS.md M1-3) adds the
 # dependency-db Application and pod, and informational container restart counts; M1-5 adds the
-# sample-api /items check against the Dependency DB. K1-K6, the
-# Incident CRD/CEL, operator and Reasoner readiness and N1-N6 arrive with their milestones.
+# sample-api /items check against the Dependency DB. M1b-8 adds the `nexus` Application, the
+# Incident CRD with C1-C4 and its Prune=false,Delete=false annotation (M11), and the operator Ready
+# on its Git-pinned digest (M12). K1-K6, Reasoner readiness and N1-N6 arrive with their milestones.
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
@@ -120,7 +121,7 @@ git fetch origin main experiment/dev-state >/dev/null 2>&1 && FETCH_OK=1
 # the startupProbe budget, the pull allowance or the reconcile term means re-deriving all four
 # ADR-020 values, this default and bootstrap.sh's dependency-db wait included.
 # ---------------------------------------------------------------------------
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db nexus)
 REPO_URL=https://github.com/koussayx8/nexus-platform.git
 APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
 APPS_TIMEOUT=${NEXUS_VERIFY_APPS_TIMEOUT:-1140}
@@ -351,6 +352,53 @@ v_dependency_db() {
 }
 
 # ---------------------------------------------------------------------------
+# M11. The Incident CRD (spec §8; ADR-023, ADR-025): Established; CRD Validation C1-C3 present as
+# x-kubernetes-validations (each message starts with its ID) and C4 as the replicas bounds [1, 5];
+# and the Prune=false,Delete=false sync option, so ArgoCD never deletes Incidents with the CRD.
+# ---------------------------------------------------------------------------
+v_incident_crd() {
+  local jf rc=0 established opts rules c4
+  jf=$(mktemp)
+  if ! k get crd incidents.nexus.io -o json >"$jf" 2>/dev/null; then
+    echo "crd/incidents.nexus.io: NOT FOUND"; rm -f "$jf"; return 1
+  fi
+  established=$(jq -r '[.status.conditions[]? | select(.type == "Established") | .status][0] // "-"' "$jf")
+  opts=$(jq -r '.metadata.annotations["argocd.argoproj.io/sync-options"] // "-"' "$jf")
+  rules=$(jq -r '[.. | objects | .["x-kubernetes-validations"]? // empty | .[].message | capture("^(?<id>C[0-9]+):").id] | unique | join(",")' "$jf")
+  c4=$(jq -r '[.spec.versions[] | select(.storage) | .schema.openAPIV3Schema.properties.spec.properties.approval.properties.parameters.properties.replicas | "\(.minimum),\(.maximum)"][0] // "-"' "$jf")
+  echo "crd/incidents.nexus.io: Established=$established sync-options=$opts CEL rules=${rules:-none} C4 replicas bounds=$c4"
+  [[ $established == True ]] || rc=1
+  [[ $opts == "Prune=false,Delete=false" ]] || rc=1
+  [[ $rules == "C1,C2,C3" ]] || rc=1
+  [[ $c4 == "1,5" ]] || rc=1
+  rm -f "$jf"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# M12. The NEXUS Operator (M1b-8; ADR-025): exactly one pod of Deployment nexus-operator Ready,
+# running the digest pinned in origin/main:operator/k8s/deployment.yaml. Ready means its
+# startupProbe passed, i.e. Kopf's startup (RBAC and configuration) succeeded. The restartCount is
+# printed: a restart is a stop condition of the M1b-8 live acceptance.
+# ---------------------------------------------------------------------------
+v_operator() {
+  local git_digest jf n ready restarts
+  git_digest=$(git show origin/main:operator/k8s/deployment.yaml 2>/dev/null | grep -oE 'sha256:[0-9a-f]{64}' | head -n1)
+  echo "nexus-operator: Git-pinned digest from origin/main:operator/k8s/deployment.yaml = ${git_digest:-NOT FOUND}"
+  [[ -n $git_digest ]] || return 1
+  jf=$(mktemp)
+  if ! k get pods -n nexus-system -l app.kubernetes.io/name=nexus-operator -o json >"$jf" 2>/dev/null; then
+    echo "nexus-system: listing operator pods failed"; rm -f "$jf"; return 1
+  fi
+  n=$(jq '.items | length' "$jf")
+  ready=$(jq -r --arg d "$git_digest" '[.items[].status.containerStatuses[]? | select(.name == "operator" and (.imageID // "" | contains($d)) and .ready == true)] | length' "$jf")
+  restarts=$(jq -r '[.items[].status.containerStatuses[]? | select(.name == "operator") | .restartCount] | map(tostring) | join(",")' "$jf")
+  echo "nexus-system: operator pods=$n, Ready on the pinned digest=$ready, restartCount=${restarts:--}"
+  rm -f "$jf"
+  [[ $n == 1 && $ready == 1 ]]
+}
+
+# ---------------------------------------------------------------------------
 # M10. sample-api /items reads the Dependency DB (TASKS.md M1-5, change 1): HTTP 200 with at least
 # one row, per namespace in NEXUS_VERIFY_ITEMS_NAMESPACES. M1-5 run 1 sets nexus-prod only: until
 # the forward-merge, nexus-dev still runs the image without /items. A skipped namespace is named in
@@ -423,6 +471,8 @@ verify M7 "Audit log probe (§14)"                        v_audit_probe
 verify M8 "Kill Switch active"                           v_killswitch
 verify M9 "Dependency DB pod Ready"                      v_dependency_db
 verify M10 "sample-api /items reads the Dependency DB"   v_items
+verify M11 "Incident CRD: C1-C4, Prune=false,Delete=false" v_incident_crd
+verify M12 "NEXUS Operator Ready on its pinned digest"   v_operator
 info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""
