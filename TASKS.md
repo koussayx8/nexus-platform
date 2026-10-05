@@ -733,12 +733,14 @@ to the recorded values means a rerun;
   RBAC checks use `kubectl auth can-i --list` (the `kubectl * create *` deny would catch a
   per-verb `auth can-i create …`).
   Plan: `~/nexus-m1b8-plan.md` revision 3 (approved by Koussay, typed, 2026-10-02).
-  - [ ] PR A (code, branch `feat/m1b-8-operator`): `operator/nexus_operator/` (Alert Poller with
+  - [x] PR A (code, #96 → `dev` `13a2bd0`, gate #97 → `main` `3ea41f8`; image
+    `sha256:ef3c6955…083b53` signed and `cosign verify`-ed; verify run 10/10): `operator/nexus_operator/` (Alert Poller with
     episode dedupe, reconcile loop, intake, liveness), unit tests, the envtest integration test
     `operator/tests/envtest/` (P1–P6, episodes, smoke, absorb), `platform/rbac/` (not yet listed
     in `platform/kustomization.yaml`), `operator.yml`, the S5 pin guard, ADR-025; the spike
     deleted.
-  - [ ] PR B (deploy, after `cosign verify` of PR A's digest): `operator/k8s/`, `rbac` in the
+  - [ ] PR B (deploy, branch `feat/m1b-8-deploy`; RBAC wait proven by
+    `operator/tests/envtest/run-rbac-late.sh`): `operator/k8s/`, `rbac` in the
     `platform` kustomization, the `nexus` Application, verify/bootstrap checks, the
     `nexus-operator-config` template (owner applies it live).
   - [ ] Live acceptance (plan §3), including the `startsAt` semantics check (ADR-025 UNVERIFIED).
@@ -921,3 +923,9 @@ to the recorded values means a rerun;
 - `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
 - Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
+- **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
+  creates `nexus-operator-config` after `root` has created the `nexus` Application; image
+  `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
+  restart until step g runs, then recovers. Fix in either way: retry a 404 like a 403 in the next
+  operator image, or create the two ConfigMaps before `root` (needs `nexus-system` first). Not a
+  live-gate issue: the ConfigMap exists before PR B merges.

@@ -9,11 +9,13 @@ on:
     branches: [main]
     paths:
       - 'operator/**'
+      - '!operator/k8s/**'   # deploy manifests (the `nexus` Application) build no image
       - '.github/workflows/operator.yml'
   pull_request:
     branches: [main, dev]
     paths:
       - 'operator/**'
+      - '!operator/k8s/**'   # deploy manifests (the `nexus` Application) build no image
       - '.github/workflows/operator.yml'
 
 env:
