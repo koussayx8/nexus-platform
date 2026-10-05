@@ -733,12 +733,14 @@ to the recorded values means a rerun;
   RBAC checks use `kubectl auth can-i --list` (the `kubectl * create *` deny would catch a
   per-verb `auth can-i create …`).
   Plan: `~/nexus-m1b8-plan.md` revision 3 (approved by Koussay, typed, 2026-10-02).
-  - [ ] PR A (code, branch `feat/m1b-8-operator`): `operator/nexus_operator/` (Alert Poller with
+  - [x] PR A (code, #96 → `dev` `13a2bd0`, gate #97 → `main` `3ea41f8`; image
+    `sha256:ef3c6955…083b53` signed and `cosign verify`-ed; verify run 10/10): `operator/nexus_operator/` (Alert Poller with
     episode dedupe, reconcile loop, intake, liveness), unit tests, the envtest integration test
     `operator/tests/envtest/` (P1–P6, episodes, smoke, absorb), `platform/rbac/` (not yet listed
     in `platform/kustomization.yaml`), `operator.yml`, the S5 pin guard, ADR-025; the spike
     deleted.
-  - [ ] PR B (deploy, after `cosign verify` of PR A's digest): `operator/k8s/`, `rbac` in the
+  - [ ] PR B (deploy, branch `feat/m1b-8-deploy`; RBAC wait proven by
+    `operator/tests/envtest/run-rbac-late.sh`): `operator/k8s/`, `rbac` in the
     `platform` kustomization, the `nexus` Application, verify/bootstrap checks, the
     `nexus-operator-config` template (owner applies it live).
   - [ ] Live acceptance (plan §3), including the `startsAt` semantics check (ADR-025 UNVERIFIED).
@@ -773,6 +775,13 @@ to the recorded values means a rerun;
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
   `cosign verify`.
+- **Base images: digest pins and a slimmer base** (owner, #96 gate review, 2026-10-03). The
+  operator image pins `python:3.12-slim` by index digest (`operator/Dockerfile`, `sha256:dddfd7e0…`);
+  sample-api's does not (`apps/sample-api/Dockerfile`: `python:3.12-slim`, a moving tag). Trivy on
+  the #96 PR image: 45 HIGH, 0 CRITICAL, all Debian 13.7 base packages, 0 in the Python packages.
+  Pin sample-api's base by digest, and move both images to a slimmer base (e.g. distroless or a
+  minimal Python runtime), then compare the Trivy counts. `operator.yml` copies `ci.yml`'s
+  `cosign-installer@v3`, so the item above applies to it too.
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
   **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
@@ -914,3 +923,9 @@ to the recorded values means a rerun;
 - `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
 - Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
+- **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
+  creates `nexus-operator-config` after `root` has created the `nexus` Application; image
+  `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
+  restart until step g runs, then recovers. Fix in either way: retry a 404 like a 403 in the next
+  operator image, or create the two ConfigMaps before `root` (needs `nexus-system` first). Not a
+  live-gate issue: the ConfigMap exists before PR B merges.
