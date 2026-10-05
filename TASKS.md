@@ -773,6 +773,13 @@ to the recorded values means a rerun;
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
   `cosign verify`.
+- **Base images: digest pins and a slimmer base** (owner, #96 gate review, 2026-10-03). The
+  operator image pins `python:3.12-slim` by index digest (`operator/Dockerfile`, `sha256:dddfd7e0…`);
+  sample-api's does not (`apps/sample-api/Dockerfile`: `python:3.12-slim`, a moving tag). Trivy on
+  the #96 PR image: 45 HIGH, 0 CRITICAL, all Debian 13.7 base packages, 0 in the Python packages.
+  Pin sample-api's base by digest, and move both images to a slimmer base (e.g. distroless or a
+  minimal Python runtime), then compare the Trivy counts. `operator.yml` copies `ci.yml`'s
+  `cosign-installer@v3`, so the item above applies to it too.
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
   **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
