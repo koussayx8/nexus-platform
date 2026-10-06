@@ -52,13 +52,22 @@ under that baseline.
 
 ### R1: capacity of the mix on `nexus-dev`'s 2 replicas
 - `experiments/calibration/ramp.py run`: `DevUser` only.
-  - Steps of +10 req/s from 10, each 60 s settle + 120 s measured after a stats reset. Cap 200.
+  - Steps of +10 req/s from 10. Each step: 1 min settle, then Locust's statistics are reset, then a
+    2 min measure window. Cap 200.
+  - **Achieved rate** = the window's requests ÷ its measured seconds (owner, #106 gate). Locust's
+    `total_rps` is a short-window snapshot, recorded for display only.
+  - **Cross-check:** `namespace:nexus_sample_api_requests:rate2m` at the window's end (its 2 min
+    window is the measure window). A difference above 5 %, or no answer, is flagged in the row and
+    the verdict; it is not a knee.
+  - The master's reset does not reach the workers (3 s reports), and its API caches for 2 s, so the
+    window count can read a few seconds of requests low. In a 20 s local smoke that was 9.0 against
+    10 req/s; over 120 s it is a few percent. The cross-check bounds it.
   - Every step records sample-api and dependency-db CFS throttling, DB CPU and peak working set,
     the worker's CPU and the node's CPU. An empty Prometheus answer is recorded as empty, never as 0.
 - **Knee:** the first step with any of:
   - failures > 1 %;
   - any `/items` failure;
-  - achieved rate < 95 % of the target (Locust's own `total_rps`);
+  - achieved rate (window average) < 95 % of the target;
   - p95 > 2 × the first step's;
   - sample-api throttled periods > 10 %.
 
