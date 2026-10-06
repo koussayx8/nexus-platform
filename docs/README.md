@@ -13,6 +13,38 @@ which documents are authoritative and which are historical.
 | [`../TASKS.md`](../TASKS.md) | The current milestone, its phases and gates, and the "Later" list of out-of-scope findings. |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | Release notes, one section per tag. |
 
+## ADR index
+
+Notes on which records later ones supersede in part are in the [README](../README.md#architecture-decisions).
+
+| ADR | Decision |
+| --- | --- |
+| [001](adr/ADR-001-kyverno-over-opa.md) | Kyverno over OPA Gatekeeper |
+| [002](adr/ADR-002-ci-pipeline-design.md) | CI pipeline design |
+| [003](adr/ADR-003-autonomy-ladder.md) | Autonomy ladder |
+| [004](adr/ADR-004-gitops-strategy.md) | GitOps strategy |
+| [005](adr/ADR-005-idp-design.md) | Internal developer platform design |
+| [006](adr/ADR-006-crossplane-design.md) | Crossplane design |
+| [007](adr/ADR-007-observability-stack.md) | Observability stack |
+| [008](adr/ADR-008-k3s-over-kind.md) | k3s over kind |
+| [009](adr/ADR-009-incident-flight-recorder.md) | Incident flight recorder |
+| [010](adr/ADR-010-m0-triage-and-secret-files.md) | M0 triage and secret-bearing files |
+| [011](adr/ADR-011-repository-cleanup.md) | Repository cleanup |
+| [012](adr/ADR-012-required-checks.md) | One unfiltered required check |
+| [013](adr/ADR-013-experiment-branch.md) | `experiment/dev-state` is never force-pushed |
+| [014](adr/ADR-014-converge-in-git-then-rebuild.md) | Converge in Git, then rebuild |
+| [015](adr/ADR-015-kyverno-application.md) | Kyverno as an Application |
+| [016](adr/ADR-016-observability-application.md) | The observability Application |
+| [017](adr/ADR-017-sample-api-overlays-and-image-pin.md) | sample-api overlays and the pinned, verified image |
+| [018](adr/ADR-018-autonomy-levels.md) | Autonomy levels are namespace labels declared in Git |
+| [019](adr/ADR-019-bootstrap-and-audit-policy.md) | Bootstrap order and the audit policy |
+| [020](adr/ADR-020-dependency-db.md) | The Dependency DB, `/items` and S5 |
+| [021](adr/ADR-021-agent-guard-model.md) | Development workflow guardrails |
+| [022](adr/ADR-022-fault-hooks-and-deadlock-observability.md) | Fault hooks and observability under a deadlock |
+| [023](adr/ADR-023-incident-crd-and-kopf-persistence.md) | The Incident CRD and Kopf's status-only persistence |
+| [024](adr/ADR-024-detection-rules.md) | Detection rules: lagged-baseline Z-scores |
+| [025](adr/ADR-025-operator-skeleton.md) | The operator skeleton |
+
 ## Reading order
 
 | If you want to… | Read |

@@ -283,6 +283,7 @@ removed from the architecture; the later ADR named in the notes column governs.
 | [018](docs/adr/ADR-018-autonomy-levels.md) | Autonomy levels are namespace labels declared in Git | |
 | [019](docs/adr/ADR-019-bootstrap-and-audit-policy.md) | Bootstrap order and the audit policy | |
 | [020](docs/adr/ADR-020-dependency-db.md) | The Dependency DB, `/items` and S5 | |
+| [021](docs/adr/ADR-021-agent-guard-model.md) | Development workflow guardrails | |
 | [022](docs/adr/ADR-022-fault-hooks-and-deadlock-observability.md) | Fault hooks and observability under a deadlock | |
 | [023](docs/adr/ADR-023-incident-crd-and-kopf-persistence.md) | The Incident CRD and Kopf's status-only persistence | |
 | [024](docs/adr/ADR-024-detection-rules.md) | Detection rules: lagged-baseline Z-scores | |
