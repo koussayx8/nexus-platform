@@ -52,6 +52,13 @@ spec:
         - name: operator
           image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:ef3c695542d308977d0909656dc40ddb5dfaf1c2168853c95b57c80959083b53
           imagePullPolicy: IfNotPresent
+          # UID 10001 has no /etc/passwd entry in image ef3c6955. Kopf names its peering identity
+          # with getpass.getuser(), which reads USER before falling back to pwd.getpwuid(), so
+          # without this the operator dies before startup (KeyError, #100 live gate). Workaround
+          # until the image adds a passwd entry (TASKS.md Later); test_runtime_user.py guards it.
+          env:
+            - name: USER
+              value: nexus-operator
           ports:
             - name: health
               containerPort: 8080
