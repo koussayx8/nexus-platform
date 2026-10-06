@@ -1,0 +1,11 @@
+{
+ "_note": "A /stats/requests answer after a 120 s measure window at target 10 req/s: 1130 requests counted (9.417 req/s), while Locust's short-window total_rps snapshot reads 10.29. The achieved rate must be the window average.",
+ "t_start": 1000.0,
+ "t_end": 1120.0,
+ "target": 10,
+ "stats": [
+  {"name": "dev:/", "num_requests": 904, "num_failures": 0, "total_rps": 8.23},
+  {"name": "dev:/items", "num_requests": 226, "num_failures": 0, "total_rps": 2.06},
+  {"name": "Aggregated", "num_requests": 1130, "num_failures": 0, "total_rps": 10.29, "response_time_percentile_0.95": 12}
+ ]
+}

@@ -139,6 +139,7 @@ def args(out, prom=None, **kw):
         "fail_max": 0.01,
         "achieved_min": 0.95,
         "throttle_max": 0.10,
+        "rate_diff_max": 0.05,
     }
     base.update(kw)
     return argparse.Namespace(**base)
@@ -211,37 +212,48 @@ class RunTest(unittest.TestCase):
             rows[0]["achieved_rps"], "10.000"
         )  # no total_rps: 1200 requests / 120 s
 
-    def test_achieved_rate_is_locusts_total_rps(self):
+    def test_achieved_rate_is_the_window_average_not_total_rps(self):
+        fx = json.loads((FIXTURES / "stats-window.json").read_text())
         row = ramp.locust_row(
-            {
-                "stats": [
-                    {
-                        "name": "Aggregated",
-                        "num_requests": 180,
-                        "num_failures": 0,
-                        "total_rps": 10.29,
-                        "response_time_percentile_0.95": 4,
-                    }
-                ]
-            },
-            10,
-            0.0,
-            20.0,
-            "dev:/items",
+            fx, fx["target"], fx["t_start"], fx["t_end"], "dev:/items"
         )
-        self.assertEqual((row["achieved_rps"], row["items_failures"]), ("10.290", 0))
+        self.assertEqual(row["achieved_rps"], "9.417")  # 1130 requests / 120 s
+        self.assertEqual(row["locust_total_rps"], "10.290")  # display only
+        row.update({f: "" for f in ramp.FIELDS if f not in row})
+        v = ramp.knee([row])
+        self.assertEqual(v["reasons"], ["achieved 9.4 < 95% of 10"])
+
+    def test_rate_cross_check(self):
+        self.assertEqual(ramp.rate_check(10.0, 10.4, 0.05), ("0.0400", "ok"))
+        self.assertEqual(
+            ramp.rate_check(10.0, 9.4, 0.05), ("0.0600", "rate diff 6.0% > 5%")
+        )
+        self.assertEqual(
+            ramp.rate_check(10.0, "", 0.05), ("", "prometheus rate: no data")
+        )
 
     def test_prometheus_columns_and_empty_answers(self):
         http = FakeHttp(
             {10: (1200, 0, 0, 12), 20: (2400, 0, 0, 12)},
-            prom={"dependency-db": 0.3, "sample-api": 0.0, "locust-worker": None},
+            prom={
+                "dependency-db": 0.3,
+                "sample-api": 0.0,
+                "locust-worker": None,
+                "nexus_sample_api_requests": 10.2,
+            },
         )
         v, rows, _, _ = self.run_ramp(http, prom="http://prom:9090", max=20)
         self.assertEqual(rows[0]["db_throttle"], "0.3")
+        # the server-side rate: 10.2 against 10.0 is ok; against 20.0 it is flagged, not a knee
+        self.assertEqual((rows[0]["prom_rps"], rows[0]["rate_flag"]), ("10.2", "ok"))
+        self.assertEqual(rows[1]["rate_flag"], "rate diff 49.0% > 5%")
+        self.assertEqual(v["flags"], ["step 20: rate diff 49.0% > 5%"])
         self.assertEqual(rows[0]["worker_cpu"], "")  # empty answer stays empty, never 0
         self.assertTrue(v["reached_max"])  # DB throttling alone is not a knee
         queries = [c[1] for c in http.calls if "/api/v1/query" in c[1]]
-        self.assertEqual(len(queries), 2 * len(ramp.QUERIES))
+        self.assertEqual(
+            len(queries), 2 * (len(ramp.QUERIES) + 1)
+        )  # + the rate cross-check
         self.assertIn("120s", queries[0].replace("%5B", "[").replace("%5D", "]"))
 
     def test_stop_is_posted_even_when_a_step_fails(self):

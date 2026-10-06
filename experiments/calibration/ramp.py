@@ -6,8 +6,11 @@
 
 run: steps the Locust master's user count (one user = one request/s, see the
 locustfile) through --start, --start + --step, ... up to --max. Each step is
---settle seconds of settling, then a stats reset, then --measure seconds of
-measurement. One row per step goes to DIR/steps.csv as soon as the step ends,
+--settle seconds of settling (default 1 min), then Locust's statistics are
+reset, then --measure seconds of measurement (default 2 min). The achieved
+rate is the requests counted in that window divided by its measured seconds.
+Locust's own total_rps is a short-window snapshot: it is recorded for display
+only and never used. One row per step goes to DIR/steps.csv as soon as the step ends,
 with the raw Locust and Prometheus answers in DIR/step-<target>.json. The ramp
 stops at the first knee step (or --max), then posts /stop: Locust returns to
 idle. The step after the knee is never run.
@@ -16,7 +19,16 @@ With --prom (a Prometheus base URL), each step also records, over its measure
 window: sample-api CFS throttling and CPU in the target namespace,
 dependency-db throttling, CPU and peak working set (recorded at every step;
 the DB decision is the owner's, at the R1 gate), the Locust worker's CPU and
-the node's CPU. An empty answer is recorded as empty, never as 0.
+the node's CPU. An empty answer is recorded as empty, never as 0. It also
+records namespace:nexus_sample_api_requests:rate2m at the window's end, a
+server-side cross-check of the achieved rate (its 2 min window is the measure
+window): a difference above --rate-diff-max (default 5 %), or no answer, is
+flagged in the row and the verdict. A flag is not a knee; the owner reads it.
+
+The master's reset does not reach the workers, which report every 3 s, and the
+master's API caches answers for 2 s. So the window count can read a few
+seconds' worth of requests low: about 10 % over a 20 s smoke window, a few
+percent over 120 s. The cross-check is what bounds it.
 
 knee: the first step with any of
   - failures above --fail-max of all requests (default 1 %);
@@ -51,6 +63,10 @@ FIELDS = [
     "failures",
     "items_failures",
     "achieved_rps",
+    "locust_total_rps",
+    "prom_rps",
+    "rate_diff",
+    "rate_flag",
     "fail_ratio",
     "p95_ms",
     "app_throttle",
@@ -73,6 +89,10 @@ QUERIES = {
     "node_cpu": '1 - avg(rate(node_cpu_seconds_total{{mode="idle"}}[{w}s]))',
 }
 
+# Server-side cross-check of the achieved rate: the recording rule's 2 min window ends at the
+# step's end, like the measure window.
+RATE_QUERY = 'namespace:nexus_sample_api_requests:rate2m{{namespace="{ns}"}}'
+
 
 # ---------------------------------------------------------------- knee ----
 
@@ -87,7 +107,7 @@ def _num(value):
 def knee(
     rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.10, prom=None
 ):
-    """Return {"capacity", "baseline", "knee_target", "reasons", "reached_max"}.
+    """Return {"capacity", "baseline", "knee_target", "reasons", "reached_max", "flags"}.
 
     rows: dicts with FIELDS (strings or numbers), in step order. prom: whether
     Prometheus columns are expected; None infers it from the first row.
@@ -97,6 +117,11 @@ def knee(
     if prom is None:
         prom = any(_num(rows[0].get(f)) is not None for f in QUERIES)
     ref_p95 = _num(rows[0]["p95_ms"])
+    flags = [
+        f"step {row['target']}: {row['rate_flag']}"
+        for row in rows
+        if row.get("rate_flag") not in (None, "", "ok")
+    ]
     last_ok = None
     for i, row in enumerate(rows):
         target = int(_num(row["target"]))
@@ -138,6 +163,7 @@ def knee(
                 "knee_target": target,
                 "reasons": reasons,
                 "reached_max": False,
+                "flags": flags,
             }
         last_ok = target
     return {
@@ -146,6 +172,7 @@ def knee(
         "knee_target": None,
         "reasons": [],
         "reached_max": True,
+        "flags": flags,
     }
 
 
@@ -181,18 +208,14 @@ class Http:
 
 
 def locust_row(stats, target, t_start, t_end, items_name):
-    """One step's Locust numbers from /stats/requests (reset at t_start)."""
+    """One step's Locust numbers from /stats/requests, reset at t_start: the achieved rate is
+    the window's requests over its measured seconds (total_rps is kept for display only)."""
     entries = {e["name"]: e for e in stats["stats"]}
     total = entries.get("Aggregated", {})
     requests = total.get("num_requests", 0)
     failures = total.get("num_failures", 0)
     p95 = total.get("response_time_percentile_0.95")
-    # Locust's own rate: requests over the span of their timestamps since the reset. Dividing by
-    # the wall-clock window instead reads low: workers report every 3 s and the API caches 2 s
-    # (local smoke: 9.0 against Locust's 10.3 at 10 users over 20 s).
-    rps = total.get("total_rps")
-    if rps is None:
-        rps = requests / (t_end - t_start)
+    total_rps = total.get("total_rps")
     return {
         "target": target,
         "t_start": f"{t_start:.3f}",
@@ -200,7 +223,8 @@ def locust_row(stats, target, t_start, t_end, items_name):
         "requests": requests,
         "failures": failures,
         "items_failures": entries.get(items_name, {}).get("num_failures", 0),
-        "achieved_rps": f"{rps:.3f}",
+        "achieved_rps": f"{requests / (t_end - t_start):.3f}",
+        "locust_total_rps": "" if total_rps is None else f"{total_rps:.3f}",
         "fail_ratio": f"{(failures / requests) if requests else 0:.6f}",
         "p95_ms": "" if p95 is None else p95,
     }
@@ -217,6 +241,17 @@ def prom_value(http, base, query, at):
         return "", answer
     value = float(result[0]["value"][1])
     return ("" if math.isnan(value) else value), answer
+
+
+def rate_check(achieved, prom_rps, max_diff):
+    """(rate_diff, rate_flag) for the server-side cross-check."""
+    if prom_rps == "":
+        return "", "prometheus rate: no data"
+    if achieved == 0:
+        return "", "achieved 0"
+    diff = abs(prom_rps - achieved) / achieved
+    flag = "ok" if diff <= max_diff else f"rate diff {diff:.1%} > {max_diff:.0%}"
+    return f"{diff:.4f}", flag
 
 
 def run(args, http=None, sleep=time.sleep, now=time.time, log=print):
@@ -255,6 +290,13 @@ def run(args, http=None, sleep=time.sleep, now=time.time, log=print):
                         row[name], raw["prometheus"][name] = prom_value(
                             http, args.prom, query, t_end
                         )
+                    query = RATE_QUERY.format(ns=args.namespace)
+                    row["prom_rps"], raw["prometheus"]["prom_rps"] = prom_value(
+                        http, args.prom, query, t_end
+                    )
+                    row["rate_diff"], row["rate_flag"] = rate_check(
+                        float(row["achieved_rps"]), row["prom_rps"], args.rate_diff_max
+                    )
                 writer.writerow(row)
                 f.flush()
                 (out / f"step-{target}.json").write_text(json.dumps(raw, indent=1))
@@ -269,7 +311,8 @@ def run(args, http=None, sleep=time.sleep, now=time.time, log=print):
                 )
                 log(
                     f"step {target}: {row['achieved_rps']} req/s, failures {row['failures']}, "
-                    f"p95 {row['p95_ms']} ms, app throttle {row['app_throttle']}, db throttle {row['db_throttle']}"
+                    f"p95 {row['p95_ms']} ms, app throttle {row['app_throttle']}, "
+                    f"db throttle {row['db_throttle']}, rate check {row['rate_flag'] or '-'}"
                 )
                 if verdict["knee_target"] is not None:
                     break
@@ -320,6 +363,7 @@ def parser():
     r.add_argument("--settle", type=float, default=60)
     r.add_argument("--measure", type=float, default=120)
     r.add_argument("--spawn-rate", type=float, default=5)
+    r.add_argument("--rate-diff-max", type=float, default=0.05)
 
     k = sub.add_parser("knee", parents=[thresholds])
     k.add_argument("steps_csv")
