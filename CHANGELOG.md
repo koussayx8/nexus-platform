@@ -1,7 +1,13 @@
 # Changelog
 
 All notable changes to this project are documented in this file.
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+uses milestone tags (`v0.N.0`, one per milestone exit).
+
+## [Unreleased]
+
+M1b — detection and the operator skeleton — is in progress. Its entries are written at the M1b exit,
+which is released as `0.3.0`. Progress is tracked in [`TASKS.md`](TASKS.md).
 
 ## [0.2.0] - 2026-09-29
 
@@ -32,9 +38,6 @@ M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Depen
   ([#75](https://github.com/koussayx8/nexus-platform/pull/75)).
 - `bootstrap.sh`: UTC timestamps on every step header, `set -e` as a backstop
   ([#72](https://github.com/koussayx8/nexus-platform/pull/72)).
-- A tracked, minimal read-only allow list in `.claude/settings.json`, and deny rules for
-  `--output`, `--upload-pack` and `--exec`
-  ([#78](https://github.com/koussayx8/nexus-platform/pull/78)).
 
 ### Changed
 - `sample-api` in both environments: digest `sha256:8ea896c2…e0e9af` (cosign-verified), DB
@@ -47,8 +50,6 @@ M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Depen
   ADR-020 addenda.
 - `pytest`, `pytest-asyncio` and `httpx` moved out of the runtime image into
   `requirements-dev.txt` ([#69](https://github.com/koussayx8/nexus-platform/pull/69)).
-- The agent asks before `gh pr merge` and `gh api`
-  ([#71](https://github.com/koussayx8/nexus-platform/pull/71)).
 
 ### Security
 - k3s Secrets encryption at rest: `bootstrap.sh` writes `secrets-encryption: true` before the
@@ -145,5 +146,6 @@ checked by `scripts/verify-state.sh`.
   size-triggered log rotation preserved `640 root:adm`, with non-sudo read access confirmed on every
   resulting file.
 
-[0.2.0]: https://github.com/koussayx8/nexus-platform/releases/tag/v0.2.0
+[Unreleased]: https://github.com/koussayx8/nexus-platform/compare/v0.2.0...main
+[0.2.0]: https://github.com/koussayx8/nexus-platform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/koussayx8/nexus-platform/releases/tag/v0.1.0
