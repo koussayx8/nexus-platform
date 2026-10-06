@@ -1,0 +1,118 @@
+# Locust master (M1b-9, ADR-026). Serves the web UI and API on 8089 and the worker port 5557.
+#
+# Image: locustio/locust 2.46.7, pinned by its index digest (Docker Hub, read 2026-10-06).
+# It runs as `locust`, UID/GID 1000, which has a passwd entry in the image
+# (`locust:x:1000:1000::/home/locust:/bin/sh`, read from the image layer). That matters: the #100
+# operator crash came from a UID with no passwd entry. Restricted Pod Security (nexus-load
+# enforces it): non-root, no privilege escalation, all capabilities dropped, read-only root
+# filesystem with /tmp as an emptyDir, RuntimeDefault seccomp. No ServiceAccount token.
+#
+# --class-picker lets R1 select DevUser only (`user_classes` on /swarm). No --autostart in L1: the
+# master starts idle, and nothing is sent until someone posts to /swarm.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-master
+  labels:
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/component: master
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: locust
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: locust
+        app.kubernetes.io/component: master
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: locust
+          image: locustio/locust@sha256:8492fcaa6a07314551590f579219204e459d9fdc9dde060843bd2896e7a7259f
+          imagePullPolicy: IfNotPresent
+          args:
+            - --locustfile=/mnt/locust/locustfile.py
+            - --master
+            - --master-bind-port=5557
+            - --web-port=8089
+            - --class-picker
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          ports:
+            - name: web
+              containerPort: 8089
+              protocol: TCP
+            - name: workers
+              containerPort: 5557
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            tcpSocket:
+              port: web
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: web
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: locustfile
+              mountPath: /mnt/locust
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: locustfile
+          configMap:
+            name: locustfile
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-master
+  labels:
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/component: master
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/component: master
+  ports:
+    - name: web
+      port: 8089
+      targetPort: web
+      protocol: TCP
+    - name: workers
+      port: 5557
+      targetPort: workers
+      protocol: TCP

@@ -15,6 +15,8 @@
 #      (TASKS.md M1b-7, ADR-024).
 #   9. The S5 pin guard (M1b-8, ADR-025): the 5 rule-defining files equal #79's head d351d964.
 #      Expires at the M1b exit: after S5 is graded, removed or re-pinned through an ADR.
+#  10. Offline unit tests for the M1b-9 calibration ramp and knee script (experiments/calibration;
+#      standard library only, no network, ADR-026).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
@@ -113,4 +115,8 @@ if ! git diff --quiet "$S5_PIN" HEAD -- "${S5_PATHS[@]}"; then
   exit 1
 fi
 echo "the 5 pinned paths equal ${S5_PIN}"
+echo "::endgroup::"
+
+echo "::group::calibration ramp and knee tests (M1b-9, offline)"
+python3 -m unittest discover -s experiments/calibration -p 'test_*.py' -v
 echo "::endgroup::"
