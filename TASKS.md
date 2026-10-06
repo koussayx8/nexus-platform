@@ -758,9 +758,28 @@ to the recorded values means a rerun;
   - **Problems catalogue:** envtest ran Kopf under a real local user, so it missed that image UID
     10001 has no passwd entry (the #100 crash loop). Test the identity the image actually runs as.
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
-  `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
+  `/work/cpu` stays out or minimal and constant (ADR-026); ~~R2 `/work/cpu` on 1 pod~~; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
   first-fire time re-measured (+105 s in promtool at a 20 % error share).
+  Plan: `~/nexus-m1b9-plan.md` (owner's local file), approved with changes by Koussay on 2026-10-06:
+  - **Mix:** `/` : `/items` = 4 : 1, the 20 % share of promtool case 4, with no `/work/cpu`. The load is
+    not shaped to the detector, so S5's first firing checks the +105 s prediction.
+  - **S5 injection:** exactly spec §20 (`NOLOGIN`, and its sessions terminated).
+  - **S5 pass rule:** `NexusErrorRateAnomaly` fires for `nexus-dev`, and exactly one Incident ends
+    `Recorded` there for the episode. The record names the alert that created it.
+  - **DB CPU throttling:** recorded at every R1 step. The DB limit or criterion is decided at the R1 gate,
+    before L2 freezes B.
+  - **R2 deferred to M2/S2** (owner, 2026-10-06): S2's per-pod `/work/cpu` capacity is measured there.
+    The S5 exit does not need it.
+  - **PRs:** L1 (Locust idle, ramp script, ADR-026 draft), L2 (B frozen), then the closing PR with
+    `CURRENT_STATE.md` and these boxes.
+  - [ ] L1: `platform/load/` (Locust master and worker, idle), `experiments/calibration/ramp.py` with
+    offline tests (`repo-checks` step 10), ADR-026 draft.
+  - [ ] R1 on `nexus-dev` (approved live run); C and B proposed; DB limit or criterion decided.
+  - [ ] L2: B frozen (`--autostart`); warm-up ≥ 20 min; 60-min clean baseline; change-16 verdict.
+  - [ ] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
+  - [ ] Closing PR: ADR-026 results, ADR-020 and ADR-025 addenda, `CURRENT_STATE.md`, these boxes.
+    **GATE M1b-9.**
 
 ## Later — out of scope for M1b
 
