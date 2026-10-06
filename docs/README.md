@@ -44,6 +44,7 @@ Notes on which records later ones supersede in part are in the [README](../READM
 | [023](adr/ADR-023-incident-crd-and-kopf-persistence.md) | The Incident CRD and Kopf's status-only persistence |
 | [024](adr/ADR-024-detection-rules.md) | Detection rules: lagged-baseline Z-scores |
 | [025](adr/ADR-025-operator-skeleton.md) | The operator skeleton |
+| [026](adr/ADR-026-load-baseline.md) | The Locust load baseline and the R1 calibration |
 
 ## Reading order
 
