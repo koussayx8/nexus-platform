@@ -54,24 +54,32 @@ under that baseline.
 - `experiments/calibration/ramp.py run`: `DevUser` only.
   - Steps of +10 req/s from 10. Each step: 1 min settle, then Locust's statistics are reset, then a
     2 min measure window. Cap 200.
-  - **Achieved rate** = the window's requests ÷ its measured seconds (owner, #106 gate). Locust's
-    `total_rps` is a short-window snapshot, recorded for display only.
-  - **Cross-check:** `namespace:nexus_sample_api_requests:rate2m` at the window's end (its 2 min
-    window is the measure window). A difference above 5 %, or no answer, is flagged in the row and
-    the verdict; it is not a knee.
-  - The master's reset does not reach the workers (3 s reports), and its API caches for 2 s, so the
-    window count can read a few seconds of requests low. In a 20 s local smoke that was 9.0 against
-    10 req/s; over 120 s it is a few percent. The cross-check bounds it.
+  - **Achieved rate (the knee input) is server-side** (owner, #106 gate): the counter behind
+    `namespace:nexus_sample_api_requests:rate2m`, with its selector, summed for `nexus-dev`, as
+    `sum(rate(http_requests_total{…}[120s]))` over exactly the measure window, evaluated at the
+    window's end time. If Prometheus does not answer (or answers empty), the step cannot be judged
+    and the ramp stops with no capacity.
+  - **Locust's window average is the cross-check:** the window's requests ÷ its measured seconds.
+    A difference from the server rate above 5 % is flagged in the row and the verdict; it is not a
+    knee. The signed difference is recorded at every step.
+  - **Expected low bias of the cross-check, recorded and not acted on:** the master's reset does not
+    reach the workers (3 s reports), and its API caches for 2 s, so the window count reads a few
+    seconds of requests low. A 20 s local smoke read 9.0 against 10 req/s; over 120 s it is a few
+    percent. This is why Locust's count does not decide the knee: a few percent low sits at the 95 %
+    rule and could declare a false knee.
+  - Locust's `total_rps` is a short-window snapshot, recorded for display only.
+  - **p95 and the failure ratio stay Locust's**, from the same window (reset after the settle minute).
   - Every step records sample-api and dependency-db CFS throttling, DB CPU and peak working set,
     the worker's CPU and the node's CPU. An empty Prometheus answer is recorded as empty, never as 0.
 - **Knee:** the first step with any of:
   - failures > 1 %;
   - any `/items` failure;
-  - achieved rate (window average) < 95 % of the target;
+  - server-side achieved rate < 95 % of the target;
   - p95 > 2 × the first step's;
   - sample-api throttled periods > 10 %.
 
-  C = the last step before the knee. The ramp stops at the knee and posts `/stop`.
+  C = the last step before the knee. The ramp stops at the knee, or at a step it cannot judge,
+  and posts `/stop`.
 - **B = floor(0.4 × C) req/s per namespace**, frozen in L2.
 - DB throttling is recorded, not a knee criterion. The DB limit or the criterion is decided at
   the R1 gate, before L2 freezes B (owner, 2026-10-06). The criterion already fails at idle:
