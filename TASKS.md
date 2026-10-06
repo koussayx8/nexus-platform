@@ -739,11 +739,24 @@ to the recorded values means a rerun;
     `operator/tests/envtest/` (P1–P6, episodes, smoke, absorb), `platform/rbac/` (not yet listed
     in `platform/kustomization.yaml`), `operator.yml`, the S5 pin guard, ADR-025; the spike
     deleted.
-  - [ ] PR B (deploy, branch `feat/m1b-8-deploy`; RBAC wait proven by
+  - [x] PR B (deploy; #99 → `dev`, gate #102 → `main` `bba0646`; RBAC wait proven by
     `operator/tests/envtest/run-rbac-late.sh`): `operator/k8s/`, `rbac` in the
     `platform` kustomization, the `nexus` Application, verify/bootstrap checks, the
-    `nexus-operator-config` template (owner applies it live).
-  - [ ] Live acceptance (plan §3), including the `startsAt` semantics check (ADR-025 UNVERIFIED).
+    `nexus-operator-config` template (owner applied it live). The first deploy crash-looped
+    (#100: image UID 10001 has no passwd entry); fixed by #101 (`USER` env).
+  - [x] Live acceptance (plan §3), 2026-10-06; evidence `~/nexus-evidence/m1b-8/` (0600, not in Git):
+    `verify-state.sh` 12/12 (`verify-state-3.md`), operator pod 0 restarts, `boot_id` unchanged,
+    0 Incidents at idle; smoke (`smoke.txt`, marked as smoke, not detections): 5 episodes, 10
+    Incidents, dev L0 `Recorded`/`level_observe`, prod L1 `Escalated`/`evidence_error` in 20–22 s
+    (window 20–28 s); audit (`operator-audit-smoke-2.jsonl`): 10 `create` and 30 `incidents/status`
+    patches, 0 403s, 0 writes elsewhere; the owner deleted the smoke Incidents, count 0, none recreated.
+    - **Not performed:** the in-window repeat post (same episode, before `endsAt`); both attempts
+      landed after `endsAt` and made new episodes. Dedupe is evidenced indirectly: each episode
+      polled about 12 times with one Incident, Prometheus re-sends keep `startsAt`, envtest and unit tests.
+    - **Moved to M1b-9:** the `startsAt` versus Prometheus `activeAt` check on a real firing alert
+      (ADR-025 UNVERIFIED stays open until then).
+  - **Problems catalogue:** envtest ran Kopf under a real local user, so it missed that image UID
+    10001 has no passwd entry (the #100 crash loop). Test the identity the image actually runs as.
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
   `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
@@ -928,7 +941,9 @@ to the recorded values means a rerun;
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
 - Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
 - `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
-- Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
+- Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
+- Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
+- Repository settings, owner action (not a Git change): set the About description and topics (command proposed in the docs PR). Private vulnerability reporting is enabled (checked read-only); `LICENSE` (Apache-2.0) and `NOTICE` are added by the docs PR.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
