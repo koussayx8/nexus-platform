@@ -1,0 +1,24 @@
+# Locust (spec §3 "Locust", §25: Deployment `locust` in nexus-load, managed by `platform`; M1b-9,
+# ADR-026). Master and one worker. The locustfile ships as a generated ConfigMap, so a change to it
+# rolls both pods.
+#
+# L1 (this state): idle. The master starts no users; R1 is driven through its web API on 8089,
+# reached only through a port-forward. L2 freezes the baseline with --autostart (ADR-026).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus-load
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: nexus-platform
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - master.yaml
+  - worker.yaml
+
+configMapGenerator:
+  - name: locustfile
+    files:
+      - locustfile.py

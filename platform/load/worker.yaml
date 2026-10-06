@@ -1,0 +1,68 @@
+# Locust worker (M1b-9, ADR-026). Generates the requests; one worker is enough at the rates
+# M1b-9 runs. During every timed run its CPU is checked against the limit (it must stay below
+# 50 %), so the measured capacity is sample-api's, not the load generator's. Same image and
+# security context as the master (master.yaml). No probe: a worker serves no port, and it
+# reconnects to the master on its own.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-worker
+  labels:
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: locust
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: locust
+        app.kubernetes.io/component: worker
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: locust
+          image: locustio/locust@sha256:8492fcaa6a07314551590f579219204e459d9fdc9dde060843bd2896e7a7259f
+          imagePullPolicy: IfNotPresent
+          args:
+            - --locustfile=/mnt/locust/locustfile.py
+            - --worker
+            - --master-host=locust-master
+            - --master-port=5557
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          volumeMounts:
+            - name: locustfile
+              mountPath: /mnt/locust
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: locustfile
+          configMap:
+            name: locustfile
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
