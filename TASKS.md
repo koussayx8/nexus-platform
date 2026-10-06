@@ -941,7 +941,9 @@ to the recorded values means a rerun;
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
 - Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
 - `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
-- Docs pass: `README.md` still describes Backstage, Crossplane and the old autonomy ladder. `docs/NEXUS_STATUS.md` and `docs/CUT_LIST.md` are OpenCode-era; decide whether to rewrite or archive them.
+- Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
+- Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
+- Repository settings, owner action (not a Git change): enable GitHub private vulnerability reporting, which `SECURITY.md` points to; set the About description and topics (command proposed in the docs PR); add a `LICENSE` once the owner confirms ownership and picks one.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
