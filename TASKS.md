@@ -782,6 +782,13 @@ to the recorded values means a rerun;
   Pin sample-api's base by digest, and move both images to a slimmer base (e.g. distroless or a
   minimal Python runtime), then compare the Trivy counts. `operator.yml` copies `ci.yml`'s
   `cosign-installer@v3`, so the item above applies to it too.
+- **Operator image: a passwd entry for UID 10001, then drop the USER workaround** (owner, #100 stop,
+  2026-10-06). Image `ef3c6955` runs as UID 10001 with no `/etc/passwd` entry; Kopf's
+  `getpass.getuser()` raised `KeyError` and the pod crash-looped at the #100 live gate.
+  `operator/k8s/deployment.yaml` now sets `USER=nexus-operator` (guarded by
+  `operator/tests/unit/test_runtime_user.py`). At the next image rebuild (with the base-image item
+  above): `useradd --uid 10001` in the Dockerfile, new `cosign verify` and digest pin, then remove
+  the env and turn the manifest test into a check that the image resolves UID 10001.
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
   **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
