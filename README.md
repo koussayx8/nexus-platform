@@ -6,6 +6,7 @@
 [![CI — operator](https://github.com/koussayx8/nexus-platform/actions/workflows/operator.yml/badge.svg?branch=main)](https://github.com/koussayx8/nexus-platform/actions/workflows/operator.yml)
 [![repo-checks](https://github.com/koussayx8/nexus-platform/actions/workflows/repo-checks.yml/badge.svg?branch=main)](https://github.com/koussayx8/nexus-platform/actions/workflows/repo-checks.yml)
 [![Latest tag](https://img.shields.io/github/v/tag/koussayx8/nexus-platform?label=release)](CHANGELOG.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 NEXUS is an engineering thesis project (PFE, ESPRIT) by Koussay Belhouchet. It is an experiment, not a
 product: it tests one hypothesis.
@@ -298,4 +299,4 @@ removed from the architecture; the later ADR named in the notes column governs.
 
 ## License
 
-No license file is included yet. Until one is added, no permission to reuse the code is granted.
+NEXUS is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
