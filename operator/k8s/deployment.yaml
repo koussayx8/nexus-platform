@@ -1,0 +1,91 @@
+# The NEXUS Operator (spec §4, §11; M1b-8 PR B; ADR-025).
+#
+# Image: pinned by the digest CI built and Cosign-signed on main 3ea41f8 (operator.yml run
+# 37107726688), verified with `cosign verify` against operator.yml@refs/heads/main.
+#
+# 1 replica, Recreate: one writer of Incident status at a time (ADR-023). Restricted Pod Security
+# (nexus-system enforces it): non-root UID 10001, no privilege escalation, all capabilities
+# dropped, read-only root filesystem, RuntimeDefault seccomp. The ServiceAccount token is mounted
+# (§11): it is the operator's only login.
+#
+# Probes, both on Kopf's /healthz (served only after the startup handlers succeed):
+#   startupProbe  10 s x 36 = 360 s. Covers the wait for RBAC: if the `platform` Application
+#                 applies platform/rbac after this pod starts, the startup handler's ConfigMap read
+#                 gets 403 and Kopf retries it every 60 s without exiting; no watch or loop starts
+#                 before it succeeds. Worst case ~180 s pickup skew (root and platform share one
+#                 Git reference cache, ADR-020) + 60 s retry < 360 s.
+#   livenessProbe 15 s x 3, after startup: fails when a loop stopped or stalled (ADR-025).
+# Rollout term (ADR-020 coupling rule): 360 s startupProbe + a 240 s pull allowance (49 MiB
+# compressed) = 600 s, the same rollout term as today, so none of the four ADR-020 values change.
+# No readiness probe or metrics port: metrics arrive in M2. Replicas are excluded from diffing in
+# the `nexus` Application (§3).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-operator
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/name: nexus-operator
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-operator
+        app.kubernetes.io/part-of: nexus-platform
+    spec:
+      serviceAccountName: nexus-operator
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: operator
+          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:ef3c695542d308977d0909656dc40ddb5dfaf1c2168853c95b57c80959083b53
+          imagePullPolicy: IfNotPresent
+          # UID 10001 has no /etc/passwd entry in image ef3c6955. Kopf names its peering identity
+          # with getpass.getuser(), which reads USER before falling back to pwd.getpwuid(), so
+          # without this the operator dies before startup (KeyError, #100 live gate). Workaround
+          # until the image adds a passwd entry (TASKS.md Later); test_runtime_user.py guards it.
+          env:
+            - name: USER
+              value: nexus-operator
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

@@ -1,0 +1,6 @@
+# The operator's staged §11 RBAC (M1b-8). Joins the `platform` Application in PR B.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - nexus-operator.yaml

@@ -1,8 +1,16 @@
-# Admin-owned operator configuration (spec line 393). Applied directly by bootstrap.sh, never
-# by ArgoCD (spec line 924), so an experiment reset or reconciliation can never silently change
-# it. The NEXUS Operator arrives in M1 and defines the real schema for these fields; this M0-5
-# stub exists only so the ConfigMap is present, in the right namespace, and excluded from GitOps
-# before the operator ever reads it. Every value below is a placeholder — M1 replaces this file.
+# Admin-owned operator configuration (spec line 393; ADR-019). bootstrap.sh creates it once, from
+# this template on main, and never through ArgoCD (spec line 924), so an experiment reset or a
+# reconciliation can never silently change it. The operator reads it at startup (a change takes
+# effect at the next start) and fails at startup without a usable alertmanagerURL.
+# Schema (M1b-8, ADR-025):
+#   alertPollSeconds        Alert Poller interval (§4, frozen at 10)
+#   reconcileSeconds        Incident Reconciler interval (§4, frozen at 5)
+#   detectedTimeoutSeconds  Detected -> Escalated/evidence_error (§7, frozen at 20)
+#   alertmanagerURL         Alertmanager v2 API base URL (the kube-prometheus-stack Service)
+#   advisoryChecks          Safety Gate advisory checks (M2; "on" by default, spec line 394)
+#   approvalTTL             L2 approval TTL (M3; 15 min, spec line 538)
+#   breakerEpoch            Circuit Breaker epoch (M2; set by each run reset, spec line 1844)
+#   reasonerEndpoint        the Reasoner's URL (M2; empty until then)
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,9 +19,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: nexus-platform
   annotations:
-    nexus.io/adr: "ADR-019"
+    nexus.io/adr: "ADR-019, ADR-025"
 data:
+  alertPollSeconds: "10"
+  reconcileSeconds: "5"
+  detectedTimeoutSeconds: "20"
+  alertmanagerURL: http://observability-kube-prometh-alertmanager.monitoring.svc:9093
+  advisoryChecks: "on"
+  approvalTTL: "15m"
   breakerEpoch: "0"
   reasonerEndpoint: ""
-  approvalTTL: "5m"
-  advisoryChecks: "false"

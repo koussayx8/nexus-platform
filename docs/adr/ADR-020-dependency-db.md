@@ -244,3 +244,17 @@ The measured range is now **162–382 s** (about 2.7 to 6.4 min). The worst case
 the 480 s reconcile term and the four derived values stand. 162 s is below the 180 s term: a
 pickup can be fast when the reference cache happens to expire just before the controller's next
 refresh.
+
+## Addendum (2026-10-02, M1b gates 2 and 3): the measured pickup range is now 108–382 s
+
+Same method (ArgoCD `deployedAt` of the new revision, or first poll at it), from the M1b gate runs
+(`~/nexus-evidence/m1b-gate2/`, `m1b-gate3/`):
+
+| Event | Pickup |
+|---|---|
+| Gate 2 (#92 merge, 2026-10-01T05:56:53Z) | `sample-api-prod` 180 s |
+| Gate 2 forward-merge push (06:21:39Z) | `sample-api-dev` **108 s** |
+| Observability gate (#94 merge, 13:36:16Z) | Grafana's new pod Ready 297 s after the merge |
+
+The measured range is now **108–382 s**. The worst case, and so the 480 s reconcile term and the
+four derived values, are unchanged.

@@ -1,8 +1,11 @@
-# The staged M1b RBAC of the nexus-operator ServiceAccount (plan M1b-8, owner decision
-# 2026-09-28): only the spec §11 rows that M1b uses. Applied to the envtest harness by
-# run-spike.sh; M1b-8 moves it to platform/rbac/. Not granted until M2: the other §11 reads (pods,
-# logs, events, services, endpoints, deployments, replicasets, endpointslices, ArgoCD
-# applications), deployments/scale and pods/eviction.
+# The staged §11 RBAC of the nexus-operator ServiceAccount (M1b-8; ADR-023, ADR-025): only the
+# spec §11 rows M1b uses. Incidents: create (Alert Poller), status (Incident Reconciler), reads.
+# Not granted until M2: the other §11 reads (pods, logs, events, services, endpoints,
+# deployments, replicasets, endpointslices, ArgoCD applications), deployments/scale and
+# pods/eviction. Never: delete, patch on Incident spec or metadata, writes to namespaces,
+# ConfigMaps, Secrets, RBAC or policies (§11 "denied by omission").
+# Tested on envtest by operator/tests/envtest/run-envtest.sh; deployed when PR B lists this
+# directory in platform/kustomization.yaml.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
