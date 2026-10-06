@@ -50,6 +50,8 @@ M1 — the Dependency DB and `/items` (spec §3, §20, §25): a PostgreSQL Depen
   ADR-020 addenda.
 - `pytest`, `pytest-asyncio` and `httpx` moved out of the runtime image into
   `requirements-dev.txt` ([#69](https://github.com/koussayx8/nexus-platform/pull/69)).
+- Development tooling configuration ([#71](https://github.com/koussayx8/nexus-platform/pull/71),
+  [#78](https://github.com/koussayx8/nexus-platform/pull/78)).
 
 ### Security
 - k3s Secrets encryption at rest: `bootstrap.sh` writes `secrets-encryption: true` before the
