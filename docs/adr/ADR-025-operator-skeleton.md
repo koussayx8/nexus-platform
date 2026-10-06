@@ -215,3 +215,18 @@ code of image `ef3c6955`:
 - **The fix** is a Later item, in either of two ways:
   - treat a 404 like a 403 (retry) in the next image;
   - create the ConfigMaps before `root`.
+
+## Addendum (2026-10-06): the #100 live gate stopped on a crash loop
+- **What happened.** `nexus` deployed at `main` `5d7b1c7`, and the pod crash-looped (5 restarts in
+  5 min) before any API call: `KeyError: 'getpwuid(): uid not found: 10001'` in Kopf's
+  `peering.detect_own_id` → `getpass.getuser()`.
+- **Why.** The image runs as UID 10001 with no `/etc/passwd` entry. envtest ran Kopf as a real user,
+  so it never saw this.
+- **Fix (owner, option 1).** The Deployment sets `USER=nexus-operator`, which `getpass` reads before
+  it falls back to `pwd`. The verified digest `ef3c6955` stays.
+- **Regression test.** `operator/tests/unit/test_runtime_user.py`, with `pwd.getpwuid` patched to
+  raise and the user variables unset:
+  - without `USER`, startup identity fails;
+  - with it, it succeeds;
+  - the manifest carries the variable.
+- **Later.** A passwd entry at the next image rebuild, then the workaround goes.
