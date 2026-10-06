@@ -1,24 +1,39 @@
 # NEXUS — Current State
 
-Generated 2026-09-29T06:57:46Z by `scripts/verify-state.sh`. Never hand-edited (spec §25).
+Generated 2026-10-06T06:32:37Z by `scripts/verify-state.sh`. Never hand-edited (spec §25).
 
 ### M1 — Applications stable at the expected commits — PASS
 ```
-expected: origin/main=ee39cefaf25906d792e8630c0506620e13c30182 origin/experiment/dev-state=23d0b84375aacd4ee07d480190b1ee7c2892448a
+expected: origin/main=bba0646cf6b58c29c8d5631dc21ca8221f80e57d origin/experiment/dev-state=7cdf28a5036d9941c6806af9f46414deaa107423
 bound 1140s (NEXUS_VERIFY_APPS_TIMEOUT), stable window 60s, poll every 5s
-2026-09-29T06:57:46Z predicate=true streak=0s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:57:52Z predicate=true streak=6s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:57:57Z predicate=true streak=11s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:03Z predicate=true streak=17s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:09Z predicate=true streak=23s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:14Z predicate=true streak=28s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:20Z predicate=true streak=34s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:25Z predicate=true streak=39s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:30Z predicate=true streak=44s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:36Z predicate=true streak=50s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:42Z predicate=true streak=56s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-2026-09-29T06:58:48Z predicate=true streak=62s | root Synced/Healthy expected=ee39cef observed=ee39cef; platform Synced/Healthy expected=ee39cef observed=ee39cef; kyverno Synced/Healthy expected=ee39cef observed=ee39cef; observability Synced/Healthy expected=ee39cef observed=ee39cef,ee39cef; sample-api-dev Synced/Healthy expected=23d0b84 observed=23d0b84; sample-api-prod Synced/Healthy expected=ee39cef observed=ee39cef; dependency-db Synced/Healthy expected=ee39cef observed=ee39cef
-stable at the expected commits for 62s (after 62s)
+2026-10-06T06:32:38Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:32:44Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:32:49Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:32:55Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:01Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:08Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:13Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:19Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:24Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:30Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:35Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:42Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:48Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:53Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:33:59Z predicate=false streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=38d37bd; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:04Z predicate=true streak=0s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:11Z predicate=true streak=7s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:16Z predicate=true streak=12s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:22Z predicate=true streak=18s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:27Z predicate=true streak=23s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:33Z predicate=true streak=29s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:38Z predicate=true streak=34s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:45Z predicate=true streak=41s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:51Z predicate=true streak=47s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:34:56Z predicate=true streak=52s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:35:01Z predicate=true streak=57s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+2026-10-06T06:35:07Z predicate=true streak=63s | root Synced/Healthy expected=bba0646 observed=bba0646; platform Synced/Healthy expected=bba0646 observed=bba0646; kyverno Synced/Healthy expected=bba0646 observed=bba0646; observability Synced/Healthy expected=bba0646 observed=bba0646,bba0646; sample-api-dev Synced/Healthy expected=7cdf28a observed=7cdf28a; sample-api-prod Synced/Healthy expected=bba0646 observed=bba0646; dependency-db Synced/Healthy expected=bba0646 observed=bba0646; nexus Synced/Healthy expected=bba0646 observed=bba0646
+stable at the expected commits for 63s (after 150s)
 ```
 ### M2 — Exactly one default Grafana datasource — PASS
 ```
@@ -27,10 +42,10 @@ isDefault:true count across labelled ConfigMaps = 1
 ### M3 — No Loki, Crossplane, or sample-db — PASS
 ### M4 — sample-api digest and /metrics — PASS
 ```
-nexus-dev: Git-pinned digest from origin/experiment/dev-state:overlays/dev/kustomization.yaml = sha256:8ea896c267d0842732e564e7c45b1606bc5347764bab7c7741e4d356c0e0e9af
+nexus-dev: Git-pinned digest from origin/experiment/dev-state:overlays/dev/kustomization.yaml = sha256:90fa807b711322dd54414c17bb3dd4b4a050cb43220b1e3874949829eff5827c
 nexus-dev: ready pods running the pinned digest = 2
 nexus-dev: /metrics HTTP 200
-nexus-prod: Git-pinned digest from origin/main:overlays/prod/kustomization.yaml = sha256:8ea896c267d0842732e564e7c45b1606bc5347764bab7c7741e4d356c0e0e9af
+nexus-prod: Git-pinned digest from origin/main:overlays/prod/kustomization.yaml = sha256:90fa807b711322dd54414c17bb3dd4b4a050cb43220b1e3874949829eff5827c
 nexus-prod: ready pods running the pinned digest = 2
 nexus-prod: /metrics HTTP 200
 ```
@@ -50,8 +65,8 @@ every non-Succeeded pod: all containers ready
 ```
 ### M7 — Audit log probe (§14) — PASS
 ```
-probe event 'verify-state-probe-1790665137-25853' found in /var/log/nexus-audit/audit.log
-apiserver_audit_event_total: before=385839 after=385841
+probe event 'verify-state-probe-1791268515-31631' found in /var/log/nexus-audit/audit.log
+apiserver_audit_event_total: before=23310 after=23315
 ```
 ### M8 — Kill Switch active — PASS
 ```
@@ -59,43 +74,53 @@ nexus-killswitch state=active
 ```
 ### M9 — Dependency DB pod Ready — PASS
 ```
-nexus-data/dependency-db-0: phase=Running ready=true uid=c8436079-9472-411c-a99d-33403df74aad restartCount=0
+nexus-data/dependency-db-0: phase=Running ready=true uid=c8436079-9472-411c-a99d-33403df74aad restartCount=8
 ```
 ### M10 — sample-api /items reads the Dependency DB — PASS
 ```
 nexus-dev: /items HTTP 200, rows=20
 nexus-prod: /items HTTP 200, rows=20
 ```
+### M11 — Incident CRD: C1-C4, Prune=false,Delete=false — PASS
+```
+crd/incidents.nexus.io: Established=True sync-options=Prune=false,Delete=false CEL rules=C1,C2,C3 C4 replicas bounds=1,5
+```
+### M12 — NEXUS Operator Ready on its pinned digest — PASS
+```
+nexus-operator: Git-pinned digest from origin/main:operator/k8s/deployment.yaml = sha256:ef3c695542d308977d0909656dc40ddb5dfaf1c2168853c95b57c80959083b53
+nexus-system: operator pods=1, Ready on the pinned digest=1, restartCount=0
+```
 ### I1 — Container restart counts (informational) — INFO
 ```
-argocd/argocd-application-controller-0: argocd-application-controller=0
-argocd/argocd-applicationset-controller-68fb4455bb-srsdd: argocd-applicationset-controller=0
-argocd/argocd-dex-server-76dcbcbc86-prhh9: dex=0
-argocd/argocd-notifications-controller-8495566bcf-z2g87: argocd-notifications-controller=0
-argocd/argocd-redis-85cfb75bdd-tlvdw: redis=0
-argocd/argocd-repo-server-9fd46496f-fcvv7: argocd-repo-server=0
-argocd/argocd-server-9c669c566-ndm9q: argocd-server=0
-kube-system/coredns-76c974cb66-g5m2q: coredns=0
-kube-system/local-path-provisioner-8686667995-fn6zz: local-path-provisioner=0
-kube-system/metrics-server-c8774f4f4-pcnlx: metrics-server=0
-kyverno/kyverno-admission-controller-bc8c8bb6-65tlr: kyverno=0
-kyverno/kyverno-background-controller-5f9f7d7b48-d6k9w: controller=0
-kyverno/kyverno-cleanup-controller-f5fd4b947-5ghsw: controller=0
+argocd/argocd-application-controller-0: argocd-application-controller=8
+argocd/argocd-applicationset-controller-68fb4455bb-srsdd: argocd-applicationset-controller=8
+argocd/argocd-dex-server-76dcbcbc86-prhh9: dex=8
+argocd/argocd-notifications-controller-8495566bcf-z2g87: argocd-notifications-controller=8
+argocd/argocd-redis-85cfb75bdd-tlvdw: redis=8
+argocd/argocd-repo-server-9fd46496f-fcvv7: argocd-repo-server=8
+argocd/argocd-server-9c669c566-ndm9q: argocd-server=8
+kube-system/coredns-76c974cb66-g5m2q: coredns=8
+kube-system/local-path-provisioner-8686667995-fn6zz: local-path-provisioner=9
+kube-system/metrics-server-c8774f4f4-pcnlx: metrics-server=9
+kyverno/kyverno-admission-controller-bc8c8bb6-65tlr: kyverno=8
+kyverno/kyverno-background-controller-5f9f7d7b48-d6k9w: controller=8
+kyverno/kyverno-cleanup-controller-f5fd4b947-5ghsw: controller=8
 kyverno/kyverno-migrate-resources-rzh7h: kyverno-cli=0
-monitoring/alertmanager-observability-kube-prometh-alertmanager-0: alertmanager=0 config-reloader=0
-monitoring/observability-grafana-6c98c8c9c7-m7v6s: grafana=0 grafana-sc-dashboard=0 grafana-sc-datasources=0
-monitoring/observability-kube-prometh-operator-5cd54cd65c-nbswc: kube-prometheus-stack=0
-monitoring/observability-kube-state-metrics-6dbc799d6d-jqfmr: kube-state-metrics=0
-monitoring/observability-prometheus-node-exporter-fndqb: node-exporter=0
-monitoring/prometheus-observability-kube-prometh-prometheus-0: config-reloader=0 prometheus=0
-nexus-data/dependency-db-0: dependency-db=0
-nexus-dev/sample-api-6c79fc674d-rzcpv: sample-api=0
-nexus-dev/sample-api-6c79fc674d-zhqlb: sample-api=0
-nexus-prod/sample-api-bfbc8586b-9hn4h: sample-api=0
-nexus-prod/sample-api-bfbc8586b-bzjff: sample-api=0
-25 pods; 0 containers restarted at least once
+monitoring/alertmanager-observability-kube-prometh-alertmanager-0: alertmanager=8 config-reloader=8
+monitoring/observability-grafana-5dc967b59-n8qk2: grafana=5 grafana-sc-dashboard=6 grafana-sc-datasources=5
+monitoring/observability-kube-prometh-operator-5cd54cd65c-nbswc: kube-prometheus-stack=9
+monitoring/observability-kube-state-metrics-6dbc799d6d-jqfmr: kube-state-metrics=8
+monitoring/observability-prometheus-node-exporter-fndqb: node-exporter=8
+monitoring/prometheus-observability-kube-prometh-prometheus-0: config-reloader=8 prometheus=8
+nexus-data/dependency-db-0: dependency-db=8
+nexus-dev/sample-api-79b97696c9-fmswt: sample-api=6
+nexus-dev/sample-api-79b97696c9-fzzsx: sample-api=6
+nexus-prod/sample-api-695c68bb6c-8nf4x: sample-api=6
+nexus-prod/sample-api-695c68bb6c-mj9j2: sample-api=6
+nexus-system/nexus-operator-6f5475475f-jdj58: operator=0
+26 pods; 28 containers restarted at least once
 ```
 
 ## Summary
 
-10 passed, 0 failed.
+12 passed, 0 failed.
