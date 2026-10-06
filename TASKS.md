@@ -739,11 +739,24 @@ to the recorded values means a rerun;
     `operator/tests/envtest/` (P1–P6, episodes, smoke, absorb), `platform/rbac/` (not yet listed
     in `platform/kustomization.yaml`), `operator.yml`, the S5 pin guard, ADR-025; the spike
     deleted.
-  - [ ] PR B (deploy, branch `feat/m1b-8-deploy`; RBAC wait proven by
+  - [x] PR B (deploy; #99 → `dev`, gate #102 → `main` `bba0646`; RBAC wait proven by
     `operator/tests/envtest/run-rbac-late.sh`): `operator/k8s/`, `rbac` in the
     `platform` kustomization, the `nexus` Application, verify/bootstrap checks, the
-    `nexus-operator-config` template (owner applies it live).
-  - [ ] Live acceptance (plan §3), including the `startsAt` semantics check (ADR-025 UNVERIFIED).
+    `nexus-operator-config` template (owner applied it live). The first deploy crash-looped
+    (#100: image UID 10001 has no passwd entry); fixed by #101 (`USER` env).
+  - [x] Live acceptance (plan §3), 2026-10-06; evidence `~/nexus-evidence/m1b-8/` (0600, not in Git):
+    `verify-state.sh` 12/12 (`verify-state-3.md`), operator pod 0 restarts, `boot_id` unchanged,
+    0 Incidents at idle; smoke (`smoke.txt`, marked as smoke, not detections): 5 episodes, 10
+    Incidents, dev L0 `Recorded`/`level_observe`, prod L1 `Escalated`/`evidence_error` in 20–22 s
+    (window 20–28 s); audit (`operator-audit-smoke-2.jsonl`): 10 `create` and 30 `incidents/status`
+    patches, 0 403s, 0 writes elsewhere; the owner deleted the smoke Incidents, count 0, none recreated.
+    - **Not performed:** the in-window repeat post (same episode, before `endsAt`); both attempts
+      landed after `endsAt` and made new episodes. Dedupe is evidenced indirectly: each episode
+      polled about 12 times with one Incident, Prometheus re-sends keep `startsAt`, envtest and unit tests.
+    - **Moved to M1b-9:** the `startsAt` versus Prometheus `activeAt` check on a real firing alert
+      (ADR-025 UNVERIFIED stays open until then).
+  - **Problems catalogue:** envtest ran Kopf under a real local user, so it missed that image UID
+    10001 has no passwd entry (the #100 crash loop). Test the identity the image actually runs as.
 - **M1b-9 — Locust calibration:** R1 baseline mix on 2 replicas covers `/` and `/items`;
   `/work/cpu` stays out or minimal and constant (ADR-026); R2 `/work/cpu` on 1 pod; baseline 0.4 ×
   R1 capacity; a 60-min clean baseline with zero Nexus alerts; the change-16 DB criteria; S5
