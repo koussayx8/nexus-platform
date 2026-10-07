@@ -1,9 +1,9 @@
 # ADR-026: The Locust Load Baseline and the R1 Calibration
 
-## Status: Proposed (M1b-9, PR L1 `feat/m1b-9-locust`; plan `~/nexus-m1b9-plan.md`, approved with changes by Koussay, 2026-10-06)
+## Status: Proposed (M1b-9; L1 #106, R1 run 2026-10-07, L2 `feat/m1b-9-baseline`; plan `~/nexus-m1b9-plan.md`)
 
-Draft. L1 records the design; the values (C, B) and the measured results are added by L2 and the
-M1b-9 closing PR.
+L1 recorded the design. L2 records R1, the frozen baseline and the session procedure. The M1b-9 closing PR
+adds the 60-min clean-baseline results; the S5 demo adds the first-fire time.
 
 ## Context
 Spec §3 runs Locust as "steady baseline traffic at all times", and §25 sets the baseline "in M1 to
@@ -91,6 +91,43 @@ under that baseline.
   30.3 % throttled over 30 min on 2026-10-06. `container_cpu_cfs_throttled_seconds_total` is
   absent for the DB container, so the throttled-seconds alternative in `TASKS.md` is unavailable.
 
+### R1 result (2026-10-07, 11:47:29–11:59:51Z; accepted at the R1 gate)
+`ramp.py` came from `dev` `ce5770f8`. R1 was valid on every discard rule: boot and k3s unchanged, no restart
+or new pod uid, pause gap 38.9 s (under 90 s), no Application revision change. Evidence:
+`~/nexus-evidence/m1b-9/r1/`.
+
+| Target | Server req/s | p95 | sample-api throttled | sample-api CPU (2 pods) | DB throttled | DB CPU | DB working set |
+|---|---|---|---|---|---|---|---|
+| 10 | 9.82 | 14 ms | 0.0 % | 0.023 | 8.0 % | 0.027 | 42.6 MiB |
+| 20 | 19.59 | 16 ms | 0.5 % | 0.046 | 4.7 % | 0.039 | 42.5 MiB |
+| 30 | 29.47 | 21 ms | 6.2 % | 0.067 | 4.0 % | 0.048 | 42.6 MiB |
+| 40 | 39.33 | 45 ms | 12.8 % | 0.085 | 4.1 % | 0.060 | 42.8 MiB |
+
+- No failures and no `/items` failures at any step. Locust's window average was within ±0.35 % of the
+  server rate (no flags).
+- **Knee at 40:** p95 45 ms > 2 × 14 ms, and sample-api throttled 12.8 % > 10 %. **C = 30 req/s.**
+- **The knee is throttling-driven, not CPU-bound.** At 40 req/s each pod averaged about 0.04 cores against
+  its 200m limit, yet CFS throttled 12.8 % of its periods and p95 tripled (14 → 45 ms). Short bursts (one
+  DB connection per `/items` call, Python request handling) fill the 20 ms of CPU each pod may use per
+  100 ms period. No sample-api limit change now (owner, R1 gate). M2 revisits the limit and the
+  per-request connection cost, and R1 is re-run if either changes (`TASKS.md` Later).
+- **B = floor(0.4 × 30) = 12 req/s per namespace**: 9.6 req/s on `/` and 2.4 req/s on `/items`. This is
+  below the 20 req/s of the promtool fixtures. The S5 error share stays 20 % (the 4 : 1 mix).
+
+### L2: the frozen baseline (owner, R1 gate, 2026-10-07)
+- `platform/load/master.yaml`: `--autostart --users=24 --spawn-rate=4 --expect-workers=1`. Equal class
+  weights give 12 users, so 12 req/s, per namespace. Local smoke: 9.6 + 2.4 req/s per environment,
+  exactly; autostart waited for the worker.
+- **No self-heal.** No probe or job restarts a stopped swarm, because that would override an emergency Stop.
+- **Known behaviour, kept on purpose:** a worker that misses the master's heartbeat for 60 s (a VM pause)
+  exits. The master then stops the test and stays `stopped` after the worker reconnects (seen live on
+  2026-10-07 after the overnight sleep, and reproduced locally).
+- **Each session with timed runs starts by resuming the swarm**, then the 20-min warm-up. A VM pause breaks
+  Prometheus's lagged baseline anyway. Resume = `POST /swarm` with `user_count=24`, `spawn_rate=4`,
+  `user_classes=DevUser` and `user_classes=ProdUser`, through the port-forward (local smoke: back to 24 users).
+- **Every timed run first checks Locust is running at B in both namespaces:** master `running` with 24
+  users (service proxy), and the server-side `rate(http_requests_total[2m])` per namespace within ±10 % of 12.
+
 ### R2
 Deferred to M2/S2 (owner, 2026-10-06). The S5 exit does not need it.
 
@@ -100,5 +137,7 @@ Deferred to M2/S2 (owner, 2026-10-06). The S5 exit does not need it.
   rules are in the M1b-9 plan (§3).
 - Until M3's NetworkPolicies, any pod can reach the master's API. The runner reaches it only
   through a port-forward (§18).
-- To fill in: C, B, the R1 table, the 60-min clean-baseline results, the S5 first-fire time
-  against +105 s.
+- Merging L2 starts the baseline in both namespaces: a real traffic step that can raise
+  `NexusTrafficAnomaly` (and CPU or latency) alerts. The result: an L0 `Recorded` Incident in `nexus-dev`, an L1
+  `Escalated` one in `nexus-prod`. The 20-min warm-up follows (plan §3).
+- To fill in: the 60-min clean-baseline results, and the S5 first-fire time against +105 s.
