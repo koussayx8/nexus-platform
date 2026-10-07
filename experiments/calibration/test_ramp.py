@@ -437,6 +437,19 @@ class KubectlRawTest(unittest.TestCase):
 class LocustfileTest(unittest.TestCase):
     """The mix the locustfile sends, read from its source (Locust is not installed in CI)."""
 
+    def test_master_freezes_b_from_r1(self):
+        # L2 (ADR-026): C = 30 from R1 (2026-10-07), B = floor(0.4 x C) per namespace, two classes.
+        src = (Path(__file__).parents[2] / "platform/load/master.yaml").read_text()
+        b = ramp.baseline(30)
+        self.assertEqual(b, 12)
+        for arg in (
+            "--autostart",
+            f"--users={2 * b}",
+            "--expect-workers=1",
+            "--class-picker",
+        ):
+            self.assertIn(f"- {arg}\n", src)
+
     def test_mix_is_four_to_one_and_never_work_cpu(self):
         src = (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
         self.assertIn('SEQUENCE = ("/", "/", "/", "/", "/items")', src)
