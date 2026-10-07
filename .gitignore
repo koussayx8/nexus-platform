@@ -42,6 +42,8 @@ checkpoints/
 # Data files
 *.parquet
 *.csv
+# Hand-written test fixtures for the M1b-9 knee rule (ADR-026), not data.
+!experiments/calibration/fixtures/*.csv
 data/raw/
 data/processed/
 
