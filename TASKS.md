@@ -969,6 +969,15 @@ to the recorded values means a rerun;
   authentication, and any pod in the cluster can reach it until the M3 NetworkPolicies (§18: Locust
   is reached only through a port-forward). Until then anyone with pod access can start load on
   sample-api. Close it with the §18 NetworkPolicy for `nexus-load` in M3, or with Locust's web auth if it is needed sooner.
+- **Automate post-deploy verification** (owner, #108 gate review, 2026-10-07).
+  - An ArgoCD PostSync hook: an in-cluster Job that runs the verify checks after each sync.
+  - Consider also a CronJob that exposes a verify metric with an alert.
+  - **One shared check implementation**, used by the hook, the CronJob and `verify-state.sh`.
+    `verify-state.sh` keeps only the host and Git-SHA checks.
+  - The automated checks send no app traffic, or they pause during timed runs.
+    Today `verify-state.sh` calls `/items`, which would disturb a baseline window.
+  - Read-only RBAC; the image is pinned by digest and Cosign-signed.
+  - No self-hosted runner: the repository is public.
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
