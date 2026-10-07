@@ -964,6 +964,11 @@ to the recorded values means a rerun;
 - Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
 - Repository settings, owner action (not a Git change): set the About description and topics (command proposed in the docs PR). Private vulnerability reporting is enabled (checked read-only); `LICENSE` (Apache-2.0) and `NOTICE` are added by the docs PR.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
+- **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
+  in `nexus-load` serves its web UI and API on 8089 (`/swarm`, `/stop`, `/stats/reset`) with no
+  authentication, and any pod in the cluster can reach it until the M3 NetworkPolicies (§18: Locust
+  is reached only through a port-forward). Until then anyone with pod access can start load on
+  sample-api. Close it with the §18 NetworkPolicy for `nexus-load` in M3, or with Locust's web auth if it is needed sooner.
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can

@@ -59,6 +59,11 @@ under that baseline.
     `sum(rate(http_requests_total{…}[120s]))` over exactly the measure window, evaluated at the
     window's end time. If Prometheus does not answer (or answers empty), the step cannot be judged
     and the ramp stops with no capacity.
+  - **Prometheus transport** (owner, #107 gate): `kubectl get --raw` on the API server's service proxy,
+    `/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query`,
+    with the PromQL URL-encoded and `time=` at the window's end. It is read-only. Never a port-forward, and never
+    a local `kubectl proxy`, which would accept cluster writes as plain HTTP outside the guard patterns. A failed
+    call (non-zero exit, timeout, unparsable answer) counts as no answer.
   - **Locust's window average is the cross-check:** the window's requests ÷ its measured seconds.
     A difference from the server rate above 5 % is flagged in the row and the verdict; it is not a
     knee. The signed difference is recorded at every step.
