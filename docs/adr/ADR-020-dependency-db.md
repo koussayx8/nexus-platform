@@ -258,3 +258,32 @@ Same method (ArgoCD `deployedAt` of the new revision, or first poll at it), from
 
 The measured range is now **108–382 s**. The worst case, and so the 480 s reconcile term and the
 four derived values, are unchanged.
+
+## Addendum (2026-10-07, M1b-9 R1 gate): the change-16 DB criterion is restated
+
+**The criterion changed after the data.** We set this down plainly: the original criterion was fixed before
+any load was measured, and it is replaced now because the R1 data show it measures the wrong thing.
+
+- **Original (change 16, above):** passes only with zero `db_slots_exhausted`, CFS throttled ÷ total
+  periods ≤ 1 %, and a working-set peak ≤ 80 % of the memory limit.
+- **What the data show:**
+  - At idle (2026-10-06, 30 min): throttled ÷ periods 30.3 %, at 0.018 cores.
+  - Under R1 load (2026-10-07; `~/nexus-evidence/m1b-9/r1/`): 8.0 %, 4.7 %, 4.0 %, 4.1 % at 10, 20, 30 and 40 req/s on
+    `nexus-dev`. DB CPU was 0.027–0.060 cores of the 0.5 limit (at most 12 %); the working set was 42.5–42.8 MiB (about
+    8 % of 512Mi).
+  - The ratio *falls* as load rises. CFS counts only periods in which the container ran, and near idle those are mostly
+    short probe and backend-fork bursts, so a few throttled bursts dominate the ratio. It measures burst shape, not
+    whether the DB keeps up.
+- **Restated criterion (owner, R1 gate):** the DB is not the bottleneck at B. All three of these, over the
+  60-min clean baseline:
+  - zero `db_slots_exhausted`;
+  - DB CPU under 50 % of its limit (< 0.25 cores);
+  - working set under 80 % of the memory limit (< 410 MiB).
+
+  As before, every query filters `namespace="nexus-data", container="dependency-db"`, and an empty or NaN
+  result is a FAIL.
+- **The throttled-periods ratio stays reported, not gated.**
+  `container_cpu_cfs_throttled_seconds_total` is absent for this container, so throttled seconds are not
+  available as an alternative.
+- **No DB change before S5:** limits stay requests `cpu 100m` / `memory 256Mi`, limits `cpu 500m` / `memory 512Mi`.
+  The ADR-020 coupling rule is untouched: it depends on the startupProbe budget and the pull allowance, not on these.
