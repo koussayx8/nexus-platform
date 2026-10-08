@@ -785,6 +785,16 @@ to the recorded values means a rerun;
   - [ ] L2: B frozen (`--autostart`, 24 users); no self-heal; each timed-run session resumes the swarm,
     then the warm-up (≥ 20 min); every timed run checks that Locust is running at B; 60-min clean baseline;
     change-16 verdict (ADR-026).
+    - **Clean window run 1 (2026-10-08): FAILED** under the rules as written.
+      - It stopped 12.8 min in on `NexusLatencyAnomaly` in both namespaces. A host slowdown (Locust CPU per
+        request +53 %) slowed `/items` about 2.7×: an uninjected gray failure, correctly flagged.
+      - The 25-50-75 ms buckets turned that drift into a 60 ms p95 jump.
+      - No change-16 verdict. Evidence: `~/nexus-evidence/m1b-9/clean60/`.
+    - [ ] sample-api 0.3.1: buckets 10–50 ms no wider than ε (10 ms) (ADR-022 addendum); the S5 pin holds (no `le`
+      in the pinned rules). Two-merge rollout: code → `main` builds and signs, then the digest bump for both overlays.
+    - [ ] Host-speed canary in the timed-run rules: Locust worker CPU per request; +20 % sustained voids a run as
+      environmental.
+    - [ ] Warm-up (20 min after the new pods), then the clean-window rerun.
   - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
     **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
     Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
