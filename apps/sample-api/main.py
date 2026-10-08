@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 from prometheus_fastapi_instrumentator import Instrumentator
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 # /items budget: 0.3 s slot acquire + 2 s connect + 0.5 s statement = 2.8 s < 3 s.
 # 5 slots per pod keep the worst case (2 envs x 7 pods x 5) at 70 connections,
@@ -24,12 +24,16 @@ DB_SLOT_TIMEOUT_S = 0.3
 DB_CONNECT_TIMEOUT_S = 2  # psycopg's minimum; applied per connection attempt
 DB_STATEMENT_TIMEOUT_MS = 500
 
-# Latency histogram buckets (ADR-022): prometheus_client's defaults, 5 ms to 10 s. The
-# instrumentator's (0.1, 0.5, 1) left p95 blind below 100 ms.
+# Latency histogram buckets (ADR-022): 5 ms to 10 s. The instrumentator's (0.1, 0.5, 1) left p95
+# blind below 100 ms. Near the operating range (10-50 ms) no bucket is wider than the detector's p95
+# epsilon (10 ms): with 25-50-75 ms edges, the interpolated p95 jumped about 60 ms when /items
+# drifted across 25 ms, and the M1b-9 clean window stopped on it (ADR-022 addendum, 2026-10-08).
 LATENCY_BUCKETS = (
     0.005,
     0.01,
-    0.025,
+    0.02,
+    0.03,
+    0.04,
     0.05,
     0.075,
     0.1,
