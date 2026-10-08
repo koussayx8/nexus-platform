@@ -2,6 +2,7 @@
 
 import hashlib
 import inspect
+import itertools
 import json
 import logging
 import os
@@ -91,7 +92,7 @@ def test_health():
     data = response.json()
     assert data["status"] == "healthy"
     assert "timestamp" in data
-    assert data["version"] == "0.3.0"
+    assert data["version"] == "0.3.1"
 
 
 def test_ready():
@@ -196,6 +197,17 @@ def test_latency_histogram_has_the_finer_buckets():
     }
     assert les == {floatToGoString(b) for b in main.LATENCY_BUCKETS} | {"+Inf"}
     assert "0.005" in les and "0.075" in les
+
+
+def test_no_bucket_wider_than_epsilon_in_the_operating_range():
+    # The p95 epsilon in nexus-detection.yaml is 10 ms (clamp_min 0.01). Between 10 and 50 ms no
+    # bucket may be wider, or a small /items drift moves the interpolated p95 by more than one
+    # epsilon in one step (the M1b-9 clean-window stop, ADR-022 addendum).
+    epsilon = 0.01
+    edges = [b for b in main.LATENCY_BUCKETS if 0.01 <= b <= 0.05]
+    assert edges[0] == 0.01 and edges[-1] == 0.05
+    assert all(round(b - a, 9) <= epsilon for a, b in itertools.pairwise(edges))
+    assert list(main.LATENCY_BUCKETS) == sorted(main.LATENCY_BUCKETS)
 
 
 # --- fault hooks (spec §3, ADR-022) ---
