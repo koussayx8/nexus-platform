@@ -8,12 +8,13 @@ namespace: nexus-prod
 resources:
   - ../../apps/sample-api/k8s/base
 
-# Signed image from green main run 36759413828 at 3a09737 (sample-api 0.3.0), cosign-verified at
-# M1b gate 1, Rekor index 3023614646 (ADR-017, ADR-022).
+# Signed image from green main run 37753756266 at 63c1831 (sample-api 0.3.1: latency buckets no
+# wider than epsilon at 10-50 ms, ADR-022 addendum), cosign-verified 2026-10-08 against
+# ci.yml@refs/heads/main, Rekor index 3144973728 (ADR-017, ADR-022).
 # A digest bump is a commit.
 images:
   - name: ghcr.io/koussayx8/nexus-platform/sample-api
-    digest: sha256:90fa807b711322dd54414c17bb3dd4b4a050cb43220b1e3874949829eff5827c
+    digest: sha256:3321d6faaeda4a8c11c0d17bfced448fae2c38f39fd7aafd77bbb3791201f268
 
 # The DB role for this environment (ADR-020, change 3); the rest of the DB env is in the base.
 patches:

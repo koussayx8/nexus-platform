@@ -190,3 +190,9 @@ in both namespaces. Evidence: `~/nexus-evidence/m1b-9/clean60/stop-diagnosis.txt
 - **Rollout:** the two-merge pattern. This code reaches `main`, CI builds and signs 0.3.1, then a digest-bump PR (both
   overlays and the version label) and a forward-merge for `nexus-dev`. The bucket change resets the p95 baseline,
   so a 20-min warm-up follows before the clean window is rerun.
+- **Image** (2026-10-08): `sha256:3321d6faaeda4a8c11c0d17bfced448fae2c38f39fd7aafd77bbb3791201f268`. Built and signed by
+  green `main` run 37753756266 at `63c1831` (the #112 merge; OCI revision label `63c1831…`).
+  - `cosign verify` (v3.1.3, checksum checked): exit 0, 1 signature, identity `ci.yml@refs/heads/main`, issuer
+    `https://token.actions.githubusercontent.com`, workflow SHA `63c1831…`, trigger `push`.
+  - Rekor index 3144973728, from the signing step's log.
+  - Evidence: `~/nexus-evidence/m1b-9/cosign-verify-0.3.1.txt`.
