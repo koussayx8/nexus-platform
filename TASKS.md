@@ -797,6 +797,14 @@ to the recorded values means a rerun;
     - [ ] Host-speed canary in the timed-run rules: Locust worker CPU per request; +20 % sustained voids a run as
       environmental.
     - [ ] Warm-up (20 min after the new pods), then the clean-window rerun.
+    - **Clean window run 2 (2026-10-08): FAILED** under the rules as written (valid, not discarded). It stopped
+      25.7 min in on `NexusLatencyAnomaly` pending in both namespaces; 0 Incidents. `/items` is bimodal (prod 80 %
+      ≤ 20 ms, 18 % at 50–100 ms): CFS throttling stalls at the 200m limit. Evidence: `~/nexus-evidence/m1b-9/clean60-run2/`.
+    - [ ] sample-api CPU limit 200m → 1000m (owner decision (a), ADR-027): one uvicorn process, GIL-bound, so one
+      core; S2 still saturates the pod. Pre-registered checkpoints A (after the rollout, at the current B) and B
+      (at the new B). Each step at its own gate: PR to `dev`, the gate to `main` (prod rolls), the forward-merge
+      (dev rolls), checkpoint A, the R1 re-run and a new B (L2 update), the warm-up with checkpoint B, then
+      clean-window run 3.
   - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
     **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
     Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
@@ -1006,6 +1014,7 @@ to the recorded values means a rerun;
   2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
   (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
   changes, re-run R1 and re-derive B.
+  - The limit part moved into M1b-9 (owner decision (a), 2026-10-08, ADR-027). The connection cost stays here.
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
