@@ -290,6 +290,7 @@ removed from the architecture; the later ADR named in the notes column governs.
 | [024](docs/adr/ADR-024-detection-rules.md) | Detection rules: lagged-baseline Z-scores | |
 | [025](docs/adr/ADR-025-operator-skeleton.md) | The operator skeleton | |
 | [026](docs/adr/ADR-026-load-baseline.md) | The Locust load baseline and the R1 calibration | |
+| [027](docs/adr/ADR-027-sample-api-cpu-limit.md) | sample-api's CPU limit is one core | |
 
 ## Documentation and project history
 
