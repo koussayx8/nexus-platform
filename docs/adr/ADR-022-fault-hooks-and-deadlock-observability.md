@@ -158,3 +158,41 @@ M1-5 finding 3: the rollout strategy was the implicit default (25 % / 25 %).
   the threadpool exhausted.
 - The two-merge pattern still applies: this code reaches `main`, CI builds and signs 0.3.0, then
   the digest-bump PR sets the flag and the label.
+
+## Addendum (2026-10-08, M1b-9 clean window): finer buckets near the operating range
+
+**The M1b-9 60-min clean window found this.** It stopped on `NexusLatencyAnomaly` 12.8 minutes in (2026-10-08 07:10:39Z),
+in both namespaces. Evidence: `~/nexus-evidence/m1b-9/clean60/stop-diagnosis.txt`.
+
+- **The alert was real.** A host-side slowdown (Locust's CPU per request rose 53 %, off the DB path) slowed `/items`
+  about 2.7×. The detector flagged an uninjected gray failure, correctly. The run is recorded as failed under the
+  rules as written.
+- **But the size of the jump came from the buckets.**
+  - At the 4 : 1 mix, the latency signal (p95 of `/` and `/items` together) sits at about `/items`'s 75th percentile.
+    At B that was 23 ms, just under the 25 ms bucket edge.
+  - With edges at 25, 50, 75 and 100 ms, the interpolated p95 jumps by about 60 ms (23 → 83–99 ms) once more than
+    25 % of `/items` calls exceed 25 ms. That is 6ε in one step, whatever the size of the underlying drift.
+  - `nexus-prod` sat at 24 % for the whole baseline, just under that cliff. That is why its p95 baseline stddev was
+    large (0.021 s against 0.0005 s in dev).
+- **Decision (owner, clean-window gate, 2026-10-08):** near the operating range (10–50 ms), no bucket is wider than
+  the detector's p95 ε (10 ms, `clamp_min(…, 0.01)` in `nexus-detection.yaml`).
+  - New buckets: 0.005, 0.01, **0.02, 0.03, 0.04**, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 s
+    (0.025 removed). sample-api 0.3.1.
+  - `test_no_bucket_wider_than_epsilon_in_the_operating_range` pins the principle.
+- **The S5 pin holds.**
+  - The pinned rules name no `le` value: `histogram_quantile(0.95, sum by (namespace, le) (…))` reads whatever buckets
+    the app exports.
+  - The promtool test's `le` values (0.1, 0.5, 1, +Inf) belong to its own synthetic series.
+  - None of the 5 pinned files changes.
+- **Not done:** the detector itself (ε, the mixed-handler signal) is unchanged. A per-handler latency signal would be
+  a rules change, and so an S5 rerun.
+- **Cost:** 3 more series per handler × method × status (one bucket removed, three added), in both namespaces.
+- **Rollout:** the two-merge pattern. This code reaches `main`, CI builds and signs 0.3.1, then a digest-bump PR (both
+  overlays and the version label) and a forward-merge for `nexus-dev`. The bucket change resets the p95 baseline,
+  so a 20-min warm-up follows before the clean window is rerun.
+- **Image** (2026-10-08): `sha256:3321d6faaeda4a8c11c0d17bfced448fae2c38f39fd7aafd77bbb3791201f268`. Built and signed by
+  green `main` run 37753756266 at `63c1831` (the #112 merge; OCI revision label `63c1831…`).
+  - `cosign verify` (v3.1.3, checksum checked): exit 0, 1 signature, identity `ci.yml@refs/heads/main`, issuer
+    `https://token.actions.githubusercontent.com`, workflow SHA `63c1831…`, trigger `push`.
+  - Rekor index 3144973728, from the signing step's log.
+  - Evidence: `~/nexus-evidence/m1b-9/cosign-verify-0.3.1.txt`.
