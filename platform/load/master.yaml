@@ -7,8 +7,19 @@
 # enforces it): non-root, no privilege escalation, all capabilities dropped, read-only root
 # filesystem with /tmp as an emptyDir, RuntimeDefault seccomp. No ServiceAccount token.
 #
-# --class-picker lets R1 select DevUser only (`user_classes` on /swarm). No --autostart in L1: the
-# master starts idle, and nothing is sent until someone posts to /swarm.
+# --class-picker lets a ramp select one class (`user_classes` on /swarm).
+#
+# The baseline (L2, ADR-026), frozen here: B = 12 req/s per namespace = floor(0.4 x C), with
+# C = 30 req/s, the R1 capacity of the mix on nexus-dev's 2 replicas (2026-10-07). One user sends
+# 1 req/s, and DevUser and ProdUser have equal weight, so --users 24 gives 12 users per namespace.
+# --autostart starts the swarm once --expect-workers (1) worker has connected, and never quits.
+#
+# No self-heal (owner, R1 gate): no probe or job restarts a stopped swarm, because that would
+# override an emergency Stop. A worker that loses the master's heartbeat (a VM pause over 60 s)
+# exits, and the master then stops the test and stays stopped after the worker reconnects. Each
+# session with timed runs therefore starts by resuming the swarm (POST /swarm user_count=24
+# spawn_rate=4 user_classes=DevUser,ProdUser through the port-forward), then the 20 min warm-up.
+# Every timed run first checks that Locust is running at B in both namespaces.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,6 +58,10 @@ spec:
             - --master-bind-port=5557
             - --web-port=8089
             - --class-picker
+            - --autostart
+            - --users=24
+            - --spawn-rate=4
+            - --expect-workers=1
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"

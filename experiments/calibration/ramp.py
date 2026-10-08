@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """R1 capacity ramp and knee detection (M1b-9; ADR-026). Standard library only.
 
-  ramp.py run  --locust URL --prom URL --out DIR [--classes DevUser] [step options]
+  ramp.py run  --locust URL --out DIR [--prom PATH] [--classes DevUser] [step options]
   ramp.py knee STEPS_CSV [threshold options]
 
 run: steps the Locust master's user count (one user = one request/s, see the
@@ -12,6 +12,12 @@ goes to DIR/steps.csv as soon as the step ends, with the raw Locust and
 Prometheus answers in DIR/step-<target>.json. The ramp stops at the first knee
 step, at a step that cannot be judged, or at --max, then posts /stop: Locust
 returns to idle. The step after a stop is never run.
+
+Prometheus is read only through the API server's service proxy with
+`kubectl get --raw <PATH>/api/v1/query?query=<URL-encoded PromQL>&time=<window end>`
+(owner, #107 gate): read-only, no port-forward, no local `kubectl proxy`. --prom
+is that service-proxy path (default: the observability Prometheus). A failed
+call (non-zero exit, timeout, unparsable answer) is "no answer".
 
 Achieved rate (the knee input) is server-side: sample-api's request counter
 (the one behind namespace:nexus_sample_api_requests:rate2m, summed for the
@@ -52,6 +58,7 @@ import argparse
 import csv
 import json
 import math
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -59,6 +66,12 @@ import urllib.request
 from pathlib import Path
 
 BASELINE_SHARE = 0.4
+
+# The Prometheus API through the API server's service proxy (read with kubectl get --raw).
+PROM_PATH = (
+    "/api/v1/namespaces/monitoring/services/"
+    "http:observability-kube-prometh-prometheus:9090/proxy"
+)
 
 FIELDS = [
     "target",
@@ -226,6 +239,46 @@ class Http:
             return json.loads(resp.read() or b"{}")
 
 
+class PromUnavailable(Exception):
+    """A Prometheus read that returned no usable answer."""
+
+
+class KubectlRaw:
+    """Prometheus reads through `kubectl get --raw` (a GET on the API server's
+    service proxy): never a port-forward, never a local proxy. Tests pass a stub
+    kubectl."""
+
+    def __init__(self, kubectl="kubectl", timeout=30):
+        self.kubectl, self.timeout = kubectl, timeout
+
+    def get_json(self, path):
+        try:
+            proc = subprocess.run(
+                [self.kubectl, "get", "--raw", path],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise PromUnavailable(str(exc)) from exc
+        if proc.returncode != 0:
+            first = (proc.stderr.strip().splitlines() or [""])[0]
+            raise PromUnavailable(f"kubectl exit {proc.returncode}: {first}")
+        try:
+            return json.loads(proc.stdout)
+        except ValueError as exc:
+            raise PromUnavailable(f"unparsable answer: {exc}") from exc
+
+
+def query_path(base, query, at):
+    """<base>/api/v1/query?query=<PromQL, URL-encoded>&time=<at>."""
+    params = urllib.parse.urlencode(
+        {"query": query, "time": f"{at:.3f}"}, quote_via=urllib.parse.quote
+    )
+    return f"{base.rstrip('/')}/api/v1/query?{params}"
+
+
 def locust_row(stats, target, t_start, t_end, items_name):
     """One step's Locust numbers from /stats/requests, reset at t_start: requests,
     failures and p95 for the window; locust_rps = the window's requests over its
@@ -250,16 +303,15 @@ def locust_row(stats, target, t_start, t_end, items_name):
     }
 
 
-def prom_value(http, base, query, at):
-    """A scalar from an instant query, or '' when there is no answer, an empty
-    answer or NaN."""
-    url = f"{base.rstrip('/')}/api/v1/query?" + urllib.parse.urlencode(
-        {"query": query, "time": f"{at:.3f}"}
-    )
+def prom_value(prom, base, query, at):
+    """A scalar from an instant query at time `at`, or '' when there is no answer
+    (a failed call), an empty answer or NaN."""
     try:
-        answer = http.get_json(url)
-    except OSError as exc:  # URLError, timeouts, refused connections
+        answer = prom.get_json(query_path(base, query, at))
+    except PromUnavailable as exc:
         return "", {"error": str(exc)}
+    if answer.get("status") != "success":
+        return "", answer
     result = answer.get("data", {}).get("result", [])
     if not result:
         return "", answer
@@ -278,8 +330,9 @@ def rate_check(locust_rps, server_rps, max_diff):
     return f"{diff:+.4f}", flag
 
 
-def run(args, http=None, sleep=time.sleep, now=time.time, log=print):
+def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
     http = http or Http()
+    prom = prom or KubectlRaw(args.kubectl)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     locust = args.locust.rstrip("/")
@@ -310,7 +363,7 @@ def run(args, http=None, sleep=time.sleep, now=time.time, log=print):
                 window = max(1, round(t_end - t_start))
                 query = SERVER_RATE_QUERY.format(ns=args.namespace, w=window)
                 row["achieved_rps"], raw["prometheus"]["achieved_rps"] = prom_value(
-                    http, args.prom, query, t_end
+                    prom, args.prom, query, t_end
                 )
                 row["rate_diff"], row["rate_flag"] = rate_check(
                     float(row["locust_rps"]), row["achieved_rps"], args.rate_diff_max
@@ -318,7 +371,7 @@ def run(args, http=None, sleep=time.sleep, now=time.time, log=print):
                 for name, template in QUERIES.items():
                     query = template.format(ns=args.namespace, w=window)
                     row[name], raw["prometheus"][name] = prom_value(
-                        http, args.prom, query, t_end
+                        prom, args.prom, query, t_end
                     )
                 writer.writerow(row)
                 f.flush()
@@ -369,9 +422,10 @@ def parser():
     )
     r.add_argument(
         "--prom",
-        required=True,
-        help="Prometheus base URL: the knee's achieved rate is server-side",
+        default=PROM_PATH,
+        help="Prometheus service-proxy API path, read with kubectl get --raw",
     )
+    r.add_argument("--kubectl", default="kubectl", help="kubectl binary")
     r.add_argument("--out", required=True)
     r.add_argument(
         "--namespace", default="nexus-dev", choices=["nexus-dev", "nexus-prod"]

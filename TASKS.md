@@ -311,6 +311,9 @@ other M1-tagged items move to M1b. Branch flow as in M0: feature branch → PR �
 16. / 18. dependency-db limits are provisional until the M1b Locust calibration. It passes only
     with zero `db_slots_exhausted`, CFS throttled ÷ total periods ≤ 1%, and a working-set peak
     ≤ 80% of the memory limit. [ADR-020, M1b]
+    **Restated after the R1 data** (owner, R1 gate, 2026-10-07; ADR-020 addendum): the DB is not the
+    bottleneck at B. That means zero `db_slots_exhausted`, CPU under 50 % of its limit and a working set under 80 %.
+    The throttled-periods ratio (30 % at idle, 4–8 % under load) stays reported, not gated.
 17. Plan-document fixes (rev 4). No task.
 19. The ConfigMap sets `defaultMode: 0555` explicitly. The entrypoint **executes** an executable
     `*.sh` and sources a non-executable one. Test d mounts the script with the same mode and lines
@@ -773,11 +776,20 @@ to the recorded values means a rerun;
     The S5 exit does not need it.
   - **PRs:** L1 (Locust idle, ramp script, ADR-026 draft), L2 (B frozen), then the closing PR with
     `CURRENT_STATE.md` and these boxes.
-  - [ ] L1: `platform/load/` (Locust master and worker, idle), `experiments/calibration/ramp.py` with
+  - [x] L1: `platform/load/` (Locust master and worker, idle), `experiments/calibration/ramp.py` with
     offline tests (`repo-checks` step 10), ADR-026 draft.
-  - [ ] R1 on `nexus-dev` (approved live run); C and B proposed; DB limit or criterion decided.
-  - [ ] L2: B frozen (`--autostart`); warm-up ≥ 20 min; 60-min clean baseline; change-16 verdict.
-  - [ ] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
+  - [x] R1 on `nexus-dev` (approved live run); C and B proposed; DB limit or criterion decided.
+    **Done** 2026-10-07 (#106, #107 → `main` `49cdfc16`; #108; `ramp.py` from `dev` `ce5770f8`). Knee at 40
+    (throttling-driven): **C = 30, B = 12 req/s per namespace**. The DB criterion is restated (ADR-020 addendum).
+    Evidence: `~/nexus-evidence/m1b-9/r1/`.
+  - [ ] L2: B frozen (`--autostart`, 24 users); no self-heal; each timed-run session resumes the swarm,
+    then the warm-up (≥ 20 min); every timed run checks that Locust is running at B; 60-min clean baseline;
+    change-16 verdict (ADR-026).
+  - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
+    **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
+    Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
+    aligned slot while the evaluation ran about 13 s later (wall-vs-monotonic clock drift), plus the 10 s poll.
+    Evidence: `r1/startsat-check.txt`, `r1/incident-delay-explained.txt`. The ADR-025 addendum goes in the closing PR.
   - [ ] Closing PR: ADR-026 results, ADR-020 and ADR-025 addenda, `CURRENT_STATE.md`, these boxes.
     **GATE M1b-9.**
 
@@ -964,6 +976,24 @@ to the recorded values means a rerun;
 - Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
 - Repository settings, owner action (not a Git change): set the About description and topics (command proposed in the docs PR). Private vulnerability reporting is enabled (checked read-only); `LICENSE` (Apache-2.0) and `NOTICE` are added by the docs PR.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
+- **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
+  in `nexus-load` serves its web UI and API on 8089 (`/swarm`, `/stop`, `/stats/reset`) with no
+  authentication, and any pod in the cluster can reach it until the M3 NetworkPolicies (§18: Locust
+  is reached only through a port-forward). Until then anyone with pod access can start load on
+  sample-api. Close it with the §18 NetworkPolicy for `nexus-load` in M3, or with Locust's web auth if it is needed sooner.
+- **Automate post-deploy verification** (owner, #108 gate review, 2026-10-07).
+  - An ArgoCD PostSync hook: an in-cluster Job that runs the verify checks after each sync.
+  - Consider also a CronJob that exposes a verify metric with an alert.
+  - **One shared check implementation**, used by the hook, the CronJob and `verify-state.sh`.
+    `verify-state.sh` keeps only the host and Git-SHA checks.
+  - The automated checks send no app traffic, or they pause during timed runs.
+    Today `verify-state.sh` calls `/items`, which would disturb a baseline window.
+  - Read-only RBAC; the image is pinned by digest and Cosign-signed.
+  - No self-hosted runner: the repository is public.
+- **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
+  2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
+  (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
+  changes, re-run R1 and re-derive B.
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can

@@ -1,14 +1,15 @@
 """Offline tests for ramp.py (M1b-9; ADR-026). Standard library only:
 python3 -m unittest discover -s experiments/calibration -p 'test_*.py'
-No network: run() talks to a fake Locust and a fake Prometheus."""
+No network, no cluster: run() talks to a fake Locust, and to Prometheus through
+either an in-process fake or a stub kubectl (KUBECONFIG=/nonexistent, the stub
+first on PATH)."""
 
 import argparse
-import contextlib
-import io
 import json
+import os
+import stat
 import tempfile
 import unittest
-import urllib.error
 import urllib.parse
 from pathlib import Path
 
@@ -116,9 +117,10 @@ class CrossCheckTest(unittest.TestCase):
 
 class FakeHttp:
     """Locust: each step's stats come from `plan` (target -> (requests, failures,
-    items_failures, p95)). Prometheus: the server-side rate is `server` (target -> value,
-    None = empty, "down" = no answer), defaulting to requests / 120; `prom` maps a
-    query substring to a value (None = empty answer) for the other queries."""
+    items_failures, p95)). It also serves as the in-process Prometheus transport (get_json
+    on a service-proxy path): the server-side rate is `server` (target -> value, None =
+    empty, "down" = a failed call), defaulting to requests / 120; `prom` maps a query
+    substring to a value (None = empty answer) for the other queries."""
 
     def __init__(self, plan, prom=None, server=None):
         self.plan, self.prom, self.server = plan, prom or {}, server or {}
@@ -163,7 +165,7 @@ class FakeHttp:
             if "http_requests_total" in url:
                 value = self.server.get(self.users, self.plan[self.users][0] / 120)
                 if value == "down":
-                    raise urllib.error.URLError("connection refused")
+                    raise ramp.PromUnavailable("kubectl exit 1: connection refused")
                 return self.answer(value)
             for key, value in self.prom.items():
                 if key in url:
@@ -176,7 +178,8 @@ def args(out, **kw):
     base = {
         "locust": "http://locust:8089/",
         "out": out,
-        "prom": "http://prom:9090",
+        "prom": ramp.PROM_PATH,
+        "kubectl": "kubectl",
         "namespace": "nexus-dev",
         "classes": ["DevUser"],
         "start": 10,
@@ -216,6 +219,7 @@ class RunTest(unittest.TestCase):
             v = ramp.run(
                 args(d, **kw),
                 http=http,
+                prom=http,
                 sleep=clock.sleep,
                 now=clock.now,
                 log=lambda *_: None,
@@ -314,13 +318,137 @@ class RunTest(unittest.TestCase):
             self.run_ramp(http)
         self.assertEqual(http.calls[-1][1], "http://locust:8089/stop")
 
-    def test_prom_is_required(self):
-        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-            ramp.parser().parse_args(["run", "--locust", "http://l", "--out", "/tmp/x"])
+
+STUB_KUBECTL = """#!/usr/bin/env python3
+# Stub kubectl for ramp.py tests: logs its argv, answers only `get --raw <path>`.
+import json, os, sys, urllib.parse
+with open(os.environ["STUB_LOG"], "a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\\n")
+mode = os.environ.get("STUB_MODE", "ok")
+if sys.argv[1:3] != ["get", "--raw"] or len(sys.argv) != 4:
+    sys.exit("stub kubectl: only get --raw <path>")
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[3]).query)["query"][0]
+server = "http_requests_total" in query
+if mode == "fail-server" and server:
+    sys.stderr.write("Error from server (ServiceUnavailable): the server is currently unable\\n")
+    sys.exit(1)
+if mode == "garbage":
+    print("<html>not json</html>")
+    sys.exit(0)
+value = "10" if server else "0"
+print(json.dumps({"status": "success", "data": {"result": [{"value": [0, value]}]}}))
+"""
+
+
+class KubectlRawTest(unittest.TestCase):
+    """The get --raw transport, end to end through a stub kubectl subprocess."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        self.stub = d / "kubectl"
+        self.stub.write_text(STUB_KUBECTL)
+        self.stub.chmod(self.stub.stat().st_mode | stat.S_IXUSR)
+        self.log = d / "calls.jsonl"
+        self.env = {
+            k: os.environ.get(k)
+            for k in ("KUBECONFIG", "PATH", "STUB_LOG", "STUB_MODE")
+        }
+        os.environ["KUBECONFIG"] = "/nonexistent"
+        os.environ["PATH"] = f"{d}{os.pathsep}{os.environ.get('PATH', '')}"
+        os.environ["STUB_LOG"] = str(self.log)
+        os.environ.pop("STUB_MODE", None)
+
+    def tearDown(self):
+        for k, v in self.env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self.tmp.cleanup()
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def run_ramp(self, **kw):
+        http, clock = FakeHttp(STEADY), Clock()
+        with tempfile.TemporaryDirectory() as d:
+            v = ramp.run(
+                args(d, **{"kubectl": str(self.stub), "max": 10, **kw}),
+                http=http,
+                sleep=clock.sleep,
+                now=clock.now,
+                log=lambda *_: None,
+            )
+            rows = ramp.read_steps(Path(d) / "steps.csv")
+        return v, rows, http
+
+    def test_query_path_is_url_encoded_with_time_at_the_window_end(self):
+        query = ramp.SERVER_RATE_QUERY.format(ns="nexus-dev", w=120)
+        path = ramp.query_path(ramp.PROM_PATH, query, 1180.0)
+        prefix = ramp.PROM_PATH + "/api/v1/query?query="
+        self.assertTrue(path.startswith(prefix), path)
+        self.assertTrue(path.endswith("&time=1180.000"), path)
+        for raw in ' {}"|![]=+':
+            self.assertNotIn(raw, path[len(prefix) : -len("&time=1180.000")], raw)
+        parsed = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+        self.assertEqual(parsed, {"query": [query], "time": ["1180.000"]})
+
+    def test_run_reads_prometheus_only_through_kubectl_get_raw(self):
+        v, rows, _ = self.run_ramp()
+        calls = self.calls()
+        self.assertEqual(len(calls), 1 + len(ramp.QUERIES))
+        for argv in calls:
+            self.assertEqual(argv[:2], ["get", "--raw"])
+            self.assertEqual(len(argv), 3)
+            self.assertTrue(argv[2].startswith(ramp.PROM_PATH + "/api/v1/query?"))
+        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][2]).query)
+        self.assertIn('handler!~"/health|/ready|/metrics"}[120s]', server["query"][0])
+        self.assertEqual(server["time"], ["1180.000"])  # 1000 + 60 settle + 120 measure
+        self.assertEqual((rows[0]["achieved_rps"], v["reached_max"]), ("10.0", True))
+
+    def test_a_failed_kubectl_call_stops_the_ramp(self):
+        os.environ["STUB_MODE"] = "fail-server"
+        v, rows, http = self.run_ramp(max=30)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertEqual(
+            v["reasons"], ["server-side rate: no data, step cannot be judged"]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(http.calls[-1][1], "http://locust:8089/stop")
+
+    def test_an_unparsable_answer_is_no_answer(self):
+        os.environ["STUB_MODE"] = "garbage"
+        v, _, _ = self.run_ramp()
+        self.assertEqual(v["unjudged_target"], 10)
+
+    def test_a_missing_kubectl_is_no_answer(self):
+        with self.assertRaises(ramp.PromUnavailable):
+            ramp.KubectlRaw(str(Path(self.tmp.name) / "absent")).get_json("/x")
+
+    def test_default_prom_path_is_the_service_proxy(self):
+        a = ramp.parser().parse_args(["run", "--locust", "http://l", "--out", "/tmp/x"])
+        self.assertEqual((a.prom, a.kubectl), (ramp.PROM_PATH, "kubectl"))
+        self.assertTrue(
+            ramp.PROM_PATH.startswith("/api/v1/namespaces/monitoring/services/")
+        )
 
 
 class LocustfileTest(unittest.TestCase):
     """The mix the locustfile sends, read from its source (Locust is not installed in CI)."""
+
+    def test_master_freezes_b_from_r1(self):
+        # L2 (ADR-026): C = 30 from R1 (2026-10-07), B = floor(0.4 x C) per namespace, two classes.
+        src = (Path(__file__).parents[2] / "platform/load/master.yaml").read_text()
+        b = ramp.baseline(30)
+        self.assertEqual(b, 12)
+        for arg in (
+            "--autostart",
+            f"--users={2 * b}",
+            "--expect-workers=1",
+            "--class-picker",
+        ):
+            self.assertIn(f"- {arg}\n", src)
 
     def test_mix_is_four_to_one_and_never_work_cpu(self):
         src = (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
