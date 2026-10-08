@@ -792,6 +792,8 @@ to the recorded values means a rerun;
       - No change-16 verdict. Evidence: `~/nexus-evidence/m1b-9/clean60/`.
     - [ ] sample-api 0.3.1: buckets 10–50 ms no wider than ε (10 ms) (ADR-022 addendum); the S5 pin holds (no `le`
       in the pinned rules). Two-merge rollout: code → `main` builds and signs, then the digest bump for both overlays.
+      Code: #111 → `dev`, #112 → `main` `63c1831`. Image `sha256:3321d6fa…f268` signed (run 37753756266, Rekor
+      3144973728) and `cosign verify`-ed. The digest bump (PR B) is open.
     - [ ] Host-speed canary in the timed-run rules: Locust worker CPU per request; +20 % sustained voids a run as
       environmental.
     - [ ] Warm-up (20 min after the new pods), then the clean-window rerun.
