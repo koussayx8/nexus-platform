@@ -55,12 +55,15 @@ spec:
                 secretKeyRef:
                   name: dependency-db-app
                   key: password
+          # CPU limit = the most CPU the server's Python work can use at once: one uvicorn
+          # process, GIL-bound, so one core. Normal traffic never fills a 100 ms CFS period;
+          # /work/cpu (S2) hashes outside the GIL on the threadpool and still saturates it (ADR-027).
           resources:
             requests:
               cpu: 50m
               memory: 64Mi
             limits:
-              cpu: 200m
+              cpu: 1000m
               memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
