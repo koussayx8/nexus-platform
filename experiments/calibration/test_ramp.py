@@ -43,14 +43,18 @@ class KneeTest(unittest.TestCase):
     def test_throttle_knee(self):
         v = verdict("knee-throttle.csv")
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttled (container) 15.00% > 10%"])
+        self.assertEqual(
+            v["reasons"], ["sample-api throttled (container) 15.00% > 10%"]
+        )
 
     def test_pod_cgroup_throttle_is_a_knee_with_the_container_clean(self):
         # ADR-027: the pod cgroup has its own 100 ms timer; a stall there is not counted
         # under container="sample-api" (m2jww in run 2: pod 8.6 %, container 0.5 %).
         v = verdict("knee-throttle-pod.csv")
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttled (pod cgroup) 12.00% > 10%"])
+        self.assertEqual(
+            v["reasons"], ["sample-api throttled (pod cgroup) 12.00% > 10%"]
+        )
 
     def test_server_rate_knee_even_when_locust_is_at_target(self):
         v = verdict("knee-achieved.csv")
@@ -84,15 +88,27 @@ class KneeTest(unittest.TestCase):
             (v["capacity"], v["baseline"], v["knee_target"]), (None, None, 10)
         )
 
-    def test_missing_throttle_answer_is_a_knee(self):
+    def test_missing_throttle_answer_is_a_blind_stop(self):
+        # Owner, #117 gate: a stop on an empty answer is blind; it never sets C.
         v = verdict("knee-missing.csv")
-        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttling (container): no data"])
+        self.assertEqual(
+            (v["capacity"], v["baseline"], v["knee_target"], v["unjudged_target"]),
+            (None, None, None, 20),
+        )
+        self.assertEqual(v["last_ok"], 10)
+        self.assertEqual(
+            v["reasons"],
+            ["sample-api throttling (container): no data, step cannot be judged"],
+        )
+        self.assertTrue(ramp.stopped(v))
 
-    def test_missing_pod_cgroup_throttle_answer_is_a_knee(self):
+    def test_missing_pod_cgroup_throttle_answer_is_a_blind_stop(self):
         v = verdict("knee-missing-pod.csv")
-        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttling (pod cgroup): no data"])
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 20))
+        self.assertEqual(
+            v["reasons"],
+            ["sample-api throttling (pod cgroup): no data, step cannot be judged"],
+        )
 
     def test_thresholds_are_options(self):
         v = verdict("knee-throttle.csv", throttle_max=0.20)

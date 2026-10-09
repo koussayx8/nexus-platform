@@ -52,11 +52,13 @@ knee: the first step with any of
   - server-side achieved rate below --achieved-min of the target (default 95 %);
   - p95 above --p95-factor times the first step's p95 (default 2);
   - sample-api throttled periods above --throttle-max (default 10 %) at either
-    level (container or pod cgroup), or an empty answer at either level.
+    level (container or pod cgroup).
     DB throttling, at both levels, is recorded, not a knee.
 Capacity C is the target of the last step before the knee. If the ramp
-reached --max without a knee, C is the last target and the result says so. A
-step without a server-side rate stops the ramp with no capacity.
+reached --max without a knee, C is the last target and the result says so.
+A blind stop (owner, #117 gate): a step with no server-side rate, or with an
+empty sample-api throttling answer at either level, cannot be judged. The ramp
+stops with no capacity; the run is void and re-run, and never sets C.
 Baseline B = floor(0.4 × C) per namespace (spec §25 "about 40 %").
 """
 
@@ -127,6 +129,9 @@ QUERIES = {
 
 # ---------------------------------------------------------------- knee ----
 
+# The sample-api throttling knee reads both cgroup levels (ADR-027).
+THROTTLE_LEVELS = (("app_throttle", "container"), ("app_throttle_pod", "pod cgroup"))
+
 
 def _num(value):
     """A CSV cell as a float; '' (no data) stays None."""
@@ -171,6 +176,15 @@ def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.
                 reasons=["server-side rate: no data, step cannot be judged"],
             )
             return result
+        blind = [
+            f"sample-api throttling ({level}): no data, step cannot be judged"
+            for field, level in THROTTLE_LEVELS
+            if _num(row.get(field)) is None
+        ]
+        if blind:
+            # A blind stop: the run is void and re-run; it never sets C.
+            result.update(unjudged_target=target, last_ok=last_ok, reasons=blind)
+            return result
         reasons = []
         requests = _num(row["requests"]) or 0
         failures = _num(row["failures"]) or 0
@@ -192,11 +206,9 @@ def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.
             and p95 > p95_factor * ref_p95
         ):
             reasons.append(f"p95 {p95:g} ms > {p95_factor:g} x {ref_p95:g} ms")
-        for field, level in (("app_throttle", "container"), ("app_throttle_pod", "pod cgroup")):
+        for field, level in THROTTLE_LEVELS:
             throttle = _num(row.get(field))
-            if throttle is None:
-                reasons.append(f"sample-api throttling ({level}): no data")
-            elif throttle > throttle_max:
+            if throttle > throttle_max:
                 reasons.append(
                     f"sample-api throttled ({level}) {throttle:.2%} > {throttle_max:.0%}"
                 )
