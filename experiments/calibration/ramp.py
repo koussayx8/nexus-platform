@@ -63,8 +63,19 @@ reached --max without a knee, C is the last target and a lower bound
 (C >= --max). B always follows by the frozen rule from C or its bound.
 A blind stop (owner, #117 gate): an empty answer on any judged criterion
 (server rate; Locust's requests, failures, /items failures or p95, the first
-step's p95 included; sample-api or worker throttling at either level) means the
-step cannot be judged. The ramp stops with no capacity (exit 1); the run is void
+step's p95 included; sample-api or worker throttling at either level; the swarm
+state; Locust's per-class counts) means the step cannot be judged.
+
+The load shape is judged too (owner, R1 attempt 1 gate). Locust applies
+user_classes only when a test starts from stopped: on a running swarm, /swarm
+changes the user count and keeps the old classes, and its answer still echoes the
+requested classes. So run posts /stop, waits for "stopped", then starts the
+first step. After every settle it confirms the swarm: state "running", user_count
+= target, and /tasks' class ratios summing to 1 over the selected classes only.
+Each step is a blind stop when the swarm is not confirmed, when any request came
+from a non-selected class (a stat name not prefixed "<env>:"), when there are no
+selected-class stats, or when Locust's selected-class rate is outside
+--class-rate-max (default 10 %) of the server-side rate. The ramp stops with no capacity (exit 1); the run is void
 and re-run, and never sets C. An empty answer on a record-only series is
 recorded as empty and stops nothing.
 Baseline B = floor(0.4 × C) per namespace (spec §25 "about 40 %").
@@ -103,6 +114,10 @@ FIELDS = [
     "rate_flag",
     "fail_ratio",
     "p95_ms",
+    "swarm_ok",
+    "class_requests",
+    "other_class_requests",
+    "class_rps",
     "app_throttle",
     "app_throttle_pod",
     "app_cpu",
@@ -148,9 +163,17 @@ WORKER_LEVELS = (
     ("worker_throttle", "container"),
     ("worker_throttle_pod", "pod cgroup"),
 )
+# Locust's stat names are "<env>:<path>"; each class serves one namespace.
+CLASS_ENV = {"DevUser": "dev", "ProdUser": "prod"}
+NAMESPACE_ENV = {"nexus-dev": "dev", "nexus-prod": "prod"}
+
 # Judged inputs: an empty value on any of them is a blind stop. Every other field
 # is record-only.
 JUDGED = (
+    ("swarm_ok", "swarm state"),
+    ("class_requests", "Locust selected-class requests"),
+    ("other_class_requests", "Locust non-selected-class requests"),
+    ("class_rps", "Locust selected-class rate"),
     ("requests", "Locust requests"),
     ("failures", "Locust failures"),
     ("items_failures", "Locust /items failures"),
@@ -174,6 +197,7 @@ def knee(
     achieved_min=0.95,
     throttle_max=0.10,
     worker_throttle_max=0.10,
+    class_rate_max=0.10,
 ):
     """Return {"capacity", "baseline", "knee_target", "unjudged_target", "last_ok",
     "reasons", "reached_max", "capacity_lower_bound", "locust_bound", "flags"}.
@@ -219,6 +243,22 @@ def knee(
         ]
         if ref_p95 is None and i > 0:
             blind.append("first step's p95: no data, step cannot be judged")
+        if not blind:
+            # The load shape: the step measured what it claims, or it is blind.
+            if _num(row["swarm_ok"]) != 1:
+                blind.append("swarm state not confirmed, step cannot be judged")
+            other = _num(row["other_class_requests"])
+            if other > 0:
+                blind.append(
+                    f"{other:g} requests from non-selected classes, step cannot be judged"
+                )
+            class_rps = _num(row["class_rps"])
+            diff = (class_rps - achieved) / achieved if achieved else math.inf
+            if abs(diff) > class_rate_max:
+                blind.append(
+                    f"Locust selected-class rate {class_rps:.2f} vs server {achieved:.2f}"
+                    f" ({diff:+.1%}) outside {class_rate_max:.0%}, step cannot be judged"
+                )
         if blind:
             # A blind stop: the run is void and re-run; it never sets C.
             result.update(unjudged_target=target, last_ok=last_ok, reasons=blind)
@@ -361,11 +401,29 @@ def query_path(base, query, at):
     return f"{base.rstrip('/')}/api/v1/query?{params}"
 
 
-def locust_row(stats, target, t_start, t_end, items_name):
+def locust_row(stats, target, t_start, t_end, env):
     """One step's Locust numbers from /stats/requests, reset at t_start: requests,
     failures and p95 for the window; locust_rps = the window's requests over its
-    measured seconds (the cross-check); total_rps kept for display only."""
+    measured seconds (the cross-check); total_rps kept for display only. Per class:
+    requests under "<env>:" (the selected classes) and under any other name."""
     entries = {e["name"]: e for e in stats["stats"]}
+    items_name = f"{env}:/items"
+    mine = [e for n, e in entries.items() if n.startswith(f"{env}:")]
+    others = [
+        e
+        for n, e in entries.items()
+        if n != "Aggregated" and not n.startswith(f"{env}:")
+    ]
+    class_requests = (
+        sum(e.get("num_requests", 0) for e in mine)
+        if mine and all("num_requests" in e for e in mine)
+        else None
+    )
+    other_requests = (
+        sum(e["num_requests"] for e in others)
+        if all("num_requests" in e for e in others)
+        else None
+    )
     total = entries.get("Aggregated", {})
     # A missing entry or field is empty, never 0: knee() treats it as a blind stop.
     requests = total.get("num_requests")
@@ -390,7 +448,49 @@ def locust_row(stats, target, t_start, t_end, items_name):
             f"{failures / requests:.6f}" if requests and failures is not None else ""
         ),
         "p95_ms": cell(p95),
+        "class_requests": cell(class_requests),
+        "other_class_requests": cell(other_requests),
+        "class_rps": (
+            ""
+            if class_requests is None
+            else f"{class_requests / (t_end - t_start):.3f}"
+        ),
     }
+
+
+class SwarmError(Exception):
+    """Locust did not reach the state the ramp needs before a step."""
+
+
+def stop_swarm(http, locust, sleep, timeout=30):
+    """/stop, then wait until Locust reports "stopped" (so the next /swarm starts a
+    new test and applies its user_classes)."""
+    http.get_json(f"{locust}/stop")
+    for _ in range(int(timeout)):
+        if http.get_json(f"{locust}/stats/requests").get("state") == "stopped":
+            return
+        sleep(1)
+    raise SwarmError(f"Locust not stopped after {timeout} s")
+
+
+def swarm_state(http, locust, target, classes):
+    """1 when the swarm runs exactly `target` users of the selected classes only,
+    0 when it does not, '' when Locust does not answer. Reads /stats/requests (state,
+    user_count) and /tasks (each class's share of the spawned users; the /swarm answer
+    only echoes the request, so it proves nothing)."""
+    try:
+        stats = http.get_json(f"{locust}/stats/requests")
+        tasks = http.get_json(f"{locust}/tasks")
+        shares = {c: v["ratio"] for c, v in tasks["total"].items()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return ""
+    ok = (
+        stats.get("state") == "running"
+        and stats.get("user_count") == target
+        and set(shares) <= set(classes)
+        and abs(sum(shares.get(c, 0) for c in classes) - 1.0) < 1e-6
+    )
+    return 1 if ok else 0
 
 
 def prom_value(prom, base, query, at):
@@ -426,8 +526,10 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     locust = args.locust.rstrip("/")
-    env = "dev" if args.namespace == "nexus-dev" else "prod"
-    items_name = f"{env}:/items"
+    env = NAMESPACE_ENV[args.namespace]
+    wrong = [c for c in args.classes if CLASS_ENV.get(c) != env]
+    if not args.classes or wrong:
+        raise ValueError(f"classes {args.classes} do not all serve {args.namespace}")
     rows = []
     steps_csv = out / "steps.csv"
     with open(steps_csv, "w", newline="") as f:
@@ -435,20 +537,23 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
         writer.writeheader()
         target = args.start
         try:
+            # A running swarm keeps its classes: start the ramp from stopped.
+            stop_swarm(http, locust, sleep)
             while target <= args.max:
                 fields = {"user_count": target, "spawn_rate": args.spawn_rate}
-                if args.classes:
-                    fields["user_classes"] = args.classes
+                fields["user_classes"] = args.classes
                 http.post_form(f"{locust}/swarm", fields)
                 log(f"step {target}: settling {args.settle} s")
                 sleep(args.settle)
+                swarm_ok = swarm_state(http, locust, target, args.classes)
                 http.get(f"{locust}/stats/reset")  # answers "ok", not JSON
                 t_start = now()
                 sleep(args.measure)
                 stats = http.get_json(f"{locust}/stats/requests")
                 t_end = now()
                 row = {f: "" for f in FIELDS}
-                row.update(locust_row(stats, target, t_start, t_end, items_name))
+                row.update(locust_row(stats, target, t_start, t_end, env))
+                row["swarm_ok"] = swarm_ok
                 raw = {"locust": stats, "prometheus": {}}
                 window = max(1, round(t_end - t_start))
                 query = SERVER_RATE_QUERY.format(ns=args.namespace, w=window)
@@ -474,10 +579,13 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
                     args.achieved_min,
                     args.throttle_max,
                     args.worker_throttle_max,
+                    args.class_rate_max,
                 )
                 log(
-                    f"step {target}: server {row['achieved_rps'] or '-'} req/s, "
+                    f"step {target}: swarm_ok {row['swarm_ok']}, "
+                    f"server {row['achieved_rps'] or '-'} req/s, "
                     f"Locust {row['locust_rps']} ({row['rate_diff'] or '-'}), "
+                    f"selected {row['class_rps'] or '-'}, other {row['other_class_requests']}, "
                     f"failures {row['failures']}, p95 {row['p95_ms']} ms, "
                     f"app throttle {row['app_throttle']} (pod {row['app_throttle_pod']}), "
                     f"db throttle {row['db_throttle']} (pod {row['db_throttle_pod']}), "
@@ -495,6 +603,7 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
         args.achieved_min,
         args.throttle_max,
         args.worker_throttle_max,
+        args.class_rate_max,
     )
     (out / "verdict.json").write_text(json.dumps(verdict, indent=1))
     return verdict
@@ -512,6 +621,7 @@ def parser():
     thresholds.add_argument("--achieved-min", type=float, default=0.95)
     thresholds.add_argument("--throttle-max", type=float, default=0.10)
     thresholds.add_argument("--worker-throttle-max", type=float, default=0.10)
+    thresholds.add_argument("--class-rate-max", type=float, default=0.10)
 
     r = sub.add_parser("run", parents=[thresholds])
     r.add_argument(
@@ -556,6 +666,7 @@ def main(argv=None):
             args.achieved_min,
             args.throttle_max,
             args.worker_throttle_max,
+            args.class_rate_max,
         )
     print(json.dumps(verdict, indent=1))
     return 0 if verdict["capacity"] is not None else 1

@@ -227,16 +227,43 @@ class FakeHttp:
     items_failures, p95)). It also serves as the in-process Prometheus transport (get_json
     on a service-proxy path): the server-side rate is `server` (target -> value, None =
     empty, "down" = a failed call), defaulting to requests / 120; `prom` maps a query
-    substring to a value (None = empty answer) for the other queries."""
+    substring to a value (None = empty answer) for the other queries.
 
-    def __init__(self, plan, prom=None, server=None):
+    Like Locust 2.46.7, a /swarm on a running test keeps the running classes (the B
+    swarm: DevUser and ProdUser) while its answer echoes the requested ones; only a
+    /swarm after /stop applies them. Knobs: `stop_hangs` (never reaches "stopped"),
+    `leak` (extra requests under prod: names), `no_class_stats` (no dev: entries),
+    `count_off` (user_count reported off by that much), `tasks` (a /tasks "total"
+    override), `class_scale` (dev: requests scaled against the server rate)."""
+
+    def __init__(
+        self,
+        plan,
+        prom=None,
+        server=None,
+        stop_hangs=False,
+        leak=0,
+        no_class_stats=False,
+        count_off=0,
+        tasks=None,
+        class_scale=1.0,
+    ):
         self.plan, self.prom, self.server = plan, prom or {}, server or {}
-        self.users, self.calls = 0, []
+        self.users, self.calls = 24, []
+        self.state, self.classes = "running", ["DevUser", "ProdUser"]
+        self.stop_hangs, self.leak, self.no_class_stats = (
+            stop_hangs,
+            leak,
+            no_class_stats,
+        )
+        self.count_off, self.tasks, self.class_scale = count_off, tasks, class_scale
 
     def post_form(self, url, fields, timeout=30):
         self.calls.append(("POST", url, dict(fields)))
-        self.users = fields["user_count"]
-        return {"success": True}
+        if self.state != "running":
+            self.classes = list(fields["user_classes"])
+        self.state, self.users = "running", fields["user_count"]
+        return {"success": True, "user_classes": list(fields["user_classes"])}
 
     def get(self, url, timeout=30):
         self.calls.append(("GET", url, None))
@@ -249,25 +276,52 @@ class FakeHttp:
             return {"status": "success", "data": {"result": []}}
         return {"status": "success", "data": {"result": [{"value": [0, str(value)]}]}}
 
+    def stats(self):
+        if self.state == "stopped":
+            return {"state": "stopped", "user_count": 0, "stats": []}
+        req, fail, items_fail, p95 = self.plan[self.users]
+        share = 1.0 if self.classes == ["DevUser"] else 0.5
+        dev = round(req * share * self.class_scale)
+        entries = []
+        if not self.no_class_stats:
+            entries += [
+                {"name": "dev:/", "num_requests": dev - dev // 5, "num_failures": 0},
+                {
+                    "name": "dev:/items",
+                    "num_requests": dev // 5,
+                    "num_failures": items_fail,
+                },
+            ]
+        prod = req - round(req * share) + self.leak
+        if prod:
+            entries.append({"name": "prod:/", "num_requests": prod, "num_failures": 0})
+        entries.append(
+            {
+                "name": "Aggregated",
+                "num_requests": req + self.leak,
+                "num_failures": fail,
+                "response_time_percentile_0.95": p95,
+            }
+        )
+        return {
+            "state": self.state,
+            "user_count": self.users + self.count_off,
+            "stats": entries,
+        }
+
     def get_json(self, url, timeout=30):
         self.calls.append(("GET", url, None))
+        if url.endswith("/stop"):
+            if not self.stop_hangs:
+                self.state, self.users = "stopped", 0
+            return {"success": True}
         if url.endswith("/stats/requests"):
-            req, fail, items_fail, p95 = self.plan[self.users]
-            return {
-                "stats": [
-                    {
-                        "name": "dev:/items",
-                        "num_requests": req // 5,
-                        "num_failures": items_fail,
-                    },
-                    {
-                        "name": "Aggregated",
-                        "num_requests": req,
-                        "num_failures": fail,
-                        "response_time_percentile_0.95": p95,
-                    },
-                ]
-            }
+            return self.stats()
+        if url.endswith("/tasks"):
+            if self.tasks is not None:
+                return {"total": self.tasks}
+            share = 1.0 / len(self.classes)
+            return {"total": {c: {"ratio": share} for c in self.classes}}
         if "/api/v1/query" in url:
             if "http_requests_total" in url:
                 value = self.server.get(self.users, self.plan[self.users][0] / 120)
@@ -301,6 +355,7 @@ def args(out, **kw):
         "achieved_min": 0.95,
         "throttle_max": 0.10,
         "worker_throttle_max": 0.10,
+        "class_rate_max": 0.10,
         "rate_diff_max": 0.05,
     }
     base.update(kw)
@@ -358,8 +413,9 @@ class RunTest(unittest.TestCase):
         swarms = [i for i, c in enumerate(http.calls) if c[0] == "POST"]
         resets = [i for i, u in enumerate(urls) if u.endswith("/stats/reset")]
         reads = [i for i, u in enumerate(urls) if u.endswith("/stats/requests")]
+        measured = [min(i for i in reads if i > r) for r in resets]
         self.assertEqual(len(resets), 5)
-        self.assertTrue(all(a < r < s for a, r, s in zip(swarms, resets, reads)))
+        self.assertTrue(all(a < r < m for a, r, m in zip(swarms, resets, measured)))
         self.assertEqual(
             (rows[0]["achieved_rps"], rows[0]["locust_rps"]), ("10.0", "10.000")
         )
@@ -389,11 +445,107 @@ class RunTest(unittest.TestCase):
         )
 
     def test_server_rate_low_is_a_knee_while_locust_is_at_target(self):
-        http = FakeHttp(STEADY, server={20: 18.0})
+        # 18.5 req/s against Locust's 20: within 10 %, so a knee (18.5 < 95 % of 20).
+        http = FakeHttp(STEADY, server={20: 18.5})
         v, rows, _, _ = self.run_ramp(http)
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertIn("server rate 18.0 < 95% of 20", v["reasons"])
-        self.assertEqual(rows[1]["rate_flag"], "rate diff +11.1% > 5%")
+        self.assertIn("server rate 18.5 < 95% of 20", v["reasons"])
+        self.assertEqual(rows[1]["rate_flag"], "rate diff +8.1% > 5%")
+
+    def test_server_rate_more_than_ten_percent_off_locust_is_a_blind_stop(self):
+        # Owner, R1 attempt 1 gate: the selected-class rate against the server rate,
+        # outside +-10 %, means the step did not measure what it claims.
+        http = FakeHttp(STEADY, server={20: 18.0})
+        v, _, _, _ = self.run_ramp(http)
+        self.assertEqual(
+            (v["capacity"], v["unjudged_target"], v["last_ok"]), (None, 20, 10)
+        )
+        self.assertEqual(
+            v["reasons"],
+            [
+                (
+                    "Locust selected-class rate 20.00 vs server 18.00 (+11.1%)"
+                    " outside 10%, step cannot be judged"
+                )
+            ],
+        )
+
+    def test_ramp_starts_from_stopped_so_the_classes_apply(self):
+        # Attempt 1 (2026-10-09): a /swarm on the running B swarm kept both classes.
+        http = FakeHttp(STEADY)
+        v, rows, _, _ = self.run_ramp(http, max=10)
+        urls = [
+            (c[0], c[1].rsplit("/", 1)[-1]) for c in http.calls if "/api/" not in c[1]
+        ]
+        self.assertEqual(
+            urls[:3], [("GET", "stop"), ("GET", "requests"), ("POST", "swarm")]
+        )
+        self.assertEqual(http.calls[2][2]["user_classes"], ["DevUser"])
+        self.assertEqual(
+            (rows[0]["swarm_ok"], rows[0]["other_class_requests"], v["capacity"]),
+            ("1", "0", 10),
+        )
+
+    def test_swarm_on_a_running_test_without_stop_is_caught(self):
+        # Without the /stop, the fake keeps DevUser and ProdUser, as Locust did.
+        http = FakeHttp(STEADY)
+        orig = ramp.stop_swarm
+        ramp.stop_swarm = lambda *a, **k: None
+        try:
+            v, rows, _, _ = self.run_ramp(http, max=10)
+        finally:
+            ramp.stop_swarm = orig
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertIn("swarm state not confirmed, step cannot be judged", v["reasons"])
+        self.assertTrue(any("non-selected classes" in r for r in v["reasons"]))
+        self.assertEqual(rows[0]["swarm_ok"], "0")
+
+    def test_requests_from_a_non_selected_class_are_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, leak=3), max=10)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertEqual(
+            v["reasons"],
+            ["3 requests from non-selected classes, step cannot be judged"],
+        )
+
+    def test_empty_per_class_stats_are_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, no_class_stats=True), max=10)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertIn(
+            "Locust selected-class requests: no data, step cannot be judged",
+            v["reasons"],
+        )
+
+    def test_swarm_user_count_off_is_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, count_off=1), max=10)
+        self.assertEqual(
+            v["reasons"], ["swarm state not confirmed, step cannot be judged"]
+        )
+
+    def test_tasks_with_another_class_is_a_blind_stop(self):
+        tasks = {"DevUser": {"ratio": 0.5}, "ProdUser": {"ratio": 0.5}}
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, tasks=tasks), max=10)
+        self.assertEqual(
+            v["reasons"], ["swarm state not confirmed, step cannot be judged"]
+        )
+
+    def test_unanswered_tasks_is_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, tasks="garbage"), max=10)
+        self.assertEqual(v["reasons"], ["swarm state: no data, step cannot be judged"])
+
+    def test_locust_that_never_stops_fails_before_any_step(self):
+        # The B swarm (24 users) keeps running: /stop never takes effect.
+        http = FakeHttp({**STEADY, 24: (2880, 0, 0, 12)}, stop_hangs=True)
+        with self.assertRaises(ramp.SwarmError):
+            self.run_ramp(http)
+        self.assertFalse([c for c in http.calls if c[0] == "POST"])  # no /swarm sent
+        self.assertEqual(http.calls[-1][1], "http://locust:8089/stop")
+
+    def test_classes_must_serve_the_target_namespace(self):
+        http = FakeHttp(STEADY)
+        with self.assertRaises(ValueError):
+            self.run_ramp(http, classes=["ProdUser"])
+        self.assertEqual(http.calls, [])  # nothing sent to Locust
 
     def test_prometheus_down_stops_the_ramp(self):
         http = FakeHttp(STEADY, server={20: "down"})
