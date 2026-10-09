@@ -14,7 +14,8 @@ step, at a step that cannot be judged, or at --max, then posts /stop: Locust
 returns to idle. The step after a stop is never run.
 
 Prometheus is read only through the API server's service proxy with
-`kubectl get --raw <PATH>/api/v1/query?query=<URL-encoded PromQL>&time=<window end>`
+`kubectl --context <CONTEXT> -n monitoring get --raw <PATH>/api/v1/query?query=<URL-encoded PromQL>&time=<window end>`
+(context and namespace always named, owner, 2026-10-09)
 (owner, #107 gate): read-only, no port-forward, no local `kubectl proxy`. --prom
 is that service-proxy path (default: the observability Prometheus). A failed
 call (non-zero exit, timeout, unparsable answer) is "no answer".
@@ -273,13 +274,22 @@ class KubectlRaw:
     service proxy): never a port-forward, never a local proxy. Tests pass a stub
     kubectl."""
 
-    def __init__(self, kubectl="kubectl", timeout=30):
-        self.kubectl, self.timeout = kubectl, timeout
+    def __init__(self, kubectl="kubectl", context="default", timeout=30):
+        self.kubectl, self.context, self.timeout = kubectl, context, timeout
 
     def get_json(self, path):
         try:
             proc = subprocess.run(
-                [self.kubectl, "get", "--raw", path],
+                [
+                    self.kubectl,
+                    "--context",
+                    self.context,
+                    "-n",
+                    "monitoring",
+                    "get",
+                    "--raw",
+                    path,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -357,7 +367,7 @@ def rate_check(locust_rps, server_rps, max_diff):
 
 def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
     http = http or Http()
-    prom = prom or KubectlRaw(args.kubectl)
+    prom = prom or KubectlRaw(args.kubectl, args.context)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     locust = args.locust.rstrip("/")
@@ -452,6 +462,7 @@ def parser():
         help="Prometheus service-proxy API path, read with kubectl get --raw",
     )
     r.add_argument("--kubectl", default="kubectl", help="kubectl binary")
+    r.add_argument("--context", default="default", help="kube context, always named")
     r.add_argument("--out", required=True)
     r.add_argument(
         "--namespace", default="nexus-dev", choices=["nexus-dev", "nexus-prod"]

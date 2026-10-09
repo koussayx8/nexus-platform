@@ -222,6 +222,7 @@ def args(out, **kw):
         "out": out,
         "prom": ramp.PROM_PATH,
         "kubectl": "kubectl",
+        "context": "default",
         "namespace": "nexus-dev",
         "classes": ["DevUser"],
         "start": 10,
@@ -364,14 +365,15 @@ class RunTest(unittest.TestCase):
 
 
 STUB_KUBECTL = """#!/usr/bin/env python3
-# Stub kubectl for ramp.py tests: logs its argv, answers only `get --raw <path>`.
+# Stub kubectl for ramp.py tests: logs its argv, answers only
+# `--context default -n monitoring get --raw <path>`.
 import json, os, sys, urllib.parse
 with open(os.environ["STUB_LOG"], "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
 mode = os.environ.get("STUB_MODE", "ok")
-if sys.argv[1:3] != ["get", "--raw"] or len(sys.argv) != 4:
-    sys.exit("stub kubectl: only get --raw <path>")
-query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[3]).query)["query"][0]
+if sys.argv[1:7] != ["--context", "default", "-n", "monitoring", "get", "--raw"] or len(sys.argv) != 8:
+    sys.exit("stub kubectl: only --context default -n monitoring get --raw <path>")
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[7]).query)["query"][0]
 server = "http_requests_total" in query
 if mode == "fail-server" and server:
     sys.stderr.write("Error from server (ServiceUnavailable): the server is currently unable\\n")
@@ -443,10 +445,12 @@ class KubectlRawTest(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(len(calls), 1 + len(ramp.QUERIES))
         for argv in calls:
-            self.assertEqual(argv[:2], ["get", "--raw"])
-            self.assertEqual(len(argv), 3)
-            self.assertTrue(argv[2].startswith(ramp.PROM_PATH + "/api/v1/query?"))
-        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][2]).query)
+            self.assertEqual(
+                argv[:6], ["--context", "default", "-n", "monitoring", "get", "--raw"]
+            )
+            self.assertEqual(len(argv), 7)
+            self.assertTrue(argv[6].startswith(ramp.PROM_PATH + "/api/v1/query?"))
+        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][6]).query)
         self.assertIn('handler!~"/health|/ready|/metrics"}[120s]', server["query"][0])
         self.assertEqual(server["time"], ["1180.000"])  # 1000 + 60 settle + 120 measure
         self.assertEqual((rows[0]["achieved_rps"], v["reached_max"]), ("10.0", True))
