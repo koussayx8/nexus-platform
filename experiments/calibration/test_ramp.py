@@ -29,6 +29,65 @@ class KneeTest(unittest.TestCase):
             (v["capacity"], v["knee_target"], v["reached_max"]), (30, None, True)
         )
         self.assertEqual(v["baseline"], 12)
+        # Owner, #117 gate: no knee by the top step makes C a lower bound; B follows.
+        self.assertTrue(v["capacity_lower_bound"])
+        self.assertFalse(v["locust_bound"])
+
+    def test_locust_bound_stop_makes_c_a_lower_bound(self):
+        v = verdict("knee-locust-bound.csv")
+        self.assertEqual((v["capacity"], v["baseline"], v["knee_target"]), (10, 4, 20))
+        self.assertTrue(v["locust_bound"])
+        self.assertTrue(v["capacity_lower_bound"])
+        self.assertEqual(
+            v["reasons"], ["Locust-bound: worker throttled (pod cgroup) 15.00% > 10%"]
+        )
+
+    def test_sample_api_knee_is_not_a_lower_bound(self):
+        v = verdict("knee-throttle.csv")
+        self.assertFalse(v["capacity_lower_bound"])
+        self.assertFalse(v["locust_bound"])
+
+    def test_empty_judged_input_is_a_blind_stop(self):
+        # Owner, #117 gate: an empty answer on any judged criterion is a blind stop.
+        for field, label in ramp.JUDGED:
+            with self.subTest(field=field):
+                rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+                rows[1][field] = ""
+                v = ramp.knee(rows)
+                self.assertEqual(
+                    (v["capacity"], v["baseline"], v["unjudged_target"]),
+                    (None, None, 20),
+                )
+                self.assertEqual(
+                    v["reasons"], [f"{label}: no data, step cannot be judged"]
+                )
+                self.assertTrue(ramp.stopped(v))
+
+    def test_empty_first_step_p95_is_a_blind_stop(self):
+        rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+        rows[0]["p95_ms"] = ""
+        v = ramp.knee(rows)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+
+    def test_empty_record_only_series_stops_nothing(self):
+        record_only = [
+            "locust_total_rps",
+            "app_cpu",
+            "db_throttle",
+            "db_throttle_pod",
+            "db_cpu",
+            "db_ws_max_bytes",
+            "worker_cpu",
+            "node_cpu",
+        ]
+        judged = {f for f, _ in ramp.JUDGED} | {"achieved_rps", "target"}
+        self.assertFalse(judged & set(record_only))
+        rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+        for row in rows:
+            for field in record_only:
+                row[field] = ""
+        v = ramp.knee(rows)
+        self.assertEqual((v["capacity"], v["reached_max"]), (30, True))
 
     def test_p95_knee(self):
         v = verdict("knee-p95.csv")
@@ -148,6 +207,12 @@ class CrossCheckTest(unittest.TestCase):
         self.assertEqual(row["locust_total_rps"], "10.290")  # display only
         self.assertNotIn("achieved_rps", row)  # the knee's rate is server-side
 
+    def test_missing_locust_entries_are_empty_never_zero(self):
+        row = ramp.locust_row({"stats": []}, 10, 0.0, 120.0, "dev:/items")
+        for field in ("requests", "failures", "items_failures", "p95_ms", "locust_rps"):
+            self.assertEqual(row[field], "", field)
+        self.assertEqual(ramp.rate_check(None, 10.0, 0.05), ("", ""))
+
     def test_rate_check_is_signed_and_flags_above_five_percent(self):
         self.assertEqual(ramp.rate_check(9.6, 10.0, 0.05), ("-0.0400", "ok"))
         self.assertEqual(ramp.rate_check(10.4, 10.0, 0.05), ("+0.0400", "ok"))
@@ -235,6 +300,7 @@ def args(out, **kw):
         "fail_max": 0.01,
         "achieved_min": 0.95,
         "throttle_max": 0.10,
+        "worker_throttle_max": 0.10,
         "rate_diff_max": 0.05,
     }
     base.update(kw)
@@ -346,7 +412,12 @@ class RunTest(unittest.TestCase):
     def test_resource_columns_and_empty_answers(self):
         http = FakeHttp(
             STEADY,
-            prom={"dependency-db": 0.3, "sample-api": 0.0, "locust-worker": None},
+            prom={
+                "dependency-db": 0.3,
+                "sample-api": 0.0,
+                "cfs_throttled": 0.0,  # the worker's throttling, both levels
+                "locust-worker": None,  # worker_cpu: record-only, stays empty
+            },
         )
         v, rows, _, _ = self.run_ramp(http, max=20)
         self.assertEqual(rows[0]["db_throttle"], "0.3")
