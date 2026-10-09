@@ -1,2 +1,2 @@
-target,t_start,t_end,requests,failures,items_failures,achieved_rps,locust_rps,locust_total_rps,rate_diff,rate_flag,fail_ratio,p95_ms,app_throttle,app_cpu,db_throttle,db_cpu,db_ws_max_bytes,worker_cpu,node_cpu
-10,0,120,1200,20,0,10.0,9.800,10.300,-0.0200,ok,0.016667,12,0.00,0.02,0.30,0.02,49000000,0.01,0.03
+target,t_start,t_end,requests,failures,items_failures,achieved_rps,locust_rps,locust_total_rps,rate_diff,rate_flag,fail_ratio,p95_ms,app_throttle,app_throttle_pod,app_cpu,db_throttle,db_throttle_pod,db_cpu,db_ws_max_bytes,worker_cpu,node_cpu
+10,0,120,1200,20,0,10.0,9.800,10.300,-0.0200,ok,0.016667,12,0.00,0.00,0.02,0.30,0.30,0.02,49000000,0.01,0.03

@@ -40,14 +40,20 @@ CPU in the target namespace, dependency-db throttling, CPU and peak working set
 Locust worker's CPU and the node's CPU. An empty answer is recorded as empty,
 never as 0.
 
+Throttling is read at both cgroup levels (ADR-027): the container
+(container="sample-api", container="dependency-db") and the pod cgroup
+(container="", the pod's own quota with its own period timer). A stall at the pod
+level is counted only there, so the container level alone is a lower bound.
+
 knee: the first step with any of
   - failures above --fail-max of all requests (default 1 %);
   - any /items failure (a db_slots_exhausted or db_unavailable 503: the logs
     say which);
   - server-side achieved rate below --achieved-min of the target (default 95 %);
   - p95 above --p95-factor times the first step's p95 (default 2);
-  - sample-api throttled periods above --throttle-max (default 10 %), or an
-    empty sample-api throttling answer.
+  - sample-api throttled periods above --throttle-max (default 10 %) at either
+    level (container or pod cgroup), or an empty answer at either level.
+    DB throttling, at both levels, is recorded, not a knee.
 Capacity C is the target of the last step before the knee. If the ramp
 reached --max without a knee, C is the last target and the result says so. A
 step without a server-side rate stops the ramp with no capacity.
@@ -88,8 +94,10 @@ FIELDS = [
     "fail_ratio",
     "p95_ms",
     "app_throttle",
+    "app_throttle_pod",
     "app_cpu",
     "db_throttle",
+    "db_throttle_pod",
     "db_cpu",
     "db_ws_max_bytes",
     "worker_cpu",
@@ -106,8 +114,10 @@ SERVER_RATE_QUERY = (
 # PromQL per step; {ns} is the target namespace, {w} the measure window in seconds.
 QUERIES = {
     "app_throttle": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="{ns}",container="sample-api"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="{ns}",container="sample-api"}}[{w}s]))',
+    "app_throttle_pod": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="{ns}",container="",pod=~"sample-api-.*"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="{ns}",container="",pod=~"sample-api-.*"}}[{w}s]))',
     "app_cpu": 'sum(rate(container_cpu_usage_seconds_total{{namespace="{ns}",container="sample-api"}}[{w}s]))',
     "db_throttle": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="nexus-data",container="dependency-db"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="nexus-data",container="dependency-db"}}[{w}s]))',
+    "db_throttle_pod": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="nexus-data",container="",pod="dependency-db-0"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="nexus-data",container="",pod="dependency-db-0"}}[{w}s]))',
     "db_cpu": 'sum(rate(container_cpu_usage_seconds_total{{namespace="nexus-data",container="dependency-db"}}[{w}s]))',
     "db_ws_max_bytes": 'max(max_over_time(container_memory_working_set_bytes{{namespace="nexus-data",container="dependency-db"}}[{w}s]))',
     "worker_cpu": 'sum(rate(container_cpu_usage_seconds_total{{namespace="nexus-load",container="locust",pod=~"locust-worker-.*"}}[{w}s]))',
@@ -182,11 +192,14 @@ def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.
             and p95 > p95_factor * ref_p95
         ):
             reasons.append(f"p95 {p95:g} ms > {p95_factor:g} x {ref_p95:g} ms")
-        throttle = _num(row.get("app_throttle"))
-        if throttle is None:
-            reasons.append("sample-api throttling: no data")
-        elif throttle > throttle_max:
-            reasons.append(f"sample-api throttled {throttle:.2%} > {throttle_max:.0%}")
+        for field, level in (("app_throttle", "container"), ("app_throttle_pod", "pod cgroup")):
+            throttle = _num(row.get(field))
+            if throttle is None:
+                reasons.append(f"sample-api throttling ({level}): no data")
+            elif throttle > throttle_max:
+                reasons.append(
+                    f"sample-api throttled ({level}) {throttle:.2%} > {throttle_max:.0%}"
+                )
         if reasons:
             result.update(
                 capacity=last_ok,
@@ -388,7 +401,8 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
                     f"step {target}: server {row['achieved_rps'] or '-'} req/s, "
                     f"Locust {row['locust_rps']} ({row['rate_diff'] or '-'}), "
                     f"failures {row['failures']}, p95 {row['p95_ms']} ms, "
-                    f"app throttle {row['app_throttle']}, db throttle {row['db_throttle']}"
+                    f"app throttle {row['app_throttle']} (pod {row['app_throttle_pod']}), "
+                    f"db throttle {row['db_throttle']} (pod {row['db_throttle_pod']})"
                 )
                 if stopped(verdict):
                     break

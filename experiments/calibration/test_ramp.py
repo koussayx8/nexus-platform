@@ -43,7 +43,14 @@ class KneeTest(unittest.TestCase):
     def test_throttle_knee(self):
         v = verdict("knee-throttle.csv")
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertIn("sample-api throttled 15.00% > 10%", v["reasons"])
+        self.assertEqual(v["reasons"], ["sample-api throttled (container) 15.00% > 10%"])
+
+    def test_pod_cgroup_throttle_is_a_knee_with_the_container_clean(self):
+        # ADR-027: the pod cgroup has its own 100 ms timer; a stall there is not counted
+        # under container="sample-api" (m2jww in run 2: pod 8.6 %, container 0.5 %).
+        v = verdict("knee-throttle-pod.csv")
+        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
+        self.assertEqual(v["reasons"], ["sample-api throttled (pod cgroup) 12.00% > 10%"])
 
     def test_server_rate_knee_even_when_locust_is_at_target(self):
         v = verdict("knee-achieved.csv")
@@ -80,7 +87,12 @@ class KneeTest(unittest.TestCase):
     def test_missing_throttle_answer_is_a_knee(self):
         v = verdict("knee-missing.csv")
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttling: no data"])
+        self.assertEqual(v["reasons"], ["sample-api throttling (container): no data"])
+
+    def test_missing_pod_cgroup_throttle_answer_is_a_knee(self):
+        v = verdict("knee-missing-pod.csv")
+        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
+        self.assertEqual(v["reasons"], ["sample-api throttling (pod cgroup): no data"])
 
     def test_thresholds_are_options(self):
         v = verdict("knee-throttle.csv", throttle_max=0.20)
@@ -89,6 +101,20 @@ class KneeTest(unittest.TestCase):
     def test_db_throttling_is_recorded_not_a_knee(self):
         # 30 % DB throttling at every step (the idle reading): the decision is the owner's.
         self.assertTrue(verdict("no-knee.csv")["reached_max"])
+
+    def test_db_pod_cgroup_throttling_is_recorded_not_a_knee(self):
+        self.assertTrue(verdict("db-pod-throttle.csv")["reached_max"])
+
+    def test_throttle_queries_read_both_cgroup_levels(self):
+        q = ramp.QUERIES
+        self.assertIn('container="sample-api"', q["app_throttle"])
+        self.assertIn('container="",pod=~"sample-api-.*"', q["app_throttle_pod"])
+        self.assertIn('container="dependency-db"', q["db_throttle"])
+        self.assertIn('container="",pod="dependency-db-0"', q["db_throttle_pod"])
+        for name in ("app_throttle_pod", "db_throttle_pod"):
+            self.assertIn(name, ramp.FIELDS)
+            self.assertIn("cfs_throttled_periods_total", q[name])
+            self.assertIn("cfs_periods_total", q[name])
 
     def test_baseline_is_floor_of_forty_percent(self):
         self.assertEqual(
@@ -307,6 +333,8 @@ class RunTest(unittest.TestCase):
         )
         v, rows, _, _ = self.run_ramp(http, max=20)
         self.assertEqual(rows[0]["db_throttle"], "0.3")
+        self.assertEqual(rows[0]["db_throttle_pod"], "0.3")  # recorded at both levels
+        self.assertEqual(rows[0]["app_throttle_pod"], "0.0")
         self.assertEqual(rows[0]["worker_cpu"], "")  # empty answer stays empty, never 0
         self.assertTrue(v["reached_max"])  # DB throttling alone is not a knee
         queries = [c[1] for c in http.calls if "/api/v1/query" in c[1]]
