@@ -1,112 +1,239 @@
 # ADR-027: sample-api's CPU Limit Is One Core
 
-## Status: Proposed (M1b-9, branch `feat/m1b-9-cpu-limit`; owner decision (a) after clean-window run 2, 2026-10-08)
+## Status: Proposed (M1b-9, branch `feat/m1b-9-cpu-limit`; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09)
 
 ## Context
-Two M1b-9 findings point at sample-api's 200m CPU limit (20 ms of CPU per 100 ms CFS period per pod).
+Two M1b-9 findings point at sample-api's 200m CPU limit: R1's throttling knee and run 2's bimodal `/items`.
+Evidence: `~/nexus-evidence/m1b-9/r1/`, `clean60-run2/`, `cpu-limit/step1/`, `cpu-limit/step1b/`.
 
-1. **R1's knee is a throttling knee** (2026-10-07, ADR-026, `~/nexus-evidence/m1b-9/r1/`). At 40 req/s each
-   pod averaged about 0.04 cores, a fifth of its limit, yet CFS throttled 12.8 % of its periods and p95 tripled
-   (14 → 45 ms). Throttling rose before CPU did: 0.0 % at 10 req/s, 0.5 % at 20, 6.2 % at 30, 12.8 % at 40.
-   Short bursts (one DB connection per `/items` call, Python request handling) fill the 20 ms budget.
-   C = 30 and B = 12 req/s per namespace came from that knee.
-2. **Clean-window run 2 failed on a bimodal `/items`** (2026-10-08, `~/nexus-evidence/m1b-9/clean60-run2/`).
-   Over 10:09–10:33Z at B, `/items` had a fast mode at or under 20 ms and a slow mode at 50–100 ms:
+### The mechanism: two nested 200m quotas
+Read on the node on 2026-10-09 for all four sample-api pods (Burstable QoS):
+- The pod cgroup (`kubepods-burstable-pod<uid>.slice`) has `cpu.max 20000 100000`. Kubernetes sets it to the sum
+  of the container limits.
+- Inside it, the sample-api container scope also has `cpu.max 20000 100000`. The pause container has `max`.
+- **Each level runs its own 100 ms period timer.** A burst can spend one level's 20 ms while the other still has
+  room. The stall is counted only at the level that throttled:
+  - pod level: `container_cpu_cfs_throttled_periods_total{container=""}`;
+  - container level: `{container="sample-api"}`.
+- **ADR-026's and R1's throttling figures are container-only, so they are lower bounds.** `ramp.py` reads
+  `container="sample-api"` and `container="dependency-db"` only.
 
-   | Namespace | `/items` ≤ 20 ms | 20–50 ms | 50–100 ms | sample-api throttled periods | mixed p95 |
-   |---|---|---|---|---|---|
-   | nexus-prod | 80 % | 1 % | 18 % | about 2 % | 19–20 ms |
-   | nexus-dev | 65 % | 12 % | 18 % | about 8 % | 45–58 ms |
+A request that meets an exhausted quota at either level waits for the next refill, up to 100 ms. That is the
+50–100 ms slow mode of `/items`. `/items` takes the CPU bursts (a new DB connection per call, plus Python
+handling), so it is the request that stalls. `/` stays clean.
 
-   - `/` stayed under 5 ms. At the 4 : 1 mix the mixed p95 is `/items`'s 75th percentile, which sat on the edge
-     of the fast mode. A small host blip (canary +13 %, under the void line) moved it across the empty gap, about
-     30 ms (3 ε), and `NexusLatencyAnomaly` went pending in both namespaces.
-   - The slow mode matches throttling stalls: a request that meets an exhausted quota waits for the next period
-     (up to 100 ms). The namespace with more throttling has the larger slow tail.
-   - This corrects run 1's attribution: the 25 ms bucket edge amplified that jump, but the cliff is in the
-     distribution. #111 (finer buckets) was necessary, not sufficient.
+### R1 (2026-10-07, `nexus-dev`, `DevUser` only), throttled periods at both levels
+Container values reproduce `steps.csv`. Both levels were re-read with the same windows.
 
-The load is not changed to avoid the cliff (faults and load are not shaped to the detector), and the latency
-rule is not changed (that re-runs S5 under the pin rule). The owner chose to remove the cause: the limit.
+| Target req/s | sample-api container | sample-api pod cgroup | DB container | DB pod cgroup | p95 |
+|---|---|---|---|---|---|
+| 10 | 0.00 % | 0.00 % | 7.97 % | 0.21 % | 14 ms |
+| 20 | 0.47 % | 0.42 % | 4.71 % | 0.99 % | 16 ms |
+| 30 | 6.16 % | 4.28 % | 3.97 % | 0.74 % | 21 ms |
+| 40 | 12.73 % | 5.46 % | 4.07 % | 1.47 % | 45 ms |
+
+The knee at 40 (p95 > 2 × 14 ms, container throttling > 10 %) gave C = 30 and B = 12 req/s per namespace. At 40
+req/s each pod averaged about 0.04 cores, a fifth of its limit: throttling came from bursts, not from load.
+
+### Per pod in the timed windows
+Locust keeps each user on one pod (keep-alive connections), so pods carry uneven load. Users per pod = the
+pod's req/s (one request per second per user).
+
+| Window | Pod | Users | Pod cgroup throttled | Container throttled | `/items` 50–100 ms | `/` > 50 ms |
+|---|---|---|---|---|---|---|
+| run 1 (06:58–07:05Z, 0.3.0) | dev `fmswt` | 10.4 | 2.40 % | 3.21 % | 4.71 % | 0.17 % |
+| | dev `fzzsx` | 2.0 | 0.00 % | 0.00 % | 0.60 % | 0.00 % |
+| | prod `8nf4x` | 8.3 | 4.25 % | 7.94 % | 25.29 % | 0.04 % |
+| | prod `mj9j2` | 4.1 | 0.28 % | 0.00 % | 0.00 % | 0.00 % |
+| warm-up 2 (09:50–10:06Z) | dev `2r79t` | 10.2 | 5.10 % | 12.59 % | 27.85 % | 0.00 % |
+| | dev `79pdx` | 2.0 | 0.14 % | 0.15 % | 0.00 % | 0.06 % |
+| | prod `m2jww` | 7.1 | **9.01 %** | 0.60 % | 24.98 % | 0.11 % |
+| | prod `r5pzt` | 5.2 | 2.98 % | 3.02 % | 11.82 % | 0.00 % |
+| run 2 (10:09–10:33Z) | dev `2r79t` | 10.2 | 5.82 % | 12.36 % | 21.84 % | 0.10 % |
+| | dev `79pdx` | 2.0 | 0.00 % | 0.02 % | 0.17 % | 0.00 % |
+| | prod `m2jww` | 7.1 | **8.62 %** | 0.50 % | 23.71 % | 0.09 % |
+| | prod `r5pzt` | 5.1 | 2.86 % | 2.92 % | 11.55 % | 0.00 % |
+
+- **Run 2 failed on this slow mode.**
+  - At the 4 : 1 mix the mixed p95 is `/items`'s 75th percentile. It sat on the edge of the fast mode
+    (≤ 20 ms).
+  - A small host blip (canary +13 %, under the void line) moved it across the empty gap, about 30 ms (3 ε), and
+    `NexusLatencyAnomaly` went pending in both namespaces. Mixed p95 before the blip: dev 45–58 ms, prod 19–20 ms.
+- On every pod the slow share follows that pod's throttling at one level or the other. On each pod, slow
+  `/items` ≤ throttled periods (both levels summed). The one exception is a single request on `fzzsx` in run 1.
+- `m2jww` throttled at the pod level, not at the container level. Read at the container level only, it looked
+  unexplained.
+- Dev throttled about 4× prod at the container level because one dev pod carried 10 of 12 users.
+- At the same load per pod (10 req/s) and similar CPU, R1's pods throttled 0–1 % and run 2's `2r79t` 12 %.
+  Burst alignment within periods (fixed user phases, the user-to-pod split) is the likely cause. UNVERIFIED.
+- Run 1's attribution is corrected: the 25 ms bucket edge amplified its jump, but the cliff is in the
+  distribution. #111 (finer buckets) was necessary, not sufficient.
+- DB throttling over the same windows:
+
+  | Window | DB container | DB pod cgroup |
+  |---|---|---|
+  | run 1 | 6.43 % | 4.11 % |
+  | warm-up 2 | 7.17 % | 2.37 % |
+  | run 2 | 7.45 % | 1.63 % |
+
+  It is shared by all pods, and pods without sample-api throttling (`79pdx`, `mj9j2`) show no slow mode.
+- Logs on all four current pods (from 2026-10-08 09:00Z): 0 `db_slots_exhausted`, `db_error`, Traceback, retry,
+  timeout or 5xx. Each pod: 0 restarts, working set ≤ 48 Mi of 128 Mi, 6–8 threads, 17–25 fds.
+
+**UNEXPLAINED residual:** after the Locust resume (2026-10-08 18:06–18:25Z), `m2jww` (2.8 users) had 117 slow
+`/items` against at most 62 throttled periods: 3 at the pod level, 59 at the container level. `/` stayed clean
+(0 of 2,556 over 50 ms). The DB was throttled 9.38 % (container) and 3.32 % (pod cgroup) in that window.
+**The DB is the first candidate.**
+
+The load is not changed to avoid the cliff (faults and load are not shaped to the detector), and the latency rule
+is not changed (that re-runs S5 under the pin rule). The owner chose to remove the cause: the limit.
 
 ## Decision
 
-### The principle
-**The CPU limit is the most CPU the server process can use at once on normal traffic**, so normal traffic
-never throttles. The request stays 50m.
+### The principle (decided wording, owner, 2026-10-08)
+> Set sample-api's CPU limit by one principle: the most CPU the server process can use at once (check its worker
+> and thread count), so normal traffic never throttles; the request stays as is. State how S2's CPU-burn fault can
+> still saturate the pod.
+
+**The normal-traffic scope and the S2 requirement are part of the decision** (owner, step-1 gate review). The scope
+matters because "the most CPU the process can use at once", unscoped, is about 12 cores:
+- `/work/cpu` hashes outside the GIL on a 40-token threadpool, so the process can use as many cores as the node
+  has.
+- That limit would let S2 load the node instead of saturating the pod.
 
 Read from the image and the running pods (2026-10-08):
 - `CMD ["uvicorn", "main:app", …]` with no `--workers`: **one server process**. `container_processes` = 1 in all
   four pods.
 - CPython 3.12 (`python:3.12-slim`, a GIL build). `container_threads` = 6–7 per pod: the event loop plus the
-  threadpool threads started so far. Starlette runs plain `def` handlers on AnyIO's default limiter of 40
-  tokens (`CapacityLimiter(40)`, read in AnyIO 4.13.0's source locally; the image has 4.15.1, same 4.x
-  default, UNVERIFIED in that exact version). `/items` holds one of 5 DB slots.
+  threadpool threads started so far.
+  - Starlette runs plain `def` handlers on AnyIO's default limiter of 40 tokens (`CapacityLimiter(40)`).
+  - That was read in AnyIO 4.13.0's source locally. The image has 4.15.1, same 4.x default, UNVERIFIED in that
+    exact version.
+  - `/items` holds one of 5 DB slots.
 - `/` (async) and `/items` (threadpool) run Python code, which holds the GIL: at most **one core** at once.
-  Their GIL-free parts (libpq calls, socket I/O) are small next to the Python work (UNVERIFIED per call;
-  check A2 below measures the result).
+  Their GIL-free parts (libpq calls, socket I/O) are small next to the Python work (UNVERIFIED per call). Check A2
+  measures the result.
 
-So the limit is **1000m**. With one core of quota, a 100 ms period holds 100 ms of CPU: throttling now needs
-the process to keep more than one core busy for a whole period, which bursty GIL-bound work cannot do. A pod
-throttles only when it is saturated, not when two requests overlap. R1 measured about 0.023 cores for 2 pods
-at 10 req/s, so normal traffic is far from one core per pod.
+So the limit is **1000m**, and the request stays 50m.
+- The pod cgroup's quota follows the sum of the container limits, so both levels become 1000m. The checkpoint A
+  precondition verifies this.
+- With one core of quota, a 100 ms period holds 100 ms of CPU. Throttling then needs the process to keep more than
+  one core busy for a whole period, which bursty GIL-bound work cannot do.
+- R1 measured about 0.023 cores for 2 pods at 10 req/s.
 
 ADR-016 made the same change for Grafana (200m → 1000m) for the same cause.
 
 ### S2 still saturates the pod
-S2 is "a Locust ramp to twice per-pod capacity on `/work/cpu` for 10 min" (spec, scenario table). Per-pod
-capacity is defined against this limit, so S2 saturates by construction:
-- `/work/cpu` is a plain `def` on the 40-token threadpool. It hashes a 64 KiB block 64 times (about 10 ms of
-  CPU), and CPython's `hashlib` releases the GIL for updates that large. Measured locally (Python 3.12.3, the
-  same block): 1 thread used 0.95 cores, 4 threads 3.85 cores. Under S2, the process's demand is not bounded
-  by one core.
-- The 1000m quota caps it: every period's quota is spent, the run queue and the threadpool queue grow,
-  latency and in-flight rise, and CPU sits at the limit. That is CPU saturation of the pod, the
-  `cpu_saturation` signature S2 needs (`NexusCpuAnomaly`, `NexusLatencyAnomaly`).
-- Per-pod capacity is about 1 core ÷ 10 ms ≈ 100 req/s on `/work/cpu`, so S2 drives about 200 req/s per pod.
-  R2 (deferred to M2/S2, ADR-026) measures the real value under this limit.
-- Without a limit, S2 could take most of the node's 12 cores and starve its neighbours instead of
-  saturating one pod. The limit is what keeps S2 a pod-level fault.
+S2 is "a Locust ramp to twice per-pod capacity on `/work/cpu` for 10 min" (spec, scenario table).
+- `/work/cpu` is a plain `def` on the threadpool. It hashes a 64 KiB block 64 times (about 10 ms of CPU), and
+  CPython's `hashlib` releases the GIL for updates that large.
+  - Measured locally (Python 3.12.3, the same block): 1 thread used 0.95 cores, 4 threads 3.85 cores.
+  - Under S2 the process's demand is not bounded by one core.
+- The 1000m quota caps it. Every period's quota is spent; the run queue and the threadpool queue grow; latency
+  and in-flight rise; CPU sits at the limit. That is the `cpu_saturation` signature S2 needs (`NexusCpuAnomaly`,
+  `NexusLatencyAnomaly`).
+- **Estimate until R2 (M2/S2):** per-pod capacity is about 1 core ÷ 10 ms ≈ 100 req/s on `/work/cpu`, so S2 is
+  about **200 req/s per pod**. R2 measures the real value under this limit.
+- **Can one Locust worker drive it?** Probably, UNVERIFIED.
+  - At 2 pods × 200 req/s plus B, about 420 req/s.
+  - At the canary's 1.2–1.3 ms of worker CPU per request, that is about 0.5 core of the worker's 1000m limit.
+  - `HttpUser` with `constant_throughput(1)` needs about 400 users.
+  - `/work/cpu` waits longer per call than the baseline paths, so the per-request cost may differ.
+  - R2 checks it with the server-rate rule. If one worker cannot drive it, a second worker is an ADR change.
+- **Reading to settle at M2:** the spec does not say whether "twice per-pod capacity" is per pod or the
+  namespace's total. With scale +1 or +2 from 2 replicas and `scale_v1`'s 70 % criterion (see Consequences):
+  - The namespace-total reading (about 200 req/s, about 2 cores) is met at 3 replicas (about 667m per pod) and 4
+    (about 500m).
+  - The per-pod reading (about 400 req/s, about 4 cores) is not met within the 5-replica bound (800m per pod).
 
-### Pre-registered checks (before any rollout; if a check fails after the rollout, stop)
-**Checkpoint A** gates the R1 re-run. Per namespace, after its two new pods are Ready on 1000m:
-- Locust at the current B (master `running` with 24 users; server rate within ±10 % of 12 req/s).
-- One 20-min window starting ≥ 5 min after the second new pod is Ready. Heavy local work is kept out of it
-  (plan §2 rule 7).
-- If the host-speed canary is sustained above +20 % (plan §2 rule 5) inside the window, the window is void
-  and is repeated. A void window is not a failure.
+### Checkpoint A: after both rollouts, at the current B (gates the R1 re-run)
+**Precondition.** After the rollout, `cpu.max` reads `100000 100000` on all four new pods, at both levels:
+- the pod cgroup slice;
+- the sample-api container scope.
 
-| # | Check (20-min window `W`, namespace `ns`) | Pass | Run 2 (200m) |
+It is read on the node with read-only `cat`. **Otherwise stop.**
+
+**The window.**
+- One 20-min window, both namespaces at B = 12 at once.
+- It starts after both rollouts (prod at the `main` merge, dev after the forward-merge) and a settle of ≥ 5 min
+  after the later roll's second new pod is Ready.
+- **Validity is settled before A1–A4 are read.**
+
+**Void set** (plan §2, long-run rules). A void window is repeated, not failed:
+1. `boot_id` changes, or k3s MainPID/NRestarts changes.
+2. A new container restart or pod uid on the measured path (plan §2 rule 2).
+3. An Application revision changes, or a `verify-state.sh` run overlaps the window.
+4. More than 3 missed `nexus-detection` evaluations.
+5. Drift-corrected D_c > 90 s, with r read at both ends, each |r| ≤ 0.05 (plan §2).
+6. The host-speed canary is sustained above +20 % (rule 5).
+7. Locust is outside ±10 % of B in either namespace.
+8. Heavy local work (rule 7).
+9. Dashboards or UIs open (rule 10).
+
+| # | Check, per namespace or per pod, over the window `W` | Pass | Run 2 (200m) |
 |---|---|---|---|
-| A1 | `/items` 50–100 ms share: `(increase(bucket{le="0.1"}) − increase(bucket{le="0.05"})) ÷ increase(count)`, `handler="/items"` | **≤ 3 %** | 18 % both |
-| A2 | sample-api throttled periods: `increase(container_cpu_cfs_throttled_periods_total) ÷ increase(container_cpu_cfs_periods_total)`, `container="sample-api"` | **≤ 0.5 %** | dev 8 %, prod 2 % |
-| A3 | Mixed p95 inside the fast mode: `max_over_time(namespace:nexus_sample_api_latency_p95:2m[W])` | **≤ 20 ms** | dev 45–58 ms |
-| A4 | Margin: `/items` share above 20 ms, `1 − increase(bucket{le="0.02"}) ÷ increase(count)` | **≤ 10 %** | prod 20 %, dev 35 % |
+| A1 | `/items` 50–100 ms share per namespace: `(increase(bucket{le="0.1"}) − increase(bucket{le="0.05"})) ÷ increase(count)`, `handler="/items"` | **≤ 3 %** | dev 18 %, prod 18 % |
+| A2 | Throttled periods **per pod, at both levels**: `increase(container_cpu_cfs_throttled_periods_total) ÷ increase(container_cpu_cfs_periods_total)` for `container="sample-api"` **and** for `container=""` (pod cgroup) | **every pod ≤ 0.5 % at both** | max 12.36 % (container, `2r79t`); 8.62 % (pod, `m2jww`) |
+| A3 | Mixed p95 inside the fast mode: `max_over_time(namespace:nexus_sample_api_latency_p95:2m[W])` | **≤ 20 ms** | dev 45–58 ms, prod 19–20 ms |
+| A4 | Margin: `/items` share above 20 ms per namespace, `1 − increase(bucket{le="0.02"}) ÷ increase(count)` | **≤ 10 %** | prod 20 %, dev 35 % |
 
-- Sums are over the namespace's sample-api pods; the `http_request_duration_seconds` series use
-  `job="sample-api"`.
-- Why A4: the mixed p95 crosses the gap when more than 25 % of `/items` exceed 20 ms (5 % of all requests).
-  At 10 % or less, the slow share must grow 2.5× to cross.
-- **All four pass in both namespaces → the R1 re-run may be proposed. Any fails → stop, report, no R1.**
+- The `http_request_duration_seconds` series use `job="sample-api"`.
+- Why A4: the mixed p95 crosses the gap when more than 25 % of `/items` exceed 20 ms (5 % of all requests). At
+  10 % or less, the slow share must grow 2.5× to cross.
+- **Recorded, not gated:** DB throttling at both levels; `/` above 50 ms per pod; users per pod.
+- **All four pass in both namespaces: the R1 re-run may be proposed. Any fails: stop, report, no R1.**
+- **A1 fails while A2 passes: stop. The DB is the first candidate** (see the residual above).
 
-**Checkpoint B** gates clean-window run 3. If the R1 re-run changes B, the same four checks are read at the
-new B over the 20-min warm-up, with the same pass values. Any fails → stop, no run 3.
+### Before the R1 re-run: `ramp.py` reads both levels (a separate PR)
+- `ramp.py` reads throttling at both levels for sample-api (`container="sample-api"` and the pod cgroup) and for
+  the DB (`container="dependency-db"` and the pod cgroup), and records all four.
+- How the knee's throttling criterion uses the two levels is proposed in that PR and decided at its gate.
+
+### R1 re-run and the new B
+- **Locust is a knee candidate.** With sample-api's limit raised, the single worker (1000m limit) may run out
+  first.
+  - Every step records the worker's CPU and its throttling at both levels.
+  - If the server-rate criterion trips while the worker sits at its limit, the knee is Locust's: C is reported
+    as a lower bound.
+- **B ceiling: none.** B = floor(0.4 × C). The ramp's 200 req/s cap bounds C, so B ≤ 80.
+- **The canary reference at the new B:** each run's reference is the median of its own first 5 minutes at the new
+  B. Values from B = 12 (1.184 ms and later) are not used as references.
+
+### Checkpoint B: the warm-up at the new B (gates clean-window run 3)
+- If the R1 re-run changes B, the 20-min warm-up at the new B is read with the same void set and precondition.
+- **Gated: A1 and A2 only** (A2 per pod at both levels), with the same pass values. Any fails: stop, no run 3.
+- **Recorded, not gated: A3 and A4.** They were set at B = 12 and may rise with load. **Run 3 judges latency.**
+
+### Clean-window run 3
+**Run 3 is reported regardless of its outcome**, pass or fail, with the full record (plan §2 and §3).
+
+### Access to Locust
+The agent drives Locust through **its own port-forward on local port 18090**, never Koussay's on 18089 (plan §2
+rule 10). Prometheus is read only through the API server's service proxy.
 
 ### What does not change
-- The request (50m), the memory limit (128Mi), the image (0.3.1, `sha256:3321d6fa…f268`), the buckets, and the
-  detection rules. The S5 pin holds: the five pinned files are untouched.
+- Unchanged: the request (50m), the memory limit (128Mi), the image (0.3.1, `sha256:3321d6fa…f268`), the buckets,
+  and the detection rules.
+- The S5 pin holds: no pinned expression reads the CPU limit or throttling (checked at `d351d964`). The CPU signal
+  reads `container_cpu_usage_seconds_total`, which is usage.
 - The DB limit (500m) and its criterion (ADR-020 addendum).
+- **No ResourceQuota or LimitRange** in `nexus-dev` or `nexus-prod` (read live 2026-10-09; none in `nexus-data`
+  or `nexus-load`; none in Git). Nothing caps the new limit.
 
 ## Consequences
-- **R1 is re-run and B re-derived** (`TASKS.md` Later, R1 gate). The knee may move to another criterion (DB
-  slots, DB CPU, latency). L2's `--users` and the frozen-B checks follow the new B; then the warm-up and
-  clean-window run 3.
+- **R1 is re-run and B re-derived** (`TASKS.md`, R1 gate), after the `ramp.py` PR.
+  - The knee may move to the DB, the DB slots, latency, or Locust.
+  - L2's `--users` and the frozen-B checks follow the new B. Then the warm-up (checkpoint B) and clean-window
+    run 3.
 - Node CPU limits rise from 5.4 to about 8.6 of 12 cores (four sample-api pods, +0.8 each), plus 1 core per
-  namespace during a rollout surge. At C4's 5-replica bound in both namespaces they would exceed 12. Limits
-  can overcommit; requests (and scheduling) do not change.
-- The pod-template change rolls both Deployments (maxSurge 1, maxUnavailable 0): prod at the `main` merge,
-  dev after the forward-merge into `experiment/dev-state`. A rollout is a traffic event; no timed run spans it.
-- The edit is under `apps/sample-api/**`, inside `ci.yml`'s path filter: the `main` merge builds and signs
-  one more image from unchanged code. Nothing pins it; its run id and digest are recorded as NOT deployed.
-- The M2 Later item "revisit the sample-api CPU limit and the per-request connection cost" is half done:
-  the per-request DB connection stays (it is how S5's error reaches the log, ADR-020).
+  namespace during a rollout surge.
+  - At C4's 5-replica bound in both namespaces they would exceed 12.
+  - Limits can overcommit. Requests, and so scheduling, do not change.
+- **M2: `scale_v1`'s criterion, "CPU per pod below 70 % of limit", now means 700m (was 140m).** The S2 reading
+  above decides whether +1 or +2 can meet it.
+- The pod-template change rolls both Deployments (maxSurge 1, maxUnavailable 0): prod at the `main` merge, dev
+  after the forward-merge into `experiment/dev-state`. A rollout is a traffic event; no timed run spans it.
+- The edit is under `apps/sample-api/**`, inside `ci.yml`'s path filter. The `main` merge builds and signs one
+  more image from unchanged code. Nothing pins it; its run id and digest are recorded as NOT deployed.
+- The M2 Later item "revisit the sample-api CPU limit and the per-request connection cost" is half done. The
+  per-request DB connection stays: it is how S5's error reaches the log (ADR-020).
