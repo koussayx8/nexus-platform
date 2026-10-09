@@ -184,18 +184,34 @@ It is read on the node with read-only `cat`. **Otherwise stop.**
 - **All four pass in both namespaces: the R1 re-run may be proposed. Any fails: stop, report, no R1.**
 - **A1 fails while A2 passes: stop. The DB is the first candidate** (see the residual above).
 
-### Before the R1 re-run: `ramp.py` reads both levels (a separate PR)
-- `ramp.py` reads throttling at both levels for sample-api (`container="sample-api"` and the pod cgroup) and for
-  the DB (`container="dependency-db"` and the pod cgroup), and records all four.
-- How the knee's throttling criterion uses the two levels is proposed in that PR and decided at its gate.
+### Before the R1 re-run: `ramp.py` reads both levels (#117; rules decided at the #117 gate, 2026-10-09)
+- **Columns.** `ramp.py` reads throttling at both levels:
+  - sample-api: `container="sample-api"` and the pod cgroup;
+  - the DB: `container="dependency-db"` and the pod cgroup;
+  - the Locust worker: `container="locust"` and the pod cgroup.
+- **Knee.** sample-api throttled periods above 10 % at **either** level. DB throttling, at both levels, is recorded,
+  not a knee.
+- **Locust-bound stop.** The worker's throttled periods above 10 % at either level mean the step is Locust-bound. The
+  ramp stops; C ≥ the last good step, a lower bound; B follows by the frozen rule from that bound.
+- **Blind stop.** An empty answer on any judged criterion means the step cannot be judged. The judged criteria:
+  - the server rate;
+  - Locust's requests, failures, `/items` failures and p95, the first step's p95 included;
+  - sample-api or worker throttling at either level.
 
-### R1 re-run and the new B
+  The ramp stops with `capacity: null` (exit 1). **The run is void and re-run; it never sets C.** An empty answer on a
+  record-only series is recorded as empty and stops nothing.
+- **Context.** Prometheus is read as `kubectl --context default -n monitoring get --raw …`.
+
+### R1 re-run and the new B (decided at the #117 gate)
 - **Locust is a knee candidate.** With sample-api's limit raised, the single worker (1000m limit) may run out
-  first.
-  - Every step records the worker's CPU and its throttling at both levels.
-  - If the server-rate criterion trips while the worker sits at its limit, the knee is Locust's: C is reported
-    as a lower bound.
-- **B ceiling: none.** B = floor(0.4 × C). The ramp's 200 req/s cap bounds C, so B ≤ 80.
+  first. The Locust-bound stop above covers it.
+- **Canary during the ramp.** Plan §2 rule 5 (host speed, void) applies only while the worker's CPU is under 0.5
+  core. Above that, a canary rise is read as Locust-bound.
+- **No knee by step 200:** C ≥ 200 as a lower bound, and B = floor(0.4 × 200) = 80 by the frozen rule. No re-run with
+  a higher `--max`.
+- **B ceiling: none.** B = floor(0.4 × C), or floor(0.4 × its lower bound).
+- **After R1:** `/stop`, and Locust stays idle. No resume at B = 12. The next traffic step is the new B's warm-up at
+  checkpoint B.
 - **The canary reference at the new B:** each run's reference is the median of its own first 5 minutes at the new
   B. Values from B = 12 (1.184 ms and later) are not used as references.
 
