@@ -215,6 +215,48 @@ It is read on the node with read-only `cat`. **Otherwise stop.**
 - **The canary reference at the new B:** each run's reference is the median of its own first 5 minutes at the new
   B. Values from B = 12 (1.184 ms and later) are not used as references.
 
+### R1 attempt 1 (2026-10-09): VALID, no C (the class filter was not applied)
+Evidence: `~/nexus-evidence/m1b-9/r1-rerun/` (`start-record.md`, `r1-run.jsonl`, `ramp/`, `result.txt`, `smoke/`).
+
+**The run.**
+- `ramp.py` from `dev` `3a096f9` (blob `1d4fbf1d…`). Locust was driven through the agent's 18090.
+- Start snapshot at 13:23:47Z. Ramp 13:25:58Z → 13:30:01Z.
+- **Validity: VALID.**
+  - boot and k3s unchanged; 11 measured-path pods unchanged; Application revisions unchanged.
+  - 0 missed evaluations. r_start +0.0231 and r_end +0.0235 agree, so D_c is reliable: −0.2 s.
+  - Canary ok; no heavy work, no other port-forward, no UI.
+- **Verdict:** `capacity: null`. Knee at step 10, "server rate 4.9 < 95% of 10"; Locust 9.81 req/s, flag +100.5 %.
+- **Nothing was derived from it:** no C, no S\*, no B.
+
+**Cause, VERIFIED.**
+- `step-10.json` shows Locust ran both classes 5 : 5 (`dev:` 600, `prod:` 600 requests).
+- Locust 2.46.7 (`runners.py`): `MasterRunner.start` builds its users dispatcher only when none exists. On a running
+  test, `/swarm` re-dispatches the new user count with the old classes. Its answer still echoes the requested
+  `user_classes`. Only `stop()` resets the dispatcher.
+- L2's `--autostart` keeps the master running both classes, so attempt 1's first `/swarm` landed on a running test.
+  On 2026-10-07 the master was idle.
+- A local Locust 2.46.7 smoke (master + worker) reproduced it and showed the fix (`smoke/smoke-fix.out`):
+  - `/swarm` on the running swarm: `swarm_ok` 0, 6 non-selected requests, `/tasks` DevUser share 0.5;
+  - `/stop`, then `/swarm`: `swarm_ok` 1, 0 non-selected requests, share 1.0;
+  - the next step stays DevUser only.
+- The residual's pod before the swarm was replaced: dev `lddq8`, 3.16 % of `/items` at 50–100 ms, 4.92 users, at B
+  over 13:13–13:23Z. That remains the "before" reading for the re-run. There is no resume before it.
+
+### R1: the load shape is judged (owner, R1 attempt 1 gate)
+- **Start:** `ramp.py` posts `/stop`, waits for `stopped`, then starts step 1. A master restart re-applies B with
+  both classes through `--autostart`, so an idle Locust is not a durable state. This start covers it.
+- **Swarm state, every step after the settle:**
+  - state `running`;
+  - `user_count` = the target;
+  - `/tasks` class shares summing to 1 over the selected classes only.
+
+  Not confirmed, or no answer: a blind stop.
+- **Per-class stats, every step:** any request under a non-selected class's name (not `<env>:`) is a blind stop.
+  Empty selected-class stats are a blind stop.
+- **Rate, every step:** Locust's selected-class rate against the target namespace's server rate. Outside ±10 % is a
+  blind stop.
+- `ramp.py` refuses classes that do not serve the target namespace before sending anything to Locust.
+
 ### Checkpoint B: the warm-up at the new B (gates clean-window run 3)
 - If the R1 re-run changes B, the 20-min warm-up at the new B is read with the same void set and precondition.
 - **Gated: A1 and A2 only** (A2 per pod at both levels), with the same pass values. Any fails: stop, no run 3.
