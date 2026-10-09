@@ -1,6 +1,6 @@
 # ADR-027: sample-api's CPU Limit Is One Core
 
-## Status: Proposed (M1b-9, branch `feat/m1b-9-cpu-limit`; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09)
+## Status: Proposed (M1b-9; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09; rolled out at `main` `31e8d53` and `experiment/dev-state` `a4b8ef9`; checkpoint A VALID and PASS, 2026-10-09)
 
 ## Context
 Two M1b-9 findings point at sample-api's 200m CPU limit: R1's throttling knee and run 2's bimodal `/items`.
@@ -220,8 +220,59 @@ rule 10). Prometheus is read only through the API server's service proxy.
 - **No ResourceQuota or LimitRange** in `nexus-dev` or `nexus-prod` (read live 2026-10-09; none in `nexus-data`
   or `nexus-load`; none in Git). Nothing caps the new limit.
 
+## Checkpoint A result (2026-10-09): VALID, PASS in both namespaces
+Evidence: `~/nexus-evidence/m1b-9/checkpoint-a/` (`start-record.md`, `warmup.jsonl`, `window.jsonl`, `result.txt`,
+`lddq8-vs-db-per-minute.txt`).
+
+**Before the window:**
+- Precondition: all four new pods read `cpu.max 100000 100000` at the pod cgroup and the container scope (prod
+  ~08:00Z, dev ~08:46Z).
+- Koussay confirmed the laptop regime (typed). Locust resumed at 09:05:57.80Z through the agent's port-forward on
+  18090.
+- Plan §3's warm-up completed at 09:26:15Z: all Z present with |Z| < 0.02, no Nexus alerts.
+- The traffic step raised one Incident per namespace, both exported.
+
+**W = 09:28:37Z → 09:48:37Z (1,200 s), both namespaces at B = 12. Validity, settled first: VALID.**
+
+| Plan §2 rule | Reading |
+|---|---|
+| 1 | boot_id and k3s (`MainPID=233`, `NRestarts=0`) the same at all four clock reads |
+| 2 | 11 measured-path pods: uids and restarts unchanged |
+| 3 | 0 missed `nexus-detection` evaluations. r_start +0.0083, r_end +0.0000: they differ by more than 0.005, so D_c is unreliable and "missed evaluations, boot_id and the restart checks decide alone" (plan §2). Raw D +11.5 s, D_c +6.5 s; both \|r\| ≤ 0.05 |
+| 4 | Application revisions unchanged; no `verify-state.sh` run |
+| 5 | Canary start median 1.021 ms (≤ 1.421 ms). During W: 0.83–1.09 ms; never above +20 % |
+| 6 | Locust `running` 24 at every minute; server rate 11.79–12.00 req/s |
+| 7, 10 | No heavy local work; no port-forward but the agent's 18090; no dashboard listeners |
+
+**A1–A4:**
+
+| Namespace | A1 `/items` 50–100 ms (≤ 3 %) | A3 max mixed p95 (≤ 20 ms) | A4 `/items` > 20 ms (≤ 10 %) |
+|---|---|---|---|
+| nexus-dev | 2.03 % | 17.80 ms | 3.31 % |
+| nexus-prod | 0.00 % | 17.54 ms | 0.07 % |
+
+| Pod | Users | A2 container | A2 pod cgroup | `/items` 50–100 ms | `/` > 50 ms |
+|---|---|---|---|---|---|
+| dev `lddq8` | 4.95 | 0 / 5,395 | 0 / 6,385 | 4.87 % | 0 |
+| dev `tjqn4` | 6.93 | 0 / 4,615 | 0 / 5,313 | 0.00 % | 0 |
+| prod `8652k` | 6.93 | 0 / 5,890 | 0 / 5,896 | 0.00 % | 0 |
+| prod `p7m8v` | 4.95 | 0 / 4,444 | 0 / 4,475 | 0.00 % | 0 |
+
+- **No throttled period at either level on any pod.** The slow mode fell from 18–25 % on the affected pods (run 2)
+  to 0 on three pods.
+- **Recorded, not gated:** DB throttled 8.34 % (container) and 2.27 % (pod cgroup).
+- **Residual, UNEXPLAINED (the DB is the first candidate):** dev `lddq8` had 1–5 slow `/items` per minute (58 of
+  1,185, 4.89 %) with no sample-api throttling. Meanwhile the DB throttled steadily: 15–21 periods per minute at
+  the container level, 2–7 at the pod level.
+  - **Phase hypothesis, UNVERIFIED:** each Locust user sends one request per second at a fixed phase. The users on
+    `lddq8` may have `/items` phases that meet the DB's throttled periods.
+  - A swarm restart re-assigns users to pods. At R1's restart, the pod carrying the residual is recorded before and
+    after.
+- **R1 may be proposed** (owner, checkpoint A gate review). `ramp.py` now reads throttling at both levels for
+  sample-api and the DB.
+
 ## Consequences
-- **R1 is re-run and B re-derived** (`TASKS.md`, R1 gate), after the `ramp.py` PR.
+- **R1 is re-run and B re-derived** (`TASKS.md`, R1 gate), after the `ramp.py` PR (both levels; knee on either sample-api level).
   - The knee may move to the DB, the DB slots, latency, or Locust.
   - L2's `--users` and the frozen-B checks follow the new B. Then the warm-up (checkpoint B) and clean-window
     run 3.
