@@ -14,7 +14,8 @@ step, at a step that cannot be judged, or at --max, then posts /stop: Locust
 returns to idle. The step after a stop is never run.
 
 Prometheus is read only through the API server's service proxy with
-`kubectl get --raw <PATH>/api/v1/query?query=<URL-encoded PromQL>&time=<window end>`
+`kubectl --context <CONTEXT> -n monitoring get --raw <PATH>/api/v1/query?query=<URL-encoded PromQL>&time=<window end>`
+(context and namespace always named, owner, 2026-10-09)
 (owner, #107 gate): read-only, no port-forward, no local `kubectl proxy`. --prom
 is that service-proxy path (default: the observability Prometheus). A failed
 call (non-zero exit, timeout, unparsable answer) is "no answer".
@@ -40,17 +41,32 @@ CPU in the target namespace, dependency-db throttling, CPU and peak working set
 Locust worker's CPU and the node's CPU. An empty answer is recorded as empty,
 never as 0.
 
+Throttling is read at both cgroup levels (ADR-027): the container
+(container="sample-api", container="dependency-db") and the pod cgroup
+(container="", the pod's own quota with its own period timer). A stall at the pod
+level is counted only there, so the container level alone is a lower bound.
+
 knee: the first step with any of
   - failures above --fail-max of all requests (default 1 %);
   - any /items failure (a db_slots_exhausted or db_unavailable 503: the logs
     say which);
   - server-side achieved rate below --achieved-min of the target (default 95 %);
   - p95 above --p95-factor times the first step's p95 (default 2);
-  - sample-api throttled periods above --throttle-max (default 10 %), or an
-    empty sample-api throttling answer.
+  - sample-api throttled periods above --throttle-max (default 10 %) at either
+    level (container or pod cgroup).
+    DB throttling, at both levels, is recorded, not a knee.
+  - Locust-bound: the Locust worker's throttled periods above
+    --worker-throttle-max (default 10 %) at either level. The knee is the load
+    generator's, so C is a lower bound (C >= the last good step).
 Capacity C is the target of the last step before the knee. If the ramp
-reached --max without a knee, C is the last target and the result says so. A
-step without a server-side rate stops the ramp with no capacity.
+reached --max without a knee, C is the last target and a lower bound
+(C >= --max). B always follows by the frozen rule from C or its bound.
+A blind stop (owner, #117 gate): an empty answer on any judged criterion
+(server rate; Locust's requests, failures, /items failures or p95, the first
+step's p95 included; sample-api or worker throttling at either level) means the
+step cannot be judged. The ramp stops with no capacity (exit 1); the run is void
+and re-run, and never sets C. An empty answer on a record-only series is
+recorded as empty and stops nothing.
 Baseline B = floor(0.4 × C) per namespace (spec §25 "about 40 %").
 """
 
@@ -88,11 +104,15 @@ FIELDS = [
     "fail_ratio",
     "p95_ms",
     "app_throttle",
+    "app_throttle_pod",
     "app_cpu",
     "db_throttle",
+    "db_throttle_pod",
     "db_cpu",
     "db_ws_max_bytes",
     "worker_cpu",
+    "worker_throttle",
+    "worker_throttle_pod",
     "node_cpu",
 ]
 
@@ -106,16 +126,38 @@ SERVER_RATE_QUERY = (
 # PromQL per step; {ns} is the target namespace, {w} the measure window in seconds.
 QUERIES = {
     "app_throttle": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="{ns}",container="sample-api"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="{ns}",container="sample-api"}}[{w}s]))',
+    "app_throttle_pod": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="{ns}",container="",pod=~"sample-api-.*"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="{ns}",container="",pod=~"sample-api-.*"}}[{w}s]))',
     "app_cpu": 'sum(rate(container_cpu_usage_seconds_total{{namespace="{ns}",container="sample-api"}}[{w}s]))',
     "db_throttle": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="nexus-data",container="dependency-db"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="nexus-data",container="dependency-db"}}[{w}s]))',
+    "db_throttle_pod": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="nexus-data",container="",pod="dependency-db-0"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="nexus-data",container="",pod="dependency-db-0"}}[{w}s]))',
     "db_cpu": 'sum(rate(container_cpu_usage_seconds_total{{namespace="nexus-data",container="dependency-db"}}[{w}s]))',
     "db_ws_max_bytes": 'max(max_over_time(container_memory_working_set_bytes{{namespace="nexus-data",container="dependency-db"}}[{w}s]))',
     "worker_cpu": 'sum(rate(container_cpu_usage_seconds_total{{namespace="nexus-load",container="locust",pod=~"locust-worker-.*"}}[{w}s]))',
+    "worker_throttle": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="nexus-load",container="locust",pod=~"locust-worker-.*"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="nexus-load",container="locust",pod=~"locust-worker-.*"}}[{w}s]))',
+    "worker_throttle_pod": 'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="nexus-load",container="",pod=~"locust-worker-.*"}}[{w}s])) / sum(increase(container_cpu_cfs_periods_total{{namespace="nexus-load",container="",pod=~"locust-worker-.*"}}[{w}s]))',
     "node_cpu": '1 - avg(rate(node_cpu_seconds_total{{mode="idle"}}[{w}s]))',
 }
 
 
 # ---------------------------------------------------------------- knee ----
+
+# The sample-api throttling knee reads both cgroup levels (ADR-027).
+THROTTLE_LEVELS = (("app_throttle", "container"), ("app_throttle_pod", "pod cgroup"))
+# The Locust-bound stop reads the worker at both levels (owner, #117 gate).
+WORKER_LEVELS = (
+    ("worker_throttle", "container"),
+    ("worker_throttle_pod", "pod cgroup"),
+)
+# Judged inputs: an empty value on any of them is a blind stop. Every other field
+# is record-only.
+JUDGED = (
+    ("requests", "Locust requests"),
+    ("failures", "Locust failures"),
+    ("items_failures", "Locust /items failures"),
+    ("p95_ms", "Locust p95"),
+    *((f, f"sample-api throttling ({lvl})") for f, lvl in THROTTLE_LEVELS),
+    *((f, f"Locust worker throttling ({lvl})") for f, lvl in WORKER_LEVELS),
+)
 
 
 def _num(value):
@@ -125,9 +167,16 @@ def _num(value):
     return float(value)
 
 
-def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.10):
+def knee(
+    rows,
+    p95_factor=2.0,
+    fail_max=0.01,
+    achieved_min=0.95,
+    throttle_max=0.10,
+    worker_throttle_max=0.10,
+):
     """Return {"capacity", "baseline", "knee_target", "unjudged_target", "last_ok",
-    "reasons", "reached_max", "flags"}.
+    "reasons", "reached_max", "capacity_lower_bound", "locust_bound", "flags"}.
 
     rows: dicts with FIELDS (strings or numbers), in step order.
     """
@@ -147,6 +196,8 @@ def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.
         "last_ok": None,
         "reasons": [],
         "reached_max": False,
+        "capacity_lower_bound": False,
+        "locust_bound": False,
         "flags": flags,
     }
     last_ok = None
@@ -161,32 +212,48 @@ def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.
                 reasons=["server-side rate: no data, step cannot be judged"],
             )
             return result
+        blind = [
+            f"{label}: no data, step cannot be judged"
+            for field, label in JUDGED
+            if _num(row.get(field)) is None
+        ]
+        if ref_p95 is None and i > 0:
+            blind.append("first step's p95: no data, step cannot be judged")
+        if blind:
+            # A blind stop: the run is void and re-run; it never sets C.
+            result.update(unjudged_target=target, last_ok=last_ok, reasons=blind)
+            return result
         reasons = []
-        requests = _num(row["requests"]) or 0
-        failures = _num(row["failures"]) or 0
+        requests = _num(row["requests"])
+        failures = _num(row["failures"])
         if requests == 0:
             reasons.append("no requests")
         elif failures / requests > fail_max:
             reasons.append(f"failures {failures / requests:.2%} > {fail_max:.0%}")
-        if (_num(row["items_failures"]) or 0) > 0:
+        if _num(row["items_failures"]) > 0:
             reasons.append(f"/items failures {int(_num(row['items_failures']))}")
         if achieved < achieved_min * target:
             reasons.append(
                 f"server rate {achieved:.1f} < {achieved_min:.0%} of {target:g}"
             )
         p95 = _num(row["p95_ms"])
-        if (
-            i > 0
-            and p95 is not None
-            and ref_p95 is not None
-            and p95 > p95_factor * ref_p95
-        ):
+        if i > 0 and p95 > p95_factor * ref_p95:
             reasons.append(f"p95 {p95:g} ms > {p95_factor:g} x {ref_p95:g} ms")
-        throttle = _num(row.get("app_throttle"))
-        if throttle is None:
-            reasons.append("sample-api throttling: no data")
-        elif throttle > throttle_max:
-            reasons.append(f"sample-api throttled {throttle:.2%} > {throttle_max:.0%}")
+        for field, level in THROTTLE_LEVELS:
+            throttle = _num(row.get(field))
+            if throttle > throttle_max:
+                reasons.append(
+                    f"sample-api throttled ({level}) {throttle:.2%} > {throttle_max:.0%}"
+                )
+        locust_bound = False
+        for field, level in WORKER_LEVELS:
+            throttle = _num(row.get(field))
+            if throttle > worker_throttle_max:
+                locust_bound = True
+                reasons.append(
+                    f"Locust-bound: worker throttled ({level}) {throttle:.2%}"
+                    f" > {worker_throttle_max:.0%}"
+                )
         if reasons:
             result.update(
                 capacity=last_ok,
@@ -194,11 +261,17 @@ def knee(rows, p95_factor=2.0, fail_max=0.01, achieved_min=0.95, throttle_max=0.
                 knee_target=target,
                 last_ok=last_ok,
                 reasons=reasons,
+                locust_bound=locust_bound,
+                capacity_lower_bound=locust_bound and last_ok is not None,
             )
             return result
         last_ok = target
     result.update(
-        capacity=last_ok, baseline=baseline(last_ok), last_ok=last_ok, reached_max=True
+        capacity=last_ok,
+        baseline=baseline(last_ok),
+        last_ok=last_ok,
+        reached_max=True,
+        capacity_lower_bound=True,
     )
     return result
 
@@ -248,13 +321,22 @@ class KubectlRaw:
     service proxy): never a port-forward, never a local proxy. Tests pass a stub
     kubectl."""
 
-    def __init__(self, kubectl="kubectl", timeout=30):
-        self.kubectl, self.timeout = kubectl, timeout
+    def __init__(self, kubectl="kubectl", context="default", timeout=30):
+        self.kubectl, self.context, self.timeout = kubectl, context, timeout
 
     def get_json(self, path):
         try:
             proc = subprocess.run(
-                [self.kubectl, "get", "--raw", path],
+                [
+                    self.kubectl,
+                    "--context",
+                    self.context,
+                    "-n",
+                    "monitoring",
+                    "get",
+                    "--raw",
+                    path,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -285,21 +367,29 @@ def locust_row(stats, target, t_start, t_end, items_name):
     measured seconds (the cross-check); total_rps kept for display only."""
     entries = {e["name"]: e for e in stats["stats"]}
     total = entries.get("Aggregated", {})
-    requests = total.get("num_requests", 0)
-    failures = total.get("num_failures", 0)
+    # A missing entry or field is empty, never 0: knee() treats it as a blind stop.
+    requests = total.get("num_requests")
+    failures = total.get("num_failures")
     p95 = total.get("response_time_percentile_0.95")
     total_rps = total.get("total_rps")
+    items_failures = entries.get(items_name, {}).get("num_failures")
+
+    def cell(value):
+        return "" if value is None else value
+
     return {
         "target": target,
         "t_start": f"{t_start:.3f}",
         "t_end": f"{t_end:.3f}",
-        "requests": requests,
-        "failures": failures,
-        "items_failures": entries.get(items_name, {}).get("num_failures", 0),
-        "locust_rps": f"{requests / (t_end - t_start):.3f}",
+        "requests": cell(requests),
+        "failures": cell(failures),
+        "items_failures": cell(items_failures),
+        "locust_rps": "" if requests is None else f"{requests / (t_end - t_start):.3f}",
         "locust_total_rps": "" if total_rps is None else f"{total_rps:.3f}",
-        "fail_ratio": f"{(failures / requests) if requests else 0:.6f}",
-        "p95_ms": "" if p95 is None else p95,
+        "fail_ratio": (
+            f"{failures / requests:.6f}" if requests and failures is not None else ""
+        ),
+        "p95_ms": cell(p95),
     }
 
 
@@ -323,7 +413,7 @@ def rate_check(locust_rps, server_rps, max_diff):
     """(rate_diff, rate_flag): Locust's window average against the server-side
     rate. rate_diff is signed, (Locust - server) / server; a few percent below
     zero is the expected report lag and is recorded only."""
-    if server_rps == "" or server_rps == 0:
+    if server_rps == "" or server_rps == 0 or locust_rps is None:
         return "", ""
     diff = (locust_rps - server_rps) / server_rps
     flag = "ok" if abs(diff) <= max_diff else f"rate diff {diff:+.1%} > {max_diff:.0%}"
@@ -332,7 +422,7 @@ def rate_check(locust_rps, server_rps, max_diff):
 
 def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
     http = http or Http()
-    prom = prom or KubectlRaw(args.kubectl)
+    prom = prom or KubectlRaw(args.kubectl, args.context)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     locust = args.locust.rstrip("/")
@@ -366,7 +456,7 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
                     prom, args.prom, query, t_end
                 )
                 row["rate_diff"], row["rate_flag"] = rate_check(
-                    float(row["locust_rps"]), row["achieved_rps"], args.rate_diff_max
+                    _num(row["locust_rps"]), row["achieved_rps"], args.rate_diff_max
                 )
                 for name, template in QUERIES.items():
                     query = template.format(ns=args.namespace, w=window)
@@ -383,12 +473,15 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
                     args.fail_max,
                     args.achieved_min,
                     args.throttle_max,
+                    args.worker_throttle_max,
                 )
                 log(
                     f"step {target}: server {row['achieved_rps'] or '-'} req/s, "
                     f"Locust {row['locust_rps']} ({row['rate_diff'] or '-'}), "
                     f"failures {row['failures']}, p95 {row['p95_ms']} ms, "
-                    f"app throttle {row['app_throttle']}, db throttle {row['db_throttle']}"
+                    f"app throttle {row['app_throttle']} (pod {row['app_throttle_pod']}), "
+                    f"db throttle {row['db_throttle']} (pod {row['db_throttle_pod']}), "
+                    f"worker throttle {row['worker_throttle']} (pod {row['worker_throttle_pod']})"
                 )
                 if stopped(verdict):
                     break
@@ -396,7 +489,12 @@ def run(args, http=None, prom=None, sleep=time.sleep, now=time.time, log=print):
         finally:
             http.get_json(f"{locust}/stop")
     verdict = knee(
-        rows, args.p95_factor, args.fail_max, args.achieved_min, args.throttle_max
+        rows,
+        args.p95_factor,
+        args.fail_max,
+        args.achieved_min,
+        args.throttle_max,
+        args.worker_throttle_max,
     )
     (out / "verdict.json").write_text(json.dumps(verdict, indent=1))
     return verdict
@@ -413,6 +511,7 @@ def parser():
     thresholds.add_argument("--fail-max", type=float, default=0.01)
     thresholds.add_argument("--achieved-min", type=float, default=0.95)
     thresholds.add_argument("--throttle-max", type=float, default=0.10)
+    thresholds.add_argument("--worker-throttle-max", type=float, default=0.10)
 
     r = sub.add_parser("run", parents=[thresholds])
     r.add_argument(
@@ -426,6 +525,7 @@ def parser():
         help="Prometheus service-proxy API path, read with kubectl get --raw",
     )
     r.add_argument("--kubectl", default="kubectl", help="kubectl binary")
+    r.add_argument("--context", default="default", help="kube context, always named")
     r.add_argument("--out", required=True)
     r.add_argument(
         "--namespace", default="nexus-dev", choices=["nexus-dev", "nexus-prod"]
@@ -455,6 +555,7 @@ def main(argv=None):
             args.fail_max,
             args.achieved_min,
             args.throttle_max,
+            args.worker_throttle_max,
         )
     print(json.dumps(verdict, indent=1))
     return 0 if verdict["capacity"] is not None else 1

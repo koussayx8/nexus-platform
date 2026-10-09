@@ -29,6 +29,65 @@ class KneeTest(unittest.TestCase):
             (v["capacity"], v["knee_target"], v["reached_max"]), (30, None, True)
         )
         self.assertEqual(v["baseline"], 12)
+        # Owner, #117 gate: no knee by the top step makes C a lower bound; B follows.
+        self.assertTrue(v["capacity_lower_bound"])
+        self.assertFalse(v["locust_bound"])
+
+    def test_locust_bound_stop_makes_c_a_lower_bound(self):
+        v = verdict("knee-locust-bound.csv")
+        self.assertEqual((v["capacity"], v["baseline"], v["knee_target"]), (10, 4, 20))
+        self.assertTrue(v["locust_bound"])
+        self.assertTrue(v["capacity_lower_bound"])
+        self.assertEqual(
+            v["reasons"], ["Locust-bound: worker throttled (pod cgroup) 15.00% > 10%"]
+        )
+
+    def test_sample_api_knee_is_not_a_lower_bound(self):
+        v = verdict("knee-throttle.csv")
+        self.assertFalse(v["capacity_lower_bound"])
+        self.assertFalse(v["locust_bound"])
+
+    def test_empty_judged_input_is_a_blind_stop(self):
+        # Owner, #117 gate: an empty answer on any judged criterion is a blind stop.
+        for field, label in ramp.JUDGED:
+            with self.subTest(field=field):
+                rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+                rows[1][field] = ""
+                v = ramp.knee(rows)
+                self.assertEqual(
+                    (v["capacity"], v["baseline"], v["unjudged_target"]),
+                    (None, None, 20),
+                )
+                self.assertEqual(
+                    v["reasons"], [f"{label}: no data, step cannot be judged"]
+                )
+                self.assertTrue(ramp.stopped(v))
+
+    def test_empty_first_step_p95_is_a_blind_stop(self):
+        rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+        rows[0]["p95_ms"] = ""
+        v = ramp.knee(rows)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+
+    def test_empty_record_only_series_stops_nothing(self):
+        record_only = [
+            "locust_total_rps",
+            "app_cpu",
+            "db_throttle",
+            "db_throttle_pod",
+            "db_cpu",
+            "db_ws_max_bytes",
+            "worker_cpu",
+            "node_cpu",
+        ]
+        judged = {f for f, _ in ramp.JUDGED} | {"achieved_rps", "target"}
+        self.assertFalse(judged & set(record_only))
+        rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+        for row in rows:
+            for field in record_only:
+                row[field] = ""
+        v = ramp.knee(rows)
+        self.assertEqual((v["capacity"], v["reached_max"]), (30, True))
 
     def test_p95_knee(self):
         v = verdict("knee-p95.csv")
@@ -43,7 +102,18 @@ class KneeTest(unittest.TestCase):
     def test_throttle_knee(self):
         v = verdict("knee-throttle.csv")
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertIn("sample-api throttled 15.00% > 10%", v["reasons"])
+        self.assertEqual(
+            v["reasons"], ["sample-api throttled (container) 15.00% > 10%"]
+        )
+
+    def test_pod_cgroup_throttle_is_a_knee_with_the_container_clean(self):
+        # ADR-027: the pod cgroup has its own 100 ms timer; a stall there is not counted
+        # under container="sample-api" (m2jww in run 2: pod 8.6 %, container 0.5 %).
+        v = verdict("knee-throttle-pod.csv")
+        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
+        self.assertEqual(
+            v["reasons"], ["sample-api throttled (pod cgroup) 12.00% > 10%"]
+        )
 
     def test_server_rate_knee_even_when_locust_is_at_target(self):
         v = verdict("knee-achieved.csv")
@@ -77,10 +147,27 @@ class KneeTest(unittest.TestCase):
             (v["capacity"], v["baseline"], v["knee_target"]), (None, None, 10)
         )
 
-    def test_missing_throttle_answer_is_a_knee(self):
+    def test_missing_throttle_answer_is_a_blind_stop(self):
+        # Owner, #117 gate: a stop on an empty answer is blind; it never sets C.
         v = verdict("knee-missing.csv")
-        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttling: no data"])
+        self.assertEqual(
+            (v["capacity"], v["baseline"], v["knee_target"], v["unjudged_target"]),
+            (None, None, None, 20),
+        )
+        self.assertEqual(v["last_ok"], 10)
+        self.assertEqual(
+            v["reasons"],
+            ["sample-api throttling (container): no data, step cannot be judged"],
+        )
+        self.assertTrue(ramp.stopped(v))
+
+    def test_missing_pod_cgroup_throttle_answer_is_a_blind_stop(self):
+        v = verdict("knee-missing-pod.csv")
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 20))
+        self.assertEqual(
+            v["reasons"],
+            ["sample-api throttling (pod cgroup): no data, step cannot be judged"],
+        )
 
     def test_thresholds_are_options(self):
         v = verdict("knee-throttle.csv", throttle_max=0.20)
@@ -89,6 +176,20 @@ class KneeTest(unittest.TestCase):
     def test_db_throttling_is_recorded_not_a_knee(self):
         # 30 % DB throttling at every step (the idle reading): the decision is the owner's.
         self.assertTrue(verdict("no-knee.csv")["reached_max"])
+
+    def test_db_pod_cgroup_throttling_is_recorded_not_a_knee(self):
+        self.assertTrue(verdict("db-pod-throttle.csv")["reached_max"])
+
+    def test_throttle_queries_read_both_cgroup_levels(self):
+        q = ramp.QUERIES
+        self.assertIn('container="sample-api"', q["app_throttle"])
+        self.assertIn('container="",pod=~"sample-api-.*"', q["app_throttle_pod"])
+        self.assertIn('container="dependency-db"', q["db_throttle"])
+        self.assertIn('container="",pod="dependency-db-0"', q["db_throttle_pod"])
+        for name in ("app_throttle_pod", "db_throttle_pod"):
+            self.assertIn(name, ramp.FIELDS)
+            self.assertIn("cfs_throttled_periods_total", q[name])
+            self.assertIn("cfs_periods_total", q[name])
 
     def test_baseline_is_floor_of_forty_percent(self):
         self.assertEqual(
@@ -105,6 +206,12 @@ class CrossCheckTest(unittest.TestCase):
         self.assertEqual(row["locust_rps"], "9.417")  # 1130 requests / 120 s
         self.assertEqual(row["locust_total_rps"], "10.290")  # display only
         self.assertNotIn("achieved_rps", row)  # the knee's rate is server-side
+
+    def test_missing_locust_entries_are_empty_never_zero(self):
+        row = ramp.locust_row({"stats": []}, 10, 0.0, 120.0, "dev:/items")
+        for field in ("requests", "failures", "items_failures", "p95_ms", "locust_rps"):
+            self.assertEqual(row[field], "", field)
+        self.assertEqual(ramp.rate_check(None, 10.0, 0.05), ("", ""))
 
     def test_rate_check_is_signed_and_flags_above_five_percent(self):
         self.assertEqual(ramp.rate_check(9.6, 10.0, 0.05), ("-0.0400", "ok"))
@@ -180,6 +287,7 @@ def args(out, **kw):
         "out": out,
         "prom": ramp.PROM_PATH,
         "kubectl": "kubectl",
+        "context": "default",
         "namespace": "nexus-dev",
         "classes": ["DevUser"],
         "start": 10,
@@ -192,6 +300,7 @@ def args(out, **kw):
         "fail_max": 0.01,
         "achieved_min": 0.95,
         "throttle_max": 0.10,
+        "worker_throttle_max": 0.10,
         "rate_diff_max": 0.05,
     }
     base.update(kw)
@@ -303,10 +412,17 @@ class RunTest(unittest.TestCase):
     def test_resource_columns_and_empty_answers(self):
         http = FakeHttp(
             STEADY,
-            prom={"dependency-db": 0.3, "sample-api": 0.0, "locust-worker": None},
+            prom={
+                "dependency-db": 0.3,
+                "sample-api": 0.0,
+                "cfs_throttled": 0.0,  # the worker's throttling, both levels
+                "locust-worker": None,  # worker_cpu: record-only, stays empty
+            },
         )
         v, rows, _, _ = self.run_ramp(http, max=20)
         self.assertEqual(rows[0]["db_throttle"], "0.3")
+        self.assertEqual(rows[0]["db_throttle_pod"], "0.3")  # recorded at both levels
+        self.assertEqual(rows[0]["app_throttle_pod"], "0.0")
         self.assertEqual(rows[0]["worker_cpu"], "")  # empty answer stays empty, never 0
         self.assertTrue(v["reached_max"])  # DB throttling alone is not a knee
         queries = [c[1] for c in http.calls if "/api/v1/query" in c[1]]
@@ -320,14 +436,15 @@ class RunTest(unittest.TestCase):
 
 
 STUB_KUBECTL = """#!/usr/bin/env python3
-# Stub kubectl for ramp.py tests: logs its argv, answers only `get --raw <path>`.
+# Stub kubectl for ramp.py tests: logs its argv, answers only
+# `--context default -n monitoring get --raw <path>`.
 import json, os, sys, urllib.parse
 with open(os.environ["STUB_LOG"], "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
 mode = os.environ.get("STUB_MODE", "ok")
-if sys.argv[1:3] != ["get", "--raw"] or len(sys.argv) != 4:
-    sys.exit("stub kubectl: only get --raw <path>")
-query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[3]).query)["query"][0]
+if sys.argv[1:7] != ["--context", "default", "-n", "monitoring", "get", "--raw"] or len(sys.argv) != 8:
+    sys.exit("stub kubectl: only --context default -n monitoring get --raw <path>")
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[7]).query)["query"][0]
 server = "http_requests_total" in query
 if mode == "fail-server" and server:
     sys.stderr.write("Error from server (ServiceUnavailable): the server is currently unable\\n")
@@ -399,10 +516,12 @@ class KubectlRawTest(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(len(calls), 1 + len(ramp.QUERIES))
         for argv in calls:
-            self.assertEqual(argv[:2], ["get", "--raw"])
-            self.assertEqual(len(argv), 3)
-            self.assertTrue(argv[2].startswith(ramp.PROM_PATH + "/api/v1/query?"))
-        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][2]).query)
+            self.assertEqual(
+                argv[:6], ["--context", "default", "-n", "monitoring", "get", "--raw"]
+            )
+            self.assertEqual(len(argv), 7)
+            self.assertTrue(argv[6].startswith(ramp.PROM_PATH + "/api/v1/query?"))
+        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][6]).query)
         self.assertIn('handler!~"/health|/ready|/metrics"}[120s]', server["query"][0])
         self.assertEqual(server["time"], ["1180.000"])  # 1000 + 60 settle + 120 measure
         self.assertEqual((rows[0]["achieved_rps"], v["reached_max"]), ("10.0", True))
