@@ -111,6 +111,7 @@ or new pod uid, pause gap 38.9 s (under 90 s), no Application revision change. E
   DB connection per `/items` call, Python request handling) fill the 20 ms of CPU each pod may use per
   100 ms period. No sample-api limit change now (owner, R1 gate). M2 revisits the limit and the
   per-request connection cost, and R1 is re-run if either changes (`TASKS.md` Later).
+  **Superseded for the limit** by ADR-027 (owner decision (a) after clean-window run 2, 2026-10-08): 1000m, R1 re-run.
 - **B = floor(0.4 × 30) = 12 req/s per namespace**: 9.6 req/s on `/` and 2.4 req/s on `/items`. This is
   below the 20 req/s of the promtool fixtures. The S5 error share stays 20 % (the 4 : 1 mix).
 
