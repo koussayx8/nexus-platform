@@ -807,6 +807,16 @@ to the recorded values means a rerun;
       B (at the new B; gates A1 and A2 only). Each step at its own gate: PR to `dev`, the gate to `main` (prod rolls),
       the forward-merge (dev rolls), checkpoint A, the `ramp.py` both-levels PR (sample-api and DB), the R1 re-run
       and a new B (L2 update), the warm-up with checkpoint B, then clean-window run 3 (reported regardless).
+      - Done 2026-10-09:
+        - #115 → `main` `31e8d53`, both namespaces on 1000m;
+        - checkpoint A VALID and PASS;
+        - #117 (both cgroup levels, blind stops) and #118 (start from stopped, judged load shape) → `dev` `2761a9a`;
+        - R1 attempt 1 VALID with no C (class filter not applied);
+        - **R1 attempt 2 VALID at the limit (3 missed evaluations, WSL clock steps): C ≥ 200, S\* = 200, B = 80**
+          (0.4 C binds).
+      - [ ] L2: `--users=160` (B = 80) → `dev`, then the gate to `main`. The `platform` rollout's autostart is
+        checkpoint B's traffic step (ADR-027).
+      - [ ] Checkpoint B (A1 and A2 gated) over the 20-min warm-up, then clean-window run 3 at B = 80.
   - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
     **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
     Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
@@ -1012,6 +1022,17 @@ to the recorded values means a rerun;
     Today `verify-state.sh` calls `/items`, which would disturb a baseline window.
   - Read-only RBAC; the image is pinned by digest and Cosign-signed.
   - No self-hosted runner: the repository is public.
+- **M1b-9 leftovers, not needed for the M1b exit** (owner, R1 attempt 2 gate, 2026-10-09):
+  - The `lddq8` residual's phase hypothesis (fixed 1 req/s user phases meeting DB throttled periods): UNVERIFIED. At
+    checkpoint A one dev pod kept a 4.9 % slow `/items` tail with no sample-api throttling. During R1 attempt 2 it
+    was ≤ 3.6 % on both pods.
+  - The zero-traffic Incident question: does a drop of traffic to 0 raise `NexusTrafficAnomaly`? Prod ran at
+    0 req/s for hours after R1 attempt 1 (2026-10-09 13:30Z) with no Nexus alert and no Incident. Check the rule's
+    behaviour on a drop to zero (rates and the ε floor); no change proposed.
+  - Tooling not forced by a failed run:
+    - `ramp.py` could record `db_slots_exhausted`/`db_unavailable` per step and name the binding resource (today
+      done post hoc from timestamped logs);
+    - the timed-run orchestration and analysis scripts live in the session scratchpad, not the repo.
 - **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
   2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
   (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
