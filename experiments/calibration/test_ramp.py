@@ -709,10 +709,12 @@ class LocustfileTest(unittest.TestCase):
     """The mix the locustfile sends, read from its source (Locust is not installed in CI)."""
 
     def test_master_freezes_b_from_r1(self):
-        # L2 (ADR-026): C = 30 from R1 (2026-10-07), B = floor(0.4 x C) per namespace, two classes.
+        # L2 (ADR-027): R1 attempt 2 (2026-10-09) reached 200 with no knee, so C >= 200 (a lower
+        # bound), and S* = 200. B = floor(min(0.4 x C, S*/2)) per namespace; 0.4 C binds. Two classes.
         src = (Path(__file__).parents[2] / "platform/load/master.yaml").read_text()
-        b = ramp.baseline(30)
-        self.assertEqual(b, 12)
+        c, s_star = 200, 200
+        b = min(ramp.baseline(c), s_star // 2)
+        self.assertEqual((ramp.baseline(c), s_star // 2, b), (80, 100, 80))
         for arg in (
             "--autostart",
             f"--users={2 * b}",
