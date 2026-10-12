@@ -29,6 +29,65 @@ class KneeTest(unittest.TestCase):
             (v["capacity"], v["knee_target"], v["reached_max"]), (30, None, True)
         )
         self.assertEqual(v["baseline"], 12)
+        # Owner, #117 gate: no knee by the top step makes C a lower bound; B follows.
+        self.assertTrue(v["capacity_lower_bound"])
+        self.assertFalse(v["locust_bound"])
+
+    def test_locust_bound_stop_makes_c_a_lower_bound(self):
+        v = verdict("knee-locust-bound.csv")
+        self.assertEqual((v["capacity"], v["baseline"], v["knee_target"]), (10, 4, 20))
+        self.assertTrue(v["locust_bound"])
+        self.assertTrue(v["capacity_lower_bound"])
+        self.assertEqual(
+            v["reasons"], ["Locust-bound: worker throttled (pod cgroup) 15.00% > 10%"]
+        )
+
+    def test_sample_api_knee_is_not_a_lower_bound(self):
+        v = verdict("knee-throttle.csv")
+        self.assertFalse(v["capacity_lower_bound"])
+        self.assertFalse(v["locust_bound"])
+
+    def test_empty_judged_input_is_a_blind_stop(self):
+        # Owner, #117 gate: an empty answer on any judged criterion is a blind stop.
+        for field, label in ramp.JUDGED:
+            with self.subTest(field=field):
+                rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+                rows[1][field] = ""
+                v = ramp.knee(rows)
+                self.assertEqual(
+                    (v["capacity"], v["baseline"], v["unjudged_target"]),
+                    (None, None, 20),
+                )
+                self.assertEqual(
+                    v["reasons"], [f"{label}: no data, step cannot be judged"]
+                )
+                self.assertTrue(ramp.stopped(v))
+
+    def test_empty_first_step_p95_is_a_blind_stop(self):
+        rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+        rows[0]["p95_ms"] = ""
+        v = ramp.knee(rows)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+
+    def test_empty_record_only_series_stops_nothing(self):
+        record_only = [
+            "locust_total_rps",
+            "app_cpu",
+            "db_throttle",
+            "db_throttle_pod",
+            "db_cpu",
+            "db_ws_max_bytes",
+            "worker_cpu",
+            "node_cpu",
+        ]
+        judged = {f for f, _ in ramp.JUDGED} | {"achieved_rps", "target"}
+        self.assertFalse(judged & set(record_only))
+        rows = ramp.read_steps(FIXTURES / "no-knee.csv")
+        for row in rows:
+            for field in record_only:
+                row[field] = ""
+        v = ramp.knee(rows)
+        self.assertEqual((v["capacity"], v["reached_max"]), (30, True))
 
     def test_p95_knee(self):
         v = verdict("knee-p95.csv")
@@ -43,7 +102,18 @@ class KneeTest(unittest.TestCase):
     def test_throttle_knee(self):
         v = verdict("knee-throttle.csv")
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertIn("sample-api throttled 15.00% > 10%", v["reasons"])
+        self.assertEqual(
+            v["reasons"], ["sample-api throttled (container) 15.00% > 10%"]
+        )
+
+    def test_pod_cgroup_throttle_is_a_knee_with_the_container_clean(self):
+        # ADR-027: the pod cgroup has its own 100 ms timer; a stall there is not counted
+        # under container="sample-api" (m2jww in run 2: pod 8.6 %, container 0.5 %).
+        v = verdict("knee-throttle-pod.csv")
+        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
+        self.assertEqual(
+            v["reasons"], ["sample-api throttled (pod cgroup) 12.00% > 10%"]
+        )
 
     def test_server_rate_knee_even_when_locust_is_at_target(self):
         v = verdict("knee-achieved.csv")
@@ -77,10 +147,27 @@ class KneeTest(unittest.TestCase):
             (v["capacity"], v["baseline"], v["knee_target"]), (None, None, 10)
         )
 
-    def test_missing_throttle_answer_is_a_knee(self):
+    def test_missing_throttle_answer_is_a_blind_stop(self):
+        # Owner, #117 gate: a stop on an empty answer is blind; it never sets C.
         v = verdict("knee-missing.csv")
-        self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertEqual(v["reasons"], ["sample-api throttling: no data"])
+        self.assertEqual(
+            (v["capacity"], v["baseline"], v["knee_target"], v["unjudged_target"]),
+            (None, None, None, 20),
+        )
+        self.assertEqual(v["last_ok"], 10)
+        self.assertEqual(
+            v["reasons"],
+            ["sample-api throttling (container): no data, step cannot be judged"],
+        )
+        self.assertTrue(ramp.stopped(v))
+
+    def test_missing_pod_cgroup_throttle_answer_is_a_blind_stop(self):
+        v = verdict("knee-missing-pod.csv")
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 20))
+        self.assertEqual(
+            v["reasons"],
+            ["sample-api throttling (pod cgroup): no data, step cannot be judged"],
+        )
 
     def test_thresholds_are_options(self):
         v = verdict("knee-throttle.csv", throttle_max=0.20)
@@ -89,6 +176,20 @@ class KneeTest(unittest.TestCase):
     def test_db_throttling_is_recorded_not_a_knee(self):
         # 30 % DB throttling at every step (the idle reading): the decision is the owner's.
         self.assertTrue(verdict("no-knee.csv")["reached_max"])
+
+    def test_db_pod_cgroup_throttling_is_recorded_not_a_knee(self):
+        self.assertTrue(verdict("db-pod-throttle.csv")["reached_max"])
+
+    def test_throttle_queries_read_both_cgroup_levels(self):
+        q = ramp.QUERIES
+        self.assertIn('container="sample-api"', q["app_throttle"])
+        self.assertIn('container="",pod=~"sample-api-.*"', q["app_throttle_pod"])
+        self.assertIn('container="dependency-db"', q["db_throttle"])
+        self.assertIn('container="",pod="dependency-db-0"', q["db_throttle_pod"])
+        for name in ("app_throttle_pod", "db_throttle_pod"):
+            self.assertIn(name, ramp.FIELDS)
+            self.assertIn("cfs_throttled_periods_total", q[name])
+            self.assertIn("cfs_periods_total", q[name])
 
     def test_baseline_is_floor_of_forty_percent(self):
         self.assertEqual(
@@ -106,6 +207,12 @@ class CrossCheckTest(unittest.TestCase):
         self.assertEqual(row["locust_total_rps"], "10.290")  # display only
         self.assertNotIn("achieved_rps", row)  # the knee's rate is server-side
 
+    def test_missing_locust_entries_are_empty_never_zero(self):
+        row = ramp.locust_row({"stats": []}, 10, 0.0, 120.0, "dev:/items")
+        for field in ("requests", "failures", "items_failures", "p95_ms", "locust_rps"):
+            self.assertEqual(row[field], "", field)
+        self.assertEqual(ramp.rate_check(None, 10.0, 0.05), ("", ""))
+
     def test_rate_check_is_signed_and_flags_above_five_percent(self):
         self.assertEqual(ramp.rate_check(9.6, 10.0, 0.05), ("-0.0400", "ok"))
         self.assertEqual(ramp.rate_check(10.4, 10.0, 0.05), ("+0.0400", "ok"))
@@ -120,16 +227,43 @@ class FakeHttp:
     items_failures, p95)). It also serves as the in-process Prometheus transport (get_json
     on a service-proxy path): the server-side rate is `server` (target -> value, None =
     empty, "down" = a failed call), defaulting to requests / 120; `prom` maps a query
-    substring to a value (None = empty answer) for the other queries."""
+    substring to a value (None = empty answer) for the other queries.
 
-    def __init__(self, plan, prom=None, server=None):
+    Like Locust 2.46.7, a /swarm on a running test keeps the running classes (the B
+    swarm: DevUser and ProdUser) while its answer echoes the requested ones; only a
+    /swarm after /stop applies them. Knobs: `stop_hangs` (never reaches "stopped"),
+    `leak` (extra requests under prod: names), `no_class_stats` (no dev: entries),
+    `count_off` (user_count reported off by that much), `tasks` (a /tasks "total"
+    override), `class_scale` (dev: requests scaled against the server rate)."""
+
+    def __init__(
+        self,
+        plan,
+        prom=None,
+        server=None,
+        stop_hangs=False,
+        leak=0,
+        no_class_stats=False,
+        count_off=0,
+        tasks=None,
+        class_scale=1.0,
+    ):
         self.plan, self.prom, self.server = plan, prom or {}, server or {}
-        self.users, self.calls = 0, []
+        self.users, self.calls = 24, []
+        self.state, self.classes = "running", ["DevUser", "ProdUser"]
+        self.stop_hangs, self.leak, self.no_class_stats = (
+            stop_hangs,
+            leak,
+            no_class_stats,
+        )
+        self.count_off, self.tasks, self.class_scale = count_off, tasks, class_scale
 
     def post_form(self, url, fields, timeout=30):
         self.calls.append(("POST", url, dict(fields)))
-        self.users = fields["user_count"]
-        return {"success": True}
+        if self.state != "running":
+            self.classes = list(fields["user_classes"])
+        self.state, self.users = "running", fields["user_count"]
+        return {"success": True, "user_classes": list(fields["user_classes"])}
 
     def get(self, url, timeout=30):
         self.calls.append(("GET", url, None))
@@ -142,25 +276,52 @@ class FakeHttp:
             return {"status": "success", "data": {"result": []}}
         return {"status": "success", "data": {"result": [{"value": [0, str(value)]}]}}
 
+    def stats(self):
+        if self.state == "stopped":
+            return {"state": "stopped", "user_count": 0, "stats": []}
+        req, fail, items_fail, p95 = self.plan[self.users]
+        share = 1.0 if self.classes == ["DevUser"] else 0.5
+        dev = round(req * share * self.class_scale)
+        entries = []
+        if not self.no_class_stats:
+            entries += [
+                {"name": "dev:/", "num_requests": dev - dev // 5, "num_failures": 0},
+                {
+                    "name": "dev:/items",
+                    "num_requests": dev // 5,
+                    "num_failures": items_fail,
+                },
+            ]
+        prod = req - round(req * share) + self.leak
+        if prod:
+            entries.append({"name": "prod:/", "num_requests": prod, "num_failures": 0})
+        entries.append(
+            {
+                "name": "Aggregated",
+                "num_requests": req + self.leak,
+                "num_failures": fail,
+                "response_time_percentile_0.95": p95,
+            }
+        )
+        return {
+            "state": self.state,
+            "user_count": self.users + self.count_off,
+            "stats": entries,
+        }
+
     def get_json(self, url, timeout=30):
         self.calls.append(("GET", url, None))
+        if url.endswith("/stop"):
+            if not self.stop_hangs:
+                self.state, self.users = "stopped", 0
+            return {"success": True}
         if url.endswith("/stats/requests"):
-            req, fail, items_fail, p95 = self.plan[self.users]
-            return {
-                "stats": [
-                    {
-                        "name": "dev:/items",
-                        "num_requests": req // 5,
-                        "num_failures": items_fail,
-                    },
-                    {
-                        "name": "Aggregated",
-                        "num_requests": req,
-                        "num_failures": fail,
-                        "response_time_percentile_0.95": p95,
-                    },
-                ]
-            }
+            return self.stats()
+        if url.endswith("/tasks"):
+            if self.tasks is not None:
+                return {"total": self.tasks}
+            share = 1.0 / len(self.classes)
+            return {"total": {c: {"ratio": share} for c in self.classes}}
         if "/api/v1/query" in url:
             if "http_requests_total" in url:
                 value = self.server.get(self.users, self.plan[self.users][0] / 120)
@@ -180,6 +341,7 @@ def args(out, **kw):
         "out": out,
         "prom": ramp.PROM_PATH,
         "kubectl": "kubectl",
+        "context": "default",
         "namespace": "nexus-dev",
         "classes": ["DevUser"],
         "start": 10,
@@ -192,6 +354,8 @@ def args(out, **kw):
         "fail_max": 0.01,
         "achieved_min": 0.95,
         "throttle_max": 0.10,
+        "worker_throttle_max": 0.10,
+        "class_rate_max": 0.10,
         "rate_diff_max": 0.05,
     }
     base.update(kw)
@@ -249,8 +413,9 @@ class RunTest(unittest.TestCase):
         swarms = [i for i, c in enumerate(http.calls) if c[0] == "POST"]
         resets = [i for i, u in enumerate(urls) if u.endswith("/stats/reset")]
         reads = [i for i, u in enumerate(urls) if u.endswith("/stats/requests")]
+        measured = [min(i for i in reads if i > r) for r in resets]
         self.assertEqual(len(resets), 5)
-        self.assertTrue(all(a < r < s for a, r, s in zip(swarms, resets, reads)))
+        self.assertTrue(all(a < r < m for a, r, m in zip(swarms, resets, measured)))
         self.assertEqual(
             (rows[0]["achieved_rps"], rows[0]["locust_rps"]), ("10.0", "10.000")
         )
@@ -280,11 +445,107 @@ class RunTest(unittest.TestCase):
         )
 
     def test_server_rate_low_is_a_knee_while_locust_is_at_target(self):
-        http = FakeHttp(STEADY, server={20: 18.0})
+        # 18.5 req/s against Locust's 20: within 10 %, so a knee (18.5 < 95 % of 20).
+        http = FakeHttp(STEADY, server={20: 18.5})
         v, rows, _, _ = self.run_ramp(http)
         self.assertEqual((v["capacity"], v["knee_target"]), (10, 20))
-        self.assertIn("server rate 18.0 < 95% of 20", v["reasons"])
-        self.assertEqual(rows[1]["rate_flag"], "rate diff +11.1% > 5%")
+        self.assertIn("server rate 18.5 < 95% of 20", v["reasons"])
+        self.assertEqual(rows[1]["rate_flag"], "rate diff +8.1% > 5%")
+
+    def test_server_rate_more_than_ten_percent_off_locust_is_a_blind_stop(self):
+        # Owner, R1 attempt 1 gate: the selected-class rate against the server rate,
+        # outside +-10 %, means the step did not measure what it claims.
+        http = FakeHttp(STEADY, server={20: 18.0})
+        v, _, _, _ = self.run_ramp(http)
+        self.assertEqual(
+            (v["capacity"], v["unjudged_target"], v["last_ok"]), (None, 20, 10)
+        )
+        self.assertEqual(
+            v["reasons"],
+            [
+                (
+                    "Locust selected-class rate 20.00 vs server 18.00 (+11.1%)"
+                    " outside 10%, step cannot be judged"
+                )
+            ],
+        )
+
+    def test_ramp_starts_from_stopped_so_the_classes_apply(self):
+        # Attempt 1 (2026-10-09): a /swarm on the running B swarm kept both classes.
+        http = FakeHttp(STEADY)
+        v, rows, _, _ = self.run_ramp(http, max=10)
+        urls = [
+            (c[0], c[1].rsplit("/", 1)[-1]) for c in http.calls if "/api/" not in c[1]
+        ]
+        self.assertEqual(
+            urls[:3], [("GET", "stop"), ("GET", "requests"), ("POST", "swarm")]
+        )
+        self.assertEqual(http.calls[2][2]["user_classes"], ["DevUser"])
+        self.assertEqual(
+            (rows[0]["swarm_ok"], rows[0]["other_class_requests"], v["capacity"]),
+            ("1", "0", 10),
+        )
+
+    def test_swarm_on_a_running_test_without_stop_is_caught(self):
+        # Without the /stop, the fake keeps DevUser and ProdUser, as Locust did.
+        http = FakeHttp(STEADY)
+        orig = ramp.stop_swarm
+        ramp.stop_swarm = lambda *a, **k: None
+        try:
+            v, rows, _, _ = self.run_ramp(http, max=10)
+        finally:
+            ramp.stop_swarm = orig
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertIn("swarm state not confirmed, step cannot be judged", v["reasons"])
+        self.assertTrue(any("non-selected classes" in r for r in v["reasons"]))
+        self.assertEqual(rows[0]["swarm_ok"], "0")
+
+    def test_requests_from_a_non_selected_class_are_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, leak=3), max=10)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertEqual(
+            v["reasons"],
+            ["3 requests from non-selected classes, step cannot be judged"],
+        )
+
+    def test_empty_per_class_stats_are_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, no_class_stats=True), max=10)
+        self.assertEqual((v["capacity"], v["unjudged_target"]), (None, 10))
+        self.assertIn(
+            "Locust selected-class requests: no data, step cannot be judged",
+            v["reasons"],
+        )
+
+    def test_swarm_user_count_off_is_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, count_off=1), max=10)
+        self.assertEqual(
+            v["reasons"], ["swarm state not confirmed, step cannot be judged"]
+        )
+
+    def test_tasks_with_another_class_is_a_blind_stop(self):
+        tasks = {"DevUser": {"ratio": 0.5}, "ProdUser": {"ratio": 0.5}}
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, tasks=tasks), max=10)
+        self.assertEqual(
+            v["reasons"], ["swarm state not confirmed, step cannot be judged"]
+        )
+
+    def test_unanswered_tasks_is_a_blind_stop(self):
+        v, _, _, _ = self.run_ramp(FakeHttp(STEADY, tasks="garbage"), max=10)
+        self.assertEqual(v["reasons"], ["swarm state: no data, step cannot be judged"])
+
+    def test_locust_that_never_stops_fails_before_any_step(self):
+        # The B swarm (24 users) keeps running: /stop never takes effect.
+        http = FakeHttp({**STEADY, 24: (2880, 0, 0, 12)}, stop_hangs=True)
+        with self.assertRaises(ramp.SwarmError):
+            self.run_ramp(http)
+        self.assertFalse([c for c in http.calls if c[0] == "POST"])  # no /swarm sent
+        self.assertEqual(http.calls[-1][1], "http://locust:8089/stop")
+
+    def test_classes_must_serve_the_target_namespace(self):
+        http = FakeHttp(STEADY)
+        with self.assertRaises(ValueError):
+            self.run_ramp(http, classes=["ProdUser"])
+        self.assertEqual(http.calls, [])  # nothing sent to Locust
 
     def test_prometheus_down_stops_the_ramp(self):
         http = FakeHttp(STEADY, server={20: "down"})
@@ -303,10 +564,17 @@ class RunTest(unittest.TestCase):
     def test_resource_columns_and_empty_answers(self):
         http = FakeHttp(
             STEADY,
-            prom={"dependency-db": 0.3, "sample-api": 0.0, "locust-worker": None},
+            prom={
+                "dependency-db": 0.3,
+                "sample-api": 0.0,
+                "cfs_throttled": 0.0,  # the worker's throttling, both levels
+                "locust-worker": None,  # worker_cpu: record-only, stays empty
+            },
         )
         v, rows, _, _ = self.run_ramp(http, max=20)
         self.assertEqual(rows[0]["db_throttle"], "0.3")
+        self.assertEqual(rows[0]["db_throttle_pod"], "0.3")  # recorded at both levels
+        self.assertEqual(rows[0]["app_throttle_pod"], "0.0")
         self.assertEqual(rows[0]["worker_cpu"], "")  # empty answer stays empty, never 0
         self.assertTrue(v["reached_max"])  # DB throttling alone is not a knee
         queries = [c[1] for c in http.calls if "/api/v1/query" in c[1]]
@@ -320,14 +588,15 @@ class RunTest(unittest.TestCase):
 
 
 STUB_KUBECTL = """#!/usr/bin/env python3
-# Stub kubectl for ramp.py tests: logs its argv, answers only `get --raw <path>`.
+# Stub kubectl for ramp.py tests: logs its argv, answers only
+# `--context default -n monitoring get --raw <path>`.
 import json, os, sys, urllib.parse
 with open(os.environ["STUB_LOG"], "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
 mode = os.environ.get("STUB_MODE", "ok")
-if sys.argv[1:3] != ["get", "--raw"] or len(sys.argv) != 4:
-    sys.exit("stub kubectl: only get --raw <path>")
-query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[3]).query)["query"][0]
+if sys.argv[1:7] != ["--context", "default", "-n", "monitoring", "get", "--raw"] or len(sys.argv) != 8:
+    sys.exit("stub kubectl: only --context default -n monitoring get --raw <path>")
+query = urllib.parse.parse_qs(urllib.parse.urlsplit(sys.argv[7]).query)["query"][0]
 server = "http_requests_total" in query
 if mode == "fail-server" and server:
     sys.stderr.write("Error from server (ServiceUnavailable): the server is currently unable\\n")
@@ -399,10 +668,12 @@ class KubectlRawTest(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(len(calls), 1 + len(ramp.QUERIES))
         for argv in calls:
-            self.assertEqual(argv[:2], ["get", "--raw"])
-            self.assertEqual(len(argv), 3)
-            self.assertTrue(argv[2].startswith(ramp.PROM_PATH + "/api/v1/query?"))
-        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][2]).query)
+            self.assertEqual(
+                argv[:6], ["--context", "default", "-n", "monitoring", "get", "--raw"]
+            )
+            self.assertEqual(len(argv), 7)
+            self.assertTrue(argv[6].startswith(ramp.PROM_PATH + "/api/v1/query?"))
+        server = urllib.parse.parse_qs(urllib.parse.urlsplit(calls[0][6]).query)
         self.assertIn('handler!~"/health|/ready|/metrics"}[120s]', server["query"][0])
         self.assertEqual(server["time"], ["1180.000"])  # 1000 + 60 settle + 120 measure
         self.assertEqual((rows[0]["achieved_rps"], v["reached_max"]), ("10.0", True))
@@ -438,10 +709,12 @@ class LocustfileTest(unittest.TestCase):
     """The mix the locustfile sends, read from its source (Locust is not installed in CI)."""
 
     def test_master_freezes_b_from_r1(self):
-        # L2 (ADR-026): C = 30 from R1 (2026-10-07), B = floor(0.4 x C) per namespace, two classes.
+        # L2 (ADR-027): R1 attempt 2 (2026-10-09) reached 200 with no knee, so C >= 200 (a lower
+        # bound), and S* = 200. B = floor(min(0.4 x C, S*/2)) per namespace; 0.4 C binds. Two classes.
         src = (Path(__file__).parents[2] / "platform/load/master.yaml").read_text()
-        b = ramp.baseline(30)
-        self.assertEqual(b, 12)
+        c, s_star = 200, 200
+        b = min(ramp.baseline(c), s_star // 2)
+        self.assertEqual((ramp.baseline(c), s_star // 2, b), (80, 100, 80))
         for arg in (
             "--autostart",
             f"--users={2 * b}",
