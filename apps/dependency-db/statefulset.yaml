@@ -60,13 +60,15 @@ spec:
                 secretKeyRef:
                   name: dependency-db
                   key: app-prod-password
-          # Provisional until the M1b Locust calibration (changes 16/18).
+          # CPU limit (ADR-028, ADR-027's principle): every app DB slot (20 at B: 4 sample-api pods x 5) running one
+          # connection (about 7.5 ms of CPU each) in one 100 ms period is 1.5 cores; 2000m so normal traffic never
+          # throttles. Requests and memory unchanged.
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 2000m
               memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
