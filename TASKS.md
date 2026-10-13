@@ -822,6 +822,11 @@ to the recorded values means a rerun;
         - [ ] ADR-028: DB CPU limit 500m → 2000m (ADR-027's principle); ADR-020's criterion absolute (< 0.25 cores);
           B stays 80. Pre-registered D1 (DB throttled ≤ 0.5 % at both levels) and D2 (DB processes ≤ 12), then one
           checkpoint B and run 3. A second failure is reported, not fixed.
+          - 2026-10-13: #121 → `dev`, #122 → `main` `01838a4`; DB rolled, precondition PASS. Checkpoint B
+            (13:31:09–13:51:09Z): **VALID, FAIL on A1 (dev 4.50 %), A2 (worst pod 8.34 % / 9.46 %), D1 (1.00 %
+            container), D2 (16)**. DB throttling 50 → 1 %, p95 ~280 → ~34 ms. The second failure: reported, not
+            fixed; no run 3 (owner). Results: ADR-028, ADR-027's note, ADR-026's M1b-9 summary. Evidence:
+            `~/nexus-evidence/m1b-9/cb-run3-adr028-20261013T1323Z/`.
   - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
     **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
     Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
@@ -1038,11 +1043,19 @@ to the recorded values means a rerun;
     - `ramp.py` could record `db_slots_exhausted`/`db_unavailable` per step and name the binding resource (today
       done post hoc from timestamped logs);
     - the timed-run orchestration and analysis scripts live in the session scratchpad, not the repo.
+  - **Replication on a server host** (owner, 2026-10-13): repeat checkpoint B and the 60-min clean window at
+    B = 80 on a dedicated server, not the WSL2 laptop, to separate the findings from the host's own failures (VM
+    pauses, clock steps, the run-1 host slowdown, the 2026-10-13 2 h Prometheus gap). "Quiet when healthy" stays
+    open until then (ADR-026's M1b-9 summary).
 - **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
   2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
   (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
   changes, re-run R1 and re-derive B.
   - The limit part moved into M1b-9 (owner decision (a), 2026-10-08, ADR-027). The connection cost stays here.
+  - **The client-side connection cost** (M1b-9, 2026-10-13, ADR-027's note). After ADR-028, sample-api throttled
+    at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
+    new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
+    change. The per-request connection stays the way S5's error reaches the log (ADR-020).
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
