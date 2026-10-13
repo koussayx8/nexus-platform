@@ -287,3 +287,8 @@ any load was measured, and it is replaced now because the R1 data show it measur
   available as an alternative.
 - **No DB change before S5:** limits stay requests `cpu 100m` / `memory 256Mi`, limits `cpu 500m` / `memory 512Mi`.
   The ADR-020 coupling rule is untouched: it depends on the startupProbe budget and the pull allowance, not on these.
+
+## Addendum (2026-10-13, M1b-9, ADR-028): the DB CPU criterion is absolute
+ADR-028 raises the DB's CPU limit to 2000m. The criterion above ("DB CPU under 50 % of its limit (< 0.25 cores)") keeps
+its meaning as **DB CPU < 0.25 cores, absolute**, not 50 % of the new limit. The working-set criterion (< 410 MiB)
+and zero `db_slots_exhausted` are unchanged.
