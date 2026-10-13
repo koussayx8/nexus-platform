@@ -1,6 +1,6 @@
 # ADR-027: sample-api's CPU Limit Is One Core
 
-## Status: Proposed (M1b-9; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09; rolled out at `main` `31e8d53` and `experiment/dev-state` `a4b8ef9`; checkpoint A VALID and PASS, 2026-10-09; R1 attempt 2 VALID, C ≥ 200, B = 80, 2026-10-09; A2 FAILED at B = 80 after ADR-028, 2026-10-13: see the note at the end)
+## Status: Proposed (M1b-9; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09; rolled out at `main` `31e8d53` and `experiment/dev-state` `a4b8ef9`; checkpoint A VALID and PASS, 2026-10-09; R1 attempt 2 VALID, C ≥ 200, B = 80, 2026-10-09; A2 FAILED at B = 80 after ADR-028, 2026-10-13: see "Note (2026-10-13)")
 
 ## Context
 Two M1b-9 findings point at sample-api's 200m CPU limit: R1's throttling knee and run 2's bimodal `/items`.
