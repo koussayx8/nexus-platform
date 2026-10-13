@@ -291,6 +291,7 @@ removed from the architecture; the later ADR named in the notes column governs.
 | [025](docs/adr/ADR-025-operator-skeleton.md) | The operator skeleton | |
 | [026](docs/adr/ADR-026-load-baseline.md) | The Locust load baseline and the R1 calibration | |
 | [027](docs/adr/ADR-027-sample-api-cpu-limit.md) | sample-api's CPU limit is one core | |
+| [028](docs/adr/ADR-028-dependency-db-cpu-limit.md) | The Dependency DB's CPU limit follows ADR-027's principle | |
 
 ## Documentation and project history
 
