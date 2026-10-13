@@ -817,6 +817,11 @@ to the recorded values means a rerun;
       - [ ] L2: `--users=160` (B = 80) → `dev`, then the gate to `main`. The `platform` rollout's autostart is
         checkpoint B's traffic step (ADR-027).
       - [ ] Checkpoint B (A1 and A2 gated) over the 20-min warm-up, then clean-window run 3 at B = 80.
+        - 2026-10-12: VOID (rule 4, `dependency-db` revision lag). 2026-10-13 repeat: **VALID, FAIL on A1** (13.7 % /
+          14.0 %); DB throttled 50 % / 44 % with 20 concurrent backends (all app DB slots).
+        - [ ] ADR-028: DB CPU limit 500m → 2000m (ADR-027's principle); ADR-020's criterion absolute (< 0.25 cores);
+          B stays 80. Pre-registered D1 (DB throttled ≤ 0.5 % at both levels) and D2 (DB processes ≤ 12), then one
+          checkpoint B and run 3. A second failure is reported, not fixed.
   - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
     **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
     Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
