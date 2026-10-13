@@ -1,6 +1,6 @@
 # ADR-027: sample-api's CPU Limit Is One Core
 
-## Status: Proposed (M1b-9; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09; rolled out at `main` `31e8d53` and `experiment/dev-state` `a4b8ef9`; checkpoint A VALID and PASS, 2026-10-09; R1 attempt 2 VALID, C ≥ 200, B = 80, 2026-10-09)
+## Status: Proposed (M1b-9; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09; rolled out at `main` `31e8d53` and `experiment/dev-state` `a4b8ef9`; checkpoint A VALID and PASS, 2026-10-09; R1 attempt 2 VALID, C ≥ 200, B = 80, 2026-10-09; A2 FAILED at B = 80 after ADR-028, 2026-10-13: see the note at the end)
 
 ## Context
 Two M1b-9 findings point at sample-api's 200m CPU limit: R1's throttling knee and run 2's bimodal `/items`.
@@ -397,6 +397,24 @@ Evidence: `~/nexus-evidence/m1b-9/checkpoint-a/` (`start-record.md`, `warmup.jso
     after.
 - **R1 may be proposed** (owner, checkpoint A gate review). `ramp.py` now reads throttling at both levels for
   sample-api and the DB.
+
+## Note (2026-10-13): A2 failed at B = 80
+Evidence: `~/nexus-evidence/m1b-9/cb-run3-adr028-20261013T1323Z/` (checkpoint B after ADR-028, VALID; ADR-028
+records the full result).
+
+| Window (B = 80) | DB limit | Users per pod | A2 worst pod, container / pod cgroup | Pods over 0.5 % |
+|---|---|---|---|---|
+| 2026-10-13 11:37:45–11:57:45Z | 500m | 33–47 | 0.07 % / 0.07 % | 0 of 4 |
+| 2026-10-13 13:31:09–13:51:09Z | 2000m | 36–44 | 8.34 % / 9.46 % (`tjqn4`) | 3 of 4 |
+
+- **The Decision's assumption does not hold at about 40 users per pod.** It said the GIL-free parts of `/` and
+  `/items` are small, so one core of quota is never used up in a 100 ms period. A throttled period at a one-core
+  quota means the process used more than one core in that period: GIL-free work ran beside the Python work.
+- It held at B = 12 (checkpoint A) and at B = 80 while the DB was throttled; it failed once the DB answered faster.
+- **Cause UNVERIFIED.** Not measured: the client-side cost of the per-request connection (connect and
+  authentication in the threadpool, psycopg 3.3.6), threads per pod, and why `lddq8` stayed clean at the same 40 users.
+- The limit is not changed (ADR-028's time-box: a second failure is reported, not fixed). `TASKS.md` Later holds the
+  client-side connection cost.
 
 ## Consequences
 - **R1 is re-run and B re-derived** (`TASKS.md`, R1 gate), after the `ramp.py` PR (both levels; knee on either sample-api level).
