@@ -168,6 +168,17 @@ and on disk, not reads through the API. ArgoCD selfHeal, where it is enabled, re
 the objects it manages, and it reads nothing. The mitigations are CLAUDE.md rule 5, the offline
 isolation rule, and the owner's review.
 
+**Local allow-list entries, accepted (owner, GATE M1b-9 review, 2026-10-13).** The untracked
+`.claude/settings.local.json` (git-ignored; the session-start report flags it) holds four entries
+that run without a prompt. The owner keeps them; the file stays his to move.
+
+| Entry | What it lets run unprompted | Backstop |
+|---|---|---|
+| `Bash(gh pr *)` | every `gh pr` subcommand: `create`, `edit`, `comment`, `close`, and `merge`, which overlaps the ask rule `Bash(gh pr merge *)` | merges: typed approval, `--match-head-commit`, `main`/`dev` protection (a pull request and `repo-checks` required). The rest: none technical; CLAUDE.md rule 11 and the owner's review |
+| `Bash(python3 -)` | any Python script on stdin | none technical: it widens the script gap above (a script can call `kubectl`, read files, open sockets). CLAUDE.md rules 3 and 5, offline isolation, the owner's review |
+| `Bash(python3 -c ' *)` | any one-line Python program | as `python3 -` |
+| `Bash(git merge *)` | local merges, such as the forward-merge prepared before its approval | nothing leaves the machine without a push: `main`/`dev` protection, ruleset 23998158 on `experiment/dev-state`, and the typed forward-merge approval with its tree check (rule 11) |
+
 ## Rationale
 The thesis claims that safety should not depend on the reasoner's quality when authority sits
 outside it. For the coding agent, the authority that matters sits in GitHub (branch protection,

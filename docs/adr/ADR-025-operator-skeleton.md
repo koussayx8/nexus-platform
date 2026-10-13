@@ -125,11 +125,15 @@ ADR-023's single-writer table holds unchanged:
   `CI=true`, and the margin is not widened.
 
 ### The S5 pin guard
-- **What it checks.** `repo-checks.sh` step 9 fails when any of the 5 rule-defining files differs
+- **What it checks.** `repo-checks.sh` step 9 fails when any of the 4 rule-defining files differs
   from `d351d964` (#79's head):
-  - the 3 paths under `platform/observability/alerts/`;
+  - `kustomization.yaml` and `nexus-detection.yaml` under `platform/observability/alerts/`;
   - the promtool test;
   - `promtool-rules.sh`.
+- **Every listed path exists at the pin** (2026-10-13, owner, GATE M1b-9 review). The guard
+  (`scripts/lib/s5-pin-guard.sh`, tested by `scripts/tests/s5-pin-guard.sh`) fails on a listed path
+  absent at the pin. `sample-api-error-rate.yaml`, deleted before the pin, is dropped from the list:
+  a re-added file is not deployed unless the pinned `kustomization.yaml` names it.
 - **Expiry.** At the M1b exit, after S5 is graded, the guard is removed or re-pinned through an ADR.
 
 ### `nexus-dev`'s level for S5
