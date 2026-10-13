@@ -1,6 +1,6 @@
 # ADR-027: sample-api's CPU Limit Is One Core
 
-## Status: Proposed (M1b-9, branch `feat/m1b-9-cpu-limit`; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09)
+## Status: Proposed (M1b-9; owner decision (a) after clean-window run 2, 2026-10-08; revised at the step-1 and step-1b gate reviews, 2026-10-09; rolled out at `main` `31e8d53` and `experiment/dev-state` `a4b8ef9`; checkpoint A VALID and PASS, 2026-10-09; R1 attempt 2 VALID, C ≥ 200, B = 80, 2026-10-09)
 
 ## Context
 Two M1b-9 findings point at sample-api's 200m CPU limit: R1's throttling knee and run 2's bimodal `/items`.
@@ -184,20 +184,147 @@ It is read on the node with read-only `cat`. **Otherwise stop.**
 - **All four pass in both namespaces: the R1 re-run may be proposed. Any fails: stop, report, no R1.**
 - **A1 fails while A2 passes: stop. The DB is the first candidate** (see the residual above).
 
-### Before the R1 re-run: `ramp.py` reads both levels (a separate PR)
-- `ramp.py` reads throttling at both levels for sample-api (`container="sample-api"` and the pod cgroup) and for
-  the DB (`container="dependency-db"` and the pod cgroup), and records all four.
-- How the knee's throttling criterion uses the two levels is proposed in that PR and decided at its gate.
+### Before the R1 re-run: `ramp.py` reads both levels (#117; rules decided at the #117 gate, 2026-10-09)
+- **Columns.** `ramp.py` reads throttling at both levels:
+  - sample-api: `container="sample-api"` and the pod cgroup;
+  - the DB: `container="dependency-db"` and the pod cgroup;
+  - the Locust worker: `container="locust"` and the pod cgroup.
+- **Knee.** sample-api throttled periods above 10 % at **either** level. DB throttling, at both levels, is recorded,
+  not a knee.
+- **Locust-bound stop.** The worker's throttled periods above 10 % at either level mean the step is Locust-bound. The
+  ramp stops; C ≥ the last good step, a lower bound; B follows by the frozen rule from that bound.
+- **Blind stop.** An empty answer on any judged criterion means the step cannot be judged. The judged criteria:
+  - the server rate;
+  - Locust's requests, failures, `/items` failures and p95, the first step's p95 included;
+  - sample-api or worker throttling at either level.
 
-### R1 re-run and the new B
+  The ramp stops with `capacity: null` (exit 1). **The run is void and re-run; it never sets C.** An empty answer on a
+  record-only series is recorded as empty and stops nothing.
+- **Context.** Prometheus is read as `kubectl --context default -n monitoring get --raw …`.
+
+### R1 re-run and the new B (decided at the #117 gate)
 - **Locust is a knee candidate.** With sample-api's limit raised, the single worker (1000m limit) may run out
-  first.
-  - Every step records the worker's CPU and its throttling at both levels.
-  - If the server-rate criterion trips while the worker sits at its limit, the knee is Locust's: C is reported
-    as a lower bound.
-- **B ceiling: none.** B = floor(0.4 × C). The ramp's 200 req/s cap bounds C, so B ≤ 80.
+  first. The Locust-bound stop above covers it.
+- **Canary during the ramp.** Plan §2 rule 5 (host speed, void) applies only while the worker's CPU is under 0.5
+  core. Above that, a canary rise is read as Locust-bound.
+- **No knee by step 200:** C ≥ 200 as a lower bound, and B = floor(0.4 × 200) = 80 by the frozen rule. No re-run with
+  a higher `--max`.
+- **B ceiling: none.** B = floor(0.4 × C), or floor(0.4 × its lower bound).
+- **After R1:** `/stop`, and Locust stays idle. No resume at B = 12. The next traffic step is the new B's warm-up at
+  checkpoint B.
 - **The canary reference at the new B:** each run's reference is the median of its own first 5 minutes at the new
   B. Values from B = 12 (1.184 ms and later) are not used as references.
+
+### R1 attempt 1 (2026-10-09): VALID, no C (the class filter was not applied)
+Evidence: `~/nexus-evidence/m1b-9/r1-rerun/` (`start-record.md`, `r1-run.jsonl`, `ramp/`, `result.txt`, `smoke/`).
+
+**The run.**
+- `ramp.py` from `dev` `3a096f9` (blob `1d4fbf1d…`). Locust was driven through the agent's 18090.
+- Start snapshot at 13:23:47Z. Ramp 13:25:58Z → 13:30:01Z.
+- **Validity: VALID.**
+  - boot and k3s unchanged; 11 measured-path pods unchanged; Application revisions unchanged.
+  - 0 missed evaluations. r_start +0.0231 and r_end +0.0235 agree, so D_c is reliable: −0.2 s.
+  - Canary ok; no heavy work, no other port-forward, no UI.
+- **Verdict:** `capacity: null`. Knee at step 10, "server rate 4.9 < 95% of 10"; Locust 9.81 req/s, flag +100.5 %.
+- **Nothing was derived from it:** no C, no S\*, no B.
+
+**Cause, VERIFIED.**
+- `step-10.json` shows Locust ran both classes 5 : 5 (`dev:` 600, `prod:` 600 requests).
+- Locust 2.46.7 (`runners.py`): `MasterRunner.start` builds its users dispatcher only when none exists. On a running
+  test, `/swarm` re-dispatches the new user count with the old classes. Its answer still echoes the requested
+  `user_classes`. Only `stop()` resets the dispatcher.
+- L2's `--autostart` keeps the master running both classes, so attempt 1's first `/swarm` landed on a running test.
+  On 2026-10-07 the master was idle.
+- A local Locust 2.46.7 smoke (master + worker) reproduced it and showed the fix (`smoke/smoke-fix.out`):
+  - `/swarm` on the running swarm: `swarm_ok` 0, 6 non-selected requests, `/tasks` DevUser share 0.5;
+  - `/stop`, then `/swarm`: `swarm_ok` 1, 0 non-selected requests, share 1.0;
+  - the next step stays DevUser only.
+- The residual's pod before the swarm was replaced: dev `lddq8`, 3.16 % of `/items` at 50–100 ms, 4.92 users, at B
+  over 13:13–13:23Z. That remains the "before" reading for the re-run. There is no resume before it.
+
+### R1: the load shape is judged (owner, R1 attempt 1 gate)
+- **Start:** `ramp.py` posts `/stop`, waits for `stopped`, then starts step 1. A master restart re-applies B with
+  both classes through `--autostart`, so an idle Locust is not a durable state. This start covers it.
+- **Swarm state, every step after the settle:**
+  - state `running`;
+  - `user_count` = the target;
+  - `/tasks` class shares summing to 1 over the selected classes only.
+
+  Not confirmed, or no answer: a blind stop.
+- **Per-class stats, every step:** any request under a non-selected class's name (not `<env>:`) is a blind stop.
+  Empty selected-class stats are a blind stop.
+- **Rate, every step:** Locust's selected-class rate against the target namespace's server rate. Outside ±10 % is a
+  blind stop.
+- `ramp.py` refuses classes that do not serve the target namespace before sending anything to Locust.
+
+### R1 attempt 2 (2026-10-09): VALID, at the limit; C ≥ 200 (lower bound); B = 80
+Evidence: `~/nexus-evidence/m1b-9/r1-rerun/attempt2/` (`r1-run.jsonl`, `ramp/`, `result.txt`, `result-first-VOID.txt`,
+two notes dated 2026-10-11).
+
+**The run.**
+- `ramp.py` from `dev` `2761a9a` (#118; blob `64aba469…`). Locust 2.46.7 (master and worker, the pinned digest).
+- Fresh port-forward on 18090; `/stop` first. Steps 10–200, 17:55:50Z → 18:58:59Z; `/stop` and Locust left idle at
+  the end.
+
+**Validity: VALID.**
+- boot and k3s unchanged; 11 measured-path pods unchanged; Application revisions unchanged.
+- D_c unreliable: r +0.0172 / +0.0239 differ by more than 0.005. Raw D +81.8 s, D_c +5.8 s.
+- Canary ok: worker ≤ 0.213 cores. No heavy work, no other forward, no UI.
+- **Missed `nexus-detection` evaluations: exactly 3**, from the raw counter (4721 → 4724). Plan §2 voids a long run
+  only above 3, so this is **at the limit**.
+  - The first analysis read 3.034 through `increase()`, which extrapolates, and said VOID. **The raw counter difference
+    at the window's ends is the rule's quantity and the method from now on.** Checkpoint A, re-checked that way:
+    0 (4703 → 4703).
+  - **Cause:** wall-clock steps of the WSL2 guest. The clock is stepped about every 33 s by host time sync.
+    - Each miss coincides with one of those steps.
+    - All 27 rule groups missed one iteration at each of the same three moments.
+    - Evaluation took about 3 ms against a 30 s interval, Prometheus throttling ≤ 1.2 %, and node CPU 5–13 %, so it
+      was not load.
+    - Why only three of the many steps caused a miss is UNVERIFIED: the step sizes are not logged.
+
+**Verdict.**
+- No knee by step 200: `capacity` 200, `capacity_lower_bound: true`; not Locust-bound, not blind.
+- Every step had `swarm_ok` 1, 0 non-selected requests, and Locust within ±0.6 % of the server rate.
+- At step 200:
+  - p95 22 ms (16 ms at step 10);
+  - sample-api throttled ≤ 0.06 % (container), 0 (pod);
+  - DB CPU 0.249 cores; DB working set ≤ 49.2 MiB; DB throttling 14.9 % / 13.6 % (recorded);
+  - 0 `db_slots_exhausted`, 0 `db_unavailable`; worker 0.21 cores, not throttled.
+
+**S\* and B.**
+- S\* = 200: DB CPU 0.249 < 0.25 (by 0.001), working set < 410 MiB, 0 `db_slots_exhausted`.
+- **B = floor(min(0.4 × 200 = 80, 200 / 2 = 100)) = 80 req/s per namespace. Binding term: 0.4 C**, at C's lower
+  bound.
+- Cross-check: at 2B = 160 req/s, DB CPU was 0.172 cores.
+
+**The residual.** Before (13:13–13:23Z at B = 12): dev `lddq8` 3.16 %. During attempt 2 it was small on both dev pods
+(≤ 1.3 % and ≤ 3.6 % of `/items` at 50–100 ms). The phase hypothesis moves to `TASKS.md` Later.
+
+### Deploying B = 80 and checkpoint B (one gate, owner, R1 attempt 2 gate review)
+- **L2:** `platform/load/master.yaml` sets `--users=160` (80 per class); `test_master_freezes_b_from_r1` pins C ≥ 200,
+  S\* = 200 and B = 80.
+- **Which merges deploy it.** The `platform` Application tracks `main`, so L2 deploys at the `dev` → `main` gate merge
+  and nowhere else. The forward-merge into `experiment/dev-state` keeps its tree equal to `main`'s. It changes no
+  deployed workload, because `sample-api-dev` is unchanged.
+- **How autostart becomes checkpoint B's traffic step.**
+  1. At the `main` merge, Argo CD picks up `platform` (108–382 s measured) and rolls `locust-master`, whose arguments
+     changed.
+  2. The new master starts with `--autostart --users=160 --spawn-rate=4` and spawns 160 users (both classes) in about
+     40 s once the worker connects.
+  3. That start is the traffic step: from whatever Locust runs then (B = 12 since the 2026-10-11 reboot, or idle) to
+     80 per namespace.
+  4. **The 20-min warm-up starts there.** No `/swarm` call is needed.
+- **Under the laptop regime.**
+  - Koussay confirms the laptop regime before typing the `main` merge approval: traffic starts without further action.
+  - The agent watches read-only (service-proxy reads; no port-forward is needed for checkpoint B).
+  - It records the roll, the `cpu.max` precondition on all four sample-api pods (re-read: they restarted on the
+    reboot), and Locust `running` 160 with both classes.
+  - It exports the traffic-step Incidents for Koussay to delete.
+- **Checkpoint B** reads A1 and A2 (gated; A2 per pod at both levels) and records A3 and A4 over the warm-up, with the
+  plan §2 void set (missed evaluations by the raw counter). Any gated fail → stop, no run 3.
+- **Run 3** is the 60-min clean window at B = 80 after checkpoint B passes, reported regardless.
+  - **OPEN, for the owner before run 3:** the clock steps cost about one missed evaluation per 20–26 min, so a 60-min
+    window can reach the limit of 3 without any pause.
 
 ### Checkpoint B: the warm-up at the new B (gates clean-window run 3)
 - If the R1 re-run changes B, the 20-min warm-up at the new B is read with the same void set and precondition.
@@ -220,8 +347,59 @@ rule 10). Prometheus is read only through the API server's service proxy.
 - **No ResourceQuota or LimitRange** in `nexus-dev` or `nexus-prod` (read live 2026-10-09; none in `nexus-data`
   or `nexus-load`; none in Git). Nothing caps the new limit.
 
+## Checkpoint A result (2026-10-09): VALID, PASS in both namespaces
+Evidence: `~/nexus-evidence/m1b-9/checkpoint-a/` (`start-record.md`, `warmup.jsonl`, `window.jsonl`, `result.txt`,
+`lddq8-vs-db-per-minute.txt`).
+
+**Before the window:**
+- Precondition: all four new pods read `cpu.max 100000 100000` at the pod cgroup and the container scope (prod
+  ~08:00Z, dev ~08:46Z).
+- Koussay confirmed the laptop regime (typed). Locust resumed at 09:05:57.80Z through the agent's port-forward on
+  18090.
+- Plan §3's warm-up completed at 09:26:15Z: all Z present with |Z| < 0.02, no Nexus alerts.
+- The traffic step raised one Incident per namespace, both exported.
+
+**W = 09:28:37Z → 09:48:37Z (1,200 s), both namespaces at B = 12. Validity, settled first: VALID.**
+
+| Plan §2 rule | Reading |
+|---|---|
+| 1 | boot_id and k3s (`MainPID=233`, `NRestarts=0`) the same at all four clock reads |
+| 2 | 11 measured-path pods: uids and restarts unchanged |
+| 3 | 0 missed `nexus-detection` evaluations. r_start +0.0083, r_end +0.0000: they differ by more than 0.005, so D_c is unreliable and "missed evaluations, boot_id and the restart checks decide alone" (plan §2). Raw D +11.5 s, D_c +6.5 s; both \|r\| ≤ 0.05 |
+| 4 | Application revisions unchanged; no `verify-state.sh` run |
+| 5 | Canary start median 1.021 ms (≤ 1.421 ms). During W: 0.83–1.09 ms; never above +20 % |
+| 6 | Locust `running` 24 at every minute; server rate 11.79–12.00 req/s |
+| 7, 10 | No heavy local work; no port-forward but the agent's 18090; no dashboard listeners |
+
+**A1–A4:**
+
+| Namespace | A1 `/items` 50–100 ms (≤ 3 %) | A3 max mixed p95 (≤ 20 ms) | A4 `/items` > 20 ms (≤ 10 %) |
+|---|---|---|---|
+| nexus-dev | 2.03 % | 17.80 ms | 3.31 % |
+| nexus-prod | 0.00 % | 17.54 ms | 0.07 % |
+
+| Pod | Users | A2 container | A2 pod cgroup | `/items` 50–100 ms | `/` > 50 ms |
+|---|---|---|---|---|---|
+| dev `lddq8` | 4.95 | 0 / 5,395 | 0 / 6,385 | 4.87 % | 0 |
+| dev `tjqn4` | 6.93 | 0 / 4,615 | 0 / 5,313 | 0.00 % | 0 |
+| prod `8652k` | 6.93 | 0 / 5,890 | 0 / 5,896 | 0.00 % | 0 |
+| prod `p7m8v` | 4.95 | 0 / 4,444 | 0 / 4,475 | 0.00 % | 0 |
+
+- **No throttled period at either level on any pod.** The slow mode fell from 18–25 % on the affected pods (run 2)
+  to 0 on three pods.
+- **Recorded, not gated:** DB throttled 8.34 % (container) and 2.27 % (pod cgroup).
+- **Residual, UNEXPLAINED (the DB is the first candidate):** dev `lddq8` had 1–5 slow `/items` per minute (58 of
+  1,185, 4.89 %) with no sample-api throttling. Meanwhile the DB throttled steadily: 15–21 periods per minute at
+  the container level, 2–7 at the pod level.
+  - **Phase hypothesis, UNVERIFIED:** each Locust user sends one request per second at a fixed phase. The users on
+    `lddq8` may have `/items` phases that meet the DB's throttled periods.
+  - A swarm restart re-assigns users to pods. At R1's restart, the pod carrying the residual is recorded before and
+    after.
+- **R1 may be proposed** (owner, checkpoint A gate review). `ramp.py` now reads throttling at both levels for
+  sample-api and the DB.
+
 ## Consequences
-- **R1 is re-run and B re-derived** (`TASKS.md`, R1 gate), after the `ramp.py` PR.
+- **R1 is re-run and B re-derived** (`TASKS.md`, R1 gate), after the `ramp.py` PR (both levels; knee on either sample-api level).
   - The knee may move to the DB, the DB slots, latency, or Locust.
   - L2's `--users` and the frozen-B checks follow the new B. Then the warm-up (checkpoint B) and clean-window
     run 3.

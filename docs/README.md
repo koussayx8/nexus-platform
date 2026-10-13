@@ -46,6 +46,7 @@ Notes on which records later ones supersede in part are in the [README](../READM
 | [025](adr/ADR-025-operator-skeleton.md) | The operator skeleton |
 | [026](adr/ADR-026-load-baseline.md) | The Locust load baseline and the R1 calibration |
 | [027](adr/ADR-027-sample-api-cpu-limit.md) | sample-api's CPU limit is one core |
+| [028](adr/ADR-028-dependency-db-cpu-limit.md) | The Dependency DB's CPU limit follows ADR-027's principle |
 
 ## Reading order
 
