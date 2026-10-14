@@ -167,7 +167,7 @@ users per pod). The last step's cause is UNVERIFIED (ADR-027's note).
 
 **Still open.**
 - **"Quiet when healthy"**: zero Nexus alerts for 60 min under baseline load at B = 80 is neither shown nor refuted.
-- The change-16 verdict (needs run 3). The S5 first-fire time against +105 s (needs S5).
+- The change-16 verdict (needs run 3). The S5 first-fire time: +119.5 s against +105 s (S5, 2026-10-14; ADR-025 addendum).
 - The ADR-020 DB criterion (absolute, ADR-028) read once at B = 80 over 20 min: DB CPU 0.249 cores, under 0.25.
 
 ## Consequences
@@ -179,4 +179,4 @@ users per pod). The last step's cause is UNVERIFIED (ADR-027's note).
 - Merging L2 starts the baseline in both namespaces: a real traffic step that can raise
   `NexusTrafficAnomaly` (and CPU or latency) alerts. The result: an L0 `Recorded` Incident in `nexus-dev`, an L1
   `Escalated` one in `nexus-prod`. The 20-min warm-up follows (plan §3).
-- To fill in: the 60-min clean-baseline results, and the S5 first-fire time against +105 s.
+- To fill in: the 60-min clean-baseline results. The S5 first-fire time is recorded (+119.5 s, ADR-025 addendum).

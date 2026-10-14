@@ -6,8 +6,53 @@ uses milestone tags (`v0.N.0`, one per milestone exit).
 
 ## [Unreleased]
 
-M1b — detection and the operator skeleton — is in progress. Its entries are written at the M1b exit,
-which is released as `0.3.0`. Progress is tracked in [`TASKS.md`](TASKS.md).
+## [0.3.0] - 2026-10-14
+
+M1b — detection and the operator skeleton (spec §3, §11, §25, §27): Z-score detection against a
+lagged baseline, the Incident CRD, the operator's Alert Poller and status-only reconcile loop, the
+sample-api fault hooks, and a Locust baseline load. Exit demo: S5 (`app_dev` `NOLOGIN`) under
+B = 80 req/s per namespace; `NexusErrorRateAnomaly` fired for `nexus-dev` and one Incident ended
+`Recorded` (`level_observe`, L0) 129.7 s after the injection (ADR-025 addendum, 2026-10-14).
+
+### Added
+- Detection: the spec §3 Z-score recording rules against a lagged baseline (`[15m] offset 3m`,
+  27-sample guard) and the four anomaly alerts in `nexus-detection.yaml`, with promtool tests in
+  `repo-checks` ([#79](https://github.com/koussayx8/nexus-platform/pull/79), ADR-024).
+- The Incident CRD with CEL transition rules C1–C4 and `Prune=false,Delete=false` ([#86](https://github.com/koussayx8/nexus-platform/pull/86)); the
+  Kopf status-persistence spike ([#87](https://github.com/koussayx8/nexus-platform/pull/87), ADR-023); the envtest harness and the detection-inputs
+  checker ([#84](https://github.com/koussayx8/nexus-platform/pull/84), [#85](https://github.com/koussayx8/nexus-platform/pull/85)).
+- The operator skeleton: Alert Poller with episode dedupe, a 5 s status-only loop (L0 → `Recorded`,
+  L1–L3 → `Escalated` after 20 s), unit and envtest tests, image signed with Cosign ([#96](https://github.com/koussayx8/nexus-platform/pull/96)); its
+  deploy through the `nexus` Application with staged §11 RBAC ([#99](https://github.com/koussayx8/nexus-platform/pull/99), ADR-025).
+- sample-api 0.3.0: fault hooks `/fault/hang`, `/work/cpu`, `/fault/inject-logs` behind
+  `NEXUS_FAULTS_ENABLED`, in-flight gauge, blinding, hash-pinned runtime set ([#88](https://github.com/koussayx8/nexus-platform/pull/88), [#91](https://github.com/koussayx8/nexus-platform/pull/91), ADR-022).
+- Locust in `nexus-load` and the R1 capacity ramp `experiments/calibration/ramp.py` with offline
+  tests ([#106](https://github.com/koussayx8/nexus-platform/pull/106), [#108](https://github.com/koussayx8/nexus-platform/pull/108), [#117](https://github.com/koussayx8/nexus-platform/pull/117), [#118](https://github.com/koussayx8/nexus-platform/pull/118), ADR-026).
+- The S5 pin guard (`repo-checks` step 9): the 4 rule-defining files must equal `d351d964`, and every
+  listed path must exist at the pin ([#96](https://github.com/koussayx8/nexus-platform/pull/96), [#124](https://github.com/koussayx8/nexus-platform/pull/124), ADR-025).
+
+### Changed
+- Locust baseline: B = 12 ([#109](https://github.com/koussayx8/nexus-platform/pull/109)), then B = 80 req/s per namespace, `--autostart --users=160`
+  ([#119](https://github.com/koussayx8/nexus-platform/pull/119), ADR-026, ADR-027).
+- sample-api 0.3.1: latency buckets no wider than 10 ms at 10–50 ms ([#111](https://github.com/koussayx8/nexus-platform/pull/111), [#113](https://github.com/koussayx8/nexus-platform/pull/113), ADR-022 addendum).
+- sample-api CPU limit 200m → 1000m ([#115](https://github.com/koussayx8/nexus-platform/pull/115), ADR-027); `dependency-db` CPU limit 500m → 2000m
+  ([#121](https://github.com/koussayx8/nexus-platform/pull/121), ADR-028).
+- Grafana resources sized to an open dashboard: CPU limit 1000m, memory 1Gi, readiness timeout 5 s
+  ([#93](https://github.com/koussayx8/nexus-platform/pull/93), ADR-016 addendum).
+- `.claude/settings.json` guard model: allow and deny patterns, merge and tag procedure
+  ([#82](https://github.com/koussayx8/nexus-platform/pull/82), ADR-021).
+
+### Removed
+- The interim `SampleAPIHighErrorRate` alert, replaced by `NexusErrorRateAnomaly` ([#79](https://github.com/koussayx8/nexus-platform/pull/79)).
+
+### Fixed
+- The operator starts as image UID 10001 without a passwd entry (`USER` set; the #100 crash loop)
+  ([#101](https://github.com/koussayx8/nexus-platform/pull/101)).
+
+### Known limitations
+- The 60-min clean window at B = 80 was not reached: checkpoint B failed twice (A1, A2, D1, D2);
+  "quiet when healthy" is open (ADR-026 M1b-9 summary, ADR-027 note, ADR-028).
+- S5's first fire came at +119.5 s against a predicted +105 s (recorded, not analysed).
 
 ## [0.2.0] - 2026-09-29
 

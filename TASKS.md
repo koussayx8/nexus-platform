@@ -657,9 +657,14 @@ the demo ran on) and the values in effect, read live: the sample-api scrape inte
 to the recorded values means a rerun;
 `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
+- **S5 result (2026-10-14): PASS, valid** (owner, S5 gate review). `NexusErrorRateAnomaly` fired for `nexus-dev`
+  at t0 + 119.5 s; Incident `inc-8419006b8da738fc-1791960099` `Recorded` / `level_observe` at t0 + 129.7 s; DB uid
+  and restartCount unchanged after the reset; D_c 0.006 s, 0 missed evaluations. Graded `main` `01838a4e…`. Timeline,
+  deviations (one void pre-fault check from an agent script defect, one authorised rerun; an analysis-script crash
+  after t8; the guard re-probe waived): ADR-025 addendum. Evidence: `~/nexus-evidence/m1b-s5/s5-20261014T0621Z/`.
 - [ ] After S5 is graded: remove or re-pin the S5 pin guard (`repo-checks.sh` step 9) through an
   ADR (plan M1b-8 rev 3, ADR-025).
-- [ ] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
+- [x] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
   dev-state SHA and live, and `sample-api-dev` is Synced at that SHA; all three in the S5 record.
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
@@ -1057,6 +1062,12 @@ to the recorded values means a rerun;
     at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
     new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
     change. The per-request connection stays the way S5's error reaches the log (ADR-020).
+- **Locust `--autostart` restarts the baseline after every reboot** (S5 session, 2026-10-14). The master runs
+  `--autostart --users=160` (`platform/load/master.yaml`), so a VM reboot starts B = 80 traffic unattended, even
+  after a `/stop`. Decide whether an idle default is wanted outside timed runs; no change proposed now.
+- **Timed-run analysis: timestamp parsing** (S5, 2026-10-14). The S5 analysis script's parser accepted only `Z`;
+  `kubectl logs --timestamps` returned `+02:00` offsets after the reboot, and the script crashed after t8 (ADR-025
+  addendum). Parse offsets in any timed-run script; the scripts live outside the repo (M1b-9 leftovers).
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
