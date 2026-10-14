@@ -1062,6 +1062,9 @@ to the recorded values means a rerun;
     at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
     new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
     change. The per-request connection stays the way S5's error reaches the log (ADR-020).
+- **The S5 pin guard: removed or re-pinned, by ADR, at M2 start** (owner, S5 gate follow-up, 2026-10-14). S5 is
+  graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh` step 9 (the 4 paths at `d351d964`) has done its job.
+  Until the M2-start ADR, any change to those files fails CI.
 - **Locust `--autostart` restarts the baseline after every reboot** (S5 session, 2026-10-14). The master runs
   `--autostart --users=160` (`platform/load/master.yaml`), so a VM reboot starts B = 80 traffic unattended, even
   after a `/stop`. Decide whether an idle default is wanted outside timed runs; no change proposed now.
