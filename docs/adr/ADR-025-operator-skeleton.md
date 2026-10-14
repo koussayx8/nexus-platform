@@ -125,11 +125,15 @@ ADR-023's single-writer table holds unchanged:
   `CI=true`, and the margin is not widened.
 
 ### The S5 pin guard
-- **What it checks.** `repo-checks.sh` step 9 fails when any of the 5 rule-defining files differs
+- **What it checks.** `repo-checks.sh` step 9 fails when any of the 4 rule-defining files differs
   from `d351d964` (#79's head):
-  - the 3 paths under `platform/observability/alerts/`;
+  - `kustomization.yaml` and `nexus-detection.yaml` under `platform/observability/alerts/`;
   - the promtool test;
   - `promtool-rules.sh`.
+- **Every listed path exists at the pin** (2026-10-13, owner, GATE M1b-9 review). The guard
+  (`scripts/lib/s5-pin-guard.sh`, tested by `scripts/tests/s5-pin-guard.sh`) fails on a listed path
+  absent at the pin. `sample-api-error-rate.yaml`, deleted before the pin, is dropped from the list:
+  a re-added file is not deployed unless the pinned `kustomization.yaml` names it.
 - **Expiry.** At the M1b exit, after S5 is graded, the guard is removed or re-pinned through an ADR.
 
 ### `nexus-dev`'s level for S5
@@ -230,3 +234,62 @@ code of image `ef3c6955`:
   - with it, it succeeds;
   - the manifest carries the variable.
 - **Later.** A passwd entry at the next image rebuild, then the workaround goes.
+
+## Addendum (2026-10-14): S5, the M1b exit demo — PASS, valid
+**Verdict (owner, S5 gate review, 2026-10-14): PASS, valid. The M1b exit criterion is met.**
+`NexusErrorRateAnomaly` fired for `nexus-dev`, and exactly one Incident created after t0 ended `Recorded`
+(`level_observe`, L0) in `nexus-dev`. No discard rule and no stop condition fired. Evidence (0600, not in Git):
+`~/nexus-evidence/m1b-s5/s5-20261014T0621Z/` (`s5-record.txt`).
+
+**Run.**
+- Graded `main` `01838a4e53c8161017cad09af277a09e921eea0a`; `experiment/dev-state`
+  `f480a6e76b62c0dc57390cdc5339ebf738a739dd`. S5 pin (4 paths): empty diff.
+- Values read live: ServiceMonitor 15s, Prometheus evaluation 30s, group interval 30s, Alertmanager `group_wait` 30s.
+- Load: B = 80 req/s per namespace (160 users, 0.5 / 0.5). The VM rebooted about 05:24Z and Locust's
+  `--autostart` resumed the swarm about 05:25Z. The owner applied the plan's registered §4 wording
+  ("baseline still running, no new warm-up"); the pre-fault check decided readiness.
+- Run-start baselines: `boot_id` `711847ec-2efa-4ad0-b850-eda01e6541eb`, k3s NRestarts 0; DB uid `b7616273…`
+  restartCount 1 (the reboot); missed-evaluation counter 0 (Prometheus restarted 05:24:59Z).
+- Pre-fault check (06:24:15Z): PASS. Every `nexus-dev` Z under 1.5 (max 0.55); no Nexus alert; 0 Incidents;
+  kill switch `active`; node CPU 10.6 %, memory 25.6 %; 80.0 / 80.0 req/s; error-ratio baseline present;
+  `nexus-dev` L0 in the file, live, and `sample-api-dev` Synced at the dev-state SHA.
+
+**Timeline** (wall clock, UTC; injection and restore by the owner, spec §20 S5):
+
+| Point | Time | From t0 |
+|---|---|---|
+| t0 `ALTER ROLE app_dev NOLOGIN`, sessions terminated (0 open) | 06:39:40.284 | 0 |
+| t1 first dev `/items` 503 in the log | 06:39:40.802 | +0.5 s |
+| t2 error ratio > 5 % and Z > 3; t3 alert pending (`activeAt`) | 06:40:39.823 | +59.5 s |
+| t4 alert firing (d = 0.002 s) | 06:41:39.823 | **+119.5 s** (registered prediction +105 s) |
+| t5 Alertmanager `startsAt` | 06:41:39.823 | +119.5 s |
+| t6 Incident created (audit 06:41:45.161) | 06:41:45 | **+124.7 s**; t6 − t5 = 5.2 s |
+| t7 `Recorded` / `level_observe` (audit 06:41:50.500) | 06:41:50 | **+129.7 s**; t7 − t6 = 5.0 s |
+| Restore `ALTER ROLE app_dev LOGIN` (`app_dev\|t\|35`, `app_prod\|t\|35`) | 06:43:08.656 | |
+| t8 first dev `/items` 200 / alert inactive / error ratio < 5 % | by 06:43:32 / 06:44:46 / 06:45:18 | |
+
+- **The Incident:** `inc-8419006b8da738fc-1791960099`, created by `NexusErrorRateAnomaly`, fingerprint
+  `8419006b8da738fc`, `startsAt` 06:41:39.823Z. It was the only new Incident.
+- **Segment validity, t0..t7:** D −0.00003 s, D_c 0.006 s (reliable; r_start −0.00006, r_end −0.00003);
+  0 missed `nexus-detection` evaluations. `boot_id`, k3s, the measured-path pods, the DB uid and restartCount, and
+  the Application revisions were unchanged. The clock sampler (06:22–06:50Z) saw no step over 200 ms.
+- **Operator:** 211 audit rows; no 403; no write outside `incidents` and `incidents/status`.
+- **First fire, +119.5 s against +105 s:** recorded. t0 fell 0.46 s after an evaluation; the first evaluation
+  that saw the ratio above 5 % was 06:40:39.8Z. Not analysed further.
+- **Prod control (observation only, not gated):** across 06:24–06:46Z, `nexus-prod` had no Nexus alert, no 5xx,
+  and its error-ratio Z stayed 0.
+
+**Deviations and their effect.**
+1. **First pre-fault check void (agent script defect).** The adapted run-start script compared Application
+   revisions from two different readers (`None` vs `""` for the multi-source `kyverno` and `observability`), so
+   the check failed with all 8 Applications unchanged. Nothing was injected. The owner classified it VOID, not a
+   fail, and authorised one rerun of the run start and pre-fault check in a new run directory, after the fix was
+   shown to pass on the recorded data and still fail on a changed revision. Effect: none on the result.
+2. **The analysis script crashed after t8.** `kubectl logs --timestamps` returned `+02:00` offsets, which its
+   timestamp parser did not accept. t8, the Locust `/stop` and the forward close had completed. The rest (timings,
+   validity, audit, verdict) was rerun read-only with a fixed parser; its end-clock read was 2.5 min later than
+   planned. Effect: none (r_end −0.00003).
+3. **Guard re-probe waived** (owner, S5 plan gate review, 2026-10-13; ADR-021). It tests the development agent,
+   not NEXUS; NEXUS's own guards (kill switch, L0) were in the pre-fault check.
+
+**Still open.** The S5 pin guard is removed or re-pinned through an ADR (`TASKS.md`).
