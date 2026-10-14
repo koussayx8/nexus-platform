@@ -132,6 +132,44 @@ or new pod uid, pause gap 38.9 s (under 90 s), no Application revision change. E
 ### R2
 Deferred to M2/S2 (owner, 2026-10-06). The S5 exit does not need it.
 
+## M1b-9 result summary (2026-10-13)
+**B = 80 req/s per namespace** (R1 attempt 2: C ≥ 200, S\* = 200; ADR-027). **The 60-min clean window at B = 80 was
+not reached.** Checkpoint B, its gate, failed twice; the second failure is reported, not fixed (ADR-028's time-box).
+Run 3 was not started.
+
+| Run | Date | Load | Result | What it found → what followed |
+|---|---|---|---|---|
+| Clean window run 1 | 2026-10-08 | B = 12 | FAILED at 12.8 min | `NexusLatencyAnomaly`: a host slowdown (Locust CPU per request +53 %) slowed `/items` 2.7× → finer buckets (0.3.1), host-speed canary |
+| Clean window run 2 | 2026-10-08 | B = 12 | FAILED at 25.7 min | `/items` bimodal: CFS throttling at two nested 200m quotas → ADR-027 (1000m) |
+| Checkpoint A | 2026-10-09 | B = 12 | VALID, PASS | no sample-api throttling at either level |
+| R1 attempt 2 | 2026-10-09 | ramp | VALID | C ≥ 200 (top step, no knee) → B = 80 |
+| Checkpoint B | 2026-10-12 | B = 80 | VOID | rule 4 (`dependency-db` revision lag) |
+| Checkpoint B repeat | 2026-10-13 | B = 80 | VALID, FAIL on A1 | 13.7 % / 14.0 %; DB throttled 50 % with 20 backends (all app slots) → ADR-028 (2000m) |
+| Checkpoint B after ADR-028 | 2026-10-13 | B = 80 | VALID, FAIL on A1 (dev), A2, D1, D2 | DB throttling 50 → 1 %, p95 ~280 → ~34 ms; sample-api now throttles at one core → reported, not fixed |
+
+**Why the clean window was not reached.** Each fix moved the slow `/items` tail to the next CPU quota on the path of
+the per-request DB connection: sample-api at 200m, then the DB at 500m, then sample-api at one core (A2, about 40
+users per pod). The last step's cause is UNVERIFIED (ADR-027's note).
+
+**Findings.**
+1. **The detector saw an uninjected gray failure** (run 1): a host slowdown raised `NexusLatencyAnomaly`. On this host
+   a timed run needs a host-speed canary to separate environment from fault.
+2. **CPU limits set from average use throttle bursty request work.** Per-pod averages stayed far under every limit
+   that throttled (sample-api 0.04 of 0.2 cores at R1's knee; DB 0.24 of 0.5 at checkpoint B).
+3. **Throttling must be read at both cgroup levels.** At run 2 the pod cgroup's quota throttled as well as the
+   container's; container-only figures are lower bounds (ADR-027).
+4. **The per-request connection decides the cost of `/items`** at the DB (connection setup, not the query; ADR-028)
+   and, UNVERIFIED, at sample-api. It stays: it is how S5's error reaches the log (ADR-020).
+5. **`startsAt` = `activeAt` + 60 s**, VERIFIED on R1's `NexusTrafficAnomaly` (2026-10-07).
+6. **The laptop host adds its own failures:** VM pauses (a 2 h Prometheus gap on 2026-10-13), clock steps (missed
+   evaluations, R1 attempt 2 at the limit of 3), a DB SIGTERM restart (UNVERIFIED sender). Replication on a server
+   host is in `TASKS.md` Later.
+
+**Still open.**
+- **"Quiet when healthy"**: zero Nexus alerts for 60 min under baseline load at B = 80 is neither shown nor refuted.
+- The change-16 verdict (needs run 3). The S5 first-fire time: +119.5 s against +105 s (S5, 2026-10-14; ADR-025 addendum).
+- The ADR-020 DB criterion (absolute, ADR-028) read once at B = 80 over 20 min: DB CPU 0.249 cores, under 0.25.
+
 ## Consequences
 - Locust adds up to 1.5 CPU of limits on the node (3.9 → 5.4 of 12).
 - The baseline start is a real traffic step and can raise Nexus alerts and Incidents. Its warm-up
@@ -141,4 +179,4 @@ Deferred to M2/S2 (owner, 2026-10-06). The S5 exit does not need it.
 - Merging L2 starts the baseline in both namespaces: a real traffic step that can raise
   `NexusTrafficAnomaly` (and CPU or latency) alerts. The result: an L0 `Recorded` Incident in `nexus-dev`, an L1
   `Escalated` one in `nexus-prod`. The 20-min warm-up follows (plan §3).
-- To fill in: the 60-min clean-baseline results, and the S5 first-fire time against +105 s.
+- To fill in: the 60-min clean-baseline results. The S5 first-fire time is recorded (+119.5 s, ADR-025 addendum).

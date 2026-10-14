@@ -645,20 +645,26 @@ merging `dev` in.
 **Exit criterion (owner):** an end-to-end demo under baseline load: S5 injected on `app_dev`,
 `NexusErrorRateAnomaly` fires for `nexus-dev`, and an Incident reaches `Recorded`
 (`level_observe`, L0); then the reset, DB uid and restartCount unchanged. The demo runs the
-detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`: the 5
-rule-defining files, `platform/observability/alerts/kustomization.yaml`, `nexus-detection.yaml` and
-`sample-api-error-rate.yaml` (deleted there), `platform/observability/tests/nexus-detection.test.yaml`
+detection rules pinned at #79's head `d351d964f2a50ffd07916e69f30e6c067e567cb9`: the 4
+rule-defining files (ADR-025; the deleted `sample-api-error-rate.yaml` dropped at the GATE M1b-9 review),
+`platform/observability/alerts/kustomization.yaml`,
+`nexus-detection.yaml`, `platform/observability/tests/nexus-detection.test.yaml`
 and `scripts/tests/promtool-rules.sh`. The S5 record names the full graded SHA (the `main` commit
 the demo ran on) and the values in effect, read live: the sample-api scrape interval
 (ServiceMonitor, 15 s in Git), Prometheus's rule evaluation interval and Alertmanager's
 `group_wait` (neither is set in Git: chart defaults). A change to those files
-(`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> -- <the 5 paths>` non-empty) or
+(`git diff d351d964f2a50ffd07916e69f30e6c067e567cb9 <graded SHA> -- <the 4 paths>` non-empty) or
 to the recorded values means a rerun;
 `CURRENT_STATE.md`,
 `CHANGELOG` `[0.3.0]`, tag (separate approval). **GATE M1b exit.**
+- **S5 result (2026-10-14): PASS, valid** (owner, S5 gate review). `NexusErrorRateAnomaly` fired for `nexus-dev`
+  at t0 + 119.5 s; Incident `inc-8419006b8da738fc-1791960099` `Recorded` / `level_observe` at t0 + 129.7 s; DB uid
+  and restartCount unchanged after the reset; D_c 0.006 s, 0 missed evaluations. Graded `main` `01838a4e…`. Timeline,
+  deviations (one void pre-fault check from an agent script defect, one authorised rerun; an analysis-script crash
+  after t8; the guard re-probe waived): ADR-025 addendum. Evidence: `~/nexus-evidence/m1b-s5/s5-20261014T0621Z/`.
 - [ ] After S5 is graded: remove or re-pin the S5 pin guard (`repo-checks.sh` step 9) through an
   ADR (plan M1b-8 rev 3, ADR-025).
-- [ ] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
+- [x] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
   dev-state SHA and live, and `sample-api-dev` is Synced at that SHA; all three in the S5 record.
 
 - **M1b-0 — guard ADR, settings, task list** (branch `docs/m1b-0-guard-model`).
@@ -822,6 +828,11 @@ to the recorded values means a rerun;
         - [ ] ADR-028: DB CPU limit 500m → 2000m (ADR-027's principle); ADR-020's criterion absolute (< 0.25 cores);
           B stays 80. Pre-registered D1 (DB throttled ≤ 0.5 % at both levels) and D2 (DB processes ≤ 12), then one
           checkpoint B and run 3. A second failure is reported, not fixed.
+          - 2026-10-13: #121 → `dev`, #122 → `main` `01838a4`; DB rolled, precondition PASS. Checkpoint B
+            (13:31:09–13:51:09Z): **VALID, FAIL on A1 (dev 4.50 %), A2 (worst pod 8.34 % / 9.46 %), D1 (1.00 %
+            container), D2 (16)**. DB throttling 50 → 1 %, p95 ~280 → ~34 ms. The second failure: reported, not
+            fixed; no run 3 (owner). Results: ADR-028, ADR-027's note, ADR-026's M1b-9 summary. Evidence:
+            `~/nexus-evidence/m1b-9/cb-run3-adr028-20261013T1323Z/`.
   - [x] `startsAt` versus Prometheus `activeAt` on the first real alert (ADR-025 UNVERIFIED).
     **VERIFIED** 2026-10-07 on R1's `NexusTrafficAnomaly`: `startsAt` = the first firing sample = `activeAt` + 60.0 s.
     Its Incident was created 23.2 s after `startsAt`. That is explained by Prometheus stamping samples at the
@@ -1038,11 +1049,28 @@ to the recorded values means a rerun;
     - `ramp.py` could record `db_slots_exhausted`/`db_unavailable` per step and name the binding resource (today
       done post hoc from timestamped logs);
     - the timed-run orchestration and analysis scripts live in the session scratchpad, not the repo.
+  - **Replication on a server host** (owner, 2026-10-13): repeat checkpoint B and the 60-min clean window at
+    B = 80 on a dedicated server, not the WSL2 laptop, to separate the findings from the host's own failures (VM
+    pauses, clock steps, the run-1 host slowdown, the 2026-10-13 2 h Prometheus gap). "Quiet when healthy" stays
+    open until then (ADR-026's M1b-9 summary).
 - **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
   2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
   (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
   changes, re-run R1 and re-derive B.
   - The limit part moved into M1b-9 (owner decision (a), 2026-10-08, ADR-027). The connection cost stays here.
+  - **The client-side connection cost** (M1b-9, 2026-10-13, ADR-027's note). After ADR-028, sample-api throttled
+    at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
+    new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
+    change. The per-request connection stays the way S5's error reaches the log (ADR-020).
+- **The S5 pin guard: removed or re-pinned, by ADR, at M2 start** (owner, S5 gate follow-up, 2026-10-14). S5 is
+  graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh` step 9 (the 4 paths at `d351d964`) has done its job.
+  Until the M2-start ADR, any change to those files fails CI.
+- **Locust `--autostart` restarts the baseline after every reboot** (S5 session, 2026-10-14). The master runs
+  `--autostart --users=160` (`platform/load/master.yaml`), so a VM reboot starts B = 80 traffic unattended, even
+  after a `/stop`. Decide whether an idle default is wanted outside timed runs; no change proposed now.
+- **Timed-run analysis: timestamp parsing** (S5, 2026-10-14). The S5 analysis script's parser accepted only `Z`;
+  `kubectl logs --timestamps` returned `+02:00` offsets after the reboot, and the script crashed after t8 (ADR-025
+  addendum). Parse offsets in any timed-run script; the scripts live outside the repo (M1b-9 leftovers).
 - **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
