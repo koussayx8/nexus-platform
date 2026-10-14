@@ -140,6 +140,10 @@ admin (`admin=true`; scopes `repo`, `workflow`, `read:org`, `read:packages`, `gi
 unprompted `gh api` call can edit branch protection and rulesets, the GitHub backstop this ADR
 relies on. Checked read-only on 2026-09-30; no write was tried.
 
+**Re-probe before S5: waived** (owner, S5 plan gate review, 2026-10-13). It tests the development agent, not NEXUS;
+NEXUS's own guards (kill switch, L0) were in S5's pre-fault check. The four deny rows stay unverified on the Claude
+Code version that ran S5 (2026-10-14).
+
 ### Residuals: accepted risks and their backstops
 The patterns are frozen at their M1b-0 content (round 4, `b0ca274`); only a pattern-probe failure
 changes them. What they miss is accepted, as follows.
