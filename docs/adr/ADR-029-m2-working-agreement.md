@@ -1,6 +1,6 @@
 # ADR-029: The M2 Working Agreement: Tiered Gates, Enforced Outside the Agent
 
-## Status: Proposed (draft for the owner's gate review, 2026-10-15; owner gate note "M2 working agreement"; no GitHub setting is changed by this ADR)
+## Status: Proposed (owner gate note "M2 working agreement", 2026-10-15; gate review of #128 at `eba98652`, 2026-10-15: **B accepted as the direction**, A optional as a guard against mistakes only; B is in force only after the §2 verification probe passes; no GitHub setting is changed by this ADR)
 
 ## Context
 M1b closed at `v0.3.0` (`86cea844`). Its gates all ran through one chat and one rule set (ADR-021, CLAUDE.md rule 11):
@@ -13,10 +13,13 @@ things stay true from ADR-021:
   `experiment/dev-state` (no non-fast-forward, no deletion). The owner's typed approval is a process control.
 
 Read on 2026-10-15 (commands in the gate report):
-- The agent runs as `azure` (uid 1000), a member of group `sudo`. Whether sudo needs a password is **UNKNOWN**: the
-  check `sudo -n true` was blocked by the project deny rule `Bash(sudo *)`. The owner settles it by running it.
+- The agent runs as `azure` (uid 1000), a member of group `sudo`. The agent's own `sudo -n true` was blocked by the
+  project deny rule `Bash(sudo *)`. **The owner's check (2026-10-15): `sudo -n true` → `sudo: a password is
+  required`.** sudo is not a path to root for the agent.
 - **WSL interop is enabled** (`/proc/sys/fs/binfmt_misc/WSLInterop`: `enabled`), and `wsl.exe`, `powershell.exe`
-  and `cmd.exe` are on the agent's `PATH`. Not run.
+  and `cmd.exe` are on the agent's `PATH` (not run by the agent). **The owner's check (2026-10-15):
+  `wsl.exe -u root -e id` → `uid=0(root) gid=0(root) groups=0(root)`, with no password.** Any process of the
+  agent's uid, `python3` included, can become root through interop.
 - **The owner's GitHub credentials are readable by the agent's uid:** `~/.config/gh/hosts.yml` (the `gh` token,
   admin on the repository, ADR-021) and `~/.git-credentials` (`credential.helper=store`). Contents not read.
 - No managed settings exist (`/etc/claude-code` absent); no hooks are configured.
@@ -71,12 +74,11 @@ the agent cannot write. A `PreToolUse` hook reads each Bash call (`tool_input.co
   `/etc/claude-code/managed-settings.json` on Linux and WSL, with `allowManagedHooksOnly: true`, keeps the hook out
   of the agent's reach: with that lock "your user, project, local, and plugin hooks are blocked", and `disableAllHooks`
   outside managed settings "can't disable those managed hooks" (managed-settings and hooks docs).
-- **But the root-owned file and the managed file hold only if the agent cannot become root.** Here it may:
-  - the `sudo` group (password requirement UNKNOWN);
-  - WSL interop: `wsl.exe -u root` from the Windows side does not ask for the Linux password by default
-    (UNVERIFIED here, not run). The managed-settings docs note: "On WSL, `/etc/claude-code` is user-writable as
-    well".
-- So A is a guard rail against mistakes, not a boundary.
+- **But the root-owned file and the managed file hold only if the agent cannot become root, and here it can:**
+  sudo needs a password, but `wsl.exe -u root -e id` returns uid 0 with none (owner's check, 2026-10-15). The
+  managed-settings docs note: "On WSL, `/etc/claude-code` is user-writable as well". With interop off, sudo's
+  password is the remaining barrier.
+- So A is a guard against mistakes, not a boundary (owner, gate review, 2026-10-15: A stays optional, for that only).
 
 **(B) A machine account for the agent, the owner's approval required on the latest push, and tags restricted to
 the owner.** The agent authenticates to GitHub as its own account with **Write** access (not admin, not in any
@@ -95,35 +97,69 @@ update and deletion to the owner (the bypass list holds only the Repository admi
 - **Actions:** keep `default_workflow_permissions: read` and `can_approve_pull_request_reviews: false`, so a
   workflow pushed by the agent cannot approve its own PR or write to the repository.
 
-**Decision: B**, with A optional as a mistake-catcher. B moves the boundary to GitHub, where neither `python3`
-nor the agent's uid can reach it. That is the same argument the project makes for NEXUS itself: authority is enforced
-outside the component that reasons.
+**Decision: B** (owner, gate review, 2026-10-15), with A optional as a guard against mistakes only. B moves the
+boundary to GitHub, where neither `python3` nor the agent's uid can reach it. That is the same argument the project
+makes for NEXUS itself: authority is enforced outside the component that reasons.
 
-**What the owner configures (the agent changes no GitHub setting):**
-1. A machine account (for example `koussayx8-agent`), invited to the repository with the **Write** role.
-2. A fine-grained token for it, this repository only: Contents read/write, Pull requests read/write, Metadata read;
-   no Administration, no Workflows (so the agent cannot change `.github/workflows/`; the owner pushes those).
-3. In WSL: `gh auth login` with the machine token, and `~/.git-credentials` holding only that token; the owner's
-   token removed from both.
-4. WSL interop off: `/etc/wsl.conf` `[interop]` `enabled=false`, `appendWindowsPath=false`, then `wsl --shutdown`
-   (needs sudo, then Windows).
-5. Branch rulesets for `main`, `dev`, `experiment/dev-state`:
+**What the owner configures (the agent changes no GitHub setting).** Checklist; each line is checked by the probe
+below or read back in its gate report:
+1. **Machine account.** A machine account (for example `koussayx8-agent`), invited to the repository with the
+   **Write** role, in no bypass list.
+2. **Its token.** A fine-grained token, this repository only: Contents read/write, Pull requests read/write,
+   Metadata read. No Administration and no Workflows, so the agent cannot change `.github/workflows/`; the owner
+   pushes those.
+3. **The swap in WSL.** `gh auth login` with the machine token; `~/.git-credentials` holding only that token.
+4. **Revoke both old tokens** after the swap: the owner's `gh` token (`~/.config/gh/hosts.yml`) and the token in
+   `~/.git-credentials`. Revoked, not only removed: a copy read earlier stays useless.
+5. **WSL interop off:** `/etc/wsl.conf` `[interop]` `enabled=false`, `appendWindowsPath=false`, then
+   `wsl --shutdown` from Windows. sudo needs the password, so this is the owner's step.
+6. **Merge commits only:** squash and rebase merges disabled in the repository settings, and "Allowed merge methods:
+   Merge" in each branch ruleset.
+7. **Branch rulesets on `main`, `dev` and `experiment/dev-state`:**
    - Restrict deletions; Block force pushes;
-   - Require a pull request: 1 approval, dismiss stale approvals on new pushes, require approval of the most recent
-     reviewable push;
+   - Require a pull request: 1 approval; dismiss stale approvals when new commits are pushed; require approval of
+     the most recent reviewable push;
    - Require status checks: `repo-checks`;
-   - Allowed merge methods: Merge.
-6. A tag ruleset on `refs/tags/v*`: Restrict creations, updates and deletions; bypass: Repository admin only.
-7. Repository settings: squash and rebase merges disabled.
-8. Classic protection on `main` and `dev` removed once the rulesets are active, and ruleset 23998158 folded in.
-9. Afterwards, one probe each, reported in a gate: the machine account's direct push to `dev` is refused; its merge
-   without the owner's approval is refused; its `v*` tag push is refused.
+   - Allowed merge methods: Merge;
+   - no bypass for the machine account.
+8. **A tag ruleset on `refs/tags/v*`:** Restrict creations, updates and deletions; bypass: Repository admin only
+   (the owner).
+9. **Classic protection** on `main` and `dev` removed once the rulesets are active; ruleset 23998158
+   (`non_fast_forward`, `deletion`) folded into the `experiment/dev-state` ruleset.
 
-**What changes in the procedure (ADR-021, CLAUDE.md rule 11) under B:**
-- **Merges:** the owner's GitHub approval is the enforced form; the typed chat approval naming the SHA stays as
-  the record, and the agent still merges with `--match-head-commit`.
-- **Tags:** the owner creates the tag, from the agent's prepared command.
-- **Forward-merges:** a pull request `main` → `experiment/dev-state`.
+**Verification probe (run by the agent from its own shell, after the owner reports the configuration done).**
+- **Evidence:** write-once, `~/nexus-evidence/m2-b-probe/<UTC stamp>/` (0600). Each attempt's command and output
+  are saved; tokens are never printed.
+- **Every attempt must be refused.** An attempt that succeeds is a probe FAIL: it is recorded, not undone by the
+  agent, and reported.
+
+| # | Attempt | Pass when | If it wrongly succeeds |
+|---|---|---|---|
+| P1 | Direct push to `main`: an empty commit on top of `main`'s head, `git push origin <commit>:main` | GitHub refuses the push (ruleset) | `main` gains one empty commit; no rewrite |
+| P2 | Merge of an unapproved PR: a one-line probe PR into `dev`, `gh pr merge --merge --match-head-commit <head>` with no approval | GitHub refuses the merge (review required); the PR is closed after | `dev` gains the one-line change |
+| P3 | Tag push: an annotated `v0.0.0-probe-<stamp>` on `main`'s head, `git push origin <tag>` | GitHub refuses the tag (tag ruleset) | the probe tag exists; the owner deletes it |
+| P4 | Ruleset change through the API: `PUT` of a branch ruleset with its own current body (a no-op) | 403 or 404 (the token has no Administration) | nothing changes (no-op body) |
+| P5 | `wsl.exe -e true` | the command cannot run (interop off) | the agent can still reach root (Context) |
+| P6 | No admin credential readable | `gh api user` = the machine account; `gh api repos/koussayx8/nexus-platform --jq .permissions` shows `admin: false`; `git credential fill` for github.com returns the machine account; no owner token in `~/.config/gh/hosts.yml` or `~/.git-credentials` (checked by account name, not printed) | an owner credential is still on the agent's uid |
+
+- **B is in force only after every row passes** and the owner accepts the probe in a gate. A fail is reported, not
+  fixed by the agent.
+
+**Transition.** Until the probe passes, M1b's controls stay the merge control:
+- the owner's typed approval naming the full SHA;
+- `gh pr merge <N> --merge --match-head-commit <approved full SHA>`;
+- the current classic protection and ruleset 23998158;
+- the §1 conditions.
+
+**Approval once B is in force.**
+- **The owner's GitHub approval of the most recent push is the merge approval.** The agent still merges only when
+  the §1 conditions hold, and still uses `--match-head-commit`. GitHub dismisses a stale approval when the head moves.
+- **Typed approvals remain only for steps GitHub does not gate.**
+- **Tags:** the owner creates them, from the agent's prepared command.
+- **Forward-merges:** a pull request `main` → `experiment/dev-state`, approved by the owner in GitHub. The tree
+  check (ADR-021) still applies.
+- **CLAUDE.md rule 11 and ADR-021's merge and tag procedure are updated** when B comes into force, in that gate's
+  docs PR.
 
 ### 3. Gate-report format
 Every gate report has these parts, in this order:
@@ -149,8 +185,7 @@ The pasted-gate-replies rule (ADR-021, "Pasted instructions") is **renewed until
 web pages never do. Approvals for merges, tags and forward-merges stay typed.
 
 ## Consequences
-- Until the owner finishes the B configuration, M1b's controls stay in force: typed approval with a full SHA,
-  `--match-head-commit`, classic protection, ruleset 23998158.
+- Until the §2 probe passes, M1b's controls stay in force (§2, Transition).
 - Under B the agent cannot create tags or merge alone; a gate takes one more owner action in GitHub.
 - The agent's commits and PRs appear under the machine account. Commit attribution lines are unchanged.
 - Changing workflows needs the owner's own push.
