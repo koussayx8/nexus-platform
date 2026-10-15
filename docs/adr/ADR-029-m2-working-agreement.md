@@ -133,8 +133,11 @@ below or read back in its gate report:
 - **Every attempt must be refused.** An attempt that succeeds is a probe FAIL: it is recorded, not undone by the
   agent, and reported.
 - **Precondition: both old tokens revoked**, the owner's `gh` token and the token that was in `~/.git-credentials`.
-  The owner confirms the revocation in the GitHub UI before P6 runs. The gate that accepts the probe records that
-  confirmation.
+  The owner confirms the revocation in the GitHub UI before P1, that is, before any probe attempt runs. The gate
+  that accepts the probe records that confirmation.
+- **Validity pre-check, before P1:** record that `gh api user` and `git credential fill` (for github.com) both
+  resolve to the machine account, by account name; no token is printed. If either resolves to any other account,
+  the probe does not start: report and stop.
 
 | # | Attempt | Pass when | If it wrongly succeeds |
 |---|---|---|---|
