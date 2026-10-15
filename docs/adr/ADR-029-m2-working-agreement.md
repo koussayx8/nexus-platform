@@ -132,18 +132,21 @@ below or read back in its gate report:
   are saved; tokens are never printed.
 - **Every attempt must be refused.** An attempt that succeeds is a probe FAIL: it is recorded, not undone by the
   agent, and reported.
+- **Precondition: both old tokens revoked**, the owner's `gh` token and the token that was in `~/.git-credentials`.
+  The owner confirms the revocation in the GitHub UI before P6 runs. The gate that accepts the probe records that
+  confirmation.
 
 | # | Attempt | Pass when | If it wrongly succeeds |
 |---|---|---|---|
 | P1 | Direct push to `main`: an empty commit on top of `main`'s head, `git push origin <commit>:main` | GitHub refuses the push (ruleset) | `main` gains one empty commit; no rewrite |
 | P2 | Merge of an unapproved PR: a one-line probe PR into `dev`, `gh pr merge --merge --match-head-commit <head>` with no approval | GitHub refuses the merge (review required); the PR is closed after | `dev` gains the one-line change |
 | P3 | Tag push: an annotated `v0.0.0-probe-<stamp>` on `main`'s head, `git push origin <tag>` | GitHub refuses the tag (tag ruleset) | the probe tag exists; the owner deletes it |
-| P4 | Ruleset change through the API: `PUT` of a branch ruleset with its own current body (a no-op) | 403 or 404 (the token has no Administration) | nothing changes (no-op body) |
+| P4 | Ruleset change through the API: `PUT` of a branch ruleset with its own current body (a no-op) | 403. A 404 is recorded with its reason (for example, the token cannot see rulesets at all) before it is treated as a pass | nothing changes (no-op body) |
 | P5 | `wsl.exe -e true` | the command cannot run (interop off) | the agent can still reach root (Context) |
-| P6 | No admin credential readable | `gh api user` = the machine account; `gh api repos/koussayx8/nexus-platform --jq .permissions` shows `admin: false`; `git credential fill` for github.com returns the machine account; no owner token in `~/.config/gh/hosts.yml` or `~/.git-credentials` (checked by account name, not printed) | an owner credential is still on the agent's uid |
+| P6 | No admin credential readable (after the precondition) | `~/.config/gh/hosts.yml` and `~/.git-credentials` are each absent, or contain only the machine account: every `user` in `hosts.yml` and the user part of every `~/.git-credentials` line is the machine account. The files are checked directly; a credential helper resolving to the machine account is not enough. No token is printed. Also `gh api user` = the machine account, and `gh api repos/koussayx8/nexus-platform --jq .permissions` shows `admin: false` | an owner credential is still on the agent's uid |
 
-- **B is in force only after every row passes** and the owner accepts the probe in a gate. A fail is reported, not
-  fixed by the agent.
+- **B is in force only after the revocation is confirmed AND all six attempts pass**, and the owner accepts the
+  probe in a gate. A fail is reported, not fixed by the agent.
 
 **Transition.** Until the probe passes, M1b's controls stay the merge control:
 - the owner's typed approval naming the full SHA;
