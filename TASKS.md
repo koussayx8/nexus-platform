@@ -1015,6 +1015,14 @@ to the recorded values means a rerun;
   latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3). ADR-022 and ADR-024 are on `feat/m1b-5-fault-hooks` and
   `feat/m1b-7-detection` (#79), not yet on `dev`.
 - Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
+- Spec v1.1 also records ADR-030's three contradictions (cloud hosting, #130 review, 2026-10-16). ADR-030
+  governs until then:
+  1. **The host:** the spec puts the cluster and the Experiment Runner, Fault Injector, Evaluation Harness,
+     K8sGPT CLI and Ollama on "Host (WSL2)" (§3). M2 runs on an OCI A1 node. Where the host components run is
+     decided by an ADR-030 addendum before the first A1 calibration.
+  2. **The demo fallback:** the spec's is the Local Model via Ollama, "Offline demo only" (§16). ADR-030 adds a
+     recorded demo, and a cloud-hosted demo is not offline.
+  3. **Bedrock** is not in the spec. ADR-030 (c) allows one pre-registered evaluation, outside the arms R2 and R3.
 - `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
 - CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
