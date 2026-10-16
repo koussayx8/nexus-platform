@@ -1,4 +1,4 @@
-> **Draft for GATE M2-0 (2026-10-16), rev 3. Frozen at approval; current state lives in TASKS.md.**
+> **Draft for GATE M2-0 (2026-10-16), rev 3, with the GATE M2-0 decisions recorded. Frozen at approval; current state lives in TASKS.md.**
 > Rev 2 applied the owner's plan-review revisions 1–8. Rev 3 applies revisions 1–5 and the resolution of
 > finding k (all 2026-10-16). Line references to `TASKS.md` are at `dev` `e5d16d2`.
 
@@ -27,7 +27,7 @@ Every scope line below names its source. A line with no source is UNKNOWN.
 | README | The README's M2 row |
 | §n | The spec sections the row implies: §4 stages, §9 Action Catalogue and Safety Gate, §11 RBAC, §12 autonomy, §14 Flight Recorder, §16 Rules Engine R1, §25 resources, the §27 `Audit-Id` item |
 | ADR-025 | ADR-025's M2 configuration keys and operator metrics |
-| Owner-09-29 | The owner's statement of 2026-09-29: `flight-recorder-db` comes in M2. No written copy is in the repository. The closest record is a local M0 planning file of 2026-09-25, line 126: "`flight-recorder-db` waits for M2" |
+| Owner-M2-0 | The owner's GATE M2-0 decisions (2026-10-16), including the confirmation that `flight-recorder-db` is in M2. It replaces the untraced 2026-09-29 statement as the source |
 | ADR-029 add. | The ADR-029 addendum, the M2 process (owner gate decision) |
 | ADR-030 | ADR-030 (a)–(d) and the billing guard (owner gate decisions) |
 | Owner-10-16 | The owner's plan-review decisions on this draft, 2026-10-16 |
@@ -51,8 +51,8 @@ Every scope line below names its source. A line with no source is UNKNOWN.
   - Once A1 passes `verify-state.sh`, the owner stops WSL2's k3s (stopped, not deleted). It stays the exit
     fallback.
 - **The exit (U7, U8):**
-  - It runs on "the M2 host": A1 by default, or WSL2 if A1 is not provisioned by a date the owner sets at
-    GATE M2-0.
+  - It runs on "the M2 host": A1 by default, or WSL2 if A1 is not provisioned and passing `verify-state.sh`
+    by 2026-11-20 (GATE M2-0).
   - It uses a minimal `audit_id` join script. Full reconciliation (`reconcile-audit`, `audit_links`) stays in M4.
 - **Later milestones (U9):** `nexusctl` goes to M3, as the L2 approval interface (§16A). The Flight Recorder
   datasource and the NEXUS Operations dashboard (§3) go to M4.
@@ -84,12 +84,14 @@ Every scope line below names its source. A line with no source is UNKNOWN.
   - **Billing guard.** Every trial resource is deleted before 2026-11-09: the instance, the boot and block
     volumes, any reserved IP and any paid load balancer.
 
-**Needed at GATE M2-0:**
-1. **(c), the Bedrock evaluation.** Proposal: drop it and let the AWS credit lapse (2026-11-03), because no LLM
-   proposal pipeline exists before M4. If dropped, nothing is created on AWS, and the M2-4 ADR-030 addendum records
-   the drop. Spec v1.1 then notes contradiction 3 as moot.
-2. **The A1-provisioning date** after which the exit runs on WSL2 (U7).
-3. **The placement of every Later item** (below).
+**Owner, GATE M2-0 (2026-10-16):**
+1. **(c) is dropped.** The AWS credit lapses on 2026-11-03, and nothing is created on AWS. The M2-4 ADR-030
+   addendum records the drop, and Spec v1.1 notes contradiction 3 as moot.
+2. **The A1 date is 2026-11-20.** If A1 is not provisioned and passing `verify-state.sh` by then, the exit runs on
+   WSL2 (U7).
+3. **The placements are accepted as drafted** (below).
+4. **`flight-recorder-db` is in M2** (owner confirmation, 2026-10-16). This is the source of scope line 9, in place
+   of the untraced 2026-09-29 statement.
 
 **Deferred UNKNOWNs (each has its deciding gate):**
 - U3, the operator metric names: ADR-025 names none. Decided at M2-7's gate.
@@ -112,7 +114,7 @@ Every scope line below names its source. A line with no source is UNKNOWN.
 | 6 | Circuit Breaker (2 per target per 15 min, 6 per hour) and cool-down (5 min), counted from the Flight Recorder since `breakerEpoch` | §4, §9, ADR-025 | M2-7 |
 | 7 | Verifier (`restart_v1`, `scale_v1`) against the raw pre-fault baseline recorded at detection (ADR-024), never the alert state. Compensator (scale back, itself a gated request). Escalator (terminal hand-off in status; the fork-PR path is a SHOULD, M6 in §27) | §9 | M2-7 |
 | 8 | Levels: L0 `Recorded`, L1 `Recommended`, L2 `Escalated` (M1b behaviour), L3 acts. `nexus-dev` → `"3"` by commit on `experiment/dev-state`; `nexus-prod` at L1; the stage-4 pre-check | README, §12, Owner-10-16 | M2-7, M2-10 |
-| 9 | `flight-recorder-db`: a PostgreSQL StatefulSet with a persistent volume in `nexus-system`, through the `nexus` Application. The §14 schema; the Flight Recorder Writer (idempotent, one row per transition); the write-ahead rule (`Blocked` / `recorder_unavailable`) | Owner-09-29, §14, §25 | M2-6, M2-7 |
+| 9 | `flight-recorder-db`: a PostgreSQL StatefulSet with a persistent volume in `nexus-system`, through the `nexus` Application. The §14 schema; the Flight Recorder Writer (idempotent, one row per transition); the write-ahead rule (`Blocked` / `recorder_unavailable`) | Owner-M2-0, §14, §25 | M2-6, M2-7 |
 | 10 | The `Audit-Id` spike with a dry-run request; the id is stored per request (NF-05) | §27 | M2-5 |
 | 11 | The operator reads `advisoryChecks`, `breakerEpoch` and `reasonerEndpoint` (unset, so the client is off). `approvalTTL` is M3 | ADR-025, Owner-10-16 | M2-7 |
 | 12 | Operator metrics and their ServiceMonitor (names: U3) | ADR-025 | M2-7 |
@@ -202,7 +204,7 @@ Each phase is planned in detail at its own gate. The notes below fix only what t
 
 ## Where the Later items go
 
-Proposals for the owner's gate. Each item moves verbatim, with its phase tag.
+Accepted as drafted at GATE M2-0 (owner, 2026-10-16). Each item moves verbatim, with its phase tag.
 
 | Later item | Placement |
 |---|---|
@@ -260,7 +262,7 @@ Proposals for the owner's gate. Each item moves verbatim, with its phase tag.
 | **M2-1b** | ADR-030 (b), the x86 replication. Prerequisites on `dev`: the timed-run scripts (offset-safe timestamps, `ramp.py` per-step counters); the Locust autostart decision; the diff-check script, with fixtures, accepting only the parameter paths and the ref lines. Then `replication/x86` and `replication/x86-dev-state` from tag `v0.3.0`, and the pre-registration PR: shape and size, path list, ref lines, attempt count, pass and void rules, scripts on the VM, and the two named commits. Owner: lock and protect the branches, create and bootstrap the VM. Then the protocol: R1 → C, B and limits → the clean-baseline checkpoints → S5. Stop rule 2026-11-01; billing guard before 2026-11-09 | x86 host (owner) | **GATE M2-1b** pre-registration (decision); **GATE M2-1b** result |
 | **M2-2** | arm64: `ci.yml` and `operator.yml` build `linux/amd64` and `linux/arm64`; actions and `cosign-installer` pinned by SHA; Trivy scans the pushed digest; the digest-bump PR step. The operator rebuild (UID 10001 passwd entry; the `USER` env and its test inverted); sample-api multi-arch with its base pinned by digest. Re-pins to the multi-arch indexes after `cosign verify` (ADR-017, two-merge) | WSL2 pods roll | **GATE M2-2** |
 | **M2-3** | `bootstrap.sh` before the first cloud bootstrap: operator-config ordering, the readyz wait, the `observability` timeout, secretbox, audit-log `maxbackup`. `--plan` with stubs and the fault-injection rerun in a throwaway worktree | none | **GATE M2-3** |
-| **M2-4** | ADR-030 addendum: host topology for (a), the CNI (flannel unless (d)'s three conditions hold), the (c) outcome. Then the one Spec v1.1 PR | none | **GATE M2-4** (decision) |
+| **M2-4** | ADR-030 addendum: host topology for (a), the CNI (flannel unless (d)'s three conditions hold), the (c) drop. Then the one Spec v1.1 PR | none | **GATE M2-4** (decision) |
 | **M2-5** | The `Audit-Id` spike: a `dryRun=All` request on envtest, then one approved live dry-run on WSL2; an ADR | one dry-run | **GATE M2-5** |
 | **M2-6** | `flight-recorder-db`: StatefulSet with a PV, the §14 schema, the Secrets script and its bootstrap call, the `nexus` Application, the AppProject widened; an ADR. Validation: kustomize, `kubeconform -strict`, the render check, then a server-side dry-run with approval | DB live on WSL2 | **GATE M2-6** |
 | **M2-7** | The operator's M2 stages, offline first (unit tests and envtest): scope 1–13, the RBAC-staging ADR, envtest renewal confirmed. U3 and U4 are decided here. PR A (code) and PR B (deploy), as in M1b-8. Deployed with `nexus-dev` still at L0 | WSL2: operator rolls; dev RBAC widens | **GATE M2-7** |

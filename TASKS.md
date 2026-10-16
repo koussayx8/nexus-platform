@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Milestone:** M2 — the operator acts (plan at GATE M2-0). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
-**Current phase:** M2-0 — the M2 plan ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3), waiting at GATE M2-0. The M1 and M1b phase records are in their sections below.
+**Current phase:** M2-0 — the M2 plan ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3), at GATE M2-0 (decisions recorded 2026-10-16; the merge is pending). The M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -23,7 +23,7 @@ same pull request that introduces the new kinds, namespaces or repositories it n
 
 **Standing rule — no Grafana dashboard or port-forward is open during a timed run** (S5, calibrations,
 checkpoints, clean windows). It comes from the gate rule added at M1-5 and retired for verify runs on 2026-10-02
-(M1b-3); placed here as proposed at GATE M2-0.
+(M1b-3); placed here at GATE M2-0 (accepted).
 
 ## M0-1 Capture and triage — done
 
@@ -849,7 +849,7 @@ to the recorded values means a rerun;
 
 Scope (README): the mutation path through the Scale and Eviction subresources, Safety Gate checks, and the
 autonomy level raised on `nexus-dev`.
-- **Plan:** [`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3, a draft for GATE M2-0. It holds the scope
+- **Plan:** [`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3, with the GATE M2-0 decisions recorded. It holds the scope
   trace with sources, gate reports a–k, the placement of every Later item, phases, verification, open assumptions
   and risks.
 - **Process:** the ADR-029 addendum. Every merge, tag and forward-merge needs the owner's typed approval naming
@@ -871,7 +871,7 @@ autonomy level raised on `nexus-dev`.
 8. Levels: L0 `Recorded`, L1 `Recommended`, L2 `Escalated` (as in M1b), L3 acts. The L2 flow, approval-content
    validation and `approvalTTL` move to M3 with K5. `nexus-dev` → `"3"`; `nexus-prod` stays at L1. [M2-7, M2-10]
 9. `flight-recorder-db` (PostgreSQL with a persistent volume, `nexus-system`, the `nexus` Application), the §14
-   schema and the write-ahead rule. [M2-6, M2-7]
+   schema and the write-ahead rule (owner, GATE M2-0). [M2-6, M2-7]
 10. The `Audit-Id` spike (§27). [M2-5]
 11. The ADR-025 keys `advisoryChecks`, `breakerEpoch` and `reasonerEndpoint`; operator metrics and their
     ServiceMonitor. [M2-7]
@@ -880,11 +880,12 @@ autonomy level raised on `nexus-dev`.
     the demo recording [M2-10].
 14. A minimal `audit_id` join script for the exit; full reconciliation stays in M4. [M2-10]
 
-**Decisions needed at GATE M2-0:**
-1. (c), the Bedrock evaluation. Proposed: drop it and let the AWS credit lapse (2026-11-03), because no LLM
-   proposal pipeline exists before M4.
-2. The date by which A1 must be provisioned. After it, the exit runs on WSL2.
-3. The placement of the Later items, below and in Later.
+**Owner decisions, GATE M2-0 (2026-10-16):**
+1. (c) is dropped. The AWS credit lapses on 2026-11-03, and nothing is created on AWS. The M2-4 ADR-030 addendum
+   records the drop, and Spec v1.1 notes contradiction 3 as moot.
+2. The A1 date is 2026-11-20. If A1 is not provisioned and passing `verify-state.sh` by then, the exit runs on WSL2.
+3. The placements of the Later items are accepted as drafted.
+4. `flight-recorder-db` is in M2 (owner confirmation, 2026-10-16), the source of scope line 9.
 
 **Deferred UNKNOWNs:**
 - U3, the operator metric names → M2-7's gate.
@@ -906,7 +907,7 @@ autonomy level raised on `nexus-dev`.
   - **Billing guard:** every trial resource is deleted before 2026-11-09.
 - [ ] **M2-2 — arm64 and images.** **GATE M2-2.**
 - [ ] **M2-3 — `bootstrap.sh` before the first cloud bootstrap.** **GATE M2-3.**
-- [ ] **M2-4 — the ADR-030 addendum (topology, CNI, (c)), then the one Spec v1.1 PR.** **GATE M2-4.**
+- [ ] **M2-4 — the ADR-030 addendum (topology, CNI, the (c) drop), then the one Spec v1.1 PR.** **GATE M2-4.**
 - [ ] **M2-5 — the `Audit-Id` spike.** **GATE M2-5.**
 - [ ] **M2-6 — `flight-recorder-db`.** **GATE M2-6.**
 - [ ] **M2-7 — the operator's M2 stages:** PR A (code), PR B (deploy); `nexus-dev` still at L0. **GATE M2-7.**
@@ -914,7 +915,7 @@ autonomy level raised on `nexus-dev`.
 - [ ] **M2-9 — the A1 host and its calibration,** then the owner stops WSL2's k3s. **GATE M2-9.**
 - [ ] **M2-10 — exit:**
   - `nexus-dev` → `"3"`;
-  - the exit demo on the M2 host (A1, or WSL2 after the owner's date);
+  - the exit demo on the M2 host (A1, or WSL2 if A1 is not provisioned and passing `verify-state.sh` by 2026-11-20);
   - the defense recording, `CURRENT_STATE.md` and `CHANGELOG` [0.4.0];
   - the tag (separate approval).
 
@@ -927,7 +928,7 @@ autonomy level raised on `nexus-dev`.
 - `kubectl auth can-i --list` shows no operator scale or eviction in `nexus-prod`, and the audit extract shows no
   operator mutation there.
 
-### Placed from Later (proposed at GATE M2-0)
+### Placed from Later (accepted at GATE M2-0)
 
 Items move verbatim, with a phase tag. Branch annotations such as "not yet on `dev`" are stale: ADR-022 and ADR-024
 are in `docs/adr/` on `dev`.
@@ -1075,7 +1076,7 @@ are in `docs/adr/` on `dev`.
 
 ## Later — out of scope for M2
 
-Placed as proposed at GATE M2-0 ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), "Where the Later items
+Placed as accepted at GATE M2-0 ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), "Where the Later items
 go"). Items move verbatim; closed items keep their text.
 
 ### M3
@@ -1155,7 +1156,7 @@ go"). Items move verbatim; closed items keep their text.
 - `bootstrap.sh` hardening part (1), the mounts preflight. The item is under M2-3 (ADR-030 track); WSL2 stays the fallback host.
 - Stale status lines (GATE M2-0 report j): the README M1b row still reads "In progress" (M1b closed at `v0.3.0`, 2026-10-14), and the M1b-9 L2 and closing-PR boxes in this file are unticked.
 
-### Closed (proposed at GATE M2-0)
+### Closed (accepted at GATE M2-0)
 
 - **Rejected (owner, 2026-09-28; ADR-021): no agent kubeconfig, now or later.** Was: high
   priority, before M1b (owner, #78 review, 2026-09-27): pattern rules cannot protect
@@ -1163,18 +1164,18 @@ go"). Items move verbatim; closed items keep their text.
   `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
   with RBAC read access to everything except Secrets and no write verbs. Once it exists,
   `kubectl` reads can be auto-allowed safely.
-  - **Closed (proposed at GATE M2-0):** rejected (owner, 2026-09-28; ADR-021).
+  - **Closed (accepted at GATE M2-0):** rejected (owner, 2026-09-28; ADR-021).
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
   **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
   acceptance pass). **Dashboards stay closed during timed runs: S5 and the M1b-9 calibration.**
-  - **Closed (proposed at GATE M2-0):** its timed-run part is now a standing rule (top of this file).
+  - **Closed (accepted at GATE M2-0):** its timed-run part is now a standing rule (top of this file).
 - Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
   `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
   readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
   **before the M1b calibration**. **Done: M1b-3** (#93, live at M3 `c05d91b`; acceptance passed
   2026-10-02).
-  - **Closed (proposed at GATE M2-0):** done in M1b-3.
+  - **Closed (accepted at GATE M2-0):** done in M1b-3.
 - **Done: ADR-021** (M1b-0) records the guard model; the heavier design is rejected there. Was:
   write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
@@ -1196,7 +1197,7 @@ go"). Items move verbatim; closed items keep their text.
   (permissions, settings precedence) say an `ask` rule outranks a local `allow`; observed the
   opposite: with the project `ask` `Bash(kubectl exec *)` and a local allow, no prompt appeared.
   Cause UNKNOWN; no test planned.
-  - **Closed (proposed at GATE M2-0):** done in M1b-0 (ADR-021).
+  - **Closed (accepted at GATE M2-0):** done in M1b-0 (ADR-021).
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
   including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
   `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
@@ -1207,12 +1208,12 @@ go"). Items move verbatim; closed items keep their text.
   "don't ask again" on purpose, to let the agent work while away; the file was written at
   05:45:38Z, 13 s after the first S5 `kubectl exec`, and the S5 inject and reset then ran without
   prompts (the S5 result stands). Moved to `~/nexus-evidence/settings.local.json.m1b.bak`.
-  - **Closed (proposed at GATE M2-0):** allow-list regrowth, closed by the owner (2026-10-16).
+  - **Closed (accepted at GATE M2-0):** allow-list regrowth, closed by the owner (2026-10-16).
 - sample-api runtime requirements use `>=`, so a signed image's contents depend on the build day
   (the psycopg tested in M1-1, 3.3.6, may differ from what M1-4 builds). Consider a lock file with
   hashes. **Covered by `036e7aa`** on `feat/m1b-5-fault-hooks` (hash-pinned runtime closure,
   `--require-hashes`, ADR-022); closed when M1b-5 merges.
-  - **Closed (proposed at GATE M2-0):** merged; `apps/sample-api/requirements.txt` carries 571 `hash=` entries (report d).
+  - **Closed (accepted at GATE M2-0):** merged; `apps/sample-api/requirements.txt` carries 571 `hash=` entries (report d).
 - ~~**Before M1b-9: find the WSL2 VM pause cause**~~ **Closed (owner, 2026-10-02).** The M1-6 window
   paused 2,921.9 s with Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. **Cause
   (owner):** Koussay put the PC to sleep and shut it down several times; that accounts for the
@@ -1220,24 +1221,24 @@ go"). Items move verbatim; closed items keep their text.
   pause stopped its first run). With the PC kept awake, the gate rerun stayed at 19.0 s over about
   23 min. **Rule from now on:** every timed run (S5, M1b-9) records its own pause gap (wall clock
   vs `/proc/uptime`, and `boot_id`) at start and end; M1b-9's plan sets when a run is discarded.
-  - **Closed (proposed at GATE M2-0):** closed by the owner on 2026-10-02.
+  - **Closed (accepted at GATE M2-0):** closed by the owner on 2026-10-02.
 - The WSL VM rebooted at 2026-09-26 20:57Z (`journalctl --list-boots`). All four sample-api
   containers show last state `Unknown`, exit 255, at 20:59:58Z. The cluster recovered on its own
   and the node IP was unchanged. Informational. Relevant to the run pre-checks and the discard
   rules once experiments start.
-  - **Closed (proposed at GATE M2-0):** informational; the timed-run rule (pause gap and `boot_id` at start and end) covers it.
+  - **Closed (accepted at GATE M2-0):** informational; the timed-run rule (pause gap and `boot_id` at start and end) covers it.
 - Repository settings, owner action (not a Git change): set the About description and topics (command proposed in the docs PR). Private vulnerability reporting is enabled (checked read-only); `LICENSE` (Apache-2.0) and `NOTICE` are added by the docs PR.
-  - **Closed (proposed at GATE M2-0):** an owner action outside Git; nothing depends on it.
+  - **Closed (accepted at GATE M2-0):** an owner action outside Git; nothing depends on it.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
-  - **Closed (proposed at GATE M2-0):** local and untracked; the owner deletes it at will.
+  - **Closed (accepted at GATE M2-0):** local and untracked; the owner deletes it at will.
 - **Done: the S5 pin guard is removed** (ADR-025 addendum, 2026-10-16). Was: removed or re-pinned, by ADR, at M2
   start (owner, S5 gate follow-up, 2026-10-14). S5 is graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh`
   step 9 (the 4 paths at `d351d964`) has done its job. Any S5 re-run deploys `v0.3.0` or pre-registers its rule
   revision.
-  - **Closed (proposed at GATE M2-0):** removed (#131).
+  - **Closed (accepted at GATE M2-0):** removed (#131).
 - From the M1b-9 leftovers item (owner, R1 attempt 2 gate, 2026-10-09):
   - **Replication on a server host** (owner, 2026-10-13): repeat checkpoint B and the 60-min clean window at
     B = 80 on a dedicated server, not the WSL2 laptop, to separate the findings from the host's own failures (VM
     pauses, clock steps, the run-1 host slowdown, the 2026-10-13 2 h Prometheus gap). "Quiet when healthy" stays
     open until then (ADR-026's M1b-9 summary).
-  - **Closed (proposed at GATE M2-0):** now ADR-030 (b), phase M2-1b.
+  - **Closed (accepted at GATE M2-0):** now ADR-030 (b), phase M2-1b.
