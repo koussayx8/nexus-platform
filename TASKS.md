@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
-**Milestone:** M1b — the rest of what the spec tagged M1 (see M1b below). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`.
-**Current phase:** M1b-0 — guard ADR, settings and the M1b task list. M1-0 done (#68, `7cc5811`); M1-1 done (#69, `fb047e1`); test d passed 2026-09-27; M1-2 done (#70, `05e859a`); M1-3 done (#72, `5d5120e`); M1-4 done (#74, `87e3ab3`); M1-5 done (#76, `ee39cef`); M1-6 done (#80, #81, `ce2b174`).
+**Milestone:** M2 — the operator acts (plan at GATE M2-0). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
+**Current phase:** M2-0 — the M2 plan ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3), waiting at GATE M2-0. The M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -841,6 +841,234 @@ to the recorded values means a rerun;
   - [ ] Closing PR: ADR-026 results, ADR-020 and ADR-025 addenda, `CURRENT_STATE.md`, these boxes.
     **GATE M1b-9.**
 
+## M2 — the operator acts
+
+Scope (README): the mutation path through the Scale and Eviction subresources, Safety Gate checks, and the
+autonomy level raised on `nexus-dev`.
+- **Plan:** [`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3, a draft for GATE M2-0. It holds the scope
+  trace with sources, gate reports a–k, the placement of every Later item, phases, verification, open assumptions
+  and risks.
+- **Process:** the ADR-029 addendum. Every merge, tag and forward-merge needs the owner's typed approval naming
+  the full SHA (CLAUDE.md rule 11), checked against ADR-029 §1's conditions.
+- **Host:** ADR-030 (a), an OCI Always Free A1 node. Live validation runs on WSL2 until M2-9. Once A1 passes
+  `verify-state.sh`, WSL2's k3s is stopped (not deleted) and stays the exit fallback.
+
+**Scope, traced** (sources and phases in the plan):
+1. §11 RBAC: the cluster reads and the ArgoCD Applications; `deployments/scale` and `pods/eviction` in `nexus-dev`
+   only. This is staged: `nexus-prod` gets them in M3, with Kyverno in Enforce. An ADR at M2-7 records it; §11's
+   end state is unchanged. [M2-7]
+2. The Action Catalogue, `operator/catalogue.yaml` (§9). [M2-7]
+3. The Evidence Collector, the Evidence Redactor and the embedded Rules Engine R1. The Reasoner Client stays off
+   (`reasonerEndpoint` unset) until M4. [M2-7]
+4. The Action Executor: the write-ahead intent row and idempotency key, then one Scale or Eviction request. [M2-7]
+5. Safety Gate stages 1–7, advisory (`advisoryChecks`). The Kill Switch is advisory until K4 (M3). [M2-7]
+6. The Circuit Breaker and cool-down, counted from the Flight Recorder since `breakerEpoch`. [M2-7]
+7. The Verifier against the raw pre-fault baseline, the Compensator and the Escalator. [M2-7]
+8. Levels: L0 `Recorded`, L1 `Recommended`, L2 `Escalated` (as in M1b), L3 acts. The L2 flow, approval-content
+   validation and `approvalTTL` move to M3 with K5. `nexus-dev` → `"3"`; `nexus-prod` stays at L1. [M2-7, M2-10]
+9. `flight-recorder-db` (PostgreSQL with a persistent volume, `nexus-system`, the `nexus` Application), the §14
+   schema and the write-ahead rule. [M2-6, M2-7]
+10. The `Audit-Id` spike (§27). [M2-5]
+11. The ADR-025 keys `advisoryChecks`, `breakerEpoch` and `reasonerEndpoint`; operator metrics and their
+    ServiceMonitor. [M2-7]
+12. The CI boundary check for `ignoreDifferences` (§9, §13). [M2-7]
+13. ADR-030: step 0 [M2-1], the x86 replication [M2-1b], host topology and CNI [M2-4], the A1 calibration [M2-9],
+    the demo recording [M2-10].
+14. A minimal `audit_id` join script for the exit; full reconciliation stays in M4. [M2-10]
+
+**Decisions needed at GATE M2-0:**
+1. (c), the Bedrock evaluation. Proposed: drop it and let the AWS credit lapse (2026-11-03), because no LLM
+   proposal pipeline exists before M4.
+2. The date by which A1 must be provisioned. After it, the exit runs on WSL2.
+3. The placement of the Later items, below and in Later.
+
+**Deferred UNKNOWNs:**
+- U3, the operator metric names → M2-7's gate.
+- U4, durable absorb → M2-7's gate.
+- U5 → the M2-9 pre-registration: R2, the "twice per-pod capacity" reading, and `scale_v1`'s 70 % (now 700m).
+
+**Phases** (each planned in detail at its own gate):
+- [ ] **M2-0 — plan.** This PR. **GATE M2-0.**
+- [ ] **M2-1 — step 0 on WSL2** (ADR-030 (a)), with Locust stopped as an approved step. **GATE M2-1.**
+- [ ] **M2-1b — the x86 replication** (ADR-030 (b)). **GATE M2-1b** (pre-registration, then result).
+  - It runs `v0.3.0` plus a pre-registered, parameter-only diff (re-derived limits, Locust users and autostart),
+    on two branches cut from tag `v0.3.0`:
+    - `replication/x86`: `root.yaml`, the child Applications and `bootstrap.sh`'s `origin/main` reads point to it;
+    - `replication/x86-dev-state`: `sample-api-dev` tracks it.
+  - The diff check accepts only the parameter paths and those ref lines. The scripts run on the VM.
+  - The owner locks `replication/x86` and protects `replication/x86-dev-state` (no force push, no deletion).
+  - The pre-registration names two commits: the replication head and the harness commit on `dev`.
+  - **Stop rule:** not calibrated by 2026-11-01 → (b) is recorded as not done.
+  - **Billing guard:** every trial resource is deleted before 2026-11-09.
+- [ ] **M2-2 — arm64 and images.** **GATE M2-2.**
+- [ ] **M2-3 — `bootstrap.sh` before the first cloud bootstrap.** **GATE M2-3.**
+- [ ] **M2-4 — the ADR-030 addendum (topology, CNI, (c)), then the one Spec v1.1 PR.** **GATE M2-4.**
+- [ ] **M2-5 — the `Audit-Id` spike.** **GATE M2-5.**
+- [ ] **M2-6 — `flight-recorder-db`.** **GATE M2-6.**
+- [ ] **M2-7 — the operator's M2 stages:** PR A (code), PR B (deploy); `nexus-dev` still at L0. **GATE M2-7.**
+- [ ] **M2-8 — the KSM alerts and `group_by`, F5, the M2 verify checks.** **GATE M2-8.**
+- [ ] **M2-9 — the A1 host and its calibration,** then the owner stops WSL2's k3s. **GATE M2-9.**
+- [ ] **M2-10 — exit:**
+  - `nexus-dev` → `"3"`;
+  - the exit demo on the M2 host (A1, or WSL2 after the owner's date);
+  - the defense recording, `CURRENT_STATE.md` and `CHANGELOG` [0.4.0];
+  - the tag (separate approval).
+
+  **GATE M2 exit.**
+
+**Exit criterion (proposed):** on the M2 host, under B:
+- S2 (or S1) on `nexus-dev` at L3 ends `Resolved` / `remediation_verified`.
+- The intent row precedes the request, and its `audit_id` matches an audit event (the minimal join script).
+- The same fault in `nexus-prod` ends `Recommended`.
+- `kubectl auth can-i --list` shows no operator scale or eviction in `nexus-prod`, and the audit extract shows no
+  operator mutation there.
+
+### Placed from Later (proposed at GATE M2-0)
+
+Items move verbatim, with a phase tag. Branch annotations such as "not yet on `dev`" are stale: ADR-022 and ADR-024
+are in `docs/adr/` on `dev`.
+
+**M2 core**
+
+- [M2-2] **Base images: digest pins and a slimmer base** (owner, #96 gate review, 2026-10-03). The
+  operator image pins `python:3.12-slim` by index digest (`operator/Dockerfile`, `sha256:dddfd7e0…`);
+  sample-api's does not (`apps/sample-api/Dockerfile`: `python:3.12-slim`, a moving tag). Trivy on
+  the #96 PR image: 45 HIGH, 0 CRITICAL, all Debian 13.7 base packages, 0 in the Python packages.
+  Pin sample-api's base by digest, and move both images to a slimmer base (e.g. distroless or a
+  minimal Python runtime), then compare the Trivy counts. `operator.yml` copies `ci.yml`'s
+  `cosign-installer@v3`, so the item above applies to it too.
+  - **GATE M2-0:** the sample-api digest pin goes to M2-2; the operator base is already pinned (`operator/Dockerfile:4,9`, report e). The slimmer base and its Trivy comparison go to M3, with `verifyImages`. "The item above" in its last sentence is the `cosign-installer` item, now under the ADR-030 track.
+- [M2-2] **Operator image: a passwd entry for UID 10001, then drop the USER workaround** (owner, #100 stop,
+  2026-10-06). Image `ef3c6955` runs as UID 10001 with no `/etc/passwd` entry; Kopf's
+  `getpass.getuser()` raised `KeyError` and the pod crash-looped at the #100 live gate.
+  `operator/k8s/deployment.yaml` now sets `USER=nexus-operator` (guarded by
+  `operator/tests/unit/test_runtime_user.py`). At the next image rebuild (with the base-image item
+  above): `useradd --uid 10001` in the Dockerfile, new `cosign verify` and digest pin, then remove
+  the env and turn the manifest test into a check that the image resolves UID 10001.
+  - **GATE M2-0:** rebuilt multi-arch at M2-2 (ADR-030).
+- [M2-3] Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
+  filled a 100 MiB file every 4.8–6.0 h, about 2.2–2.8 days of retention with `maxbackup=10`,
+  not the ~10 days of change 7. **Measured in the M1-6 window:** about 500 MiB per idle day
+  (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
+  `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
+  restart: do it at a planned k3s restart (a rebuild or between measurement windows).
+  - **GATE M2-0:** lands at M2-3, so the first cloud bootstrap applies it without a k3s restart (report g).
+- [M2-4] Spec v1.1 notes (M1b-5, M1b-7): the Z-score baseline excludes the most recent 3 minutes; the
+  latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3). ADR-022 and ADR-024 are on `feat/m1b-5-fault-hooks` and
+  `feat/m1b-7-detection` (#79), not yet on `dev`.
+- [M2-4] Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
+- [M2-4] Spec v1.1 also records ADR-030's three contradictions (cloud hosting, #130 review, 2026-10-16). ADR-030
+  governs until then:
+  1. **The host:** the spec puts the cluster and the Experiment Runner, Fault Injector, Evaluation Harness,
+     K8sGPT CLI and Ollama on "Host (WSL2)" (§3). M2 runs on an OCI A1 node. Where the host components run is
+     decided by an ADR-030 addendum before the first A1 calibration.
+  2. **The demo fallback:** the spec's is the Local Model via Ollama, "Offline demo only" (§16). ADR-030 adds a
+     recorded demo, and a cloud-hosted demo is not offline.
+  3. **Bedrock** is not in the spec. ADR-030 (c) allows one pre-registered evaluation, outside the arms R2 and R3.
+- [M2-4] Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
+  - **GATE M2-0:** these four Spec v1.1 items go into one Spec v1.1 PR (ADR plus version bump) at M2-4, after the ADR-030 topology addendum.
+- [M2-7] M2: an alert that clears is not a recovery; repair verification compares the raw signal with
+  its pre-fault baseline (M1b-7 gate; ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`).
+- [M2-7] The envtest harness PKI (7-day certificates) in `~/nexus-envtest` expires 2026-10-05T21:12Z.
+  `test/m1b-6-envtest` `b9f62f0` renews it at `up`; 6a and 6b still carry the older harness. Merge
+  the harness forward into 6a/6b only if a rerun after that date is needed (owner).
+  - **GATE M2-0:** report c, CONTRADICTED: `b9f62f0` (PKI renewal within 24 h of expiry, `scripts/tests/envtest.sh`) is on `dev`. One envtest run at M2-7 confirms it; then close.
+- [M2-8] Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
+  branch: `maxSurge: 1`, `maxUnavailable: 0`). Today it is the default
+  `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
+  replicas `maxUnavailable` becomes ≥ 1.
+  - **GATE M2-0:** report b, CONTRADICTED: the strategy is already explicit. `fc2255b` (2026-09-29) set `apps/sample-api/k8s/base/deployment.yaml:16-20`, and it is on `main`, `experiment/dev-state` and `dev`. What stays is a `verify-state.sh` check of the live strategy before the first Scale; then close.
+- [M2-8] M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022 on `feat/m1b-5-fault-hooks`, not yet on `dev`).
+- [M2-8] The §3 kube-state-metrics alerts `NexusRolloutStuck` and `NexusCrashLooping`, and Alertmanager
+  `group_by: [nexus_target]` (M1b-7 plan; `TASKS.md` M1b lists only the four anomaly alerts).
+- [M2-8] `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
+  - **GATE M2-0:** M2's part (M2-8): `flight-recorder-db` Ready, the staged RBAC by `auth can-i --list` (scale and eviction in `nexus-dev`, none in `nexus-prod`), the live rollout strategy, the levels. K1–K6 and N1–N6 → M3; Reasoner Ready → M4.
+
+**M2-1b — the x86 replication**
+
+- **Timed-run analysis: timestamp parsing** (S5, 2026-10-14). The S5 analysis script's parser accepted only `Z`;
+  `kubectl logs --timestamps` returned `+02:00` offsets after the reboot, and the script crashed after t8 (ADR-025
+  addendum). Parse offsets in any timed-run script; the scripts live outside the repo (M1b-9 leftovers).
+  - **GATE M2-0:** the scripts move into the repository in M2-1b, with timestamp parsing that accepts offsets.
+- From the M1b-9 leftovers item (owner, R1 attempt 2 gate, 2026-10-09), placed at GATE M2-0: the tooling goes to M2-1b.
+  - Tooling not forced by a failed run:
+    - `ramp.py` could record `db_slots_exhausted`/`db_unavailable` per step and name the binding resource (today
+      done post hoc from timestamped logs);
+    - the timed-run orchestration and analysis scripts live in the session scratchpad, not the repo.
+- **Locust `--autostart` restarts the baseline after every reboot** (S5 session, 2026-10-14). The master runs
+  `--autostart --users=160` (`platform/load/master.yaml`), so a VM reboot starts B = 80 traffic unattended, even
+  after a `/stop`. Decide whether an idle default is wanted outside timed runs; no change proposed now.
+  - **GATE M2-0:** decided in M2-1b, before the x86 pre-registration; the autostart setting is one of its parameters.
+
+**ADR-030 track**
+
+- [M2-2] Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
+  Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
+  v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
+  `cosign verify`.
+- [M2-2] Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
+  - **GATE M2-0:** the actions are pinned by SHA at M2-2; the sample-api Dockerfile pin goes with the base-images item (M2 core, M2-2).
+- [M2-2] CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
+  - **GATE M2-0:** both parts land at M2-2.
+- [M2-3] **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
+  creates `nexus-operator-config` after `root` has created the `nexus` Application; image
+  `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
+  restart until step g runs, then recovers. Fix in either way: retry a 404 like a 403 in the next
+  operator image, or create the two ConfigMaps before `root` (needs `nexus-system` first). Not a
+  live-gate issue: the ConfigMap exists before PR B merges.
+- [M2-3] `bootstrap.sh` hardening, from the first M1-6 bootstrap (FATAL 03:57:38Z): (1) a preflight that
+  fails before the k3s install if any `/proc/mounts` line has other than 6 fields, naming the
+  mount — Docker Desktop's WSL-integration mount `/Docker/host` has an unescaped space in its
+  `path=` option, and the kubelet then exits with `system validation failed - wrong number of
+  fields (expected 6, got 7)`; (2) after the install, wait for `/readyz` and check that `k3s` is
+  still active about 30 s later, so the FATAL names k3s instead of "creating namespace monitoring
+  failed". Until then, keep Docker Desktop closed (or its WSL integration off) whenever k3s may
+  start.
+  - **GATE M2-0:** part (2), the readyz wait, lands at M2-3. Part (1), the mounts preflight, goes to the Hygiene PR (WSL2 stays the fallback host).
+- [M2-3] `observability`'s Application sync took ~17m47s against bootstrap.sh's own 1200s (20 min)
+  `NEXUS_WAIT_TIMEOUT_OBSERVABILITY` budget in the 2026-09-26 from-empty rebuild — about 88% of the
+  budget, driven by a Prometheus PVC provisioning retry and the kube-prometheus-stack
+  admission-webhook hook Jobs running twice (evidence: `kubectl get events`, ADR-019/CHANGELOG).
+  Not a failure this time, but close enough to the ceiling to revisit: raise the timeout, or look at
+  why the webhook hooks re-run.
+  The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
+- [M2-3] k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
+  prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
+  config.
+- [M2-9] Grafana's sidecar containers `grafana-sc-dashboard` and `grafana-sc-datasources` render with no
+  `resources` (chart 86.2.2, seen in the M1b-3 render). Set requests and limits under
+  `grafana.sidecar.resources` once their usage is measured (ADR-016 M1b-3 addendum).
+  - **GATE M2-0:** measured and set during the A1 calibration (M2-9).
+- [M2-9] **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
+  2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
+  (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
+  changes, re-run R1 and re-derive B.
+  - The limit part moved into M1b-9 (owner decision (a), 2026-10-08, ADR-027). The connection cost stays here.
+  - **The client-side connection cost** (M1b-9, 2026-10-13, ADR-027's note). After ADR-028, sample-api throttled
+    at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
+    new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
+    change. The per-request connection stays the way S5's error reaches the log (ADR-020).
+  - **GATE M2-0:** the connection-cost measurement is part of the A1 calibration (M2-9).
+
+**Re-check on the new host [M2-9]**
+
+- `AlertmanagerClusterCrashlooping` (kube-prometheus-stack rule) has fired since the 2026-10-01
+  12:52:46Z reboot and kept firing across later reboots, while Alertmanager stayed Ready with
+  clean (`Completed`) last terminations. **Hypothesis (owner):** clock jumps after VM pauses shift
+  `process_start_time_seconds`, so `changes(process_start_time_seconds{job="alertmanager"}[10m])`
+  counts restarts that did not happen. Settle read-only with that query and the series' raw
+  samples around a pause; then decide whether the rule needs a guard or is accepted noise on this
+  host. Not a Nexus alert; not a gate stop condition.
+  - **GATE M2-0:** re-checked on the new host (M2-9).
+- **M1b-9 leftovers, not needed for the M1b exit** (owner, R1 attempt 2 gate, 2026-10-09):
+  - The `lddq8` residual's phase hypothesis (fixed 1 req/s user phases meeting DB throttled periods): UNVERIFIED. At
+    checkpoint A one dev pod kept a 4.9 % slow `/items` tail with no sample-api throttling. During R1 attempt 2 it
+    was ≤ 3.6 % on both pods.
+  - The zero-traffic Incident question: does a drop of traffic to 0 raise `NexusTrafficAnomaly`? Prod ran at
+    0 req/s for hours after R1 attempt 1 (2026-10-09 13:30Z) with no Nexus alert and no Incident. Check the rule's
+    behaviour on a drop to zero (rates and the ε floor); no change proposed.
+  - **GATE M2-0:** re-checked on the new host (M2-9). The tooling moved to M2-1b; the server-host replication is closed (now M2-1b).
+
 ## Later — out of scope for M1b
 
 - **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
@@ -863,40 +1091,15 @@ to the recorded values means a rerun;
   `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
   with RBAC read access to everything except Secrets and no write verbs. Once it exists,
   `kubectl` reads can be auto-allowed safely.
-- Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
-  Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
-  v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
-  `cosign verify`.
-- **Base images: digest pins and a slimmer base** (owner, #96 gate review, 2026-10-03). The
-  operator image pins `python:3.12-slim` by index digest (`operator/Dockerfile`, `sha256:dddfd7e0…`);
-  sample-api's does not (`apps/sample-api/Dockerfile`: `python:3.12-slim`, a moving tag). Trivy on
-  the #96 PR image: 45 HIGH, 0 CRITICAL, all Debian 13.7 base packages, 0 in the Python packages.
-  Pin sample-api's base by digest, and move both images to a slimmer base (e.g. distroless or a
-  minimal Python runtime), then compare the Trivy counts. `operator.yml` copies `ci.yml`'s
-  `cosign-installer@v3`, so the item above applies to it too.
-- **Operator image: a passwd entry for UID 10001, then drop the USER workaround** (owner, #100 stop,
-  2026-10-06). Image `ef3c6955` runs as UID 10001 with no `/etc/passwd` entry; Kopf's
-  `getpass.getuser()` raised `KeyError` and the pod crash-looped at the #100 live gate.
-  `operator/k8s/deployment.yaml` now sets `USER=nexus-operator` (guarded by
-  `operator/tests/unit/test_runtime_user.py`). At the next image rebuild (with the base-image item
-  above): `useradd --uid 10001` in the Dockerfile, new `cosign verify` and digest pin, then remove
-  the env and turn the manifest test into a check that the image resolves UID 10001.
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
   **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
   acceptance pass). **Dashboards stay closed during timed runs: S5 and the M1b-9 calibration.**
-- Grafana's sidecar containers `grafana-sc-dashboard` and `grafana-sc-datasources` render with no
-  `resources` (chart 86.2.2, seen in the M1b-3 render). Set requests and limits under
-  `grafana.sidecar.resources` once their usage is measured (ADR-016 M1b-3 addendum).
 - Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
   `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
   readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
   **before the M1b calibration**. **Done: M1b-3** (#93, live at M3 `c05d91b`; acceptance passed
   2026-10-02).
-- Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
-  branch: `maxSurge: 1`, `maxUnavailable: 0`). Today it is the default
-  `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
-  replicas `maxUnavailable` becomes ≥ 1.
 - **Done: ADR-021** (M1b-0) records the guard model; the heavier design is rejected there. Was:
   write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
@@ -949,21 +1152,8 @@ to the recorded values means a rerun;
 - `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
   wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
   (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
-- `observability`'s Application sync took ~17m47s against bootstrap.sh's own 1200s (20 min)
-  `NEXUS_WAIT_TIMEOUT_OBSERVABILITY` budget in the 2026-09-26 from-empty rebuild — about 88% of the
-  budget, driven by a Prometheus PVC provisioning retry and the kube-prometheus-stack
-  admission-webhook hook Jobs running twice (evidence: `kubectl get events`, ADR-019/CHANGELOG).
-  Not a failure this time, but close enough to the ceiling to revisit: raise the timeout, or look at
-  why the webhook hooks re-run.
-  The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
 - Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
   (change 7 assumed about 10 days; the M1-6 window measured 2.19 at idle, ADR-019 addendum).
-- Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
-  filled a 100 MiB file every 4.8–6.0 h, about 2.2–2.8 days of retention with `maxbackup=10`,
-  not the ~10 days of change 7. **Measured in the M1-6 window:** about 500 MiB per idle day
-  (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
-  `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
-  restart: do it at a planned k3s restart (a rebuild or between measurement windows).
 - ~~**Before M1b-9: find the WSL2 VM pause cause**~~ **Closed (owner, 2026-10-02).** The M1-6 window
   paused 2,921.9 s with Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. **Cause
   (owner):** Koussay put the PC to sleep and shut it down several times; that accounts for the
@@ -971,65 +1161,23 @@ to the recorded values means a rerun;
   pause stopped its first run). With the PC kept awake, the gate rerun stayed at 19.0 s over about
   23 min. **Rule from now on:** every timed run (S5, M1b-9) records its own pause gap (wall clock
   vs `/proc/uptime`, and `boot_id`) at start and end; M1b-9's plan sets when a run is discarded.
-- `AlertmanagerClusterCrashlooping` (kube-prometheus-stack rule) has fired since the 2026-10-01
-  12:52:46Z reboot and kept firing across later reboots, while Alertmanager stayed Ready with
-  clean (`Completed`) last terminations. **Hypothesis (owner):** clock jumps after VM pauses shift
-  `process_start_time_seconds`, so `changes(process_start_time_seconds{job="alertmanager"}[10m])`
-  counts restarts that did not happen. Settle read-only with that query and the series' raw
-  samples around a pause; then decide whether the rule needs a guard or is accepted noise on this
-  host. Not a Nexus alert; not a gate stop condition.
-- k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
-  prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
-  config.
-- `bootstrap.sh` hardening, from the first M1-6 bootstrap (FATAL 03:57:38Z): (1) a preflight that
-  fails before the k3s install if any `/proc/mounts` line has other than 6 fields, naming the
-  mount — Docker Desktop's WSL-integration mount `/Docker/host` has an unescaped space in its
-  `path=` option, and the kubelet then exits with `system validation failed - wrong number of
-  fields (expected 6, got 7)`; (2) after the install, wait for `/readyz` and check that `k3s` is
-  still active about 30 s later, so the FATAL names k3s instead of "creating namespace monitoring
-  failed". Until then, keep Docker Desktop closed (or its WSL integration off) whenever k3s may
-  start.
 - The WSL VM rebooted at 2026-09-26 20:57Z (`journalctl --list-boots`). All four sample-api
   containers show last state `Unknown`, exit 255, at 20:59:58Z. The cluster recovered on its own
   and the node IP was unchanged. Informational. Relevant to the run pre-checks and the discard
   rules once experiments start.
-- `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
 - M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
 - M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
 - M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
 - A deliberate CI job that runs `scripts/tests/incident-crd.sh` on the envtest harness (owner, 6a
   gate, 2026-09-28).
-- The envtest harness PKI (7-day certificates) in `~/nexus-envtest` expires 2026-10-05T21:12Z.
-  `test/m1b-6-envtest` `b9f62f0` renews it at `up`; 6a and 6b still carry the older harness. Merge
-  the harness forward into 6a/6b only if a rerun after that date is needed (owner).
-- The §3 kube-state-metrics alerts `NexusRolloutStuck` and `NexusCrashLooping`, and Alertmanager
-  `group_by: [nexus_target]` (M1b-7 plan; `TASKS.md` M1b lists only the four anomaly alerts).
 - M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
   gate).
-- M2: an alert that clears is not a recovery; repair verification compares the raw signal with
-  its pre-fault baseline (M1b-7 gate; ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`).
-- M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022 on `feat/m1b-5-fault-hooks`, not yet on `dev`).
 - M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
   15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
-- Spec v1.1 notes (M1b-5, M1b-7): the Z-score baseline excludes the most recent 3 minutes; the
-  latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3). ADR-022 and ADR-024 are on `feat/m1b-5-fault-hooks` and
-  `feat/m1b-7-detection` (#79), not yet on `dev`.
-- Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
-- Spec v1.1 also records ADR-030's three contradictions (cloud hosting, #130 review, 2026-10-16). ADR-030
-  governs until then:
-  1. **The host:** the spec puts the cluster and the Experiment Runner, Fault Injector, Evaluation Harness,
-     K8sGPT CLI and Ollama on "Host (WSL2)" (§3). M2 runs on an OCI A1 node. Where the host components run is
-     decided by an ADR-030 addendum before the first A1 calibration.
-  2. **The demo fallback:** the spec's is the Local Model via Ollama, "Offline demo only" (§16). ADR-030 adds a
-     recorded demo, and a cloud-hosted demo is not offline.
-  3. **Bedrock** is not in the spec. ADR-030 (c) allows one pre-registered evaluation, outside the arms R2 and R3.
 - `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
-- CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
 - CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
-- Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
 - `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
 - Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
-- Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
 - Repository settings, owner action (not a Git change): set the About description and topics (command proposed in the docs PR). Private vulnerability reporting is enabled (checked read-only); `LICENSE` (Apache-2.0) and `NOTICE` are added by the docs PR.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
 - **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
@@ -1046,43 +1194,12 @@ to the recorded values means a rerun;
     Today `verify-state.sh` calls `/items`, which would disturb a baseline window.
   - Read-only RBAC; the image is pinned by digest and Cosign-signed.
   - No self-hosted runner: the repository is public.
-- **M1b-9 leftovers, not needed for the M1b exit** (owner, R1 attempt 2 gate, 2026-10-09):
-  - The `lddq8` residual's phase hypothesis (fixed 1 req/s user phases meeting DB throttled periods): UNVERIFIED. At
-    checkpoint A one dev pod kept a 4.9 % slow `/items` tail with no sample-api throttling. During R1 attempt 2 it
-    was ≤ 3.6 % on both pods.
-  - The zero-traffic Incident question: does a drop of traffic to 0 raise `NexusTrafficAnomaly`? Prod ran at
-    0 req/s for hours after R1 attempt 1 (2026-10-09 13:30Z) with no Nexus alert and no Incident. Check the rule's
-    behaviour on a drop to zero (rates and the ε floor); no change proposed.
-  - Tooling not forced by a failed run:
-    - `ramp.py` could record `db_slots_exhausted`/`db_unavailable` per step and name the binding resource (today
-      done post hoc from timestamped logs);
-    - the timed-run orchestration and analysis scripts live in the session scratchpad, not the repo.
+- From the M1b-9 leftovers item (owner, R1 attempt 2 gate, 2026-10-09):
   - **Replication on a server host** (owner, 2026-10-13): repeat checkpoint B and the 60-min clean window at
     B = 80 on a dedicated server, not the WSL2 laptop, to separate the findings from the host's own failures (VM
     pauses, clock steps, the run-1 host slowdown, the 2026-10-13 2 h Prometheus gap). "Quiet when healthy" stays
     open until then (ADR-026's M1b-9 summary).
-- **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
-  2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
-  (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
-  changes, re-run R1 and re-derive B.
-  - The limit part moved into M1b-9 (owner decision (a), 2026-10-08, ADR-027). The connection cost stays here.
-  - **The client-side connection cost** (M1b-9, 2026-10-13, ADR-027's note). After ADR-028, sample-api throttled
-    at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
-    new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
-    change. The per-request connection stays the way S5's error reaches the log (ADR-020).
 - **Done: the S5 pin guard is removed** (ADR-025 addendum, 2026-10-16). Was: removed or re-pinned, by ADR, at M2
   start (owner, S5 gate follow-up, 2026-10-14). S5 is graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh`
   step 9 (the 4 paths at `d351d964`) has done its job. Any S5 re-run deploys `v0.3.0` or pre-registers its rule
   revision.
-- **Locust `--autostart` restarts the baseline after every reboot** (S5 session, 2026-10-14). The master runs
-  `--autostart --users=160` (`platform/load/master.yaml`), so a VM reboot starts B = 80 traffic unattended, even
-  after a `/stop`. Decide whether an idle default is wanted outside timed runs; no change proposed now.
-- **Timed-run analysis: timestamp parsing** (S5, 2026-10-14). The S5 analysis script's parser accepted only `Z`;
-  `kubectl logs --timestamps` returned `+02:00` offsets after the reboot, and the script crashed after t8 (ADR-025
-  addendum). Parse offsets in any timed-run script; the scripts live outside the repo (M1b-9 leftovers).
-- **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
-  creates `nexus-operator-config` after `root` has created the `nexus` Application; image
-  `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
-  restart until step g runs, then recovers. Fix in either way: retry a 404 like a 403 in the next
-  operator image, or create the two ConfigMaps before `root` (needs `nexus-system` first). Not a
-  live-gate issue: the ConfigMap exists before PR B merges.
