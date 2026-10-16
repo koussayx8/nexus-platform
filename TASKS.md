@@ -21,6 +21,10 @@ pull request merges.
 **Standing rule — the AppProject stays as tight as it is now.** Each milestone widens it in the
 same pull request that introduces the new kinds, namespaces or repositories it needs.
 
+**Standing rule — no Grafana dashboard or port-forward is open during a timed run** (S5, calibrations,
+checkpoints, clean windows). It comes from the gate rule added at M1-5 and retired for verify runs on 2026-10-02
+(M1b-3); placed here as proposed at GATE M2-0.
+
 ## M0-1 Capture and triage — done
 
 - [x] Safety net verified — tag `backup/pre-m0` (`8fc5d26`) local and on origin; `~/nexus-backup/` complete.
@@ -1069,7 +1073,37 @@ are in `docs/adr/` on `dev`.
     behaviour on a drop to zero (rates and the ε floor); no change proposed.
   - **GATE M2-0:** re-checked on the new host (M2-9). The tooling moved to M2-1b; the server-host replication is closed (now M2-1b).
 
-## Later — out of scope for M1b
+## Later — out of scope for M2
+
+Placed as proposed at GATE M2-0 ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), "Where the Later items
+go"). Items move verbatim; closed items keep their text.
+
+### M3
+
+- M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
+  gate).
+  - **Placed (owner, plan review, 2026-10-16):** M3, with K5 and the L2 flow (AD-06); `approvalTTL` moves with it. In M2 an L2 namespace stays `Escalated`, as in M1b.
+- `nexusctl` (§16A), the L2 approval interface (owner, plan review, 2026-10-16).
+- The slimmer base and its Trivy comparison, from the base-images item (M2 core), with `verifyImages` (owner, plan review, 2026-10-16).
+- M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
+- M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
+- M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
+- **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
+  in `nexus-load` serves its web UI and API on 8089 (`/swarm`, `/stop`, `/stats/reset`) with no
+  authentication, and any pod in the cluster can reach it until the M3 NetworkPolicies (§18: Locust
+  is reached only through a port-forward). Until then anyone with pod access can start load on
+  sample-api. Close it with the §18 NetworkPolicy for `nexus-load` in M3, or with Locust's web auth if it is needed sooner.
+- **Automate post-deploy verification** (owner, #108 gate review, 2026-10-07).
+  - An ArgoCD PostSync hook: an in-cluster Job that runs the verify checks after each sync.
+  - Consider also a CronJob that exposes a verify metric with an alert.
+  - **One shared check implementation**, used by the hook, the CronJob and `verify-state.sh`.
+    `verify-state.sh` keeps only the host and Git-SHA checks.
+  - The automated checks send no app traffic, or they pause during timed runs.
+    Today `verify-state.sh` calls `/items`, which would disturb a baseline window.
+  - Read-only RBAC; the image is pinned by digest and Cosign-signed.
+  - No self-hosted runner: the repository is public.
+
+### M4
 
 - **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
   pickup takes about 1.8 to 6.4 minutes (the repo-server's revision cache plus the controller's
@@ -1085,21 +1119,62 @@ are in `docs/adr/` on `dev`.
     it makes, and a run's injection time is when ArgoCD applied the revision, not the commit time.
     `verify-state.sh` stays read-only. Still open: whether selfHeal touches the refresh annotation
     (one approved live test, moved from M1b-4 to the runner milestone).
+- Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
+  (change 7 assumed about 10 days; the M1-6 window measured 2.19 at idle, ADR-019 addendum).
+- M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
+  15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
+- The Flight Recorder datasource and the NEXUS Operations dashboard (§3) (owner, plan review, 2026-10-16).
+- Full reconciliation against the API Audit Log (`reconcile-audit`, `audit_links`, §14). The M2 exit uses a minimal `audit_id` join (owner, plan review, 2026-10-16).
+
+### Hygiene — one pull request that gates nothing
+
+- No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
+  `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
+  shellcheck step to `repo-checks`.
+- `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
+  wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
+  (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
+- ruff's first-party detection depends on the working directory: `ruff check .` inside
+  `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
+  import order. Set `src` / `known-first-party` so local runs match CI.
+- `apps/sample-api/requirements-dev.txt` (from #88, `036e7aa`): lines 9–12 keep the old
+  `httpx>=0.27.0`, `pytest>=8.3.0`, `pytest-asyncio>=0.24.0` lines beside the `==` pins above them.
+  Harmless (the `==` pins win; dev only, never in the image). Remove the leftover lines (owner,
+  #88 gate review, 2026-09-30).
+- sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
+  starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
+  Move the test client off `httpx` before Starlette drops support for it. Still seen with
+  Starlette 1.7 on `feat/m1b-5-fault-hooks`.
+- CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
+- `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
+- `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
+- Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
+- A deliberate CI job that runs `scripts/tests/incident-crd.sh` on the envtest harness (owner, 6a
+  gate, 2026-09-28).
+  - **GATE M2-0:** Hygiene: test coverage only; it gates nothing.
+- `bootstrap.sh` hardening part (1), the mounts preflight. The item is under M2-3 (ADR-030 track); WSL2 stays the fallback host.
+- Stale status lines (GATE M2-0 report j): the README M1b row still reads "In progress" (M1b closed at `v0.3.0`, 2026-10-14), and the M1b-9 L2 and closing-PR boxes in this file are unticked.
+
+### Closed (proposed at GATE M2-0)
+
 - **Rejected (owner, 2026-09-28; ADR-021): no agent kubeconfig, now or later.** Was: high
   priority, before M1b (owner, #78 review, 2026-09-27): pattern rules cannot protect
   Secrets. `kubectl get --raw .../secrets/...` and `kubectl get -n x secrets` both bypass the
   `Bash(kubectl get secret*)` deny. Fix it at the identity layer: a dedicated agent kubeconfig
   with RBAC read access to everything except Secrets and no write verbs. Once it exists,
   `kubectl` reads can be auto-allowed safely.
+  - **Closed (proposed at GATE M2-0):** rejected (owner, 2026-09-28; ADR-021).
 - **Gate rule until the Grafana limits are fixed (M1b-3):** no Grafana dashboards open (no Grafana
   port-forward) during `verify-state.sh` runs. Added at GATE M1-5 after the run 1 incident.
   **Retired for verify runs only** (owner, observability gate, 2026-10-02, after the M1b-3
   acceptance pass). **Dashboards stay closed during timed runs: S5 and the M1b-9 calibration.**
+  - **Closed (proposed at GATE M2-0):** its timed-run part is now a standing rule (top of this file).
 - Grafana starves under an open dashboard: `grafana` container limits `cpu: 200m`,
   `memory: 512Mi`, readiness probe `timeoutSeconds: 1` (M1-5 run 1: 99 % throttled, 483 MiB, 123
   readiness failures, one liveness kill). Fix in `platform/observability/kube-prometheus-stack-values.yaml`
   **before the M1b calibration**. **Done: M1b-3** (#93, live at M3 `c05d91b`; acceptance passed
   2026-10-02).
+  - **Closed (proposed at GATE M2-0):** done in M1b-3.
 - **Done: ADR-021** (M1b-0) records the guard model; the heavier design is rejected there. Was:
   write up the agent guard model: the `.claude/settings.json` deny and ask rules, how they
   behave in bypass and default permission modes, and the script gap (the rules match only the
@@ -1121,6 +1196,7 @@ are in `docs/adr/` on `dev`.
   (permissions, settings precedence) say an `ask` rule outranks a local `allow`; observed the
   opposite: with the project `ask` `Bash(kubectl exec *)` and a local allow, no prompt appeared.
   Cause UNKNOWN; no test planned.
+  - **Closed (proposed at GATE M2-0):** done in M1b-0 (ADR-021).
 - The M1-2 permission audit read only deny/ask. The untracked local allow list (54 entries,
   including `gh api *`, `gh pr *` and `python3 -`) silently overrode the ask rules. Evidence:
   `~/nexus-evidence/settings.local.json.bak` (removed from the repo at the M1-4 start,
@@ -1131,29 +1207,12 @@ are in `docs/adr/` on `dev`.
   "don't ask again" on purpose, to let the agent work while away; the file was written at
   05:45:38Z, 13 s after the first S5 `kubectl exec`, and the S5 inject and reset then ran without
   prompts (the S5 result stands). Moved to `~/nexus-evidence/settings.local.json.m1b.bak`.
-- No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
-  `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
-  shellcheck step to `repo-checks`.
+  - **Closed (proposed at GATE M2-0):** allow-list regrowth, closed by the owner (2026-10-16).
 - sample-api runtime requirements use `>=`, so a signed image's contents depend on the build day
   (the psycopg tested in M1-1, 3.3.6, may differ from what M1-4 builds). Consider a lock file with
   hashes. **Covered by `036e7aa`** on `feat/m1b-5-fault-hooks` (hash-pinned runtime closure,
   `--require-hashes`, ADR-022); closed when M1b-5 merges.
-- ruff's first-party detection depends on the working directory: `ruff check .` inside
-  `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
-  import order. Set `src` / `known-first-party` so local runs match CI.
-- `apps/sample-api/requirements-dev.txt` (from #88, `036e7aa`): lines 9–12 keep the old
-  `httpx>=0.27.0`, `pytest>=8.3.0`, `pytest-asyncio>=0.24.0` lines beside the `==` pins above them.
-  Harmless (the `==` pins win; dev only, never in the image). Remove the leftover lines (owner,
-  #88 gate review, 2026-09-30).
-- sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
-  starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
-  Move the test client off `httpx` before Starlette drops support for it. Still seen with
-  Starlette 1.7 on `feat/m1b-5-fault-hooks`.
-- `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
-  wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
-  (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
-- Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
-  (change 7 assumed about 10 days; the M1-6 window measured 2.19 at idle, ADR-019 addendum).
+  - **Closed (proposed at GATE M2-0):** merged; `apps/sample-api/requirements.txt` carries 571 `hash=` entries (report d).
 - ~~**Before M1b-9: find the WSL2 VM pause cause**~~ **Closed (owner, 2026-10-02).** The M1-6 window
   paused 2,921.9 s with Windows sleep off, growing about 25–34 s/h, `boot_id` unchanged. **Cause
   (owner):** Koussay put the PC to sleep and shut it down several times; that accounts for the
@@ -1161,45 +1220,24 @@ are in `docs/adr/` on `dev`.
   pause stopped its first run). With the PC kept awake, the gate rerun stayed at 19.0 s over about
   23 min. **Rule from now on:** every timed run (S5, M1b-9) records its own pause gap (wall clock
   vs `/proc/uptime`, and `boot_id`) at start and end; M1b-9's plan sets when a run is discarded.
+  - **Closed (proposed at GATE M2-0):** closed by the owner on 2026-10-02.
 - The WSL VM rebooted at 2026-09-26 20:57Z (`journalctl --list-boots`). All four sample-api
   containers show last state `Unknown`, exit 255, at 20:59:58Z. The cluster recovered on its own
   and the node IP was unchanged. Informational. Relevant to the run pre-checks and the discard
   rules once experiments start.
-- M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
-- M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
-- M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
-- A deliberate CI job that runs `scripts/tests/incident-crd.sh` on the envtest harness (owner, 6a
-  gate, 2026-09-28).
-- M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
-  gate).
-- M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
-  15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
-- `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
-- CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
-- `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
-- Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
+  - **Closed (proposed at GATE M2-0):** informational; the timed-run rule (pause gap and `boot_id` at start and end) covers it.
 - Repository settings, owner action (not a Git change): set the About description and topics (command proposed in the docs PR). Private vulnerability reporting is enabled (checked read-only); `LICENSE` (Apache-2.0) and `NOTICE` are added by the docs PR.
+  - **Closed (proposed at GATE M2-0):** an owner action outside Git; nothing depends on it.
 - Local only: about 1.9 GB of ignored Backstage build output remains in `platform/backstage/` (`node_modules`, `dist`, Yarn state). Delete it whenever you like.
-- **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
-  in `nexus-load` serves its web UI and API on 8089 (`/swarm`, `/stop`, `/stats/reset`) with no
-  authentication, and any pod in the cluster can reach it until the M3 NetworkPolicies (§18: Locust
-  is reached only through a port-forward). Until then anyone with pod access can start load on
-  sample-api. Close it with the §18 NetworkPolicy for `nexus-load` in M3, or with Locust's web auth if it is needed sooner.
-- **Automate post-deploy verification** (owner, #108 gate review, 2026-10-07).
-  - An ArgoCD PostSync hook: an in-cluster Job that runs the verify checks after each sync.
-  - Consider also a CronJob that exposes a verify metric with an alert.
-  - **One shared check implementation**, used by the hook, the CronJob and `verify-state.sh`.
-    `verify-state.sh` keeps only the host and Git-SHA checks.
-  - The automated checks send no app traffic, or they pause during timed runs.
-    Today `verify-state.sh` calls `/items`, which would disturb a baseline window.
-  - Read-only RBAC; the image is pinned by digest and Cosign-signed.
-  - No self-hosted runner: the repository is public.
+  - **Closed (proposed at GATE M2-0):** local and untracked; the owner deletes it at will.
+- **Done: the S5 pin guard is removed** (ADR-025 addendum, 2026-10-16). Was: removed or re-pinned, by ADR, at M2
+  start (owner, S5 gate follow-up, 2026-10-14). S5 is graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh`
+  step 9 (the 4 paths at `d351d964`) has done its job. Any S5 re-run deploys `v0.3.0` or pre-registers its rule
+  revision.
+  - **Closed (proposed at GATE M2-0):** removed (#131).
 - From the M1b-9 leftovers item (owner, R1 attempt 2 gate, 2026-10-09):
   - **Replication on a server host** (owner, 2026-10-13): repeat checkpoint B and the 60-min clean window at
     B = 80 on a dedicated server, not the WSL2 laptop, to separate the findings from the host's own failures (VM
     pauses, clock steps, the run-1 host slowdown, the 2026-10-13 2 h Prometheus gap). "Quiet when healthy" stays
     open until then (ADR-026's M1b-9 summary).
-- **Done: the S5 pin guard is removed** (ADR-025 addendum, 2026-10-16). Was: removed or re-pinned, by ADR, at M2
-  start (owner, S5 gate follow-up, 2026-10-14). S5 is graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh`
-  step 9 (the 4 paths at `d351d964`) has done its job. Any S5 re-run deploys `v0.3.0` or pre-registers its rule
-  revision.
+  - **Closed (proposed at GATE M2-0):** now ADR-030 (b), phase M2-1b.
