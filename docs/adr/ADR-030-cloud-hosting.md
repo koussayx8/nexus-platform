@@ -1,6 +1,6 @@
 # ADR-030: Cloud Hosting for M2, the Defense Demo and an x86 Replication
 
-## Status: Proposed (owner gate decisions (a)–(d) and the billing guard, 2026-10-16; docs only: this ADR creates no cloud resource and changes no cluster)
+## Status: Proposed (owner gate decisions (a)–(d) and the billing guard, 2026-10-16; revised at the #130 review, 2026-10-16: the owner's account facts, v0.3.0 for (b), step 0, host topology by addendum; docs only: this ADR creates no cloud resource and changes no cluster)
 
 ## Context
 - M1b closed at `v0.3.0` (`86cea844`) on a single-node k3s inside WSL2. The node is `koussay`: amd64, 12 CPUs,
@@ -12,7 +12,9 @@
   - sample-api limits 1000m / 128Mi (ADR-027);
   - dependency DB limits 2000m / 512Mi (ADR-028);
   - "quiet when healthy" is still open: checkpoint B failed twice (ADR-026, ADR-028).
-- AWS credits end on 2026-11-03 (owner, 2026-10-14).
+- **The owner's accounts (owner, 2026-10-15):**
+  - OCI Free Trial: **€250**, usable from 2026-10-11 to 2026-11-09;
+  - AWS credits: **US$120**, until 2026-11-03.
 - M2's starting list (handoff, 2026-10-14) includes this ADR.
 
 ## Decision
@@ -20,6 +22,13 @@
 ### (a) M2 and the defense demo run on an OCI Always Free Ampere A1 node, as a new calibration
 - **Host:** one `VM.Standard.A1.Flex` instance, within the Always Free limit (2 OCPUs and 12 GB in total, below),
   single-node k3s, same Git stack. Nothing measured on WSL2 carries over.
+- **Step 0, a feasibility screen on WSL2, before any arm64 work** (the multi-arch images in Consequences):
+  - with Locust stopped, record the node's CPU and memory use and the summed pod requests and limits (CPU and
+    memory);
+  - if that leaves no room on 2 OCPUs / 12 GB, a decision gate chooses a reduced stack before anything else;
+  - this is a screen only: none of its numbers carry over to the A1 calibration.
+- **Host topology:** where the Experiment Runner, Fault Injector, Evaluation Harness and K8sGPT CLI run is
+  decided by an ADR-030 addendum before (a)'s first calibration.
 - **Calibration order, before any detector run on that host:**
   1. Fix the CNI (section d).
   2. **Measure the idle footprint:** the full stack Synced and Healthy, Locust idle; node and per-namespace CPU and
@@ -40,8 +49,9 @@
 
 ### (b) Replicate the M1b protocol on an OCI x86 trial shape by 2026-11-09
 - **Host:** one x86 (AMD or Intel) Flex VM paid from the OCI Free Trial credit. It runs the same stack: the same
-  Git revision, k3s `v1.34.6+k3s1` and flannel. The shape and its size (OCPUs, memory) are fixed in the
-  pre-registration. On x86 shapes, 1 OCPU is 2 vCPUs.
+  k3s `v1.34.6+k3s1` and flannel. It deploys **`v0.3.0` (`86cea844dff5dac8cbd3f61f57a3ffc94aac2838`)**,
+  the revision M1b closed on. Any other revision is a decision, pre-registered. The shape and its size (OCPUs,
+  memory) are fixed in the pre-registration. On x86 shapes, 1 OCPU is 2 vCPUs.
 - **The protocol, as M1b ran it:**
   1. the R1 ramp (ADR-026);
   2. C, B and the sample-api and DB limits, re-derived on that host (ADR-026, ADR-027, ADR-028);
@@ -49,7 +59,7 @@
   4. the S5 run (ADR-025 addendum).
 - **Pre-registered** before the first run: every parameter above, the pass and void rules, and the **number of
   attempts, fixed in advance**. The result is reported whatever it is. No attempt beyond that count.
-- **Deadline:** 2026-11-09, and before the trial ends, whichever comes first (billing guard).
+- **Deadline:** 2026-11-09, the trial's last day (billing guard).
 
 ### (c) Bedrock only for a pre-registered evaluation that finishes by 2026-11-03
 - One evaluation, pre-registered in a decision gate: models and ids, prompts, evidence set, metrics and the stop
@@ -89,7 +99,7 @@
 
 | Provider | When the credit ends |
 |---|---|
-| **OCI** | The trial ends after 30 days or when the US$300 is spent, whichever comes first. A 30-day grace follows: no new paid resources can be created; paid trial resources are then reclaimed, permanently deleted. Always Free resources stay. A1 use above the Always Free limit is disabled, then deleted after 30 days. "Your credit card will not be charged unless you upgrade your account." Some special trial offers suspend the account immediately instead. |
+| **OCI** | The trial ends after 30 days or when the credit is spent, whichever comes first (the docs say US$300; this account has €250, ending 2026-11-09). A 30-day grace follows: no new paid resources can be created; paid trial resources are then reclaimed, permanently deleted. Always Free resources stay. A1 use above the Always Free limit is disabled, then deleted after 30 days. "Your credit card will not be charged unless you upgrade your account." Some special trial offers suspend the account immediately instead. |
 | **AWS** | Unredeemed credit is forfeited at expiry. Use beyond the available credit, and all use after expiry, is billed to the payment method. Resources are not stopped. AWS Marketplace charges are ineligible "unless authorized by us", so they are billed from the first call. |
 
 ## Fact-check (public docs, read 2026-10-16)
@@ -104,21 +114,25 @@
 | Cilium kernel needs | Kernel ≥ 5.10; `CONFIG_BPF`, `CONFIG_BPF_SYSCALL`, `CONFIG_BPF_JIT`, `CONFIG_DEBUG_INFO_BTF` and others; AMD64 and AArch64 supported (docs for 1.20.3). | [Cilium system requirements](https://docs.cilium.io/en/stable/operations/system_requirements/); [k3s network options](https://docs.k3s.io/networking/basic-network-options) |
 | Budgets | AWS: alert or action, updated up to three times a day, delayed. OCI: soft limits, evaluated every 24 hours. | [AWS Budgets](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html); [OCI Budgets](https://docs.oracle.com/en-us/iaas/Content/Billing/Concepts/budgetsoverview.htm) |
 
+**Owner facts (2026-10-15):** OCI trial €250, usable 2026-10-11 to 2026-11-09; AWS credits US$120, until
+2026-11-03. One Free Tier account per person, so the A1 node and the x86 trial share one OCI account.
+
 **Owner to confirm (account-specific):**
 1. The OCI home region, and whether A1 capacity is available there.
-2. The OCI trial dates. One Free Tier account per person, and the trial runs 30 days from sign-up. So the A1 node
-   and the x86 trial share one account, and (b) by 2026-11-09 needs a sign-up on or after 2026-10-10.
-3. The trial's service limit for the chosen x86 shape.
-4. The AWS credit: amount, expiry (2026-11-03), eligible services, and coverage of the chosen Bedrock model.
-5. That no OCI upgrade to Pay As You Go is made. Without an upgrade the card is not charged.
+2. The trial's service limit for the chosen x86 shape.
+3. The AWS credit's eligible services, and whether they cover the chosen Bedrock model.
+4. That no OCI upgrade to Pay As You Go is made. Without an upgrade the card is not charged.
 
 ## Relation to the frozen spec (contradictions reported, not resolved here)
+Items 1–3 are in `TASKS.md`'s Spec v1.1 notes. ADR-030 governs until spec v1.1.
+
 1. **The host:**
    - The spec places the cluster under WSL2, and the Experiment Runner, Fault Injector, Evaluation Harness, K8sGPT
      CLI and Ollama on the "Host (WSL2)" (spec §3, D2 deployment view; "Implementation to verify", "Node CPU and memory
      of the WSL2 VM").
    - On OCI, where the host components run, on the VM or on WSL2 against a remote API server, is **UNKNOWN**.
-     A pre-registration decides it.
+     An ADR-030 addendum decides it for the Experiment Runner, Fault Injector, Evaluation Harness and K8sGPT
+     CLI, before (a)'s first calibration.
 2. **The demo fallback:**
    - The spec's demo fallback is the Local Model via Ollama, "Offline demo only".
    - A cloud-hosted demo is not offline. A 2-OCPU node is unlikely to host a local model next to the stack:
