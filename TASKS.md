@@ -895,7 +895,11 @@ autonomy level raised on `nexus-dev`.
 **Phases** (each planned in detail at its own gate):
 - [ ] **M2-0 — plan.** This PR. **GATE M2-0.**
 - [ ] **M2-1 — step 0 on WSL2** (ADR-030 (a)), with Locust stopped as an approved step. **GATE M2-1.**
+  - Plan: [`docs/plans/m2-1-plan.md`](docs/plans/m2-1-plan.md), with the go/no-go rule fixed before measurement. D1–D5
+    were accepted at the plan gate (owner, 2026-10-16), with the failed-G1 options and the V1 power-off note added.
 - [ ] **M2-1b — the x86 replication** (ADR-030 (b)). **GATE M2-1b** (pre-registration, then result).
+  - Plan: [`docs/plans/m2-1b-plan.md`](docs/plans/m2-1b-plan.md), rev 3, accepted at the plan gate (owner, 2026-10-16). PR1
+    (no `--autostart`) is decided; PR2–PR7 are decided at GATE M2-1b pre-registration.
   - It runs `v0.3.0` plus a pre-registered, parameter-only diff (re-derived limits, Locust users and autostart),
     on two branches cut from tag `v0.3.0`:
     - `replication/x86`: `root.yaml`, the child Applications and `bootstrap.sh`'s `origin/main` reads point to it;
