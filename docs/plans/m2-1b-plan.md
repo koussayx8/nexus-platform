@@ -1,10 +1,12 @@
 > **Draft for the M2-1b plan gate (2026-10-16), rev 2. Frozen at approval; current state lives in TASKS.md.**
 > Rev 2 applies the owner's revisions a–e (2026-10-16): the replay pass rule, checkpoint A as a deviation, the
-> generated allow list, the lock and the values commits, and the schedule. Line references are at `dev`
+> generated allow list, the lock and the values commits, and the schedule. Rev 3 (2026-10-16) adds the
+> `derive_values.py` acceptance test, aligns PR7's DB cost with ADR-028's definition, states what depends on the
+> log-derived columns, and records where the rebuilt scripts are saved. Line references are at `dev`
 > `a9dbfb38403004e3cd1f1f600d580bbd16b4212d` or at tag `v0.3.0`, as marked. Prices were read from Oracle's public
 > price list API on 2026-10-16T09:11Z.
 
-# M2-1b plan: ADR-030 (b), the M1b protocol replicated on an OCI x86 trial VM (rev 2)
+# M2-1b plan: ADR-030 (b), the M1b protocol replicated on an OCI x86 trial VM (rev 3)
 
 ## Context
 
@@ -161,6 +163,13 @@ Nothing else in those commands runs. Checks so far:
 - The rebuilt `r1a2/common.py` gives the `EV =` line that the transcript's own `grep` printed.
 
 Transcript sha256 prefixes: `702f3821…` `5f5f14f3e03e9c1a`, `5543b716…` `34766626fc8bf467`.
+
+**Saved write-once** (rev 3) at `~/nexus-evidence/m2-1b/rebuilt/20261016T131740Z/` (files 0400, directories 0500;
+`MANIFEST.json` sha256 `d1f459f479e2a32455c3af3199f67b6812318074c5dc01702ad423c3dd89c78c`):
+- `r1a2/r1analyze.py`, `r1a2/r1run.py` and `r1a2/common.py`. Their sha256 equal the hashes in the Replay section
+  (checked at save time);
+- `rebuild_r1.py`;
+- the seven transcript commands it reads, under `inputs/`.
 
 **l) `ramp.py` can re-judge recorded steps.** `ramp.py knee <steps.csv>` (lines 652-668) recomputes the full verdict
 from a steps file with the thresholds as flags. So each step's verdict, the knee and C can be replayed exactly with
@@ -380,7 +389,7 @@ R1 result) and writes the values. **No value is chosen by hand.**
 | B | `floor(min(0.4 × C, S* / 2))`, with C = `verdict.json` `capacity` and S\* = the highest passing step with DB CPU < 0.25 cores, working set < 410 MiB and 0 `db_slots_exhausted` | ADR-026, `attempt2/result.txt` |
 | `--users` | 2 × B | ADR-026 (one user = 1 req/s, two equal classes) |
 | sample-api CPU limit | 1000m × the maximum `container_processes{container="sample-api"}` over R1 (one GIL-bound process gives 1000m) | ADR-027 |
-| DB CPU limit | `ceil(20 × c_max / 0.1 s + bg)` whole cores, where: 20 = the DB slots (5 per pod × 2 pods × 2 namespaces); c_max = the largest per-`/items` DB CPU cost over R1 steps with `/items` ≥ 10 req/s, (step DB CPU − bg) ÷ `/items` req/s; bg = the DB CPU over the 5 min before R1 with Locust stopped | ADR-028 (20 × 7.5 ms per 100 ms = 1.5 cores, rounded up to 2) |
+| DB CPU limit | `ceil(20 × c_max / 0.1 s + bg)` whole cores, where: 20 = the DB slots (5 per pod × 2 pods × 2 namespaces); c_max = the largest gross per-`/items` DB CPU cost over R1 steps with `/items` ≥ 10 req/s, step DB CPU ÷ `/items` req/s (ADR-028's definition: 0.241 cores ÷ about 32/s = 7.52 ms); bg = the DB CPU over the 5 min before R1 with Locust stopped | ADR-028 (20 × 7.5 ms per 100 ms = 1.5 cores, + 0.02 background, rounded up to 2) |
 
 - If both limits equal `v0.3.0`'s (1000m, 2000m), V1 carries only `--users`, and there is no R1 attempt 2.
 - **Three inputs were not recorded by M1b's R1:**
@@ -390,10 +399,21 @@ R1 result) and writes the values. **No value is chosen by hand.**
 
   On x86 they are recorded as extra output only, by `ramp.py`'s per-step counters and the wrapper's start snapshot
   (DEV-3).
-- **Tests use the WSL2 figures.** The formulas applied to M1b's R1 attempt 2 give B = 80 and users 160. They give
-  1000m with `container_processes` = 1, ADR-027's reading on 2026-10-08, supplied as a fixture. The DB figure is
-  recorded, not asserted, because M1b's inputs for it were not recorded per step (ADR-028 used 6.3–7.5 ms from other
-  windows).
+- **The DB cost on x86 comes from R1 steps only.** ADR-028's 7.5 ms came from a checkpoint B window at the 500m
+  limit (50 % throttled; `cb-run3-repeat-20261013T1133Z/NOTE-2026-10-13-db-cost.md`). R1 at 6.26 ms was barely
+  throttled. On x86, R1 runs at `v0.3.0`'s 2000m, so its c_max may be lower than ADR-028's.
+
+**Acceptance test (in the harness PR, `test_derive_values.py`).** It must pass before the harness PR merges.
+
+| # | Fed | Must give | Inputs, and what is missing |
+|---|---|---|---|
+| AT1 | M1b's recorded R1 attempt-2 outputs: `ramp/verdict.json` (`eaf4149c…`), `ramp/steps.csv` (`1ea5a94f…`), and the per-step `slots_exh` column of `result.txt` (`fb476200…`) | C = 200, S\* = 200, **B = 80**, **users = 160** | All present. **Named:** the per-step `db_slots_exhausted` counts come from `result.txt`, not from the logs, which are gone (report j). They are cross-checked by `steps.csv`'s `items_failures` = 0 at every step (see "What depends on the log-derived columns") |
+| AT2 | ADR-027's input: `container_processes` = 1 for sample-api | **1000m** | **Missing as a recorded file:** ADR-027 reports "`container_processes` = 1 in all four pods" (read 2026-10-08); no series export or evidence file holds it. It is a fixture typed from the ADR, cited by line |
+| AT3 | ADR-028's inputs: 20 slots; c_max = 7.5 ms; bg = 0.02 cores | `ceil(20 × 0.0075 / 0.1 + 0.02)` = `ceil(1.52)` = 2 → **2000m** | **Missing as recorded per-step inputs:** the `/items` req/s behind 7.5 ms (the note says "about 32 `/items`/s"), and the window and query behind "about 0.02 cores at idle". Both are fixtures typed from ADR-028 and the 2026-10-13 note, cited by line |
+| AT4 | Boundaries: the sum exactly a whole number of cores (no extra core); c_max from a step with `/items` < 10 req/s (excluded); `capacity` null (no values, exit non-zero) | as stated | synthetic |
+
+- AT2 and AT3 test the formulas against the decisions ADR-027 and ADR-028 recorded. They do not re-derive those
+  ADRs from raw data, because that data was not recorded per step.
 
 ### Attempts (PR4): fixed in advance
 
@@ -479,9 +499,24 @@ R1 result) and writes the values. **No value is chosen by hand.**
 | E5 | The S\* qualification of every step, and the `C =`, `S* =` and `B = … = 80; binding term: 0.4 C` lines | **exact** |
 | T1 | "users per pod (dev)": each value, with pod names equal | within **±0.1 user** of the recorded value, one unit in its printed place |
 | T2 | "/items 50–100 per pod (dev)": each value, with pod names equal | within **±0.1 percentage point**, one unit in its printed place |
-| N1 | `slots_exh` and `db_unavail` | **Untested.** The log input is gone (report j). The replay prints 0, the record says 0, and the result says "untested", not "match" |
+| N1 | `slots_exh` and `db_unavail` | **Untested.** The log input is gone (report j). The replay prints 0, the record says 0, and the result says "untested", not "match". The cross-check below is reported next to it |
 | W1 | `r1run.py` (it orchestrates live, so it cannot be re-run): every record type in `r1-run.jsonl` (`start_snapshot`, `refb`, `ramp_started`, `minute`, `ramp_exit`, `end_a`, `end_b`) has exactly the key set that the rebuilt script's `w({...})` calls write | **exact** (a structural check, stated as such) |
 | W2 | `r1run.py`'s `MERGE`, `BLOB` and `LOCUST_DIGEST` | equal `start-record.md`'s values |
+
+**What depends on the log-derived columns** (`slots_exh` and `db_unavail`; read from `ramp.py` and the rebuilt
+`r1analyze.py`):
+- **Step verdicts, the knee and C: none.**
+  - `ramp.py knee` reads only `steps.csv`'s `FIELDS` (`ramp.py:103-131`), and none of them comes from the logs.
+  - An `/items` 503 reaches the knee through Locust's `items_failures`. The logs only name its cause
+    (`ramp.py:51-52`).
+- **S\*, and through it B: yes, `slots_exh` only.**
+  - `r1analyze.py:103` qualifies a step for S\* only if `slots == 0`.
+  - For attempt 2 the dependency cannot change B. B = floor(min(0.4 × 200, S\*/2)) stays 80 while S\* ≥ 160, and
+    `items_failures` = 0 at every step, 150–200 included.
+  - sample-api answers every `db_slots_exhausted` with a 503 (M1 plan, report f; ADR-020), so a non-zero `slots_exh`
+    would show as a non-zero `items_failures`.
+- **`db_unavail`:** it feeds only the binding-resource read-out, which prints only when a knee exists. Attempt 2 has
+  none, so it affects no value.
 
 - **All pass:** the rebuilt scripts are recorded as "VERIFIED by replay; log-derived columns untested". The x86 R1
   uses them, adapted only as DEV-3 allows.
