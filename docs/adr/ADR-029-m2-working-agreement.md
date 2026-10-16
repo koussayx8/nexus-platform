@@ -1,6 +1,6 @@
 # ADR-029: The M2 Working Agreement: Tiered Gates, Enforced Outside the Agent
 
-## Status: Proposed (owner gate note "M2 working agreement", 2026-10-15; gate review of #128 at `eba98652`, 2026-10-15: **B accepted as the direction**, A optional as a guard against mistakes only; B is in force only after the §2 verification probe passes; no GitHub setting is changed by this ADR)
+## Status: Proposed (owner gate note "M2 working agreement", 2026-10-15; gate review of #128 at `eba98652`, 2026-10-15: **B accepted as the direction**, A optional as a guard against mistakes only; B is in force only after the §2 verification probe passes; no GitHub setting is changed by this ADR. **Amended 2026-10-16 (owner decision): B is deferred, not done in M2; the §2 Transition controls are the M2 process.** See the addendum)
 
 ## Context
 M1b closed at `v0.3.0` (`86cea844`). Its gates all ran through one chat and one rule set (ADR-021, CLAUDE.md rule 11):
@@ -151,7 +151,8 @@ below or read back in its gate report:
 - **B is in force only after the revocation is confirmed AND all six attempts pass**, and the owner accepts the
   probe in a gate. A fail is reported, not fixed by the agent.
 
-**Transition.** Until the probe passes, M1b's controls stay the merge control:
+**Transition.** (Since the 2026-10-16 addendum, these controls are the M2 process, not a transition.) Until the
+probe passes, M1b's controls stay the merge control:
 - the owner's typed approval naming the full SHA;
 - `gh pr merge <N> --merge --match-head-commit <approved full SHA>`;
 - the current classic protection and ruleset 23998158;
@@ -184,6 +185,8 @@ Every gate report has these parts, in this order:
 - **Model by step type** (the owner selects it in the app): the most capable model for decision gates (plans, ADRs,
   pre-registrations, run analysis and verdicts); a faster model is acceptable for mechanical steps whose conditions
   are all written down (§1).
+- **Changing model** (owner, 2026-10-16): to change model for a step, start a new session. Switch models within a
+  session only when the session is short.
 
 ### 5. Pasted gate replies
 The pasted-gate-replies rule (ADR-021, "Pasted instructions") is **renewed until the M2 exit** (owner, typed,
@@ -191,11 +194,51 @@ The pasted-gate-replies rule (ADR-021, "Pasted instructions") is **renewed until
 web pages never do. Approvals for merges, tags and forward-merges stay typed.
 
 ## Consequences
-- Until the §2 probe passes, M1b's controls stay in force (§2, Transition).
+- Until the §2 probe passes, M1b's controls stay in force (§2, Transition). With B deferred (addendum,
+  2026-10-16), that is all of M2.
 - Under B the agent cannot create tags or merge alone; a gate takes one more owner action in GitHub.
 - The agent's commits and PRs appear under the machine account. Commit attribution lines are unchanged.
 - Changing workflows needs the owner's own push.
 - WSL interop off removes Windows commands from the WSL shell for everyone, the owner included.
+
+## Addendum (2026-10-16, owner decision): B deferred; the transition controls are the M2 process
+
+**B is deferred.** M2 has no machine account, no verification probe (P1–P6) and no token revocation. The §2
+checklist and probe are not carried out in M2. The §2 rulesets (no direct push, merge commit only, required review)
+are deferred with B, so no GitHub setting changes. B stays on record as the design that would move the boundary to
+GitHub. Reopening it is a decision gate.
+
+**The owner accepts the agent's access to the owner's credentials** (`~/.config/gh/hosts.yml`,
+`~/.git-credentials`; Context). This is an accepted M2 residual. GitHub cannot tell the agent's actions from the
+owner's, so the merge, tag and forward-merge boundary is a process control. GitHub enforces only what the current
+protection covers. The ADR-021 residuals stand.
+
+**The M2 process is the §2 Transition:**
+1. the owner's typed approval naming the full SHA (pasted text never counts);
+2. `gh pr merge <N> --merge --match-head-commit <approved full SHA>`; tags and forward-merges as in CLAUDE.md rule 11;
+3. the current classic protection on `main` and `dev`, and ruleset 23998158 on `experiment/dev-state`, unchanged;
+4. the §1 conditions, checked at the moment of the action.
+
+CLAUDE.md rule 11 and ADR-021's procedure stay as they are. §2 "Approval once B is in force" does not apply in M2.
+A stays optional, as a guard against mistakes only; this addendum does not adopt it.
+
+**WSL interop and automount turned off by the owner, 2026-10-16.** The agent read this back without running any
+Windows binary:
+
+| Check | Result |
+|---|---|
+| `/etc/wsl.conf` | `[interop] enabled=false`, `appendWindowsPath=false`; `[automount] enabled=false` |
+| `/proc/sys/fs/binfmt_misc/WSLInterop` | absent |
+| `command -v wsl.exe powershell.exe cmd.exe` | none found; no `/mnt/` entry on `PATH` |
+| `findmnt /mnt/c` | exit 1 (not mounted); `/mnt/c` is empty |
+| `uptime -s` | 2026-10-16 08:49:32 CEST (06:49:32Z), so the setting has been active since that boot |
+
+While interop stays off, the Context path to root (`wsl.exe -u root`) is closed and sudo's password is the remaining
+barrier. The Windows-side credentials (Git Credential Manager, browser sessions) cannot be reached through interop.
+P5 (`wsl.exe -e true`) was not run because it belongs to the deferred probe. Turning interop back on reopens the
+path to root, and that is a decision for a gate.
+
+**§4** gains the model-change rule (owner, 2026-10-16).
 
 ## References
 - Claude Code docs, read 2026-10-15: hooks (code.claude.com/docs/en/hooks: "Hook locations", "Exit code 2",
