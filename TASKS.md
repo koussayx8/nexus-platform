@@ -662,8 +662,8 @@ to the recorded values means a rerun;
   and restartCount unchanged after the reset; D_c 0.006 s, 0 missed evaluations. Graded `main` `01838a4e…`. Timeline,
   deviations (one void pre-fault check from an agent script defect, one authorised rerun; an analysis-script crash
   after t8; the guard re-probe waived): ADR-025 addendum. Evidence: `~/nexus-evidence/m1b-s5/s5-20261014T0621Z/`.
-- [ ] After S5 is graded: remove or re-pin the S5 pin guard (`repo-checks.sh` step 9) through an
-  ADR (plan M1b-8 rev 3, ADR-025).
+- [x] After S5 is graded: remove or re-pin the S5 pin guard (`repo-checks.sh` step 9) through an
+  ADR (plan M1b-8 rev 3, ADR-025). **Removed** (ADR-025 addendum, 2026-10-16).
 - [x] S5 pre-check (ADR-025): `nexus-dev`'s level is "0" in `overlays/dev/namespace.yaml` at the
   dev-state SHA and live, and `sample-api-dev` is Synced at that SHA; all three in the S5 record.
 
@@ -1062,9 +1062,10 @@ to the recorded values means a rerun;
     at its one-core limit on 3 of 4 pods at about 40 users per pod (A2 FAIL; worst 8.34 % / 9.46 %). Measure what a
     new psycopg connection costs inside sample-api (connect and authentication, threads per pod) before any
     change. The per-request connection stays the way S5's error reaches the log (ADR-020).
-- **The S5 pin guard: removed or re-pinned, by ADR, at M2 start** (owner, S5 gate follow-up, 2026-10-14). S5 is
-  graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh` step 9 (the 4 paths at `d351d964`) has done its job.
-  Until the M2-start ADR, any change to those files fails CI.
+- **Done: the S5 pin guard is removed** (ADR-025 addendum, 2026-10-16). Was: removed or re-pinned, by ADR, at M2
+  start (owner, S5 gate follow-up, 2026-10-14). S5 is graded (ADR-025 addendum, 2026-10-14), so `repo-checks.sh`
+  step 9 (the 4 paths at `d351d964`) has done its job. Any S5 re-run deploys `v0.3.0` or pre-registers its rule
+  revision.
 - **Locust `--autostart` restarts the baseline after every reboot** (S5 session, 2026-10-14). The master runs
   `--autostart --users=160` (`platform/load/master.yaml`), so a VM reboot starts B = 80 traffic unattended, even
   after a `/stop`. Decide whether an idle default is wanted outside timed runs; no change proposed now.
