@@ -1,5 +1,5 @@
-> **Draft for the M2-1 plan gate (2026-10-16), rev 1. Frozen at approval; current state lives in TASKS.md.**
-> Line references are at `dev` `a9dbfb38403004e3cd1f1f600d580bbd16b4212d`.
+> **M2-1 plan, rev 1, with the owner's plan-gate decisions recorded (2026-10-16). Frozen at approval; current state
+> lives in TASKS.md.** Line references are at `dev` `a9dbfb38403004e3cd1f1f600d580bbd16b4212d`.
 
 # M2-1 plan: ADR-030 step 0, the A1 feasibility screen on WSL2 (rev 1)
 
@@ -23,6 +23,12 @@ This plan fixes the go/no-go rule **before any measurement**. The rule cannot ch
 | D3 | The window | 10 min settle after the stop, then a 60-min window W, then the resume |
 | D4 | The M2 additions | Placeholders P1 and P2 below, because no planned manifest exists yet (report c) |
 | D5 | The void rules | V1–V5 below; a void window is repeated once, then reported |
+
+**Owner, plan gate (2026-10-16):**
+- **D1 accepted**, with pre-registered options for a failed G1 (Design, the go/no-go rule).
+- **D2 accepted.** `POST /swarm` restores exactly the users, spawn rate and class filter in
+  `platform/load/master.yaml`. Locust's state after the resume is checked against them and recorded (Design, Locust).
+- **D3, D4 (P1, P2) and D5 (V1–V5) accepted**, with a note under V1 (Design, void rules).
 
 ## Gate reports a–d (commands run this session, read-only)
 
@@ -91,6 +97,15 @@ This plan fixes the go/no-go rule **before any measurement**. The rule cannot ch
     as ADR-030 requires.
 - **GO** means only that the stack is not ruled out. It is a screen: A1 is measured afresh at M2-9.
 
+**Pre-registered options for a failed G1** (owner, plan gate, 2026-10-16). The decision gate chooses among them:
+1. **Right-size requests** to measured usage plus a stated margin.
+2. **Drop or shrink** named components.
+3. **WSL2 hosts the M2 exit.**
+
+- **W runs either way.** G3 and G4 are measured and inform option 1.
+- **G1 is expected to fail.** The current requests are 1.86 cores (ADR-030's reading, load state not checked), and
+  P1 adds 0.10, so the total is 1.96 cores against a 1.50 bound.
+
 ### The M2 additions (D4): placeholders until M2-6 and M2-7
 
 | # | Component | Requests | Limits | Basis |
@@ -119,6 +134,11 @@ This plan fixes the go/no-go rule **before any measurement**. The rule cannot ch
   4. At the resume, open a fresh forward and `POST /swarm` with `user_count=160`, `spawn_rate=4` and
      `user_classes=DevUser`, `user_classes=ProdUser`. Read `/stats/requests` until `state` is `running` with 160
      users, and record the class split. Close the forward.
+  - **What the resume restores** (owner, plan gate): exactly the users, spawn rate and class filter in
+    `platform/load/master.yaml`: `--users=160`, `--spawn-rate=4`, and no class filter (`--class-picker` with both
+    classes, `DevUser` and `ProdUser`).
+  - **Checked and recorded:** Locust's state after the resume (`state`, `user_count`, the classes running and their
+    split) is checked against those three values. Any difference is recorded and reported at the gate.
 - **Back at B.** The resume is confirmed when the service-proxy query gives 80 ± 8 req/s per namespace for
   5 consecutive minutes.
 - **Dashboards.** No dashboard or other port-forward is open during W (standing rule).
@@ -176,6 +196,12 @@ A void window is repeated once from a fresh Locust stop. A second void is report
 | V3 | Locust is not `stopped` at the start or the end of W |
 | V4 | An Application revision changes during W: no merge to `main` or `experiment/dev-state` while W runs |
 | V5 | A dashboard, another port-forward, or heavy local work (builds, test suites, image pulls) runs during W |
+
+**Under V1 (owner, plan gate, 2026-10-16):**
+- There were four clean VM power-offs on 2026-10-16: 06:29:49Z, 06:34:15Z, 06:37:23Z and 10:57:15Z, each logged by
+  systemd-logind as "The system will power off now!".
+- The 10:57:15Z one is unexplained, and the owner checks the Windows side.
+- **During W, a WSL terminal stays open and the laptop stays awake.**
 
 ### Owner step: check A1 capacity in the console (create, then terminate)
 

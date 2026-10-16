@@ -1,4 +1,5 @@
-> **Draft for the M2-1b plan gate (2026-10-16), rev 2. Frozen at approval; current state lives in TASKS.md.**
+> **M2-1b plan, rev 3, accepted at its plan gate (owner, 2026-10-16). Frozen at approval; current state lives in
+> TASKS.md.**
 > Rev 2 applies the owner's revisions a–e (2026-10-16): the replay pass rule, checkpoint A as a deviation, the
 > generated allow list, the lock and the values commits, and the schedule. Rev 3 (2026-10-16) adds the
 > `derive_values.py` acceptance test, aligns PR7's DB cost with ADR-028's definition, states what depends on the
@@ -29,6 +30,11 @@ ADR-030 (b): replicate the M1b protocol on one x86 Flex VM paid from the OCI tri
 This plan proposes everything the two gates fix. It starts nothing.
 
 ## Decisions requested
+
+**Owner, plan gate (2026-10-16):**
+- **The plan is accepted.**
+- **PR1 is decided:** no `--autostart` on the replication host.
+- **PR2–PR7 are decided at GATE M2-1b pre-registration.**
 
 **At this plan gate.** These are needed before the branches exist or before any replay runs:
 - the approach, the schedule, the shape and the access model;
