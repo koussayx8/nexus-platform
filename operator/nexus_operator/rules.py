@@ -81,15 +81,23 @@ def propose(bundle: dict) -> dict:
     ):
         why = "A rollout is in progress or the new revision has unavailable replicas"
         return _proposal(
-            bundle, "bad_rollout", why, ["workload.rolloutInProgress"], "escalate",
+            bundle,
+            "bad_rollout",
+            why,
+            ["workload.rolloutInProgress"],
+            "escalate",
             escalation=_escalate("git_revert", why),
-        )  # fmt: skip
+        )
     if _image_pull(bundle):
         why = "A container is waiting on an image pull"
         return _proposal(
-            bundle, "image_pull", why, ["pods"], "escalate",
+            bundle,
+            "image_pull",
+            why,
+            ["pods"],
+            "escalate",
             escalation=_escalate("investigate", why),
-        )  # fmt: skip
+        )
     if all_ready and _above(cpu, 3) and _above(lat, 3):
         return _proposal(
             bundle,
@@ -124,6 +132,10 @@ def propose(bundle: dict) -> dict:
         )
     why = "No rule matches the evidence"
     return _proposal(
-        bundle, "unknown", why, ["metrics.zscores"], "escalate",
+        bundle,
+        "unknown",
+        why,
+        ["metrics.zscores"],
+        "escalate",
         escalation=_escalate("investigate", why),
-    )  # fmt: skip
+    )

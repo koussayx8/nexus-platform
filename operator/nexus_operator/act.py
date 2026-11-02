@@ -13,7 +13,7 @@ the next step from the status and the observed cluster, never from an event. Pha
 
 Detected and Diagnosing belong to the Evidence Collector and the Reasoner path, which are not part
 of this change: the act path starts at a Proposed Incident whose proposal/v1 document the
-recorder holds (Recorder.get_proposal).
+recorder holds, found by status.proposal.hash (ActRecorder.get_proposal).
 
 A completion write that failed while the Incident was still in an act phase is retried from
 status.execution.completion on the next steps. One that fails on the step that ends the Incident
@@ -39,7 +39,8 @@ from .killswitch import CONFIGMAP as KILLSWITCH
 from .killswitch import state_of
 from .kube import Conflict, KubeApi
 from .model import iso, parse_time
-from .recorder import ActionRow, Recorder, RecorderUnavailable
+from .mutations import Mutations
+from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
 from .verifier import Verifier
 
 logger = logging.getLogger("nexus.act")
@@ -82,13 +83,19 @@ class ActPath:
     def __init__(
         self,
         api: KubeApi,
-        recorder: Recorder,
+        mutations: Mutations,
+        recorder: ActRecorder,
         gate: Gate,
         executor: Executor,
         verifier: Verifier,
         clock,
     ) -> None:
-        self.api, self.recorder, self.gate = api, recorder, gate
+        self.api, self.mutations, self.recorder, self.gate = (
+            api,
+            mutations,
+            recorder,
+            gate,
+        )
         self.executor, self.verifier, self.clock = executor, verifier, clock
 
     # ---- status writes -------------------------------------------------------------------
@@ -134,15 +141,18 @@ class ActPath:
         if written is None:
             return None
         try:
+            uid = incident["metadata"]["uid"]
             await self.recorder.record_transition(
-                incident["metadata"]["uid"],
+                uid,
                 TERMINAL_SEQ if terminal else PHASE_SEQ[phase],
-                from_phase=old,
-                to_phase=phase,
-                stage=OWNER.get(old, "Incident Reconciler"),
-                reason=reason,
-                at=now,
+                old,
+                phase,
+                now,
+                OWNER.get(old, "Incident Reconciler"),
+                reason,
             )
+            if terminal:
+                await self.recorder.close_incident(uid, phase, reason or phase)
         except RecorderUnavailable:
             logger.warning(
                 "transition row for %s -> %s not recorded",
@@ -180,8 +190,12 @@ class ActPath:
         if (self.clock() - since).total_seconds() > PROPOSED_TIMEOUT_S:
             await self._move(incident, "Escalated", "gate_timeout")
             return
+        digest = (status.get("proposal") or {}).get("hash")
+        if not digest:
+            return  # no proposal recorded yet; the 30 s timeout bounds the wait
         try:
-            doc = await self.recorder.get_proposal(uid)
+            await self._open(incident)
+            doc = await self.recorder.get_proposal(digest)
         except RecorderUnavailable:
             return  # retried next tick, until the 30 s timeout
         if doc is None:
@@ -233,11 +247,25 @@ class ActPath:
         else:
             await self._begin(incident, doc, gate)
 
+    async def _open(self, incident: dict) -> None:
+        """The `incidents` row every other row refers to; idempotent."""
+        spec = incident["spec"]
+        target = spec["target"]
+        await self.recorder.open_incident(
+            incident["metadata"]["uid"],
+            f"{target['namespace']}/{target['name']}",
+            spec["source"]["type"],
+            parse_time(spec["detectedAt"]),
+            (incident["metadata"].get("labels") or {}).get("nexus.io/run-id"),
+        )
+
     async def _record_gate(self, uid: str, result: GateResult) -> None:
         for d in result.decisions:
+            if d.verdict == "skipped":
+                continue  # the table holds pass and fail only
             try:
                 await self.recorder.record_gate_decision(
-                    uid, d.stage, d.verdict, d.detail, self.clock()
+                    uid, d.stage, d.verdict, {"detail": d.detail}, self.clock()
                 )
             except RecorderUnavailable:
                 logger.warning("gate decision for stage %d not recorded", d.stage)
@@ -247,7 +275,10 @@ class ActPath:
         target = incident["spec"]["target"]
         ns, name = target["namespace"], target["name"]
         action = doc["action"]
-        plan: dict = {"actionId": action["id"], "proposalHash": proposal.hash_of(doc)}
+        plan: dict = {
+            "actionId": action["id"],
+            "proposalHash": incident["status"]["proposal"]["hash"],
+        }
         if action["id"] == "scale_deployment":
             scale = await self.api.get_scale(ns, name)
             if scale is None:
@@ -291,7 +322,23 @@ class ActPath:
             if await self._applied(ns, name, pending):
                 await self._settle_unconfirmed(incident, pending)
                 return
-            await self._issue(incident, pending)  # not applied: the same key, sent now
+            # Not applied. Its key may already be recorded, and a recorded key is never sent
+            # again, so the request goes out under the next key (the old row stays incomplete
+            # and reconciliation flags it).
+            seq = exe.get("seq", 0) + 1
+            pending = {**pending, "key": f"{incident['metadata']['name']}-{seq}"}
+            written = await self._write(
+                incident,
+                {
+                    "execution": {
+                        "idempotencyKey": pending["key"],
+                        "seq": seq,
+                        "pending": pending,
+                    }
+                },
+            )
+            if written is not None:
+                await self._issue(written, pending)
             return
         started = parse_time(exe["startedAt"])
         if (self.clock() - started).total_seconds() > entry.execute_timeout_s:
@@ -379,29 +426,24 @@ class ActPath:
                 return bool(p["metadata"].get("deletionTimestamp"))
         return True
 
-    def _row(
+    def _intent(
         self, incident: dict, pending: dict, compensation: bool = False
-    ) -> ActionRow:
+    ) -> ActionIntent:
         plan = (incident["status"].get("execution") or {}).get("plan") or {}
-        target = incident["spec"]["target"]
         if pending["kind"] == "scale":
             action_id, params = "scale_deployment", {"replicas": pending["replicas"]}
             previous = {"replicas": pending["previous"]}
         else:
             action_id, params = "restart_workload", {"pod": pending["pod"]}
             previous = {"pod": pending["pod"], "uid": pending["uid"]}
-        return ActionRow(
+        return ActionIntent(
             idempotency_key=pending["key"],
             incident_uid=incident["metadata"]["uid"],
-            action_id=action_id
-            if not compensation
-            else plan.get("actionId", action_id),
+            action_id=plan.get("actionId", action_id) if compensation else action_id,
             parameters=params,
-            previous_state=previous,
-            intent_time=self.clock(),
-            target_namespace=target["namespace"],
-            target_name=target["name"],
             action_class="compensation" if compensation else "executed",
+            previous_state=previous,
+            intent_at=self.clock(),
         )
 
     async def _send(
@@ -409,24 +451,27 @@ class ActPath:
     ) -> Executed:
         target = incident["spec"]["target"]
         ns, name = target["namespace"], target["name"]
-        row = self._row(incident, pending, compensation)
+        intent = self._intent(incident, pending, compensation)
         if pending["kind"] == "scale":
-            return await self.executor.scale(row, ns, name, pending["replicas"])
-        return await self.executor.evict(row, ns, pending["pod"], pending["uid"])
+            return await self.executor.scale(intent, ns, name, pending["replicas"])
+        return await self.executor.evict(intent, ns, pending["pod"], pending["uid"])
 
     def _completion(self, pending: dict, done: Executed) -> dict | None:
         if not done.unrecorded:
             return None
         return {
             "key": pending["key"],
+            "requestAt": iso(self.clock()),
             "auditId": done.audit_id,
             "httpStatus": done.http_status,
-            "result": done.result,
+            "outcome": done.outcome,
         }
 
     async def _issue(self, incident: dict, pending: dict) -> None:
         """Send the pending request and record the outcome."""
         done = await self._send(incident, pending)
+        if done.result == "replayed":
+            return  # recorded already: next tick judges it from the cluster, never re-sends
         exe = incident["status"]["execution"]
         audit = [
             *(exe.get("auditIds") or []),
@@ -458,11 +503,7 @@ class ActPath:
         exe = incident["status"]["execution"]
         try:
             await self.recorder.complete_action(
-                pending["key"],
-                audit_id=None,
-                http_status=None,
-                result="admitted_unconfirmed",
-                request_time=self.clock(),
+                pending["key"], self.clock(), None, None, "applied_unconfirmed"
             )
         except RecorderUnavailable:
             pass  # the row stays incomplete; reconciliation flags it (§17)
@@ -484,10 +525,10 @@ class ActPath:
         try:
             await self.recorder.complete_action(
                 completion["key"],
-                audit_id=completion.get("auditId"),
-                http_status=completion.get("httpStatus"),
-                result=completion["result"],
-                request_time=self.clock(),
+                parse_time(completion["requestAt"]),
+                completion.get("auditId"),
+                completion.get("httpStatus"),
+                completion["outcome"],
             )
         except RecorderUnavailable:
             return incident  # try again next tick; the request already happened
@@ -524,16 +565,18 @@ class ActPath:
             entry.verify_timeout_s,
             plan.get("replicas"),
         )
-        try:
-            await self.recorder.record_verification(
-                incident["metadata"]["uid"],
-                entry.criteria_id,
-                verdict.observations,
-                verdict.result,
-                now,
-            )
-        except RecorderUnavailable:
-            logger.warning("verification row not recorded")
+        if verdict.result != "pending":
+            # one row per (incident, criteria): the final verdict only
+            try:
+                await self.recorder.record_verification(
+                    incident["metadata"]["uid"],
+                    entry.criteria_id,
+                    verdict.observations,
+                    verdict.result,
+                    now,
+                )
+            except RecorderUnavailable:
+                logger.warning("verification row not recorded")
         if verdict.result == "met":
             await self._move(
                 incident, "Resolved", "remediation_verified", verification=verdict.state
@@ -567,9 +610,12 @@ class ActPath:
         pending = comp.get("pending")
         if pending and await self._applied(ns, name, pending):
             await self._move(
-                incident, "Escalated", "verification_failed", must=True,
+                incident,
+                "Escalated",
+                "verification_failed",
+                must=True,
                 execution={"compensation": {"pending": None, "result": "admitted"}},
-            )  # fmt: skip
+            )
             return
         if not pending:
             # a gated request like any other: kill switch, then the dry-run of the same request
@@ -582,7 +628,9 @@ class ActPath:
                     execution={"compensation": {"result": f"killswitch {ks}"}},
                 )
                 return
-            dry = await self.api.patch_scale(ns, name, plan["previous"], dry_run=True)
+            dry = await self.mutations.patch_scale(
+                ns, name, plan["previous"], dry_run=True
+            )
             if not dry.ok:
                 await self._move(
                     incident,
@@ -606,6 +654,14 @@ class ActPath:
                 return
             incident = written
         done = await self._send(incident, pending, compensation=True)
+        if done.result == "replayed":
+            # a recorded key is never sent again: the next tick uses the next compensation key
+            head, n = pending["key"].rsplit("-c", 1)
+            nxt = {**pending, "key": f"{head}-c{int(n) + 1}"}
+            await self._write(
+                incident, {"execution": {"compensation": {"pending": nxt}}}
+            )
+            return
         audit = [
             *(exe.get("auditIds") or []),
             *([done.audit_id] if done.audit_id else []),
@@ -616,9 +672,13 @@ class ActPath:
             fields["completion"] = completion
         if done.result == "admitted":
             await self._move(
-                incident, "Escalated", "verification_failed", must=True,
-                execution=fields | {"compensation": {"pending": None, "result": "admitted"}},
-            )  # fmt: skip
+                incident,
+                "Escalated",
+                "verification_failed",
+                must=True,
+                execution=fields
+                | {"compensation": {"pending": None, "result": "admitted"}},
+            )
             return
         reason = (
             "compensation_failed" if done.result == "error" else "compensation_blocked"
@@ -626,6 +686,10 @@ class ActPath:
         if done.result == "recorder_unavailable":
             reason = "compensation_failed"
         await self._move(
-            incident, "Escalated", reason, must=True,
-            execution=fields | {"compensation": {"pending": None, "result": done.result}},
-        )  # fmt: skip
+            incident,
+            "Escalated",
+            reason,
+            must=True,
+            execution=fields
+            | {"compensation": {"pending": None, "result": done.result}},
+        )

@@ -1,36 +1,43 @@
 """The Action Executor (spec §4, §14): the only code that sends a mutating request.
 
-One request per call, in the write-ahead order of §14:
+One request per call, in the write-ahead order of §14, which recorder.execute_recorded runs:
   1. the caller has already put the idempotency key in status.execution (the pending record);
-  2. write_intent commits the `actions` row — if that fails, NO request is sent;
+  2. begin_action commits the `actions` row — if that fails, NO request is sent;
   3. the request goes to the API server, which returns an Audit-Id even for a denial;
-  4. complete_action stores the Audit-Id, the status and the result. A failure here does not undo
-     the request: the result is returned so the caller keeps it in status and retries (§17).
-write_intent is idempotent on the key, so a resumed request rewrites nothing.
+  4. complete_action stores the Audit-Id, the status and the outcome. A failure here does not undo
+     the request: `unrecorded` is set so the caller keeps it in status and retries (§17).
+An idempotency key that is already recorded is never sent again (`replayed`): the caller decides
+from the real cluster state, and a request that did not take effect goes out under a new key.
 
-The executor never decides anything. The four outcomes it classifies are only labels for what the
+The executor never decides anything. The outcomes it classifies are only labels for what the
 Trusted Enforcement Plane answered: RBAC and Kyverno are both a 403 (told apart by the message),
 the PodDisruptionBudget is a 429, and a Kyverno webhook that cannot be reached is a 5xx.
 """
 
 import dataclasses
-import datetime
 
-from .kube import TRANSPORT_ERRORS, ApiError, KubeApi, Outcome
-from .recorder import ActionRow, Recorder, RecorderUnavailable
+from .mutations import Mutations
+from .recorder import (
+    ActionIntent,
+    ActRecorder,
+    ApiResult,
+    RecorderUnavailable,
+    execute_recorded,
+)
 
 
 @dataclasses.dataclass
 class Executed:
-    result: str  # admitted | denied | error | recorder_unavailable
+    result: str  # admitted | denied | error | replayed | recorder_unavailable
     reason: str | None = None  # reason code for a refusal
     audit_id: str | None = None
     http_status: int | None = None
     detail: str = ""
+    outcome: str = ""  # the text stored in actions.result
     unrecorded: bool = False  # the completion write failed; retry it from status
 
 
-def classify(out: Outcome) -> tuple[str, str | None]:
+def classify(out: ApiResult) -> tuple[str, str | None]:
     """(result, reason) for a response of the Trusted Enforcement Plane."""
     if out.ok:
         return "admitted", None
@@ -45,51 +52,47 @@ def classify(out: Outcome) -> tuple[str, str | None]:
 
 
 class Executor:
-    def __init__(self, api: KubeApi, recorder: Recorder, clock) -> None:
-        self.api = api
+    def __init__(self, mutations: Mutations, recorder: ActRecorder, clock) -> None:
+        self.mutations = mutations
         self.recorder = recorder
         self.clock = clock
 
-    async def run(self, row: ActionRow, request) -> Executed:
-        """Write the intent, then await `request()` (an Outcome), then complete the row."""
+    async def run(self, intent: ActionIntent, send) -> Executed:
+        """Write the intent, then await `send()` (an ApiResult), then complete the row."""
         try:
-            await self.recorder.write_intent(row)
+            done = await execute_recorded(self.recorder, intent, send, self.clock)
         except RecorderUnavailable as e:
             return Executed(
                 "recorder_unavailable", "recorder_unavailable", detail=str(e)
             )
-        sent_at = self.clock()
-        try:
-            out: Outcome = await request()
-        except (ApiError, *TRANSPORT_ERRORS) as e:
-            done = Executed(
-                "error", "execution_timeout", detail=f"{type(e).__name__}: {e}"
+        if done.replayed:
+            return Executed("replayed", detail="idempotency key already recorded")
+        if done.result is None:
+            return Executed(
+                "error",
+                "execution_timeout",
+                detail=done.transport_error or "",
+                outcome=f"transport_error: {done.transport_error}",
+                unrecorded=done.completion_pending,
             )
-            await self._complete(row, done, sent_at)
-            return done
-        result, reason = classify(out)
-        done = Executed(result, reason, out.audit_id, out.status, out.message)
-        await self._complete(row, done, sent_at)
-        return done
-
-    async def _complete(
-        self, row: ActionRow, done: Executed, sent_at: datetime.datetime
-    ):
-        try:
-            await self.recorder.complete_action(
-                row.idempotency_key,
-                audit_id=done.audit_id,
-                http_status=done.http_status,
-                result=done.result,
-                request_time=sent_at,
-            )
-        except RecorderUnavailable:
-            done.unrecorded = True
-
-    async def scale(self, row: ActionRow, namespace: str, name: str, replicas: int):
-        return await self.run(
-            row, lambda: self.api.patch_scale(namespace, name, replicas)
+        result, reason = classify(done.result)
+        outcome = "applied" if done.result.ok else f"denied: {done.result.message}"
+        return Executed(
+            result,
+            reason,
+            done.result.audit_id,
+            done.result.status,
+            done.result.message,
+            outcome,
+            done.completion_pending,
         )
 
-    async def evict(self, row: ActionRow, namespace: str, pod: str, uid: str):
-        return await self.run(row, lambda: self.api.evict(namespace, pod, uid))
+    async def scale(
+        self, intent: ActionIntent, namespace: str, name: str, replicas: int
+    ):
+        return await self.run(
+            intent, lambda: self.mutations.patch_scale(namespace, name, replicas)
+        )
+
+    async def evict(self, intent: ActionIntent, namespace: str, pod: str, uid: str):
+        return await self.run(intent, lambda: self.mutations.evict(namespace, pod, uid))

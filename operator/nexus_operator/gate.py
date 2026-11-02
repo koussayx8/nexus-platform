@@ -22,7 +22,8 @@ from .catalogue import (
     REPLICAS_MIN,
 )
 from .kube import TRANSPORT_ERRORS, ApiError, KubeApi
-from .recorder import Recorder
+from .mutations import Mutations
+from .recorder import ActRecorder, RecorderUnavailable
 
 GATE_TIMEOUT_S = 30
 
@@ -106,13 +107,15 @@ class Gate:
     def __init__(
         self,
         api: KubeApi,
-        recorder: Recorder,
+        mutations: Mutations,
+        recorder: ActRecorder,
         *,
         advisory: bool = True,
         breaker_epoch: int = 0,
         clock=None,
     ) -> None:
         self.api = api
+        self.mutations = mutations
         self.recorder = recorder
         self.advisory = advisory
         self.epoch = breaker_epoch
@@ -208,15 +211,16 @@ class Gate:
             if ks != "active":
                 return fail(5, "killswitch", f"kill switch is {ks}")
             now = self.clock()
-            rows = await self.recorder.actions_since(breaker.lookback(now))
-        except (ApiError, *TRANSPORT_ERRORS) as e:
+            rows = await self.recorder.recent_actions(breaker.lookback(now))
+        except (ApiError, RecorderUnavailable, *TRANSPORT_ERRORS) as e:
             return fail(5, "precondition_failed", f"cannot evaluate stage 5: {e}")
         ns_, name = spec_target["namespace"], spec_target["name"]
-        why = breaker.breaker_open(rows, now, self.epoch, ns_, name)
+        target = f"{ns_}/{name}"
+        why = breaker.breaker_open(rows, now, self.epoch, target)
         if why:
             return fail(5, "circuit_open", why)
         if breaker.in_cooldown(
-            rows, now, self.epoch, ns_, name, incident["metadata"]["uid"]
+            rows, now, self.epoch, target, incident["metadata"]["uid"]
         ):
             return fail(
                 5, "remediation_induced", "an action ran on this target within 5 min"
@@ -235,7 +239,7 @@ class Gate:
         # 7  server-side dry-run of the exact request
         try:
             if action["id"] == "scale_deployment":
-                out = await self.api.patch_scale(
+                out = await self.mutations.patch_scale(
                     ns_, name, params["replicas"], dry_run=True
                 )
             else:
@@ -243,7 +247,7 @@ class Gate:
                 if not pods:
                     return fail(6, "precondition_failed", "no pod to evict")
                 p = pods[0]["metadata"]
-                out = await self.api.evict(ns_, p["name"], p["uid"], dry_run=True)
+                out = await self.mutations.evict(ns_, p["name"], p["uid"], dry_run=True)
         except (ApiError, *TRANSPORT_ERRORS) as e:
             return fail(7, "dry_run_denied", f"dry-run failed: {e}")
         res.dry_run_audit_id = out.audit_id

@@ -4,8 +4,12 @@ import copy
 import datetime
 
 from fakes import T0, FakeApi
-from nexus_operator.kube import Outcome
-from nexus_operator.recorder import ActionRow, RecorderUnavailable
+from nexus_operator.recorder import (
+    ActionIntent,
+    ActionRecord,
+    ApiResult,
+    RecorderUnavailable,
+)
 
 NS, DEP = "nexus-dev", "sample-api"
 ACTIVE = {"data": {"state": "active"}}
@@ -31,7 +35,7 @@ class FakeCluster(FakeApi):
             tuple
         ] = []  # every request that reached the API: (verb, args, dry)
         self.refuse = (
-            None  # callable(verb, args, dry) -> Outcome | None: the enforcement plane
+            None  # callable(verb, args, dry) -> ApiResult | None: the enforcement plane
         )
         self.raise_on = None  # callable(verb, args, dry) -> exception | None
         self.auto_ready = True  # replacement pods become Ready at once
@@ -60,7 +64,7 @@ class FakeCluster(FakeApi):
         self.audit_n += 1
         return f"audit-{self.audit_n}"
 
-    def _enforce(self, verb: str, args: tuple, dry: bool) -> Outcome | None:
+    def _enforce(self, verb: str, args: tuple, dry: bool) -> ApiResult | None:
         self.requests.append((verb, args, dry))
         if not dry:
             self.events.append(f"request:{verb}")
@@ -116,7 +120,7 @@ class FakeCluster(FakeApi):
                 self._new_pod(ready=self.auto_ready)
             while len(self.pods) > replicas:
                 self.pods.pop()
-        return Outcome(200, self._audit(), "", {})
+        return ApiResult(200, self._audit(), {})
 
     async def evict(self, namespace, pod, uid, dry_run=False):
         if out := self._enforce("evict", (namespace, pod, uid), dry_run):
@@ -124,78 +128,232 @@ class FakeCluster(FakeApi):
         if not dry_run:
             self.pods = [p for p in self.pods if p["metadata"]["uid"] != uid]
             self._new_pod(ready=self.auto_ready)
-        return Outcome(201, self._audit(), "", {})
+        return ApiResult(201, self._audit(), {})
 
     def mutations(self) -> list[tuple]:
         return [r for r in self.requests if not r[2]]
 
 
+def res(status: int, audit_id: str | None, message: str = "") -> ApiResult:
+    """An API response as AuditedClient returns it: a Status body carries the message."""
+    return ApiResult(status, audit_id, {"message": message})
+
+
 class FakeRecorder:
+    """The Flight Recorder as the act path sees it, with the real database's constraints:
+    rows need their incident (foreign keys), keys are idempotent, gate verdicts are pass or fail,
+    and verifications are one row per (incident, criteria). Signatures are the real ones
+    (test_fakes_match_the_real_api)."""
+
     def __init__(self):
-        self.actions: dict[str, ActionRow] = {}
+        self.incidents: dict[str, dict] = {}
+        self.actions: dict[str, dict] = {}
         self.order: list[
             str
-        ] = []  # the sequence of recorder and request events, for ordering
-        self.completions: list[dict] = []
+        ] = []  # recorder and request events, for ordering assertions
         self.transitions: list[tuple] = []
         self.gates: list[tuple] = []
-        self.verifications: list[tuple] = []
-        self.proposals: dict[str, dict] = {}
+        self.verifications: dict[tuple, tuple] = {}
+        self.proposals: dict[str, object] = {}
         self.fail_intent = False
         self.fail_complete = False
         self.fail_all = False
 
-    async def write_intent(self, row: ActionRow) -> None:
-        if self.fail_intent or self.fail_all:
+    def _up(self) -> None:
+        if self.fail_all:
             raise RecorderUnavailable("down")
-        self.order.append(f"intent:{row.idempotency_key}")
-        self.actions.setdefault(row.idempotency_key, row)  # idempotent
 
-    async def complete_action(
-        self, key, *, audit_id, http_status, result, request_time
+    def _fk(self, uid: str) -> None:
+        if uid not in self.incidents:
+            raise RecorderUnavailable("ForeignKeyViolationError")
+
+    async def open_incident(
+        self, incident_uid, target, source, detected_at, run_id=None
     ):
-        if self.fail_complete or self.fail_all:
-            raise RecorderUnavailable("down")
-        self.order.append(f"complete:{key}")
-        self.completions.append(
-            {"key": key, "audit_id": audit_id, "http": http_status, "result": result}
-        )
-        row = self.actions[key]
-        self.actions[key] = ActionRow(
-            **{
-                **row.__dict__,
-                "audit_id": audit_id,
-                "http_status": http_status,
-                "result": result,
-            }
-        )
+        self._up()
+        if incident_uid in self.incidents:
+            return False
+        self.incidents[incident_uid] = {
+            "target": target,
+            "terminal": None,
+            "run_id": run_id,
+        }
+        return True
+
+    async def close_incident(self, incident_uid, terminal_phase, reason):
+        self._up()
+        self._fk(incident_uid)
+        if not reason:
+            raise RecorderUnavailable("CheckViolationError")
+        row = self.incidents[incident_uid]
+        if row["terminal"]:
+            return False
+        row["terminal"] = (terminal_phase, reason)
+        return True
 
     async def record_transition(
-        self, uid, seq, *, from_phase, to_phase, stage, reason, at
+        self, incident_uid, seq, from_phase, to_phase, at, stage, reason=None
     ):
-        if self.fail_all:
-            raise RecorderUnavailable("down")
-        self.transitions.append((uid, seq, from_phase, to_phase, reason))
+        self._up()
+        self._fk(incident_uid)
+        if any(t[:2] == (incident_uid, seq) for t in self.transitions):
+            return False
+        self.transitions.append((incident_uid, seq, from_phase, to_phase, reason))
+        return True
 
-    async def record_gate_decision(self, uid, stage, verdict, detail, at):
-        if self.fail_all:
-            raise RecorderUnavailable("down")
-        self.gates.append((uid, stage, verdict))
+    async def record_bundle(
+        self,
+        bundle_hash,
+        incident_uid,
+        schema_version,
+        content,
+        redaction_counts,
+        collected_at,
+    ):
+        self._up()
+        return True
 
-    async def record_verification(self, uid, criteria_id, observations, result, at):
-        if self.fail_all:
-            raise RecorderUnavailable("down")
-        self.verifications.append((uid, criteria_id, result, observations))
+    async def record_proposal(
+        self,
+        proposal_hash,
+        incident_uid,
+        reasoner_mode,
+        schema_valid,
+        *,
+        model_id=None,
+        prompt_version=None,
+        index_hash=None,
+        retrieved_chunk_ids=(),
+        raw_output=None,
+        parsed_proposal=None,
+        latency_ms=None,
+        fallback_used=False,
+    ):
+        self._up()
+        self.proposals[proposal_hash] = (
+            parsed_proposal if parsed_proposal is not None else (raw_output or "")
+        )
+        return True
 
-    async def actions_since(self, since):
-        if self.fail_all:
-            raise RecorderUnavailable("down")
-        return [r for r in self.actions.values() if r.intent_time >= since]
+    async def record_gate_decision(self, incident_uid, stage, verdict, detail, at):
+        self._up()
+        self._fk(incident_uid)
+        if verdict not in ("pass", "fail") or not 1 <= stage <= 11:
+            raise RecorderUnavailable("CheckViolationError")
+        if any(g[:2] == (incident_uid, stage) for g in self.gates):
+            return False
+        self.gates.append((incident_uid, stage, verdict))
+        return True
 
-    async def get_proposal(self, uid):
-        if self.fail_all:
+    async def record_verification(
+        self, incident_uid, criteria_id, observations, result, at
+    ):
+        self._up()
+        self._fk(incident_uid)
+        key = (incident_uid, criteria_id)
+        if key in self.verifications:
+            return False
+        self.verifications[key] = (result, observations)
+        return True
+
+    async def begin_action(self, intent):
+        if self.fail_intent:
             raise RecorderUnavailable("down")
-        return self.proposals.get(uid)
+        self._up()
+        self._fk(intent.incident_uid)
+        if intent.idempotency_key in self.actions:
+            return False
+        self.order.append(f"intent:{intent.idempotency_key}")
+        self.actions[intent.idempotency_key] = {
+            "intent": intent,
+            "intent_at": intent.intent_at or T0,
+            "request_at": None,
+            "audit_id": None,
+            "http_status": None,
+            "result": None,
+        }
+        return True
+
+    async def complete_action(
+        self, idempotency_key, request_at, audit_id, http_status, result
+    ):
+        if self.fail_complete:
+            raise RecorderUnavailable("down")
+        self._up()
+        row = self.actions.get(idempotency_key)
+        if row is None or row["request_at"] is not None:
+            return False
+        self.order.append(f"complete:{idempotency_key}")
+        row.update(
+            request_at=request_at,
+            audit_id=audit_id,
+            http_status=http_status,
+            result=result,
+        )
+        return True
+
+    async def count_actions(self, target, since):
+        self._up()
+        return len([r for r in self._records(since) if r.target == target])
+
+    async def last_action_at(self, target):
+        self._up()
+        times = [r.intent_at for r in self._records(None) if r.target == target]
+        return max(times) if times else None
+
+    async def recent_actions(self, since):
+        self._up()
+        return self._records(since)
+
+    async def get_proposal(self, proposal_hash):
+        self._up()
+        return self.proposals.get(proposal_hash)
+
+    def _records(self, since):
+        out = []
+        for row in self.actions.values():
+            i = row["intent"]
+            if since is None or row["intent_at"] >= since:
+                out.append(
+                    ActionRecord(
+                        i.incident_uid,
+                        i.action_id,
+                        self.incidents[i.incident_uid]["target"],
+                        row["intent_at"],
+                        row["result"],
+                        i.action_class,
+                    )
+                )
+        return out
+
+    # --- test helpers ---
+    def seed(
+        self,
+        uid,
+        target,
+        minutes_ago,
+        now,
+        *,
+        action_id="scale_deployment",
+        result="applied",
+        action_class="executed",
+    ):
+        """An action recorded earlier, by another incident."""
+        self.incidents.setdefault(
+            uid, {"target": target, "terminal": None, "run_id": None}
+        )
+        key = f"{uid}-{len(self.actions) + 1}"
+        self.actions[key] = {
+            "intent": ActionIntent(key, uid, action_id, {}, action_class),
+            "intent_at": now - datetime.timedelta(minutes=minutes_ago),
+            "request_at": None,
+            "audit_id": None,
+            "http_status": None,
+            "result": result,
+        }
+
+    def completed(self, key) -> dict:
+        return self.actions[key]
 
 
 class FakeMetrics:

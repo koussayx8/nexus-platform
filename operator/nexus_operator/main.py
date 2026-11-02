@@ -28,8 +28,9 @@ from .executor import Executor
 from .gate import Gate
 from .kube import KubeApi, service_account_credentials
 from .model import INCIDENTS, now
+from .mutations import Mutations
 from .poller import Poller
-from .recorder import UnavailableRecorder
+from .recorder import AuditedClient, UnavailableRecorder
 from .verifier import Prometheus, Verifier
 
 logger = logging.getLogger("nexus.operator")
@@ -45,6 +46,7 @@ class Runtime:
         # The Flight Recorder Writer (task 1). Until it is wired in here, every mutation is
         # refused as recorder_unavailable: nothing is sent that cannot first be recorded (§14).
         self.recorder = UnavailableRecorder()
+        self.mutations: Mutations | None = None
         self.metrics: Prometheus | None = None
 
 
@@ -87,8 +89,10 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         detected_timeout_s=cfg.detected_timeout_s, reconcile_s=cfg.reconcile_s
     )
     RUNTIME.metrics = Prometheus(cfg.prometheus_url) if cfg.prometheus_url else None
+    RUNTIME.mutations = Mutations(AuditedClient.create(RUNTIME.credentials))
     gate = Gate(
         RUNTIME.api,
+        RUNTIME.mutations,
         RUNTIME.recorder,
         advisory=cfg.advisory_checks,
         breaker_epoch=cfg.breaker_epoch,
@@ -96,9 +100,10 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
     )
     act = ActPath(
         RUNTIME.api,
+        RUNTIME.mutations,
         RUNTIME.recorder,
         gate,
-        Executor(RUNTIME.api, RUNTIME.recorder, now),
+        Executor(RUNTIME.mutations, RUNTIME.recorder, now),
         Verifier(RUNTIME.api, RUNTIME.metrics),
         now,
     )
@@ -127,6 +132,8 @@ async def stop(**_) -> None:
         await RUNTIME.poller.close()
     if RUNTIME.metrics is not None:
         await RUNTIME.metrics.close()
+    if RUNTIME.mutations is not None:
+        await RUNTIME.mutations.close()
     if RUNTIME.api is not None:
         await RUNTIME.api.close()
     logger.info("loops stopped")
