@@ -61,7 +61,8 @@ One branch `claude/task-<n>-<short-name>` and one PR to `dev` per task. Expected
 ## In scope outside T1–T5 (gaps), with owners
 
 In scope under O1 or the spec, but in no task T1–T5. The owner assigned each one on 2026-11-02 (last column).
-T6 is a new task for G4–G6. "Local" means done in the owner's own session, not as a task PR from this plan.
+T6 is a new task for G4–G6. "Local" means done in the owner's own Claude Code session on WSL (it needs the live cluster, or comes after the
+cloud credit), still delivered as a PR to `dev` through its gate.
 
 | # | Item | Source | Needed by | Proposal | Owner (2026-11-02) |
 |---|---|---|---|---|---|
@@ -142,7 +143,7 @@ harness and no calibration campaign.
 - Pre-registration only for M4's measured runs (G16). The M2 and M3 exits are demonstrations, not measurements.
 - Live steps: no cluster in the agent sessions. Every live check is marked "live check pending" and run by, or
   with the approval of, the owner on WSL2.
-- ADR-029's per-gate session rule (§4) predates O6. Q5 (owner, 2026-11-02): one sentence in ADR-029 at the next ADR PR.
+- ADR-029's per-gate session rule (§4) predates O6. Q5 (owner, 2026-11-02): one sentence in ADR-029, added in this PR.
 
 ## Schedule risks
 
