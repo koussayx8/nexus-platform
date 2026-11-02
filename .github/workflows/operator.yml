@@ -228,7 +228,8 @@ jobs:
   # digest bump is a commit, spec §19). The USER=nexus-operator env in that manifest and its test
   # stay until a digest built from the passwd-entry Dockerfile is pinned: remove them in that PR.
   # Pull requests made with the default GITHUB_TOKEN do not start workflows, so the required
-  # repo-checks would never run: set the DIGEST_BUMP_TOKEN secret (contents + pull requests write).
+  # repo-checks would never run: the job needs the DIGEST_BUMP_TOKEN secret (contents + pull requests
+  # write) and skips with a notice when it is absent.
   digest-bump:
     name: Digest-bump pull request
     runs-on: ubuntu-latest
@@ -238,14 +239,25 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      GH_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN }}
+      HAS_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN != '' }}
     steps:
+      - name: Skip when DIGEST_BUMP_TOKEN is absent
+        if: env.HAS_TOKEN != 'true'
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          echo "::notice title=Digest-bump pull request skipped::The DIGEST_BUMP_TOKEN secret is not set, so no pull request was opened (a GITHUB_TOKEN pull request would never run the required repo-checks). Bump by hand to ${DIGEST}."
+          echo "Digest bump skipped: DIGEST_BUMP_TOKEN is not set. Signed digest: \`${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.HAS_TOKEN == 'true'
         with:
           ref: dev
           token: ${{ env.GH_TOKEN }}
 
       - name: Bump the operator manifest and open the pull request
+        if: env.HAS_TOKEN == 'true'
         env:
           DIGEST: ${{ needs.build.outputs.digest }}
           SOURCE_SHA: ${{ github.sha }}
