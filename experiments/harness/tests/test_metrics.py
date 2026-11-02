@@ -28,7 +28,9 @@ def columns(table):
     body = re.search(
         rf"CREATE TABLE IF NOT EXISTS {table} \((.*?)\n\);", SCHEMA, re.DOTALL
     ).group(1)
-    return {m.group(1) for m in re.finditer(r"^\s{4}([a-z_]+)\s+[a-z]", body, re.MULTILINE)}
+    return {
+        m.group(1) for m in re.finditer(r"^\s{4}([a-z_]+)\s+[a-z]", body, re.MULTILINE)
+    }
 
 
 T0 = "2026-12-21T10:00:00+00:00"
