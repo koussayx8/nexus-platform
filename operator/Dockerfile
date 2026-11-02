@@ -11,6 +11,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 COPY --from=builder /install /usr/local
+# A passwd entry for the runtime UID: Kopf names its peering identity with getpass.getuser(), which
+# falls back to pwd.getpwuid() and raised KeyError at the #100 live gate. The Deployment's USER env
+# is the workaround until this image is deployed (TASKS.md Later).
+RUN groupadd --system --gid 10001 nexus-operator \
+ && useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin nexus-operator
 WORKDIR /app
 COPY nexus_operator/ nexus_operator/
 USER 10001:10001
