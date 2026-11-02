@@ -11,14 +11,15 @@ import sys
 import threading
 from pathlib import Path
 
-import main
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from main import app
 from prometheus_client.parser import text_string_to_metric_families
 from prometheus_client.utils import floatToGoString
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+import main
+from main import app
 
 client = TestClient(app)
 HERE = Path(__file__).resolve().parent

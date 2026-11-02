@@ -491,7 +491,7 @@ c_sampleapi_git_digest() {
 
 c_sampleapi_metrics() {
   need_jq || return 0
-  local svcs ns port lport body pflog pid code i
+  local svcs ns port lport body pflog pid code
   show "Services named sample-api (namespace, first port)"
   svcs=$(k get svc -A -o json | jq -r '.items[] | select(.metadata.name == "sample-api") | "\(.metadata.namespace) \(.spec.ports[0].port)"')
   echo "${svcs:-(none)}"
@@ -505,7 +505,7 @@ c_sampleapi_metrics() {
     timeout 60 kubectl --request-timeout=20s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >"$pflog" 2>&1 &
     pid=$!
     trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' EXIT
-    for i in $(seq 1 40); do
+    for _ in $(seq 1 40); do
       grep -q 'Forwarding from' "$pflog" && break
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.25

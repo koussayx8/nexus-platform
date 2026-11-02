@@ -35,7 +35,7 @@ for f in "${app_files[@]}"; do
   n=$(yq "$base | length" "$f")
   echo "== $app ($f): $n source(s), destination namespace ${ns:-<none>}"
   for ((i = 0; i < n; i++)); do
-    s="$base[$i]"
+    s="${base}[$i]"
     repo=$(yq "$s.repoURL" "$f"); chart=$(yq "$s.chart // \"\"" "$f"); path=$(yq "$s.path // \"\"" "$f")
     rev=$(yq "$s.targetRevision // \"\"" "$f"); ref=$(yq "$s.ref // \"\"" "$f")
     if [[ -n $chart ]]; then

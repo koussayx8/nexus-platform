@@ -1,0 +1,3 @@
+# First-party modules for import sorting: relative to this file, so `ruff check .` run here and
+# `ruff check apps/sample-api/` run from the repo root sort `import main` the same way.
+src = ["."]

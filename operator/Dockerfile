@@ -11,6 +11,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 COPY --from=builder /install /usr/local
+# A passwd entry for UID 10001: Kopf's getpass.getuser() raised KeyError without one (#100). The
+# name matches the USER env that operator/k8s/deployment.yaml still sets until this image is
+# built, signed and pinned there (TASKS.md M2-2); then the env goes.
+RUN groupadd --gid 10001 nexus-operator \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin nexus-operator
 WORKDIR /app
 COPY nexus_operator/ nexus_operator/
 USER 10001:10001
