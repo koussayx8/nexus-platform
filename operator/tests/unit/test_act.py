@@ -8,18 +8,12 @@ import pytest
 
 from fakes import T0
 from fakes_act import (
-    ACTIVE,
-    BASELINE,
     DEP,
     NS,
-    Clock,
-    FakeCluster,
     FakeMetrics,
-    FakeRecorder,
     proposal_doc,
     res,
 )
-from nexus_operator.act import ActPath
 from nexus_operator.breaker import (
     COOLDOWN,
     OVERALL_LIMIT,
@@ -27,70 +21,9 @@ from nexus_operator.breaker import (
     breaker_open,
     in_cooldown,
 )
-from nexus_operator.executor import Executor, classify
-from nexus_operator.gate import Gate
-from nexus_operator.model import iso
+from nexus_operator.executor import classify
 from nexus_operator.recorder import ActionRecord
-from nexus_operator.verifier import Verifier
-
-
-class Rig:
-    def __init__(
-        self, *, replicas=2, level="3", advisory=True, killswitch=ACTIVE, metrics=None
-    ):
-        self.api = FakeCluster(replicas, level, killswitch)
-        self.rec = FakeRecorder()
-        self.rec.order = self.api.events = []
-        self.clock = Clock()
-        self.metrics = metrics or FakeMetrics()
-        gate = Gate(self.api, self.api, self.rec, advisory=advisory, clock=self.clock)
-        self.act = ActPath(
-            self.api,
-            self.api,  # the fake cluster also takes the Scale and Eviction requests
-            self.rec,
-            gate,
-            Executor(self.api, self.rec, self.clock),
-            Verifier(self.api, self.metrics),
-            self.clock,
-        )
-
-    def proposed(self, doc, level=3, baseline=BASELINE, name="inc"):
-        status = {
-            "phase": "Proposed",
-            "autonomyLevel": level,
-            "timestamps": {"proposed": iso(self.clock())},
-            "evidence": {"baseline": baseline},
-            "proposal": {"hash": f"sha256:{name}"},
-        }
-        self.api.put(name, created=T0, status=status)
-        self.rec.proposals[f"sha256:{name}"] = doc
-        return name
-
-    def inc(self, name="inc") -> dict:
-        return self.api.incidents[name]
-
-    def status(self, name="inc") -> dict:
-        return self.inc(name)["status"]
-
-    def tick(self, name="inc", seconds=0.0):
-        self.clock.advance(seconds)
-        asyncio.run(self.act.step(self.inc(name)))
-
-    def run(self, name="inc", ticks=40, seconds=5.0):
-        """Tick until the Incident is terminal; returns the number of ticks used."""
-        for i in range(ticks):
-            if self.status(name)["phase"] in TERMINAL:
-                return i
-            self.tick(name, seconds)
-        return ticks
-
-
-TERMINAL = {"Resolved", "Escalated", "Blocked", "Recommended", "Dismissed"}
-
-
-def ended(rig, name="inc"):
-    s = rig.status(name)
-    return s["phase"], s.get("reason")
+from rig import TERMINAL, Rig, ended, verify  # noqa: F401
 
 
 # ---------------------------------------------------------------- Safety Gate, stages 1-7
@@ -505,13 +438,6 @@ def test_every_transition_is_recorded_with_its_phase_sequence():
 
 
 # ---------------------------------------------------------------- verification
-def verify(rig, *, seconds=130, step=10):
-    for _ in range(seconds // step):
-        if rig.status()["phase"] != "Verifying":
-            break
-        rig.tick(seconds=step)
-
-
 def test_scale_is_verified_against_the_raw_baseline_for_two_minutes():
     rig = Rig()
     rig.proposed(proposal_doc("scale_deployment", 3))

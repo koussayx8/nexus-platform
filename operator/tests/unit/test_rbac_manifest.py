@@ -62,7 +62,7 @@ def test_mutating_rights_are_scale_and_eviction_in_nexus_dev_only():
     assert all(v == {"nexus-dev"} for v in evict.values())
 
 
-def test_nothing_reaches_nexus_prod_or_nexus_data():
+def test_no_namespaced_right_reaches_nexus_prod_or_nexus_data():
     for ns, _ in operator_roles():
         assert ns not in ("nexus-prod", "nexus-data")
 
@@ -105,3 +105,32 @@ def test_every_mutating_rule_names_exactly_two_subresources():
         ("nexus.io", "incidents"),
         ("nexus.io", "incidents/status"),
     }
+
+
+def test_the_evidence_reads_are_cluster_wide_and_read_only():
+    cluster = [rule for ns, rule in operator_roles() if ns is None]
+    read = {
+        (g, r)
+        for rule in cluster
+        for g in rule["apiGroups"]
+        for r in rule["resources"]
+        if "pods" in rule["resources"]
+        or "deployments" in rule["resources"]
+        or "endpointslices" in rule["resources"]
+    }
+    assert {
+        ("", "pods"),
+        ("", "pods/log"),
+        ("", "events"),
+        ("apps", "deployments"),
+        ("apps", "replicasets"),
+        ("discovery.k8s.io", "endpointslices"),
+    } <= read
+    for rule in cluster:
+        assert set(rule["verbs"]) <= {"get", "list", "watch"}, rule
+
+
+def test_argocd_applications_are_read_only():
+    rules = [rule for ns, rule in operator_roles() if ns == "argocd"]
+    assert len(rules) == 1 and rules[0]["resources"] == ["applications"]
+    assert set(rules[0]["verbs"]) == {"get", "list", "watch"}

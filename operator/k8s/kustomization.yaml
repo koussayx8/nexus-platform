@@ -7,4 +7,5 @@ kind: Kustomization
 resources:
   - serviceaccount.yaml
   - deployment.yaml
+  - metrics-service.yaml
   - flight-recorder-db      # spec §14, ADR-031; credentials: scripts/flight-recorder-secrets.sh

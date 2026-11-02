@@ -69,3 +69,22 @@ def test_the_unavailable_recorder_refuses_every_call_and_covers_the_protocol():
                 await getattr(rec, name)()
 
     asyncio.run(go())
+
+
+def test_the_fake_cluster_matches_the_kube_reads_the_act_path_uses():
+    from nexus_operator.kube import KubeApi
+
+    for name in (
+        "get_deployment",
+        "list_pods",
+        "list_replicasets",
+        "list_events",
+        "get_application",
+        "pod_log",
+        "get_scale",
+        "get_namespace",
+        "get_configmap",
+    ):
+        assert shape(inspect.signature(getattr(FakeCluster, name))) == shape(
+            inspect.signature(getattr(KubeApi, name))
+        ), name

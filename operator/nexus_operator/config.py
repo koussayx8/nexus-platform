@@ -5,11 +5,15 @@ runtime settings) and the 20 s Detected timeout (§7). alertmanagerURL has no fr
 is required. The act-path keys are read here: advisoryChecks (on by default, §4), breakerEpoch
 (Unix seconds; 0 counts from the start — ASSUMPTION: §4 gives no unit) and prometheusURL (the
 Verifier's metrics source; empty means the Verifier cannot measure, so no repair verifies).
+The Writer's keys (recorderHost, recorderPort, recorderDatabase, recorderUser,
+recorderPasswordFile; ADR-031) say where the Flight Recorder DB is and which mounted file holds the
+nexus_writer password; the password is never a ConfigMap value. metricsPort is the /metrics port.
 approvalTTL and reasonerEndpoint stay unread until M3 and M4. A change takes effect at the
 next operator start.
 """
 
 import dataclasses
+import re
 import urllib.parse
 
 CONFIGMAP = "nexus-operator-config"
@@ -28,6 +32,14 @@ class Config:
     advisory_checks: bool = True
     breaker_epoch: int = 0
     prometheus_url: str = ""
+    recorder_host: str = (
+        ""  # empty: no Writer is configured, so every mutation is blocked
+    )
+    recorder_port: int = 5432
+    recorder_database: str = "nexus_recorder"
+    recorder_user: str = "nexus_writer"
+    recorder_password_file: str = "/var/run/nexus/flight-recorder-writer/password"
+    metrics_port: int = 9102
 
 
 def _seconds(data: dict, key: str, default: int) -> int:
@@ -40,6 +52,19 @@ def _seconds(data: dict, key: str, default: int) -> int:
         raise ConfigError(f"{key} is not an integer: {raw!r}") from None
     if not 1 <= value <= 3600:
         raise ConfigError(f"{key} is out of range [1, 3600]: {value}")
+    return value
+
+
+def _port(data: dict, key: str, default: int) -> int:
+    raw = data.get(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        raise ConfigError(f"{key} is not an integer: {raw!r}") from None
+    if not 1 <= value <= 65535:
+        raise ConfigError(f"{key} is out of range [1, 65535]: {value}")
     return value
 
 
@@ -69,8 +94,21 @@ def parse(configmap: dict | None) -> Config:
         pp = urllib.parse.urlsplit(prom)
         if pp.scheme not in ("http", "https") or not pp.hostname or pp.username:
             raise ConfigError(f"prometheusURL is not an http(s) URL: {prom!r}")
+    host = str(data.get("recorderHost") or "").strip()
+    if host and not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?", host):
+        raise ConfigError(f"recorderHost is not a host name: {host!r}")
+    port = _port(data, "recorderPort", 5432)
+    pw_file = str(data.get("recorderPasswordFile") or "").strip()
+    if pw_file and not pw_file.startswith("/"):
+        raise ConfigError(f"recorderPasswordFile is not an absolute path: {pw_file!r}")
     return Config(
         alertmanager_url=url,
+        recorder_host=host,
+        recorder_port=port,
+        recorder_database=str(data.get("recorderDatabase") or "nexus_recorder").strip(),
+        recorder_user=str(data.get("recorderUser") or "nexus_writer").strip(),
+        recorder_password_file=pw_file or Config.recorder_password_file,
+        metrics_port=_port(data, "metricsPort", 9102),
         advisory_checks=advisory == "on",
         breaker_epoch=epoch,
         prometheus_url=prom,
