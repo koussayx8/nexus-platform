@@ -18,6 +18,9 @@
 #  10. Offline unit tests for the M1b-9 calibration ramp and knee script (experiments/calibration;
 #      standard library only, no network, ADR-026).
 #
+#  11. Offline test for .github/scripts/bump-digest.sh, against copies of the real overlay and
+#      operator manifests (the digest-bump jobs of ci.yml and operator.yml).
+#
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
 # installs pinned, checksummed builds).
@@ -98,4 +101,8 @@ echo "::endgroup::"
 
 echo "::group::calibration ramp and knee tests (M1b-9, offline)"
 python3 -m unittest discover -s experiments/calibration -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::digest-bump script test (offline)"
+bash .github/scripts/tests/bump-digest.sh
 echo "::endgroup::"

@@ -165,3 +165,56 @@ jobs:
         run: |
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+
+  digest-bump:
+    name: Digest bump (pull request to dev)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, sign]
+    # Spec §19: a digest bump is a commit. CI holds no cluster credential; the bump reaches the
+    # cluster only when this pull request is merged. Needs the repository setting "Allow GitHub
+    # Actions to create and approve pull requests". A pull request opened with GITHUB_TOKEN does not
+    # start workflows, so the required check would never run: set the DIGEST_BUMP_TOKEN secret
+    # (fine-grained PAT, contents and pull-requests write) for that.
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+      IMAGE: ghcr.io/${{ github.repository }}/nexus-operator
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          token: ${{ secrets.DIGEST_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: 'v2.5.2'
+
+      - name: Verify the signature before writing the digest
+        run: |
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/operator.yml@refs/heads/main" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: Open the bump pull request
+        run: |
+          set -euo pipefail
+          branch="bot/bump-nexus-operator-${DIGEST:7:12}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch already exists; nothing to do"; exit 0
+          fi
+          bash .github/scripts/bump-digest.sh nexus-operator "$DIGEST"
+          if git diff --quiet; then echo "dev already pins $DIGEST"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -a -m "chore(nexus-operator): bump the image digest to ${DIGEST:0:19}" \
+            -m "Signed image from ${{ github.workflow }} run ${{ github.run_id }} at ${{ github.sha }}, cosign-verified in this job."
+          git push origin "$branch"
+          gh pr create --base dev --head "$branch" \
+            --title "chore(nexus-operator): bump the image digest to ${DIGEST:0:19}" \
+            --body "Digest \`$DIGEST\` from ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} (commit ${{ github.sha }}), signature verified with cosign v2.5.2 against operator.yml@refs/heads/main. Review the diff, and update the comment above the pin by hand if it names the previous run."
