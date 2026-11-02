@@ -11,13 +11,11 @@ on:
     branches: [main]
     paths:
       - 'operator/**'
-      - '!operator/k8s/**'   # deploy manifests (the `nexus` Application) build no image
       - '.github/workflows/operator.yml'
   pull_request:
     branches: [main, dev]
     paths:
       - 'operator/**'
-      - '!operator/k8s/**'   # deploy manifests (the `nexus` Application) build no image
       - '.github/workflows/operator.yml'
 
 env:
@@ -28,6 +26,35 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.diff.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only "$PR_BASE...$PR_HEAD" -- operator .github/workflows/operator.yml ':(exclude)operator/k8s')
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            files=new-branch
+          else
+            files=$(git diff --name-only "$BEFORE" "$SHA" -- operator .github/workflows/operator.yml ':(exclude)operator/k8s')
+          fi
+          echo "files that need an image:"; echo "${files:-<none>}"
+          if [ -n "$files" ]; then echo "image=true" >> "$GITHUB_OUTPUT"; else echo "image=false" >> "$GITHUB_OUTPUT"; fi
+
   lint:
     name: Lint (Ruff)
     runs-on: ubuntu-latest
@@ -64,7 +91,8 @@ jobs:
   build:
     name: Build, Scan & Push
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, changes]
+    if: needs.changes.outputs.image == 'true'
     permissions:
       contents: read
       packages: write
