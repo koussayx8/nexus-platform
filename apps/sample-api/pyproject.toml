@@ -1,0 +1,5 @@
+# Lint settings for sample-api. ruff finds this file from any working directory, so
+# `ruff check .` in this directory and `ruff check apps/sample-api/` from the repository root (as CI
+# runs it) sort imports the same way: main and test_main are first-party.
+[tool.ruff]
+src = ["."]
