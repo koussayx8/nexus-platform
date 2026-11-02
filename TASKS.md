@@ -848,7 +848,7 @@ to the recorded values means a rerun;
 ## PFE re-plan (owner decisions, 2026-11-02)
 
 - **Plan:** [`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md): decisions O1–O7, tasks T0–T5, the unassigned scope
-  G1–G18, contradictions X1–X9 for spec v1.1, open questions Q1–Q6. Outlines:
+  G1–G18, contradictions X1–X9 for spec v1.1, owner decisions Q1–Q6 (2026-11-02). Outlines:
   [`m2-outline.md`](docs/plans/m2-outline.md), [`m3-outline.md`](docs/plans/m3-outline.md),
   [`m4-outline.md`](docs/plans/m4-outline.md).
 - **Hosts:** every measurement runs on WSL2, on the M1b calibration. A1 is the defense demo host only, built in
@@ -876,10 +876,12 @@ to the recorded values means a rerun;
   reasoner client (`proposal/v1`, redaction, timeout); BM25 over the runbooks; arm configs, incl. the Haiku arm and
   the effort sweep. [M4]
 - [ ] **T5 — Hygiene, supply chain, multi-arch** (the items tagged → T5 below). [M3; before the A1 demo]
+- [ ] **T6 — G4, G5, G6:** the `ignoreDifferences` boundary check, the minimal `audit_id` join script, the KSM
+  alerts with `group_by` and F5. [G4, G5 by the M2 exit; G6 by 2026-12-20]
 
-**Not yet tasked:** G1–G18 in the re-plan (among them the Evidence Collector, the Compensator, the Reasoner service and
-runbooks, the static baseline, the containment suite, spec v1.1 and the M4 pre-registration). Each needs a task, or
-an owner decision to fold it into one.
+**G1–G18** (scope outside T1–T5): each has an owner (2026-11-02) in the re-plan's G table: G1–G3 → T2's second PR;
+G4–G6 → T6; G8, G11 → T3 follow-ups; G9, G10, G12, G13, G15 → T4; G7 local at each milestone exit; G14, G17, G16
+local in December (G17 before G16); G18 local in January.
 
 ### M2 — live by 2026-11-20 ([`m2-outline.md`](docs/plans/m2-outline.md))
 
@@ -897,6 +899,7 @@ an owner decision to fold it into one.
 ### M4 — code complete 2026-12-20; evaluation until ~2027-01-10 ([`m4-outline.md`](docs/plans/m4-outline.md))
 
 - [ ] T4 merged; G6 and G9–G15 merged. **Code complete.**
+- [ ] Owner setup before 2026-12-21: WSL started at logon; sleep off overnight (unattended runs, `m4-outline.md`).
 - [ ] Spec v1.1 (G17) merged.
 - [ ] The M4 pre-registration (G16) merged. **GATE M4 pre-registration.**
 - [ ] Phases A–D and the no-fault runs on WSL2, as pre-registered; export; `make results`. **GATE M4 result.**
@@ -1229,8 +1232,8 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
 
 - M2-1, step 0 on WSL2. Nothing was run.
 - M2-1b, the x86 replication: **not done** under its stop rule (not calibrated by 2026-11-01). No replication
-  branch exists (`git ls-remote --heads origin`, 2026-11-02). Billing guard: the owner confirms that no OCI trial
-  resource remains before 2026-11-09.
+  branch exists (`git ls-remote --heads origin`, 2026-11-02). Nothing was ever created on OCI or AWS (owner,
+  2026-11-02); no deletion needed.
 - M2-3, the new-host bootstrap fixes (items tagged "→ Cut" above).
 - M2-9, the A1 calibration and its measurements. A1 is built in January 2027 for the demo only (ADR-030 amendment).
 - ADR-030 (c), Bedrock: dropped at GATE M2-0; recorded in the ADR-030 amendment.

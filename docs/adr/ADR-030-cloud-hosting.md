@@ -168,11 +168,11 @@ this ADR. Docs only: nothing is created, changed or deleted in any cloud account
 | (a) step 0 | A feasibility screen on WSL2 (M2-1) | **Cut.** Nothing was run (`git log` on `dev` `d20b04b`) |
 | (a) calibration order, steps 1–5 | Before any detector run on A1 | **Does not apply.** No detector run on A1 is a measurement |
 | (a) host topology | An addendum before A1's first calibration | **Not needed for measurements:** the host components run on WSL2, as spec §3 places them. The demo's topology is fixed in the demo-overlay PR |
-| (a) demo fallback | A recording of a valid pre-registered run on A1 | **Cannot exist as written:** no run on A1 is pre-registered. Open: re-plan Q4 |
+| (a) demo fallback | A recording of a valid pre-registered run on A1 | **Cannot exist as written:** no run on A1 is pre-registered. Decided (re-plan Q4, owner, 2026-11-02): both a recording of the A1 demo and one of a WSL2 measured run, each labelled with its host |
 | (b) x86 replication | By 2026-11-09; stop rule: not calibrated by 2026-11-01 → not done | **Recorded as not done** under its stop rule. No replication branch exists (`git ls-remote --heads origin`, 2026-11-02) |
 | (c) Bedrock | Dropped at GATE M2-0 | Unchanged: dropped. The M2-4 addendum that was to record it is cut; this amendment records it |
 | (d) CNI | Fixed per host before its first calibration | WSL2: flannel with the k3s network-policy controller, unchanged. A1: flannel; no calibration there, so the voiding clause applies to WSL2 only |
-| Billing guard | Every paid resource deleted before its credit ends | **Stands.** Whether any OCI trial resource exists is UNVERIFIED (the agent has no cloud access); the owner confirms none remains before 2026-11-09. The A1 node stays within Always Free |
+| Billing guard | Every paid resource deleted before its credit ends | **Nothing was ever created on OCI or AWS (owner, 2026-11-02); no deletion needed.** The A1 node stays within Always Free |
 
 **Consequences, replacing the three-calibration rule:**
 - One calibration counts: WSL2, M1b (C ≥ 200, B = 80; sample-api 1000m / 128Mi; DB 2000m / 512Mi; ADR-026,
@@ -186,7 +186,7 @@ this ADR. Docs only: nothing is created, changed or deleted in any cloud account
 **Relation to the frozen spec:**
 1. The host: for every measurement, the deviation is withdrawn (WSL2, as spec §3). A1 as a demo host remains a
    deviation, recorded in spec v1.1.
-2. The demo fallback: still open, for spec v1.1 (re-plan Q4).
+2. The demo fallback: both recordings, each labelled with its host (re-plan Q4); recorded in spec v1.1.
 3. Bedrock: moot.
 4. Cilium: unchanged, DEFERRED.
 

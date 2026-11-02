@@ -56,31 +56,33 @@ One branch `claude/task-<n>-<short-name>` and one PR to `dev` per task. Expected
 | **T3** | Kyverno K1–K6 with `kyverno` CLI tests (K5 approver stamping and hash binding); `verifyImages` in Audit mode; NetworkPolicies N1–N6; CODEOWNERS; `nexusctl`; the approval schema and `approvalTTL`. The operator's L2 states come after T2 merges | M3 | T2 merged (L2 follow-up only) | `platform/policies/`, `platform/network/`, `.github/CODEOWNERS`, `nexusctl/` |
 | **T4** | M4 harness: the runner (inject, reset, ArgoCD refresh); §21 metrics and statistics on fixtures; the reasoner client (`proposal/v1`, redaction, timeout); BM25 over the runbooks; arm configs incl. the Haiku arm and the effort sweep | M4 | — | `experiments/`, `reasoner/` (retriever, client) |
 | **T5** | Hygiene, supply chain, multi-arch: SHA-pinned actions and `cosign-installer`; Trivy on the pushed digest and the digest-bump step; Dependabot to `dev`; shellcheck in CI; ruff `src`; the `requirements-dev` leftovers; the Starlette test client; the `repo-checks` range; the sample-api base pinned by digest, a slimmer base and the Trivy comparison; the operator Dockerfile's passwd entry for UID 10001; amd64 + arm64 builds and signing for sample-api and nexus-operator | M3 (needed before A1) | — | `.github/`, `apps/sample-api/`, `operator/Dockerfile` |
+| **T6** | G4 (the `ignoreDifferences` boundary check), G5 (the minimal `audit_id` join script), G6 (the KSM alerts, `group_by`, F5) | G4, G5: M2 exit; G6: by 12-20 | — | `.github/`, `scripts/`, `platform/monitoring/` |
 
-## In scope, not yet tasked (gaps)
+## In scope outside T1–T5 (gaps), with owners
 
-In scope under O1 or the spec, but in no task T1–T5. Each needs a task, or an owner decision to fold it into one.
+In scope under O1 or the spec, but in no task T1–T5. The owner assigned each one on 2026-11-02 (last column).
+T6 is a new task for G4–G6. "Local" means done in the owner's own session, not as a task PR from this plan.
 
-| # | Item | Source | Needed by | Proposal |
-|---|---|---|---|---|
-| G1 | Evidence Collector (`evidence/v1`) and where redaction runs before a bundle is stored (NF-24). T4 lists redaction in the reasoner client; R1 in T2 needs the bundle | §4, §14, §16 | M2 | Collector in T2; Redactor stage in T2 or T4 (Q1) |
-| G2 | Compensator (scale back, itself a gated request); `Verifying` leads only to `Resolved` or `Compensating` (I11) | §9, I11 | M2 | T2 (Q2) |
-| G3 | Operator metrics and ServiceMonitor (U3); config keys `advisoryChecks`, `breakerEpoch`, `reasonerEndpoint` | ADR-025 | M2 | T2 follow-up |
-| G4 | CI boundary check: every field reachable through the catalogue and RBAC is delegated by `ignoreDifferences` with `RespectIgnoreDifferences=true`, or never declared (I12) | §9, §13 | M2 | new task |
-| G5 | Minimal `audit_id` join script for the M2 exit | M2 plan | M2 exit | T1 follow-up |
-| G6 | KSM alerts `NexusRolloutStuck`, `NexusCrashLooping` and Alertmanager `group_by: [nexus_target]`; the F5 SIGKILL decision | §3, ADR-022 | M4 (S3, C4 map) | new task, by 12-20 |
-| G7 | `verify-state.sh` checks per milestone (FR DB Ready, staged RBAC, rollout strategy, levels; K1–K6 Enforce, N1–N6; Reasoner Ready) | §25 | each exit | with each milestone's live step |
-| G8 | `nexus-prod` Scale/Eviction grants with K1–K6 in Enforce; the operator's L2 states | M2 plan, §11 | M3 | T3 follow-up (stated in T3) |
-| G9 | The Reasoner service: Deployment in `nexus-reasoner` with no token, Model Adapter, `/healthz` with the index hash, image (multi-arch); eight runbooks (S5 held out), runbook lint, `make index`, the 30 labelled queries and retrieval evaluation | §15, §16, I1 | 12-20 | new task |
-| G10 | Static baseline C4: `nexus-baseline` identity and receiver | §20 | 12-20 | new task |
-| G11 | Containment suite: coverage matrix, fail-closed, Kill Switch, compromised operator (Phase D) | §20 | 12-20 | new task |
-| G12 | K8sGPT capture (C6) | §20 | 12-20 | T4 follow-up |
-| G13 | `reconcile-audit`, `export-results`, `make results` | §14, §25 | 12-20 | T4 follow-up |
-| G14 | Detector comparison: Z-score against Isolation Forest, offline | §21 | evaluation | new task |
-| G15 | R0 seeded adversarial generator; `kyverno` CLI replay with mocked context for Phase B | §16, §20, §27 | 12-20 | T4 (arm configs) or follow-up |
-| G16 | `experiments/ground-truth.yaml` and the M4 pre-registration PR | §20 | 12-20 | docs task after spec v1.1 |
-| G17 | Spec v1.1: one docs PR (ADR plus version bump), contents below | Spec §0 | before G16 | docs task |
-| G18 | A1 demo overlay and `demo/reset.sh` | O4, §25 | early January | new task |
+| # | Item | Source | Needed by | Proposal | Owner (2026-11-02) |
+|---|---|---|---|---|---|
+| G1 | Evidence Collector (`evidence/v1`) and where redaction runs before a bundle is stored (NF-24). T4 lists redaction in the reasoner client; R1 in T2 needs the bundle | §4, §14, §16 | M2 | Collector in T2; Redactor stage in T2 or T4 (Q1) | T2, second PR |
+| G2 | Compensator (scale back, itself a gated request); `Verifying` leads only to `Resolved` or `Compensating` (I11) | §9, I11 | M2 | T2 (Q2) | T2, second PR |
+| G3 | Operator metrics and ServiceMonitor (U3); config keys `advisoryChecks`, `breakerEpoch`, `reasonerEndpoint` | ADR-025 | M2 | T2 follow-up | T2, second PR |
+| G4 | CI boundary check: every field reachable through the catalogue and RBAC is delegated by `ignoreDifferences` with `RespectIgnoreDifferences=true`, or never declared (I12) | §9, §13 | M2 | new task | T6 |
+| G5 | Minimal `audit_id` join script for the M2 exit | M2 plan | M2 exit | T1 follow-up | T6 |
+| G6 | KSM alerts `NexusRolloutStuck`, `NexusCrashLooping` and Alertmanager `group_by: [nexus_target]`; the F5 SIGKILL decision | §3, ADR-022 | M4 (S3, C4 map) | new task, by 12-20 | T6 |
+| G7 | `verify-state.sh` checks per milestone (FR DB Ready, staged RBAC, rollout strategy, levels; K1–K6 Enforce, N1–N6; Reasoner Ready) | §25 | each exit | with each milestone's live step | local, at each milestone exit |
+| G8 | `nexus-prod` Scale/Eviction grants with K1–K6 in Enforce; the operator's L2 states | M2 plan, §11 | M3 | T3 follow-up (stated in T3) | T3 follow-up |
+| G9 | The Reasoner service: Deployment in `nexus-reasoner` with no token, Model Adapter, `/healthz` with the index hash, image (multi-arch); eight runbooks (S5 held out), runbook lint, `make index`, the 30 labelled queries and retrieval evaluation | §15, §16, I1 | 12-20 | new task | T4 |
+| G10 | Static baseline C4: `nexus-baseline` identity and receiver | §20 | 12-20 | new task | T4 |
+| G11 | Containment suite: coverage matrix, fail-closed, Kill Switch, compromised operator (Phase D) | §20 | 12-20 | new task | T3 follow-up |
+| G12 | K8sGPT capture (C6) | §20 | 12-20 | T4 follow-up | T4 |
+| G13 | `reconcile-audit`, `export-results`, `make results` | §14, §25 | 12-20 | T4 follow-up | T4 |
+| G14 | Detector comparison: Z-score against Isolation Forest, offline | §21 | evaluation | new task | local, December |
+| G15 | R0 seeded adversarial generator; `kyverno` CLI replay with mocked context for Phase B | §16, §20, §27 | 12-20 | T4 (arm configs) or follow-up | T4 |
+| G16 | `experiments/ground-truth.yaml` and the M4 pre-registration PR | §20 | 12-20 | docs task after spec v1.1 | local, December, after G17 |
+| G17 | Spec v1.1: one docs PR (ADR plus version bump), contents below | Spec §0 | before G16 | docs task | local, December, before G16 |
+| G18 | A1 demo overlay and `demo/reset.sh` | O4, §25 | early January | new task | local, January |
 
 ## Where the GATE M2-0 phases go
 
@@ -97,7 +99,7 @@ In scope under O1 or the spec, but in no task T1–T5. Each needs a task, or an 
 | M2-7 operator M2 stages | T2, plus G1–G4 |
 | M2-8 KSM alerts, F5, verify checks | G6, G7 |
 | M2-9 A1 host and calibration | **Cut** (O2, O4). A1 is built in January for the demo only (G18). The Grafana sidecar resources, the connection-cost measurement and the new-host re-checks are not run (O7: no calibration campaigns); they stay in `TASKS.md` Later |
-| M2-10 exit | M2 exit on WSL2 by 2026-11-20; the defense recording moves to the A1 demo (Q4) |
+| M2-10 exit | M2 exit on WSL2 by 2026-11-20; the defense recording: Q4 |
 
 The item-by-item placement of the M2 section's "Placed from Later" items is in `TASKS.md` (each item's new tag).
 
@@ -140,24 +142,35 @@ harness and no calibration campaign.
 - Pre-registration only for M4's measured runs (G16). The M2 and M3 exits are demonstrations, not measurements.
 - Live steps: no cluster in the agent sessions. Every live check is marked "live check pending" and run by, or
   with the approval of, the owner on WSL2.
-- ADR-029's per-gate session rule (§4) predates O6. Whether ADR-029 needs an addendum is Q5.
+- ADR-029's per-gate session rule (§4) predates O6. Q5 (owner, 2026-11-02): one sentence in ADR-029 at the next ADR PR.
 
 ## Schedule risks
 
-- **Unassigned scope (G1–G18)** is larger than T1–T5. G9 (the Reasoner service and runbooks), G10, G11 and G16 are on
+- **The scope outside T1–T5 (G1–G18)** is larger than T1–T5 itself. G9 (the Reasoner service and runbooks), G10, G11 and G16 are on
   the critical path to 2026-12-20.
 - **Evaluation volume on one laptop host:** Phase A 120 runs, C 72, D 24 plus the suite (§20), plus the no-fault
   runs, before the Haiku arm and the effort sweep. At up to 20 min of pre-check per run (§25), A + C + D need about
-  216 runs × 30–45 min ≈ 108–162 h of attended WSL2 time inside about 3 weeks that include holidays. Proposal: the
-  Haiku arm and the effort sweep run in Phase B (offline replay of stored bundles), not live (Q3).
+  216 runs × 30–45 min ≈ 108–162 h of WSL2 time inside about 3 weeks that include holidays. The Haiku arm and the
+  effort sweep run in Phase B only (Q3). Run unattended (below), the 204 automatable runs plus the no-fault runs
+  take about 5–10 days at 24 h a day, the attempt cap included; C5 and the suite stay attended.
 - **WSL2 host faults** (VM pauses, clock steps; ADR-026, ADR-028): the timed-run rule (pause gap and `boot_id` at
   start and end) applies to every M4 run; discard rules are pre-registered.
 - **A1 in January** runs on a stack whose new-host bootstrap fixes were cut (O3). A fresh bootstrap may need the
   operator-config workaround noted in `TASKS.md` (M2-3 item); it is handled at the A1 build, not before.
 
-## Open questions for the owner
+## Unattended runs (owner, 2026-11-02)
 
-| # | Question | Proposal |
+- **T4's runner** keeps its queue on disk, resumes after a WSL2 reboot, voids and requeues a run on a `boot_id` or
+  pause-gap change, and respects the 15-attempt cap per cell (§25).
+- **G16** (the M4 pre-registration) grants the owner's approval for the whole batch of runner mutations (S1–S6
+  injection, the §20 reset, the `advisoryChecks` toggle), as CLAUDE.md rule 3 requires.
+- **Owner setup before 2026-12-21:** WSL started at logon; sleep off overnight.
+
+## Owner decisions on Q1–Q6 (2026-11-02)
+
+Each accepted as proposed.
+
+| # | Question | Decision |
 |---|---|---|
 | Q1 | Where does the Evidence Redactor run before a bundle is stored: in the operator (T2) or with the reasoner client (T4)? | Operator stage in T2 (spec §4); T4 reuses it |
 | Q2 | Is the Compensator part of T2? | Yes |

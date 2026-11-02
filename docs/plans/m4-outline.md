@@ -36,15 +36,25 @@ One PR, merged with the owner's typed approval before the first measured run. It
 - the system-under-test commit and the harness commit;
 - `ground-truth.yaml` and its hash;
 - the arms: R0–R3 per §16; **the Haiku arm** (provider, model id, settings; re-plan X1); **the effort sweep**
-  (levels and which arms; X2); the phase of each (proposal: Haiku and the sweep in Phase B only, re-plan Q3);
+  (levels and which arms; X2); the phase of each (Haiku and the sweep in Phase B only, re-plan Q3, owner 2026-11-02);
 - **no-fault runs** (O5, X3): count, duration, and the false-alarm definition (an Incident created with no injection);
 - volumes per phase (§20: A 120, B ~240 calls plus the additions, C 72, D 24 plus the suite), 10 valid runs per cell,
   at most 15 attempts (§25);
 - pass, void and discard rules, including the timed-run rule (pause gap and `boot_id` at start and end) and the
   Locust baseline and autostart setting;
+- the owner's approval for the whole batch of runner mutations (S1–S6 injection, the §20 reset, the
+  `advisoryChecks` toggle), as CLAUDE.md rule 3 requires;
 - the audit-log retention check: today's `maxbackup` covers about 2.19 idle days (ADR-019 addendum);
   the pre-registration states whether reconciliation runs per run (then retention suffices) or `maxbackup` is
   raised first.
+
+## Unattended runs (owner, 2026-11-02)
+
+- T4's runner keeps its queue on disk, resumes after a WSL2 reboot, voids and requeues a run on a `boot_id` or
+  pause-gap change, and respects the 15-attempt cap per cell (§25).
+- The pre-registration (G16) carries the owner's approval for the batch of runner mutations.
+- Owner setup before 2026-12-21: WSL started at logon; sleep off overnight.
+- C5 (manual baseline) and the containment suite stay attended.
 
 ## Sequence
 
@@ -78,7 +88,7 @@ The containment suite (G11) is the live test of I3–I9, I13; it is part of the 
 - A demo overlay labels everything shown as demo; no measurement and no calibration on A1 (ADR-030 amendment).
 - Needs T5's arm64 images and G18's overlay and `demo/reset.sh`.
 - The A1 build does not touch WSL2 and does not interrupt the evaluation runs.
-- The defense recording: re-plan Q4.
+- The defense recording: both the A1 demo and a WSL2 measured run, each labelled with its host (re-plan Q4).
 
 ## Risks
 

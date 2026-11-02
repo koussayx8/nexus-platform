@@ -59,7 +59,7 @@ CODEOWNERS. On WSL2, by **2026-12-06**.
 ## Exit criterion (proposed)
 
 On WSL2:
-1. An L2 incident (re-plan Q6) approved with `nexusctl approve` is admitted and ends `Resolved`; the same request
+1. An L2 incident on `nexus-dev`, set to `"2"` for the demo by commit on `experiment/dev-state` and then back to `"3"` (re-plan Q6), approved with `nexusctl approve` is admitted and ends `Resolved`; the same request
    with no approval, an expired approval or an altered hash is denied by Kyverno.
 2. K1–K6 report Enforce; the §16A cells pass. The fail-closed test runs with the containment suite in M4 (G11).
 3. The operator holds Scale/Eviction in `nexus-dev` and `nexus-prod` only (`auth can-i --list`).
@@ -68,7 +68,6 @@ On WSL2:
 ## Decided inside the task PRs
 
 - Re-plan X7: where `proposalHash` is checked (K3, K5 or both).
-- Re-plan Q6: the L2 namespace for the exit.
 - The node-IP templating mechanism for the NetworkPolicies (bootstrap step or ConfigMap-driven).
 
 ## Risks

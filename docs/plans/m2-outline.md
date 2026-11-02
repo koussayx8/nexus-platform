@@ -16,20 +16,20 @@ From the M2 plan rev 3 scope trace (sources there); the task column is new.
 |---|---|---|
 | 1 | §11 operator rows: cluster reads, ArgoCD Applications; `deployments/scale` and `pods/eviction` in `nexus-dev` only (staged; `nexus-prod` in M3) | T2 |
 | 2 | Action Catalogue `operator/catalogue.yaml`: the four frozen entries (§9) | T2 |
-| 3 | Evidence Collector, Evidence Redactor, Rules Engine R1; output validated as `proposal/v1`; redacted bundles in `evidence_bundles` | T2 (R1); collector and redactor: re-plan G1, Q1 |
+| 3 | Evidence Collector, Evidence Redactor, Rules Engine R1; output validated as `proposal/v1`; redacted bundles in `evidence_bundles` | T2 (R1); collector and redactor: G1, T2's second PR (Q1: the redactor is an operator stage) |
 | 4 | Action Executor: intent row and idempotency key before one Scale or Eviction request; resume checks real state | T2 on T1's Writer |
 | 5 | Safety Gate stages 1–7, advisory, fixed order, first failing stage recorded; Kill Switch read at stage 5 (advisory until K4) | T2 |
 | 6 | Circuit Breaker (2 per target per 15 min, 6 per hour) and cool-down (5 min), counted from the FR since `breakerEpoch` | T2 |
-| 7 | Verifier (`restart_v1`, `scale_v1`) against the raw pre-fault baseline; Escalator | T2; Compensator: G2, Q2 |
+| 7 | Verifier (`restart_v1`, `scale_v1`) against the raw pre-fault baseline; Escalator | T2; Compensator: G2, T2's second PR (Q2) |
 | 8 | Levels: L0 `Recorded`, L1 `Recommended`, L2 `Escalated`, L3 acts; `nexus-dev` → `"3"` at the exit | T2; the level commit at the exit |
 | 9 | `flight-recorder-db` (StatefulSet, PV, `nexus-system`, `nexus` Application, AppProject widened in the same PR), the §14 schema, the Secrets script, the Writer, the write-ahead rule | T1 |
 | 10 | `Audit-Id` stored per request (NF-05); the client wrapper | T1; the live dry-run is a live step |
 | 11 | ADR-025 keys `advisoryChecks`, `breakerEpoch`, `reasonerEndpoint` (unset) | T2 (G3) |
-| 12 | Operator metrics and ServiceMonitor (U3) | G3 |
-| 13 | CI boundary check for `ignoreDifferences` | G4 |
-| 14 | Minimal `audit_id` join script | G5 |
+| 12 | Operator metrics and ServiceMonitor (U3) | G3, T2's second PR |
+| 13 | CI boundary check for `ignoreDifferences` | G4, T6 |
+| 14 | Minimal `audit_id` join script | G5, T6 |
 | 15 | Grafana FR datasource and dashboard JSON (moved here from M4) | T1 |
-| 16 | `verify-state.sh` M2 checks: FR DB Ready, staged RBAC by `auth can-i --list`, live rollout strategy, levels | G7 |
+| 16 | `verify-state.sh` M2 checks: FR DB Ready, staged RBAC by `auth can-i --list`, live rollout strategy, levels | G7, local |
 
 Cut from M2: step 0, the x86 replication, the new-host bootstrap fixes, the A1 calibration (re-plan O3, O4).
 Moved to T5: arm64 and images.
@@ -78,7 +78,6 @@ On WSL2, under baseline load B = 80:
 
 - U3, operator metric names (G3); U4, durable absorb (T2).
 - The reason code for L2 `Escalated` in M2 (T2).
-- Re-plan Q1 (redactor placement) and Q2 (Compensator), before T2's PR is final.
 
 ## Risks
 
