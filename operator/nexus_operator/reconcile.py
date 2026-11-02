@@ -7,6 +7,9 @@ Single writer per status field (ADR-023):
 Writes are JSON merge patches of the loop's own keys through /status, each carrying the
 resourceVersion it was computed from: a 409 means re-read, recompute and retry, never overwrite.
 
+The act path (act.py) drives the phases Proposed, Executing, Verifying and Compensating when the
+Loop is given one; the M1b rules below stay the only writer of Detected and the L0/timeout ends.
+
 M1b rules (§7; plan M1b-8 rev 3):
   no phase                               -> Detected; timestamps.detected = creationTimestamp
   Detected, intake done, L0              -> Recorded / level_observe
@@ -27,6 +30,7 @@ import logging
 from collections.abc import Callable
 
 from . import hooks
+from .act import ACT_PHASES
 from .kube import Conflict, KubeApi
 from .model import TERMINAL_PHASES, iso, now, parse_time
 
@@ -140,9 +144,12 @@ async def reconcile(
 class Loop:
     """Every reconcile_s: list the Incidents in nexus-system and reconcile each one (§4)."""
 
-    def __init__(self, api: KubeApi, timing: Timing) -> None:
+    def __init__(self, api: KubeApi, timing: Timing, act=None) -> None:
         self.api = api
         self.timing = timing
+        self.act = (
+            act  # act.ActPath, or None: then no phase after Detected is ever driven
+        )
         # Event-loop time of the last finished tick, failed or not: liveness asks whether the
         # loop still turns, not whether the API answered.
         self.last_tick: float | None = None
@@ -151,6 +158,14 @@ class Loop:
         incidents = await self.api.list_incidents()
         for incident in incidents:
             await reconcile(self.api, incident, self.timing)
+            phase = (incident.get("status") or {}).get("phase")
+            if self.act is not None and phase in ACT_PHASES:
+                try:
+                    await self.act.step(incident)
+                except Exception:  # one Incident must not stop the others
+                    logger.exception(
+                        "act step failed for %s", incident["metadata"]["name"]
+                    )
         return len(incidents)
 
     async def run(self) -> None:
