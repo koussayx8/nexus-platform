@@ -505,7 +505,7 @@ c_sampleapi_metrics() {
     timeout 60 kubectl --request-timeout=20s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >"$pflog" 2>&1 &
     pid=$!
     trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' EXIT
-    for i in $(seq 1 40); do
+    for _ in $(seq 1 40); do
       grep -q 'Forwarding from' "$pflog" && break
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.25
