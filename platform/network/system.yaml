@@ -13,7 +13,7 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
 ---
-# Prometheus scrapes the operator's HTTP port.
+# Prometheus scrapes the operator's HTTP port (8080) and its metrics port (9102, ADR-034).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -31,6 +31,7 @@ spec:
           podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
       ports:
         - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 9102}
 ---
 # The API server (service IP 443, node 6443), Prometheus 9090, Alertmanager 9093, the Reasoner 8080,
 # the Flight Recorder DB 5432 and DNS. The 6443 rule allows any non-cluster address: the node IP is not

@@ -1,0 +1,24 @@
+# Scrapes the NEXUS Operator's /metrics (G3, ADR-034). Names are nexus_operator_*; see
+# operator/nexus_operator/metrics.py. The NetworkPolicy operator-ingress allows Prometheus to 9102.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nexus-operator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: observability
+    release: observability          # matched by the Prometheus serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-operator
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - nexus-system
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
