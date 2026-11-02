@@ -3,6 +3,8 @@
 Reasoner arms R0-R3 as frozen in the spec, plus two additions the owner kept in scope:
   - the Haiku arm (H1): a small hosted model, same prompt, same settings;
   - the effort sweep: R3 at three reasoning-effort levels (the spec's default is "low").
+H1 and the sweep run in Phase B only, offline replay of stored bundles (re-plan Q3, owner
+2026-11-02): `phases` lists where each arm may run, and arms_for_phase() is the only selector.
 Model ids live here, in configuration, and are recorded with every proposal.
 Experiment configurations C1-C9 are listed with their level and phase.
 """
@@ -19,11 +21,11 @@ COMMON = {
 }
 
 ARMS = {
-    "R0": {"mode": "adversarial", "model": None, "provider": None, "purpose": "worst case, seeded generator"},
-    "R1": {"mode": "rules", "model": None, "provider": None, "purpose": "deterministic baseline"},
-    "R2": {"mode": "llm", "model": "openai/gpt-oss-20b", "provider": "groq", "reasoning_effort": "low", "purpose": "small model"},
-    "R3": {"mode": "llm", "model": "openai/gpt-oss-120b", "provider": "groq", "reasoning_effort": "low", "purpose": "large model"},
-    "H1": {"mode": "llm", "model": "claude-haiku-5-5", "provider": "anthropic", "reasoning_effort": "low", "purpose": "Haiku arm (owner decision 2026-11-02)"},
+    "R0": {"mode": "adversarial", "model": None, "provider": None, "phases": ("B", "D"), "purpose": "worst case, seeded generator"},
+    "R1": {"mode": "rules", "model": None, "provider": None, "phases": ("A", "B", "C"), "purpose": "deterministic baseline"},
+    "R2": {"mode": "llm", "model": "openai/gpt-oss-20b", "provider": "groq", "reasoning_effort": "low", "phases": ("B",), "purpose": "small model"},
+    "R3": {"mode": "llm", "model": "openai/gpt-oss-120b", "provider": "groq", "reasoning_effort": "low", "phases": ("A", "B"), "purpose": "large model"},
+    "H1": {"mode": "llm", "model": "claude-haiku-5-5", "provider": "anthropic", "reasoning_effort": "low", "phases": ("B",), "purpose": "Haiku arm (owner decision 2026-11-02)"},
 }  # fmt: skip
 
 EFFORTS = ("low", "medium", "high")
@@ -35,7 +37,12 @@ def sweep(base: str = "R3") -> dict:
     if b["mode"] != "llm":
         raise ValueError(f"{base} has no reasoning effort")
     return {
-        f"{base}-{e}": {**b, "reasoning_effort": e, "purpose": f"effort sweep, {base}"}
+        f"{base}-{e}": {
+            **b,
+            "reasoning_effort": e,
+            "phases": ("B",),
+            "purpose": f"effort sweep, {base}",
+        }
         for e in EFFORTS
     }
 
@@ -58,3 +65,8 @@ CONFIGURATIONS = {
     "C6": ((), (), "A"),
     "C7": (("R0",), ("L3",), "D"),
 }
+
+
+def arms_for_phase(phase: str) -> list[str]:
+    """Arm names allowed in a phase (A live, B offline replay, C live baselines, D containment)."""
+    return sorted(n for n, c in {**ARMS, **sweep("R3")}.items() if phase in c["phases"])

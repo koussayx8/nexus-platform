@@ -41,6 +41,21 @@ class ArmsTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             arms.arm_config("R9")
 
+    def test_haiku_and_sweep_are_phase_b_only(self):
+        for name in ("H1", "R3-low", "R3-medium", "R3-high"):
+            self.assertEqual(arms.arm_config(name)["phases"], ("B",), name)
+        for phase in ("A", "C", "D"):
+            offending = {"H1", "R3-low", "R3-medium", "R3-high"} & set(
+                arms.arms_for_phase(phase)
+            )
+            self.assertFalse(offending, (phase, offending))
+        self.assertEqual(arms.arms_for_phase("A"), ["R1", "R3"])  # C1 and C2
+        self.assertEqual(arms.arms_for_phase("D"), ["R0"])  # C7
+        self.assertEqual(
+            arms.arms_for_phase("B"),
+            ["H1", "R0", "R1", "R2", "R3", "R3-high", "R3-low", "R3-medium"],
+        )
+
     def test_configurations_refer_to_known_arms(self):
         for arms_, _levels, _phase in arms.CONFIGURATIONS.values():
             for a in arms_:
