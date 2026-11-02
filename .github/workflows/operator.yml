@@ -1,9 +1,12 @@
 name: NEXUS Operator
 
 # The operator's pipeline (spec §19; M1b-8, ADR-025): lint, unit tests, image build and Trivy
-# scan on every pull request that touches it; push and Cosign keyless signing on main only, as
-# ci.yml does for sample-api. The envtest integration test (operator/tests/envtest/) is run by
-# hand, never here; the unit tests check P6 as an order of events (owner, M1b-8 point 3).
+# scan on every pull request that touches it; on main the multi-arch image (linux/amd64 +
+# linux/arm64, ADR-030) is pushed, scanned by digest, signed with Cosign keyless, and a digest-bump
+# pull request into dev is opened, as ci.yml does for sample-api. The envtest integration test
+# (operator/tests/envtest/) is run by hand, never here; the unit tests check P6 as an order of
+# events (owner, M1b-8 point 3). Every action is pinned by commit SHA (the tag is in the trailing
+# comment); Dependabot proposes the bumps.
 on:
   push:
     branches: [main]
@@ -21,6 +24,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/nexus-operator
+  COSIGN_RELEASE: v2.5.2   # the version the sign job ran on when @v3 was a moving tag (TASKS.md)
 
 permissions:
   contents: read
@@ -30,8 +34,10 @@ jobs:
     name: Lint (Ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
       - run: pip install -r operator/requirements-dev.txt
@@ -43,8 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
       - name: Install dependencies
@@ -70,96 +78,189 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU (linux/arm64 builds)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build (pull request, not pushed)
+      # Pull request: prove both platforms build, and scan the amd64 image. Nothing is pushed.
+      - name: Build linux/amd64 (pull request, loaded for the scan)
         if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: operator
+          platforms: linux/amd64
           load: true
           push: false
           tags: nexus-operator:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build linux/amd64 + linux/arm64 (pull request, not pushed)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: operator
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+
+      - name: Check that the image resolves UID 10001 (passwd entry)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          # Not `getpass.getuser()` under a made-up USER env: ask the image's own passwd database.
+          user=$(docker run --rm --entrypoint python "nexus-operator:pr-${{ github.event.pull_request.number }}" \
+            -c 'import pwd; print(pwd.getpwuid(10001).pw_name)')
+          test "$user" = nexus-operator
+
       - name: Trivy scan (pull request image)
         if: github.event_name == 'pull_request'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: nexus-operator:pr-${{ github.event.pull_request.number }}
           format: table
           severity: 'CRITICAL,HIGH'
 
       - name: Login to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
+        if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push'
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=
             type=ref,event=branch
 
-      - name: Build and push (main)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Build and push (main, linux/amd64 + linux/arm64)
+        if: github.event_name == 'push'
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: operator
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trivy scan (pushed image, by digest)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: aquasecurity/trivy-action@master
+      # The pushed index digest (spec §19). SARIF is the amd64 image; arm64 is logged.
+      - name: Trivy scan (pushed digest, linux/amd64, SARIF)
+        if: github.event_name == 'push'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_PLATFORM: linux/amd64
 
       - name: Upload Trivy SARIF
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: trivy-results.sarif
         continue-on-error: true
+
+      - name: Trivy scan (pushed digest, linux/arm64, table)
+        if: github.event_name == 'push'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: table
+          severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_PLATFORM: linux/arm64
 
   sign:
     name: Sign Image (Cosign)
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     permissions:
       packages: write
       id-token: write
     steps:
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: ${{ env.COSIGN_RELEASE }}
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Signs the index digest, which the manifest pins; both platform manifests hang under it.
       - name: Sign image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
+
+      - name: Verify the signature just made
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
         run: |
-          cosign sign --yes \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          cosign verify \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$IMAGE" > /dev/null
+
+  # Opens a pull request into dev that bumps operator/k8s/deployment.yaml to the signed digest (a
+  # digest bump is a commit, spec §19). The USER=nexus-operator env in that manifest and its test
+  # stay until a digest built from the passwd-entry Dockerfile is pinned: remove them in that PR.
+  # Pull requests made with the default GITHUB_TOKEN do not start workflows, so the required
+  # repo-checks would never run: set the DIGEST_BUMP_TOKEN secret (contents + pull requests write).
+  digest-bump:
+    name: Digest-bump pull request
+    runs-on: ubuntu-latest
+    needs: [build, sign]
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Bump the operator manifest and open the pull request
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          SOURCE_SHA: ${{ github.sha }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+          branch="digest-bump/nexus-operator-${SOURCE_SHA:0:12}"
+          python3 .github/scripts/bump_digest.py operator/k8s/deployment.yaml "$IMAGE" "$DIGEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add operator/k8s/deployment.yaml
+          git commit -m "chore(operator): bump nexus-operator to ${DIGEST:0:19}" \
+            -m "Built from ${SOURCE_SHA} by operator.yml, Trivy-scanned and Cosign-signed by digest (signature verified in the sign job)."
+          git push origin "$branch"
+          gh pr create --base dev --head "$branch" \
+            --title "chore(operator): bump nexus-operator to ${DIGEST:0:19}" \
+            --body "Digest bump for \`${IMAGE}\` from ${SOURCE_SHA}. Verify with \`cosign verify\` before merging."
