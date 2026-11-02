@@ -12,3 +12,10 @@ configMapGenerator:
         grafana_dashboard: "1"
     files:
       - sample-api-red.json
+  - name: flight-recorder-dashboard
+    namespace: monitoring
+    options:
+      labels:
+        grafana_dashboard: "1"
+    files:
+      - flight-recorder.json
