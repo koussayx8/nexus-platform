@@ -1,0 +1,15 @@
+{
+  "schema": "evidence/v1",
+  "incident": {"uid": "u-1", "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"},
+    "alerts": [{"name": "NexusLatencyAnomaly", "startedAt": "2026-12-21T10:01:00Z"}], "note": null},
+  "workload": {"desired": 2, "ready": 2, "updated": 2, "rolloutInProgress": false,
+    "currentRevision": {"replicaSet": "sample-api-7d9f", "imageDigest": "sha256:45e7a88c950a40fd6ce37a6544d95bc435c76a6aa5af2eefcc9463363150d57c"},
+    "previousRevisions": ["sample-api-6c8e"]},
+  "pods": [{"name": "sample-api-7d9f-a", "ready": true, "restarts": 0,
+    "containers": [{"state": "running", "reason": null, "lastTermination": "OOMKilled"}]}],
+  "events": [{"reason": "Unhealthy", "type": "Warning", "count": 3, "lastSeen": "2026-12-21T10:00:50Z"}],
+  "logs": {"current": ["request timeout error from 10.42.0.17", "timeout error for ops@example.com", "retry with password=hunter2go"], "previous": []},
+  "metrics": {"window": "30m", "zscores": {"cpu": 0.4, "latencyP95": 5.1, "errorRatio": 0.2, "requestRate": 0.3}, "errorRatio": 0.001},
+  "gitops": {"application": "sample-api-dev", "sync": "Synced", "health": "Healthy", "revision": "abc", "lastCommit": {"sha": "abc", "message": null}},
+  "collectedAt": "2026-12-21T10:02:00Z"
+}
