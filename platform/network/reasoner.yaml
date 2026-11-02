@@ -1,0 +1,70 @@
+# NetworkPolicies for nexus-reasoner (spec §18, ADR-031). N1-N4, N6.
+# Labels assumed for the Reasoner (M4): app.kubernetes.io/name: nexus-reasoner.
+---
+# Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: nexus-reasoner
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# The NEXUS Operator calls the Reasoner on 8080 and nothing else reaches it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-operator-ingress
+  namespace: nexus-reasoner
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: nexus-reasoner}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-system}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: nexus-operator}}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# DNS, and TCP 443 to public addresses only. The excepted ranges contain the pod CIDR 10.42.0.0/16,
+# the service CIDR 10.43.0.0/16 (so kubernetes.default.svc, N1) and any node IP on a private or
+# WSL2 range (N2), without hardcoding the node IP, which WSL2 changes on restart.
+# No rule reaches the Flight Recorder DB (N3). The Local Model (host IP, TCP 11434) needs the node IP
+# and is therefore not here: it is a bootstrap-time template (Later in TASKS.md).
+# Name-based egress is DEFERRED (spec §18 known limitation).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-and-public-https
+  namespace: nexus-reasoner
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: nexus-reasoner}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+      ports:
+        - {protocol: TCP, port: 443}
