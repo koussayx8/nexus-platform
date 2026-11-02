@@ -1,4 +1,4 @@
-# NetworkPolicies for nexus-data (spec §18, ADR-031). Dependency DB.
+# NetworkPolicies for nexus-data (spec §18, ADR-033). Dependency DB.
 ---
 # Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.
 apiVersion: networking.k8s.io/v1

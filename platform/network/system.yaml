@@ -1,4 +1,4 @@
-# NetworkPolicies for nexus-system (spec §18, ADR-031). Operator and Flight Recorder DB.
+# NetworkPolicies for nexus-system (spec §18, ADR-033). Operator and Flight Recorder DB.
 # Labels: nexus-operator (operator/k8s), flight-recorder-db (task 1 manifests, assumed).
 ---
 # Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.

@@ -33,7 +33,16 @@ filters over the mocked Incident list are real. Edit a policy and its cases toge
 - Eviction matching is by Deployment-name prefix (`<name>-`), as §11 says; a Deployment named
   `sample` would also cover pods of `sample-api`. Both namespaces hold one Deployment today.
 
-## Staging
+## Staging: merged is not deployed
 
-Listed by `platform/kustomization.yaml`, so they reach the cluster when `main` does. Until the
+Nothing the cluster syncs references these policies, `platform/network` or
+`platform/m3-live`. CI builds and validates them and runs `kyverno test` and the offline checks.
+The M3-live PR switches them on with one line in `platform/kustomization.yaml`:
+
+```yaml
+resources:
+  - m3-live
+```
+
+Run the live checks above first (K6 gates the Alert Poller's Incident create). Until the
 operator's L2 states exist, an L2 namespace stays `Escalated` and K3 never sees a request.

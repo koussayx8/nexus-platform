@@ -1,8 +1,8 @@
-# ADR-031: M3 — Kyverno policies, NetworkPolicies, CODEOWNERS and nexusctl
+# ADR-033: M3 — Kyverno policies, NetworkPolicies, CODEOWNERS and nexusctl
 
 ## Status: Proposed (task 3 of the 2026-11-02 re-plan; accepted when its pull request merges)
 
-Number taken from the next free slot after ADR-030; renumber if another task's ADR lands first.
+Numbered after ADR-031 (Flight Recorder DB) and ADR-032 (operator RBAC staging).
 
 ## Context
 Spec §11, §16A, §18 and §19 freeze what M3 builds: six Kyverno policies (K1–K6), network
@@ -25,7 +25,9 @@ interface. There is no cluster in the authoring session, so nothing here ran aga
 | 10 | Approver RBAC and Kyverno's read access to Incidents live in `platform/policies/approvers-rbac.yaml`. | Keeps this change off `platform/rbac/`, which the operator task edits; both paths are under CODEOWNERS. |
 | 11 | `kyverno test` has one `userinfo` per test file, so each identity gets its own directory. Context lookups are mocked in `values.yaml`. | The CLI's design. |
 | 12 | `nexusctl` ships the four MUST commands (`list`, `explain`, `approve`, `reject`) plus `nexus-client`. `explain` reads the Incident CR only; its Flight Recorder and Audit Log sections are named unavailable and `--evidence`/`--raw` exit 9. | The Flight Recorder schema belongs to another task. The SHOULD commands are M6 (§16A "Delivery"). |
-| 13 | The `platform` AppProject gains `kyverno.io/ClusterPolicy` and `networking.k8s.io/NetworkPolicy`. | Standing rule: the AppProject widens in the pull request that needs the kinds. |
+| 13 | The `platform` AppProject gains `kyverno.io/ClusterPolicy` and `networking.k8s.io/NetworkPolicy` now. | It only permits the kinds; no resource of those kinds is synced until M3-live. Keeping it here makes the M3-live switch a single line. (If the owner prefers the strict standing rule, move these two lines into the M3-live PR.) |
+| 14 | **Merged is not deployed.** `platform/m3-live/kustomization.yaml` aggregates `../policies` and `../network`; nothing synced references it. M3-live adds `- m3-live` to `platform/kustomization.yaml`. | Owner decision, 2026-11-02. CI keeps building, validating and testing everything. |
+| 15 | **X7 (proposalHash).** K5 checks it at write time (`bind-proposal-hash`, both decisions, against the Incident's own `status.proposal.hash`; `bind-action` and `bind-replicas` pin action and replicas). K3 checks it at execution time (approval hash equals `status.proposal.hash`). C2 makes the approval write-once. | Spec I16 says "K3, K5, C2"; the §11 K3 and K5 rows do not name the hash. Followed: I16, §11 K3 and K5 rows, §8 field ownership (approval copied from `status.proposal`), §16A "what you see is what you approve" and D22. Spec v1.1 records it. |
 
 ## CODEOWNERS and branch protection
 `.github/CODEOWNERS` lists `platform/policies/`, `platform/rbac/` and the Action Catalogue module
@@ -44,6 +46,6 @@ this ADR (self-merge after green checks is allowed, §19).
 - N6 (no ServiceAccount token in the Reasoner) is a property of the Reasoner's pod spec (M4).
 
 ## Consequences
-- Merging to `main` delivers the policies in Enforce. K6 gates the Alert Poller's `create`; a wrong
+- Merging this PR deploys nothing. The M3-live PR delivers the policies in Enforce. K6 gates the Alert Poller's `create`; a wrong
   K6 would stop detection, so the gate pull request needs a live check of one detector Incident first.
 - `nexus-prod` stays at L1; K1 denies any mutation there until the label changes in Git.

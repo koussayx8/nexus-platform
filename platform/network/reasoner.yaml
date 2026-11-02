@@ -1,4 +1,4 @@
-# NetworkPolicies for nexus-reasoner (spec §18, ADR-031). N1-N4, N6.
+# NetworkPolicies for nexus-reasoner (spec §18, ADR-033). N1-N4, N6.
 # Labels assumed for the Reasoner (M4): app.kubernetes.io/name: nexus-reasoner.
 ---
 # Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.

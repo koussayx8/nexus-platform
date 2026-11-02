@@ -1,5 +1,5 @@
 # The six NEXUS Kyverno policies (spec §11), verifyImages in Audit, and the RBAC the approval path
-# needs. Listed by platform/kustomization.yaml; tests/ is not a resource (kyverno test input).
+# needs. Referenced only by platform/m3-live (not deployed until the M3-live PR); tests/ is kyverno test input.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

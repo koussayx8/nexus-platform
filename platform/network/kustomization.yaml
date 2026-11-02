@@ -1,4 +1,4 @@
-# NetworkPolicies N1-N6 (spec §18, ADR-031). Default-deny in every NEXUS namespace, then the
+# NetworkPolicies N1-N6 (spec §18, ADR-033). Default-deny in every NEXUS namespace, then the
 # allowed connections. Enforced by k3s' embedded network-policy controller; whether it enforces
 # under WSL2 is verified by scripts/tests/network-n1-n6.sh (live check pending), not assumed.
 apiVersion: kustomize.config.k8s.io/v1beta1
