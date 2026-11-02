@@ -52,6 +52,17 @@ class IndexTest(unittest.TestCase):
         )
         self.assertEqual(self.top(rollout)[0]["runbook"], "rb-bad-rollout")
 
+    def test_query_from_real_evidence_v1_shape(self):
+        import json
+
+        raw = json.loads(
+            (Path(__file__).parent / "fixtures" / "evidence-v1-raw.json").read_text()
+        )
+        q = bm25.build_query(raw)  # lastTermination is a string in evidence/v1
+        for tok in ("nexuslatencyanomaly", "oomkilled", "unhealthy", "latencyp95"):
+            self.assertIn(tok, q)
+        self.assertNotIn("cpu", q)  # Z 0.4: not anomalous
+
     def test_floor_gives_no_runbook(self):
         s5 = bundle(
             incident={"alerts": [{"name": "NexusErrorRateAnomaly"}]},

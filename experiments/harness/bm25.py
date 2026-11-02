@@ -199,7 +199,7 @@ def build_query(bundle: dict) -> list[str]:
     for p in bundle.get("pods", []):
         for c in p.get("containers", []):
             q += tokenize(c.get("reason") or "")
-            q += tokenize((c.get("lastTermination") or {}).get("reason") or "")
+            q += tokenize(c.get("lastTermination") or "")
     for e in bundle.get("events", []):
         q += tokenize(e.get("reason") or "")
     lines = bundle.get("logs", {}).get("current", []) + bundle.get("logs", {}).get(

@@ -1,20 +1,40 @@
-"""Offline tests for reasoner_client.py: redaction, validation, timeout, no retry."""
+"""Offline tests for reasoner_client.py. The redacted bundle is built exactly as the operator's
+act.py builds it (redact_bundle, then counts, then hash_of), so the client is tested against the
+real Redactor and the real proposal/v1 validator, not copies of them."""
 
 import io
 import json
+import pathlib
 import unittest
 import urllib.error
 from typing import ClassVar
+from unittest import mock
 
 from .. import reasoner_client as rc
+from ..operator_lib import proposal, redact
+
+RAW = json.loads(
+    (pathlib.Path(__file__).parent / "fixtures" / "evidence-v1-raw.json").read_text()
+)
+
+
+def operator_redacted(raw: dict) -> dict:
+    """What act.py does between the Evidence Collector and the Reasoner Client."""
+    redacted, counts = redact.redact_bundle(raw)
+    bundle = redacted | {"redaction": {"counts": counts}}
+    bundle["hash"] = proposal.hash_of(bundle)
+    return bundle
+
 
 GOOD = {
     "schema": "proposal/v1",
     "hypothesis": {"faultClass": "gray_failure", "summary": "x"},
-    "evidenceRefs": ["metrics.zscores.latencyP95"], "runbookRefs": ["rb-gray-failure#2"],
+    "evidenceRefs": ["metrics.zscores.latencyP95"],
+    "runbookRefs": ["rb-gray-failure#2"],
     "action": {"id": "restart_workload", "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}, "parameters": {}},
     "expectedEffect": "e", "confidence": 0.8, "escalation": None, "abstain": False,
 }  # fmt: skip
+CTX = {"incidentUid": "u-1", "level": "L3", "mode": "llm", "model": "m"}
 
 
 class FakeResp(io.BytesIO):
@@ -36,97 +56,46 @@ class Opener:
         return FakeResp(self.result.encode())
 
 
-class RedactTest(unittest.TestCase):
-    def test_scrubs_and_counts(self):
-        b = {"logs": {"current": ["auth Bearer abcdefghijklmnop1234 from 10.1.2.3", "mail bob@example.com",
-                                  "password=hunter2 key ghp_" + "a" * 24]}}  # fmt: skip
-        r = rc.redact(b)
-        text = json.dumps(r)
-        for leak in (
-            "abcdefghijklmnop1234",
-            "10.1.2.3",
-            "bob@example.com",
-            "hunter2",
-            "ghp_aaaa",
-        ):
+class CheckRedactedTest(unittest.TestCase):
+    def test_operator_bundle_passes_and_secrets_are_gone(self):
+        b = operator_redacted(RAW)
+        self.assertIsNone(rc.check_redacted(b))
+        text = json.dumps(b)
+        for leak in ("10.42.0.17", "ops@example.com", "hunter2go"):
             self.assertNotIn(leak, text)
-        c = r["redaction"]["counts"]
-        self.assertEqual((c["email"], c["ip"], c["credential"]), (1, 1, 1))
-        self.assertGreaterEqual(c["token"], 2)
-        self.assertTrue(r["hash"].startswith("sha256:"))
+        self.assertGreaterEqual(b["redaction"]["counts"]["ip"], 1)
 
-    def test_idempotent_and_input_untouched(self):
-        b = {"logs": {"current": ["mail bob@example.com"]}}
-        once = rc.redact(b)
-        self.assertEqual(rc.redact(once)["hash"], once["hash"])
-        self.assertIn("bob@example.com", b["logs"]["current"][0])
-
-    def test_private_key_block(self):
-        r = rc.redact(
-            {
-                "x": "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"
-            }
-        )
-        self.assertNotIn("MIIB", json.dumps(r))
-        self.assertEqual(r["redaction"]["counts"]["key"], 1)
-
-
-class ValidateTest(unittest.TestCase):
-    def test_good(self):
-        self.assertEqual(rc.validate_proposal(GOOD), [])
-
-    def test_each_rule(self):
-        def bad(**kw):
-            return rc.validate_proposal({**GOOD, **kw})
-
-        self.assertTrue(bad(schema="proposal/v2"))
-        self.assertTrue(bad(hypothesis={"faultClass": "ghosts"}))
-        self.assertTrue(bad(action={"id": "delete_deployment"}))  # not representable
-        self.assertTrue(
-            bad(action={"id": "scale_deployment", "target": {"namespace": "n"}})
-        )
-        self.assertTrue(bad(abstain="no"))
-        self.assertTrue(bad(confidence=1.5))
-        self.assertTrue(bad(confidence=True))
-        self.assertTrue(bad(runbookRefs="rb-x#1"))
-        self.assertTrue(bad(action={"id": "escalate"}, escalation=None))
-        self.assertEqual(bad(action={"id": "no_action"}), [])
-        ok = bad(
-            action={"id": "escalate"},
-            escalation={
-                "reason": "r",
-                "recommendation": {"kind": "git_revert", "detail": "d"},
-            },
-        )
-        self.assertEqual(ok, [])
-        self.assertEqual(rc.validate_proposal([]), ["not an object"])
+    def test_refuses_what_the_operator_did_not_redact(self):
+        self.assertIn("redaction.counts", rc.check_redacted(RAW))
+        b = operator_redacted(RAW)
+        tampered = json.loads(json.dumps(b))
+        tampered["logs"]["current"][0] = "still has 10.9.9.9"
+        self.assertIn("hash", rc.check_redacted(tampered))
+        self.assertIn("evidence/v1", rc.check_redacted({"schema": "other"}))
 
 
 class ProposeTest(unittest.TestCase):
-    CTX: ClassVar[dict] = {
-        "incidentUid": "u",
-        "level": "L3",
-        "mode": "llm",
-        "model": "m",
-    }
+    BUNDLE: ClassVar[dict] = operator_redacted(RAW)
 
-    def test_ok_nested_and_flat(self):
+    def test_ok_nested_and_flat_one_call_30s(self):
         for doc in ({"proposal": GOOD, "metadata": {"indexHash": "h"}}, GOOD):
             op = Opener(json.dumps(doc))
-            r = rc.propose(
-                "http://reasoner:8080/",
-                {"logs": {"current": ["a@b.co"]}},
-                self.CTX,
-                opener=op,
-            )
+            r = rc.propose("http://reasoner:8080/", self.BUNDLE, CTX, opener=op)
             self.assertTrue(r.ok, r)
             self.assertEqual(r.proposal["action"]["id"], "restart_workload")
-            self.assertEqual(len(op.calls), 1)
             req, timeout = op.calls[0]
             self.assertEqual(
-                (req.full_url, timeout), ("http://reasoner:8080/v1/propose", 30)
+                (len(op.calls), req.full_url, timeout),
+                (1, "http://reasoner:8080/v1/propose", 30),
             )
-            self.assertNotIn("a@b.co", req.data.decode())  # redacted before it leaves
+            self.assertEqual(
+                json.loads(req.data)["bundle"], self.BUNDLE
+            )  # sent as received, never re-scrubbed or altered
+
+    def test_unredacted_bundle_is_never_sent(self):
+        op = Opener(json.dumps(GOOD))
+        r = rc.propose("http://x", RAW, CTX, opener=op)
+        self.assertEqual((r.ok, r.reason, op.calls), (False, "not_redacted", []))
 
     def test_failures_one_attempt_each(self):
         cases = {
@@ -137,27 +106,59 @@ class ProposeTest(unittest.TestCase):
         }
         for reason, exc in cases.items():
             op = Opener(exc)
-            r = rc.propose("http://x", {}, self.CTX, opener=op)
+            r = rc.propose("http://x", self.BUNDLE, CTX, opener=op)
             self.assertEqual(
                 (r.ok, r.reason, len(op.calls)), (False, reason, 1), reason
             )
-
-    def test_url_timeout_reason(self):
         r = rc.propose(
             "http://x",
-            {},
-            self.CTX,
+            self.BUNDLE,
+            CTX,
             opener=Opener(urllib.error.URLError(TimeoutError())),
         )
         self.assertEqual(r.reason, "timeout")
 
-    def test_unparseable_and_schema_invalid_keep_raw(self):
-        r = rc.propose("http://x", {}, self.CTX, opener=Opener("not json"))
+    def test_untrusted_output_rejected_raw_kept(self):
+        r = rc.propose("http://x", self.BUNDLE, CTX, opener=Opener("not json"))
         self.assertEqual((r.reason, r.raw), ("unparseable", "not json"))
-        raw = json.dumps({**GOOD, "action": {"id": "delete_deployment"}})
-        r = rc.propose("http://x", {}, self.CTX, opener=Opener(raw))
-        self.assertEqual((r.ok, r.reason, r.raw), (False, "schema_invalid", raw))
-        self.assertTrue(r.errors)
+        for bad, reason in (
+            ({**GOOD, "schema": "proposal/v2"}, "schema_invalid"),
+            (
+                {**GOOD, "extra": 1},
+                "schema_invalid",
+            ),  # the operator's validator is strict
+            ({**GOOD, "confidence": "high"}, "schema_invalid"),
+            (
+                {**GOOD, "action": {**GOOD["action"], "id": "delete_deployment"}},
+                "not_in_catalogue",
+            ),
+        ):
+            raw = json.dumps(bad)
+            r = rc.propose("http://x", self.BUNDLE, CTX, opener=Opener(raw))
+            self.assertEqual((r.ok, r.reason, r.raw), (False, reason, raw))
+
+    def test_fallback_to_r1_once_then_blocked(self):
+        op = Opener(TimeoutError())
+        r = rc.propose_with_fallback("http://x", self.BUNDLE, CTX, opener=op)
+        self.assertEqual(len(op.calls), 1)  # the reasoner is not retried
+        self.assertTrue(r.ok and r.fallback_used)
+        self.assertEqual(r.meta["primary_failure"], "timeout")
+        self.assertEqual(proposal.validate(r.proposal), [])
+        self.assertEqual(
+            r.proposal["action"]["id"], "restart_workload"
+        )  # R1 rule 4: p95 Z 5.1, CPU Z 0.4, all Ready
+        # R1 itself producing invalid output is Blocked, not retried (R1 is always valid today)
+        with mock.patch.object(rc.rules, "propose", return_value={"schema": "nope"}):
+            r = rc.propose_with_fallback(
+                "http://x", self.BUNDLE, CTX, opener=Opener(TimeoutError())
+            )
+        self.assertTrue(r.blocked and not r.ok and r.fallback_used)
+
+    def test_not_redacted_does_not_fall_back(self):
+        r = rc.propose_with_fallback(
+            "http://x", RAW, CTX, opener=Opener(json.dumps(GOOD))
+        )
+        self.assertEqual((r.reason, r.fallback_used), ("not_redacted", False))
 
 
 if __name__ == "__main__":
