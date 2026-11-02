@@ -1,0 +1,24 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k1-baseline
+policies:
+- ../../../k1-autonomy-floor.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-l3
+  kind: Scale
+  result: pass
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-l1
+  kind: Scale
+  result: fail

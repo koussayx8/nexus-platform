@@ -1,0 +1,138 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-ok
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-no-incident
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-rejected
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-expired
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-other-replicas
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-hash-mismatch
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-other-target
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-other-namespace
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-other-action
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-no-approval-yet
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-one-of-two
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-level-3
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-ok-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-no-incident-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-rejected-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-expired-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-hash-mismatch-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-other-target-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-scale-approval-only-6d9f7c8b5-x2k4q
+  namespace: nexus-dev
