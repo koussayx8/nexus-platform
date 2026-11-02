@@ -28,6 +28,8 @@ env:
   YQ_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
   PROMETHEUS_VERSION: 3.12.0    # promtool from the Prometheus that chart 86.2.2 runs (ADR-024)
   PROMETHEUS_SHA256: 20da47f8e5303f74aecb78edd7f7e39041dac08ac4939dba75efd7a900ae8867
+  SHELLCHECK_VERSION: 0.11.0    # sha256 of the linux.x86_64 release asset as downloaded 2026-11-02 (upstream publishes none)
+  SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 
 jobs:
   repo-checks:
@@ -64,6 +66,10 @@ jobs:
           echo "$PROMETHEUS_SHA256  pkg.tgz" | sha256sum -c -
           tar -xzf pkg.tgz -C "$bin" --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
           rm -f pkg.tgz
+          curl -fsSL -o pkg.txz "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  pkg.txz" | sha256sum -c -
+          tar -xJf pkg.txz -C "$bin" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          rm -f pkg.txz
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit range
@@ -77,8 +83,10 @@ jobs:
         run: |
           if [ "$EVENT" = pull_request ]; then
             range="$PR_BASE..$PR_HEAD"
-          elif [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
-            # New branch: scan everything it adds on top of main (ADR-012).
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ] \
+            || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            # New branch, or a force push whose old head is gone from this clone (`git log` on it
+            # would fail): scan everything the head adds on top of main (ADR-012).
             base=$(git merge-base origin/main "$SHA")
             range="$base..$SHA"
           else

@@ -18,9 +18,13 @@
 #  10. Offline unit tests for the M1b-9 calibration ramp and knee script (experiments/calibration;
 #      standard library only, no network, ADR-026).
 #
-# Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
-# installs pinned, checksummed builds).
+# 11. shellcheck (warning and above) over every tracked *.sh file (TASKS.md Hygiene).
+# 12. Offline unit tests for bump_digest.py, the digest-bump pull request's rewriter (standard
+#     library only).
+#
+# Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
+# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
+# PATH (CI installs pinned, checksummed builds).
 set -euo pipefail
 
 RANGE=${1:?usage: repo-checks.sh "<git log range>"}
@@ -98,4 +102,12 @@ echo "::endgroup::"
 
 echo "::group::calibration ramp and knee tests (M1b-9, offline)"
 python3 -m unittest discover -s experiments/calibration -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::shellcheck (tracked *.sh, warning and above)"
+git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning
+echo "::endgroup::"
+
+echo "::group::bump_digest.py tests (offline)"
+python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 echo "::endgroup::"
