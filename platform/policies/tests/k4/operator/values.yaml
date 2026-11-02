@@ -1,0 +1,59 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+subresources:
+- subresource:
+    name: deployments/scale
+    kind: Scale
+    group: autoscaling
+    version: v1
+  parentResource:
+    name: deployments
+    kind: Deployment
+    group: apps
+    version: v1
+- subresource:
+    name: pods/eviction
+    kind: Eviction
+    group: policy
+    version: v1
+  parentResource:
+    name: pods
+    kind: Pod
+    group: ''
+    version: v1
+policies:
+- name: nexus-killswitch
+  resources:
+  - name: scale-active-y
+    values:
+      killswitchState: active
+      request.operation: UPDATE
+  - name: evict-active-y
+    values:
+      killswitchState: active
+      request.operation: CREATE
+  - name: scale-halted-y
+    values:
+      killswitchState: halted
+      request.operation: UPDATE
+  - name: evict-halted-y
+    values:
+      killswitchState: halted
+      request.operation: CREATE
+  - name: scale-missing-y
+    values:
+      killswitchState: missing
+      request.operation: UPDATE
+  - name: evict-missing-y
+    values:
+      killswitchState: missing
+      request.operation: CREATE
+  - name: scale-active-x
+    values:
+      killswitchState: ACTIVE
+      request.operation: UPDATE
+  - name: evict-active-x
+    values:
+      killswitchState: ACTIVE
+      request.operation: CREATE

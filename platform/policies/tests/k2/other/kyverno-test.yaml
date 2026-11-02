@@ -1,0 +1,18 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k2-other-identity
+policies:
+- ../../../k2-scale-bounds.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-scale-bounds
+  rule: scale-bounds
+  resources:
+  - scale-to-0
+  kind: Scale
+  result: skip

@@ -1,0 +1,27 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: nexus.io/v1alpha1
+kind: Incident
+metadata:
+  name: approved-unchanged
+  namespace: nexus-system
+spec:
+  source:
+    type: detector
+  target:
+    namespace: nexus-dev
+    kind: Deployment
+    name: sample-api
+  approval:
+    decision: approved
+    actionId: scale_deployment
+    proposalHash: sha256:ab12
+    expiresAt: '2000-01-01T00:00:00Z'
+    approvedBy: approver-1
+    parameters:
+      replicas: 4
+status:
+  proposal:
+    hash: sha256:ab12
+    actionId: scale_deployment
+    parameters:
+      replicas: 4

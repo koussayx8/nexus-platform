@@ -1,0 +1,10 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: userinfo
+userInfo:
+  username: system:serviceaccount:nexus-system:nexus-operator
+  groups:
+  - system:serviceaccounts
+  - system:authenticated

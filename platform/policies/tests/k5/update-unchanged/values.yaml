@@ -1,0 +1,16 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+globalValues:
+  request.operation: UPDATE
+policies:
+- name: nexus-incident-approval
+  resources:
+  - name: approved-unchanged
+    values:
+      request.oldObject.spec.approval.decision: approved
+      request.oldObject.spec.approval.actionId: scale_deployment
+      request.oldObject.spec.approval.parameters.replicas: 4
+      request.oldObject.spec.approval.proposalHash: sha256:ab12
+      request.oldObject.spec.approval.expiresAt: '2099-01-01T00:00:00Z'
+      request.oldObject.spec.approval.approvedBy: approver-1

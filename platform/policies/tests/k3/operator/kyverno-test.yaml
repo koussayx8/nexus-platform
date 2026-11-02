@@ -1,0 +1,126 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k3-operator
+policies:
+- ../../../k3-l2-approval.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-ok
+  kind: Scale
+  result: pass
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-no-incident
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-rejected
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-expired
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-other-replicas
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-hash-mismatch
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-other-target
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-other-namespace
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-other-action
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-no-approval-yet
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-one-of-two
+  kind: Scale
+  result: pass
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-level-3
+  kind: Scale
+  result: skip
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-ok-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: pass
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-no-incident-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: fail
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-rejected-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: fail
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-expired-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: fail
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-hash-mismatch-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: fail
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-other-target-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: fail
+- policy: nexus-l2-approval
+  rule: eviction-needs-approval
+  resources:
+  - evict-scale-approval-only-6d9f7c8b5-x2k4q
+  kind: Eviction
+  result: fail

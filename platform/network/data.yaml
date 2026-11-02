@@ -1,0 +1,34 @@
+# NetworkPolicies for nexus-data (spec §18, ADR-033). Dependency DB.
+---
+# Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: nexus-data
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Only sample-api in nexus-dev and nexus-prod, on 5432. No egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dependency-db-ingress
+  namespace: nexus-data
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: dependency-db}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-dev}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: sample-api}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-prod}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: sample-api}}
+      ports:
+        - {protocol: TCP, port: 5432}

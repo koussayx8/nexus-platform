@@ -1,0 +1,206 @@
+# K5 nexus-incident-approval (spec §11, §16A). Who may write spec.approval, what it must pin,
+# and who it says approved it. Rules run mutate first, then validate. Tests: tests/k5.
+#   stamp-approver      first write of spec.approval: approvedBy/approvedAt come from the request
+#                       identity and clock; client values are overwritten. Later updates carry the
+#                       stored approval unchanged and are left alone (C2 makes it write-once).
+#   approvers-only      a changed spec.approval needs group nexus-approvers (the operator, the
+#                       baseline and everyone else are refused).
+#   expiry-required     an approval needs expiresAt (no expiry means no TTL).
+#   expiry-max-15m      expiresAt at most 15 minutes ahead (approvalTTL, §12, §16A).
+#   bind-proposal-hash  proposalHash equals the Incident's own status.proposal.hash, so what was
+#                       shown is what is approved (hash binding, §16A "what you see is what you
+#                       approve"). Both decisions.
+#   bind-action         an approval pins the action of status.proposal (approved only).
+#   bind-replicas       for scale_deployment the approval also pins the proposal's replicas.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-incident-approval
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/spec: "§11 K5"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: stamp-approver
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: NotEquals
+            value: ""
+          - key: "{{ request.oldObject.spec.approval.decision || '' }}"
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          spec:
+            approval:
+              approvedBy: "{{ request.userInfo.username }}"
+              approvedAt: "{{ time_now_utc() }}"
+    - name: approvers-only
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: NotEquals
+            value: ""
+          - key: "{{ to_string(request.object.spec.approval) }}"
+            operator: NotEquals
+            value: "{{ to_string(request.oldObject.spec.approval || `null`) }}"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K5 nexus-incident-approval: only group nexus-approvers may set spec.approval
+          (request identity: {{ request.userInfo.username }}).
+        deny:
+          conditions:
+            all:
+              - key: nexus-approvers
+                operator: AnyNotIn
+                value: "{{ request.userInfo.groups || `[]` }}"
+    - name: expiry-required
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: Equals
+            value: approved
+          - key: "{{ to_string(request.object.spec.approval) }}"
+            operator: NotEquals
+            value: "{{ to_string(request.oldObject.spec.approval || `null`) }}"
+      validate:
+        failureAction: Enforce
+        message: "K5 nexus-incident-approval: an approval needs spec.approval.expiresAt."
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.object.spec.approval.expiresAt || '' }}"
+                operator: Equals
+                value: ""
+    - name: expiry-max-15m
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: Equals
+            value: approved
+          - key: "{{ request.object.spec.approval.expiresAt || '' }}"
+            operator: NotEquals
+            value: ""
+          - key: "{{ to_string(request.object.spec.approval) }}"
+            operator: NotEquals
+            value: "{{ to_string(request.oldObject.spec.approval || `null`) }}"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K5 nexus-incident-approval: expiresAt {{ request.object.spec.approval.expiresAt }} is
+          more than 15 minutes ahead (approvalTTL).
+        deny:
+          conditions:
+            all:
+              - key: "{{ time_after(request.object.spec.approval.expiresAt, time_add(time_now_utc(), '15m')) }}"
+                operator: Equals
+                value: true
+    - name: bind-proposal-hash
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: NotEquals
+            value: ""
+          - key: "{{ to_string(request.object.spec.approval) }}"
+            operator: NotEquals
+            value: "{{ to_string(request.oldObject.spec.approval || `null`) }}"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K5 nexus-incident-approval: approval.proposalHash
+          '{{ request.object.spec.approval.proposalHash || '' }}' does not equal the Incident's
+          status.proposal.hash '{{ request.object.status.proposal.hash || 'none' }}'.
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.approval.proposalHash || '' }}"
+                operator: Equals
+                value: ""
+              - key: "{{ request.object.spec.approval.proposalHash || '' }}"
+                operator: NotEquals
+                value: "{{ request.object.status.proposal.hash || 'none' }}"
+    - name: bind-action
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: Equals
+            value: approved
+          - key: "{{ to_string(request.object.spec.approval) }}"
+            operator: NotEquals
+            value: "{{ to_string(request.oldObject.spec.approval || `null`) }}"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K5 nexus-incident-approval: approval.actionId '{{ request.object.spec.approval.actionId || '' }}'
+          is not the Incident's status.proposal.actionId '{{ request.object.status.proposal.actionId || 'none' }}'.
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.object.spec.approval.actionId || '' }}"
+                operator: NotEquals
+                value: "{{ request.object.status.proposal.actionId || 'none' }}"
+    - name: bind-replicas
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.approval.decision || '' }}"
+            operator: Equals
+            value: approved
+          - key: "{{ request.object.spec.approval.actionId || '' }}"
+            operator: Equals
+            value: scale_deployment
+          - key: "{{ to_string(request.object.spec.approval) }}"
+            operator: NotEquals
+            value: "{{ to_string(request.oldObject.spec.approval || `null`) }}"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K5 nexus-incident-approval: approval.parameters.replicas
+          '{{ request.object.spec.approval.parameters.replicas || 'none' }}' is not the Incident's
+          status.proposal.parameters.replicas '{{ request.object.status.proposal.parameters.replicas || 'none' }}'.
+        deny:
+          conditions:
+            all:
+              - key: "{{ to_string(request.object.spec.approval.parameters.replicas || `0`) }}"
+                operator: NotEquals
+                value: "{{ to_string(request.object.status.proposal.parameters.replicas || `-1`) }}"
