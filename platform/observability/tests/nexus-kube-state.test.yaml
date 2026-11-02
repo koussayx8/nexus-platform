@@ -46,7 +46,8 @@ tests:
               summary: "sample-api rollout stuck in nexus-dev"
               description: "Unavailable replicas above 0 for 3 min"
 
-  # 2. A rollout that recovers inside 3 min never fires (a normal rolling update).
+  # 2. A rollout that recovers inside 3 min never fires (a normal rolling update). "1x4" is five
+  #    samples (2 min), so the alert is pending for five evaluations and never firing.
   - name: a short unavailability is not a stuck rollout
     interval: 30s
     input_series:
@@ -55,7 +56,7 @@ tests:
     promql_expr_test:
       - expr: count_over_time(ALERTS{alertname="NexusRolloutStuck"}[30m])
         eval_time: 20m
-        exp_samples: [{labels: '{alertname="NexusRolloutStuck",alertstate="pending",deployment="sample-api",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}', value: 4}]
+        exp_samples: [{labels: '{alertname="NexusRolloutStuck",alertstate="pending",deployment="sample-api",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}', value: 5}]
       - expr: count_over_time(ALERTS{alertname="NexusRolloutStuck",alertstate="firing"}[30m])
         eval_time: 20m
         exp_samples: []
