@@ -1,0 +1,15 @@
+# NOT DEPLOYED. M3 enforcement, held back on purpose: Kyverno K1-K6, verifyImages (Audit), the
+# approval-path RBAC and NetworkPolicies N1-N6 (ADR-033). Nothing the cluster syncs references this
+# directory: platform/kustomization.yaml does not list it and no Argo CD Application points here.
+# repo-checks still builds it and kubeconform validates it, and CI runs the kyverno and offline tests.
+#
+# The M3-live PR switches everything on with ONE line, in platform/kustomization.yaml:
+#   resources:
+#     - m3-live
+# (merge that PR to main only after the live checks in platform/policies/README.md pass).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../policies
+  - ../network

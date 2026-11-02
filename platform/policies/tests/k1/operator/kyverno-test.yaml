@@ -1,0 +1,60 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k1-operator
+policies:
+- ../../../k1-autonomy-floor.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-l3
+  kind: Scale
+  result: pass
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-l2
+  kind: Scale
+  result: pass
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-l1
+  kind: Scale
+  result: fail
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-l0
+  kind: Scale
+  result: fail
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - scale-unlabelled
+  kind: Scale
+  result: fail
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - evict-l3
+  kind: Eviction
+  result: pass
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - evict-l1
+  kind: Eviction
+  result: fail
+- policy: nexus-autonomy-floor
+  rule: autonomy-floor
+  resources:
+  - evict-unlabelled
+  kind: Eviction
+  result: fail

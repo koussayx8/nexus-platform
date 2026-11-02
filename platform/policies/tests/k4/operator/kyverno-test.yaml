@@ -1,0 +1,60 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k4-operator
+policies:
+- ../../../k4-killswitch.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - scale-active-y
+  kind: Scale
+  result: pass
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - evict-active-y
+  kind: Eviction
+  result: pass
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - scale-halted-y
+  kind: Scale
+  result: fail
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - evict-halted-y
+  kind: Eviction
+  result: fail
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - scale-missing-y
+  kind: Scale
+  result: fail
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - evict-missing-y
+  kind: Eviction
+  result: fail
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - scale-active-x
+  kind: Scale
+  result: fail
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - evict-active-x
+  kind: Eviction
+  result: fail

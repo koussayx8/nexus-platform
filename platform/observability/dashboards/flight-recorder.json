@@ -1,0 +1,253 @@
+{
+  "uid": "nexus-flight-recorder",
+  "title": "NEXUS Flight Recorder",
+  "tags": [
+    "nexus",
+    "flight-recorder"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "run",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "nexus-flight-recorder"
+        },
+        "query": "SELECT 'All' AS __text, 'All' AS __value UNION ALL (SELECT run_id, run_id FROM runs ORDER BY started_at DESC LIMIT 50)",
+        "refresh": 2,
+        "includeAll": false,
+        "current": {
+          "text": "All",
+          "value": "All"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Incidents by terminal phase and reason",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT coalesce(i.terminal_phase,'(open)') AS phase, coalesce(i.reason,'') AS reason, count(*) AS incidents FROM incidents i WHERE ($__timeFilter(i.detected_at)) AND ('${run}' = 'All' OR i.run_id = '${run}') GROUP BY 1,2 ORDER BY 3 DESC"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Gate decisions by stage",
+      "type": "barchart",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT g.stage::text AS stage, count(*) FILTER (WHERE g.verdict='pass') AS pass, count(*) FILTER (WHERE g.verdict='fail') AS fail FROM gate_decisions g JOIN incidents i USING (incident_uid) WHERE ($__timeFilter(i.detected_at)) AND ('${run}' = 'All' OR i.run_id = '${run}') GROUP BY g.stage ORDER BY g.stage"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Actions (intent, request, Audit-Id)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT a.intent_at AS \"time\", i.target, a.action_id, a.action_class, a.http_status, a.result, a.audit_id, a.idempotency_key FROM actions a JOIN incidents i USING (incident_uid) WHERE ($__timeFilter(a.intent_at)) AND ('${run}' = 'All' OR i.run_id = '${run}') ORDER BY a.intent_at DESC LIMIT 200"
+        }
+      ],
+      "description": "One row per action. The row exists before the request (write-ahead); audit_id joins it to the API Audit Log."
+    },
+    {
+      "id": 4,
+      "title": "Incomplete actions (intent without an Audit-Id)",
+      "type": "stat",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS incomplete FROM actions a JOIN incidents i USING (incident_uid) WHERE a.audit_id IS NULL AND a.intent_at < now() - interval '1 minute' AND ($__timeFilter(a.intent_at)) AND ('${run}' = 'All' OR i.run_id = '${run}')"
+        }
+      ],
+      "description": "Reconciliation flags these. Zero is expected: an intent row whose request was never completed.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Verifications",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 16,
+        "x": 8,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT v.at AS \"time\", i.target, v.criteria_id, v.result, v.observations::text AS observations FROM verifications v JOIN incidents i USING (incident_uid) WHERE ($__timeFilter(v.at)) AND ('${run}' = 'All' OR i.run_id = '${run}') ORDER BY v.at DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Reasoner proposals (mode, latency, schema-valid)",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT i.detected_at AS \"time\", i.target, p.reasoner_mode, p.model_id, p.schema_valid, p.fallback_used, p.latency_ms FROM proposals p JOIN incidents i USING (incident_uid) WHERE ($__timeFilter(i.detected_at)) AND ('${run}' = 'All' OR i.run_id = '${run}') ORDER BY i.detected_at DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Incident transitions",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT t.at AS \"time\", i.target, t.incident_uid, t.seq, t.from_phase, t.to_phase, t.stage, t.reason FROM transitions t JOIN incidents i USING (incident_uid) WHERE ($__timeFilter(t.at)) AND ('${run}' = 'All' OR i.run_id = '${run}') ORDER BY t.at DESC, t.seq DESC LIMIT 300"
+        }
+      ]
+    }
+  ]
+}

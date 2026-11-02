@@ -1,0 +1,59 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+subresources:
+- subresource:
+    name: deployments/scale
+    kind: Scale
+    group: autoscaling
+    version: v1
+  parentResource:
+    name: deployments
+    kind: Deployment
+    group: apps
+    version: v1
+- subresource:
+    name: pods/eviction
+    kind: Eviction
+    group: policy
+    version: v1
+  parentResource:
+    name: pods
+    kind: Pod
+    group: ''
+    version: v1
+policies:
+- name: nexus-autonomy-floor
+  resources:
+  - name: scale-l3
+    values:
+      level: '3'
+      request.operation: UPDATE
+  - name: scale-l2
+    values:
+      level: '2'
+      request.operation: UPDATE
+  - name: scale-l1
+    values:
+      level: '1'
+      request.operation: UPDATE
+  - name: scale-l0
+    values:
+      level: '0'
+      request.operation: UPDATE
+  - name: scale-unlabelled
+    values:
+      level: none
+      request.operation: UPDATE
+  - name: evict-l3
+    values:
+      level: '3'
+      request.operation: CREATE
+  - name: evict-l1
+    values:
+      level: '1'
+      request.operation: CREATE
+  - name: evict-unlabelled
+    values:
+      level: none
+      request.operation: CREATE

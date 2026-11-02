@@ -1,0 +1,45 @@
+# K1 nexus-autonomy-floor (spec §11). Deny a NEXUS mutation unless the namespace label
+# nexus.io/autonomy-level is 2 or 3. A missing label denies (fail closed, same as L0).
+# Tests: platform/policies/tests/k1.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-autonomy-floor
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/spec: "§11 K1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: autonomy-floor
+      match:
+        any:
+          - resources:
+              kinds: [Deployment/scale, Pod/eviction]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: AnyIn
+            value:
+              - system:serviceaccount:nexus-system:nexus-operator
+              - system:serviceaccount:nexus-system:nexus-baseline
+      context:
+        - name: level
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ request.namespace }}"
+            jmesPath: "metadata.labels.\"nexus.io/autonomy-level\" || 'none'"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K1 nexus-autonomy-floor: namespace {{ request.namespace }} is at autonomy level
+          '{{ level }}'; NEXUS mutations need level 2 or 3 (a missing label is L0).
+        deny:
+          conditions:
+            all:
+              - key: "{{ level }}"
+                operator: AnyNotIn
+                value: ["2", "3"]

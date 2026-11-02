@@ -1,0 +1,192 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k5-approver
+policies:
+- ../../../k5-incident-approval.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-incident-approval
+  rule: stamp-approver
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: approvers-only
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: expiry-required
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: expiry-max-15m
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: bind-proposal-hash
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: bind-action
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: bind-replicas
+  resources:
+  - ok-approved
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: expiry-max-15m
+  resources:
+  - expiry-far
+  kind: Incident
+  result: fail
+- policy: nexus-incident-approval
+  rule: expiry-required
+  resources:
+  - expiry-far
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: approvers-only
+  resources:
+  - expiry-far
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: expiry-required
+  resources:
+  - expiry-missing
+  kind: Incident
+  result: fail
+- policy: nexus-incident-approval
+  rule: expiry-max-15m
+  resources:
+  - expiry-missing
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-proposal-hash
+  resources:
+  - hash-mismatch
+  kind: Incident
+  result: fail
+- policy: nexus-incident-approval
+  rule: bind-action
+  resources:
+  - action-mismatch
+  kind: Incident
+  result: fail
+- policy: nexus-incident-approval
+  rule: bind-replicas
+  resources:
+  - action-mismatch
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-replicas
+  resources:
+  - replicas-mismatch
+  kind: Incident
+  result: fail
+- policy: nexus-incident-approval
+  rule: bind-action
+  resources:
+  - replicas-mismatch
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: stamp-approver
+  resources:
+  - rejected-ok
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: approvers-only
+  resources:
+  - rejected-ok
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: expiry-required
+  resources:
+  - rejected-ok
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-proposal-hash
+  resources:
+  - rejected-ok
+  kind: Incident
+  result: pass
+- policy: nexus-incident-approval
+  rule: bind-action
+  resources:
+  - rejected-ok
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-proposal-hash
+  resources:
+  - rejected-hash-mismatch
+  kind: Incident
+  result: fail
+- policy: nexus-incident-approval
+  rule: stamp-approver
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: approvers-only
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: expiry-required
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: expiry-max-15m
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-proposal-hash
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-action
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip
+- policy: nexus-incident-approval
+  rule: bind-replicas
+  resources:
+  - human-request-no-approval
+  kind: Incident
+  result: skip

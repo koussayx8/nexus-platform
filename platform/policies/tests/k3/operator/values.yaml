@@ -1,0 +1,544 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+subresources:
+- subresource:
+    name: deployments/scale
+    kind: Scale
+    group: autoscaling
+    version: v1
+  parentResource:
+    name: deployments
+    kind: Deployment
+    group: apps
+    version: v1
+- subresource:
+    name: pods/eviction
+    kind: Eviction
+    group: policy
+    version: v1
+  parentResource:
+    name: pods
+    kind: Pod
+    group: ''
+    version: v1
+policies:
+- name: nexus-l2-approval
+  resources:
+  - name: scale-ok
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-ok
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-no-incident
+    values:
+      level: '2'
+      incidents: []
+      request.operation: UPDATE
+  - name: scale-rejected
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-rejected
+          approval:
+            decision: rejected
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-expired
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-expired
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2000-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-other-replicas
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-other-replicas
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 3
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 3
+      request.operation: UPDATE
+  - name: scale-hash-mismatch
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-hash-mismatch
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ffff
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-other-target
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: other-app
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-other-namespace
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-prod
+            kind: Deployment
+            name: scale-other-namespace
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-other-action
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-other-action
+          approval:
+            decision: approved
+            actionId: restart_workload
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: restart_workload
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-no-approval-yet
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-no-approval-yet
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-one-of-two
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-one-of-two
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 2
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 2
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-one-of-two
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE
+  - name: scale-level-3
+    values:
+      level: '3'
+      incidents: []
+      request.operation: UPDATE
+  - name: evict-ok-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: evict-ok
+          approval:
+            decision: approved
+            actionId: restart_workload
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: restart_workload
+            parameters:
+              replicas: 4
+      request.operation: CREATE
+  - name: evict-no-incident-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents: []
+      request.operation: CREATE
+  - name: evict-rejected-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: evict-rejected
+          approval:
+            decision: rejected
+            actionId: restart_workload
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: restart_workload
+            parameters:
+              replicas: 4
+      request.operation: CREATE
+  - name: evict-expired-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: evict-expired
+          approval:
+            decision: approved
+            actionId: restart_workload
+            proposalHash: sha256:ab12
+            expiresAt: '2000-01-01T00:00:00Z'
+            approvedBy: approver-1
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: restart_workload
+            parameters:
+              replicas: 4
+      request.operation: CREATE
+  - name: evict-hash-mismatch-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: evict-hash-mismatch
+          approval:
+            decision: approved
+            actionId: restart_workload
+            proposalHash: sha256:ffff
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: restart_workload
+            parameters:
+              replicas: 4
+      request.operation: CREATE
+  - name: evict-other-target-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: other-app
+          approval:
+            decision: approved
+            actionId: restart_workload
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: restart_workload
+            parameters:
+              replicas: 4
+      request.operation: CREATE
+  - name: evict-scale-approval-only-6d9f7c8b5-x2k4q
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: evict-scale-approval-only
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: CREATE
