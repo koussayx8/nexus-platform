@@ -1,3 +1,8 @@
+> **SUPERSEDED (owner, 2026-11-02).** M2-1b (ADR-030 (b), the x86 replication) is recorded as **not done** under its
+> stop rule: the x86 host was not calibrated by 2026-11-01. No replication branch exists (`git ls-remote --heads
+> origin`, 2026-11-02). The billing guard still applies. See [`pfe-replan.md`](pfe-replan.md) and the ADR-030
+> amendment. Kept unchanged below as the record.
+
 > **M2-1b plan, rev 3, accepted at its plan gate (owner, 2026-10-16). Frozen at approval; current state lives in
 > TASKS.md.**
 > Rev 2 applies the owner's revisions a–e (2026-10-16): the replay pass rule, checkpoint A as a deviation, the
