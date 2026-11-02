@@ -1,0 +1,35 @@
+# Dependabot opens weekly pull requests into dev (spec §19). `target-branch` applies to version
+# updates only: security updates still target the default branch (main). The hashed requirements
+# files are bumped by Dependabot with their hashes; the actions are pinned by SHA with a version
+# comment, which Dependabot keeps in step. platform/backstage is archived (ADR-011) and is not listed.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule: {interval: weekly}
+    commit-message: {prefix: "chore(ci)"}
+
+  - package-ecosystem: pip
+    directory: /apps/sample-api
+    target-branch: dev
+    schedule: {interval: weekly}
+    commit-message: {prefix: "chore(deps)"}
+
+  - package-ecosystem: pip
+    directory: /operator
+    target-branch: dev
+    schedule: {interval: weekly}
+    commit-message: {prefix: "chore(deps)"}
+
+  - package-ecosystem: docker
+    directory: /apps/sample-api
+    target-branch: dev
+    schedule: {interval: weekly}
+    commit-message: {prefix: "chore(deps)"}
+
+  - package-ecosystem: docker
+    directory: /operator
+    target-branch: dev
+    schedule: {interval: weekly}
+    commit-message: {prefix: "chore(deps)"}
