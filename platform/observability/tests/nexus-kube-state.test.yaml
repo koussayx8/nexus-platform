@@ -1,0 +1,121 @@
+# promtool unit tests for platform/observability/alerts/nexus-kube-state.yaml (G6, spec §3).
+# Run by scripts/tests/promtool-rules.sh; the rule file is extracted as nexus-kube-state.rules.yaml.
+# Series are what kube-state-metrics exposes (labels abbreviated to the ones the rules read).
+
+rule_files:
+  - nexus-kube-state.rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  # 1. Unavailable replicas from minute 5 on. Pending at once, firing after the 3 min `for`, and only
+  #    in the measured namespaces: nexus-system's own unavailable operator raises nothing.
+  - name: rollout stuck fires after 3 min in nexus-dev only
+    interval: 30s
+    input_series:
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="nexus-dev",deployment="sample-api"}'
+        values: '0x10 1x30'
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="nexus-prod",deployment="sample-api"}'
+        values: '0x40'
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="nexus-system",deployment="nexus-operator"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 7m30s
+        alertname: NexusRolloutStuck
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: NexusRolloutStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              deployment: sample-api
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api rollout stuck in nexus-dev"
+              description: "Unavailable replicas above 0 for 3 min"
+      - eval_time: 19m
+        alertname: NexusRolloutStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              deployment: sample-api
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api rollout stuck in nexus-dev"
+              description: "Unavailable replicas above 0 for 3 min"
+
+  # 2. A rollout that recovers inside 3 min never fires (a normal rolling update).
+  - name: a short unavailability is not a stuck rollout
+    interval: 30s
+    input_series:
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="nexus-dev",deployment="sample-api"}'
+        values: '0x10 1x4 0x30'
+    promql_expr_test:
+      - expr: count_over_time(ALERTS{alertname="NexusRolloutStuck"}[30m])
+        eval_time: 20m
+        exp_samples: [{labels: '{alertname="NexusRolloutStuck",alertstate="pending",deployment="sample-api",namespace="nexus-dev",nexus_target="nexus-dev/sample-api",severity="warning"}', value: 4}]
+      - expr: count_over_time(ALERTS{alertname="NexusRolloutStuck",alertstate="firing"}[30m])
+        eval_time: 20m
+        exp_samples: []
+
+  # 3. CrashLoopBackOff in nexus-dev: the Deployment is recovered from the pod's ReplicaSet owner
+  #    (the hash stripped, hyphenated names kept). The same reason in nexus-system, and another
+  #    waiting reason in nexus-prod, raise nothing.
+  - name: crash looping names the Deployment and ignores other namespaces and reasons
+    interval: 30s
+    input_series:
+      - series: 'kube_pod_container_status_waiting_reason{namespace="nexus-dev",pod="sample-api-7d9f8b6c5-abcde",container="sample-api",reason="CrashLoopBackOff"}'
+        values: '0x4 1x30'
+      - series: 'kube_pod_owner{namespace="nexus-dev",pod="sample-api-7d9f8b6c5-abcde",owner_kind="ReplicaSet",owner_name="sample-api-7d9f8b6c5",owner_is_controller="true"}'
+        values: '1x40'
+      - series: 'kube_pod_container_status_waiting_reason{namespace="nexus-system",pod="nexus-operator-5c4d7f8b9-xyz12",container="operator",reason="CrashLoopBackOff"}'
+        values: '1x40'
+      - series: 'kube_pod_owner{namespace="nexus-system",pod="nexus-operator-5c4d7f8b9-xyz12",owner_kind="ReplicaSet",owner_name="nexus-operator-5c4d7f8b9",owner_is_controller="true"}'
+        values: '1x40'
+      - series: 'kube_pod_container_status_waiting_reason{namespace="nexus-prod",pod="sample-api-6b7c8d9e0-fghij",container="sample-api",reason="ImagePullBackOff"}'
+        values: '1x40'
+      - series: 'kube_pod_owner{namespace="nexus-prod",pod="sample-api-6b7c8d9e0-fghij",owner_kind="ReplicaSet",owner_name="sample-api-6b7c8d9e0",owner_is_controller="true"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 1m30s
+        alertname: NexusCrashLooping
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NexusCrashLooping
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              deployment: sample-api
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api crash-looping in nexus-dev"
+              description: "A container is waiting in CrashLoopBackOff"
+
+  # 4. The waiting state flaps while the kubelet backs off: a 3 min gap (value 0, then no sample)
+  #    must not end the alert, or one fault would open two Incidents. After the pod recovers for
+  #    good, the alert clears 5 min later (keep_firing_for).
+  - name: a back-off gap keeps one firing episode and the alert clears after recovery
+    interval: 30s
+    input_series:
+      - series: 'kube_pod_container_status_waiting_reason{namespace="nexus-dev",pod="sample-api-7d9f8b6c5-abcde",container="sample-api",reason="CrashLoopBackOff"}'
+        values: '0x4 1x10 0x3 _x3 1x10 0x40'
+      - series: 'kube_pod_owner{namespace="nexus-dev",pod="sample-api-7d9f8b6c5-abcde",owner_kind="ReplicaSet",owner_name="sample-api-7d9f8b6c5",owner_is_controller="true"}'
+        values: '1x80'
+    alert_rule_test:
+      - eval_time: 9m   # inside the gap
+        alertname: NexusCrashLooping
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nexus-dev
+              deployment: sample-api
+              nexus_target: nexus-dev/sample-api
+            exp_annotations:
+              summary: "sample-api crash-looping in nexus-dev"
+              description: "A container is waiting in CrashLoopBackOff"
+      - eval_time: 30m  # recovered since 17m, well past keep_firing_for
+        alertname: NexusCrashLooping
+        exp_alerts: []
