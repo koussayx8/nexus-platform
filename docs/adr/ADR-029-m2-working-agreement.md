@@ -240,6 +240,10 @@ path to root, and that is a decision for a gate.
 
 **§4** gains the model-change rule (owner, 2026-10-16).
 
+**Gates after the PFE re-plan** (owner, 2026-11-02, re-plan O6 and Q5): a gate is each task PR and each milestone
+exit, with one plan per milestone and at most one revision round ([`docs/plans/pfe-replan.md`](../plans/pfe-replan.md)),
+and the typed-approval rules for merges, tags and forward-merges are unchanged.
+
 ## References
 - Claude Code docs, read 2026-10-15: hooks (code.claude.com/docs/en/hooks: "Hook locations", "Exit code 2",
   "Disable or remove hooks", the `if` field); settings (code.claude.com/docs/en/settings: settings precedence);

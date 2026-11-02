@@ -1,3 +1,4 @@
 # Development tools for the operator, installed by CI after requirements.txt (not by the image).
 pytest==9.1.1
 ruff==0.16.9
+asyncpg==0.31.0   # Flight Recorder Writer tests (the runtime pin joins requirements.txt with the Writer's wiring)

@@ -20,6 +20,7 @@
 #   e. merge-order guard (again), then the AppProject and the root Application
 #   f. wait for the platform Application
 #   f2. the Dependency DB Secrets (scripts/dependency-db-secrets.sh; ADR-020)
+#   f3. the Flight Recorder DB Secrets (scripts/flight-recorder-secrets.sh; ADR-031)
 #   g. nexus-killswitch and nexus-operator-config (created directly, never through ArgoCD)
 #   h. wait until every Application is Synced, Healthy and at the expected commit in one snapshot,
 #      held for 60 s (scripts/lib/apps-stable.jq)
@@ -485,6 +486,15 @@ step_f2_dependency_db_secrets() {
 }
 
 # ---------------------------------------------------------------------------------------
+# f3. the Flight Recorder DB Secrets — nexus-system comes from the platform Application (step f),
+# monitoring from step c. Names only in the output, never a value (ADR-031).
+# ---------------------------------------------------------------------------------------
+step_f3_flight_recorder_secrets() {
+  run_cmd "flight-recorder Secrets: generate-or-reuse ~/.nexus/flight-recorder-*, then create the three Secrets if absent (ADR-031)" "" -- \
+    ./scripts/flight-recorder-secrets.sh
+}
+
+# ---------------------------------------------------------------------------------------
 # g. nexus-killswitch and nexus-operator-config (create-only, direct, never through ArgoCD)
 # ---------------------------------------------------------------------------------------
 step_g_killswitch() {
@@ -589,6 +599,7 @@ step_d_argocd
 step_e_root_application
 step_f_wait_platform
 step_f2_dependency_db_secrets
+step_f3_flight_recorder_secrets
 step_g_killswitch
 step_h_wait_all
 step_i_verify

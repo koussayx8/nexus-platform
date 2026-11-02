@@ -1,0 +1,34 @@
+# The Flight Recorder datasource for Grafana (spec §14, §3 Display; ADR-031). The Grafana sidecar
+# provisions it from this labelled ConfigMap. Read-only: the role nexus_reader can only SELECT.
+# The password reaches Grafana as the env var FR_READER_PASSWORD from the Secret
+# monitoring/flight-recorder-reader (scripts/flight-recorder-secrets.sh), set in
+# kube-prometheus-stack-values.yaml; Grafana expands $FR_READER_PASSWORD when it provisions, so no
+# credential is in Git. Reaching nexus-system:5432 needs no policy until M3 (N1-N6 must allow it).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flight-recorder-datasource
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  flight-recorder.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Flight Recorder
+        uid: nexus-flight-recorder
+        type: postgres
+        access: proxy
+        url: flight-recorder-db.nexus-system.svc.cluster.local:5432
+        user: nexus_reader
+        isDefault: false
+        editable: false
+        jsonData:
+          database: nexus_recorder
+          sslmode: disable
+          postgresVersion: 1700
+          maxOpenConns: 4
+          maxIdleConns: 2
+          connMaxLifetime: 14400
+        secureJsonData:
+          password: $FR_READER_PASSWORD
