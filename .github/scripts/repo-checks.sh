@@ -19,6 +19,7 @@
 #      standard library only, no network, ADR-026).
 #
 # 11. shellcheck (warning and above) over every tracked *.sh file (TASKS.md Hygiene).
+# 13. Every `uses:` in .github/workflows is pinned by a 40-hex commit SHA (TASKS.md Hygiene).
 # 12. Offline unit tests for bump_digest.py, the digest-bump pull request's rewriter (standard
 #     library only).
 #
@@ -110,4 +111,12 @@ echo "::endgroup::"
 
 echo "::group::bump_digest.py tests (offline)"
 python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::workflow actions pinned by commit SHA"
+if unpinned=$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' \
+  | xargs grep -nE '^[[:space:]]*-?[[:space:]]*uses:' | grep -vE 'uses:[[:space:]]*(\./|[^[:space:]@]+@[0-9a-f]{40}([[:space:]]|$))'); then
+  echo "::error::actions not pinned by commit SHA:"; echo "$unpinned"; exit 1
+fi
+echo "all pinned"
 echo "::endgroup::"
