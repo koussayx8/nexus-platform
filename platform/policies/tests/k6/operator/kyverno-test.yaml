@@ -40,11 +40,11 @@ results:
   - detector-ok
   kind: Incident
   result: pass
-  patchedResource: patched-detector-ok.yaml
+  patchedResources: patched-detector-ok.yaml
 - policy: nexus-incident-source
   rule: stamp-requester
   resources:
   - detector-forged-requester
   kind: Incident
   result: pass
-  patchedResource: patched-detector-forged-requester.yaml
+  patchedResources: patched-detector-forged-requester.yaml

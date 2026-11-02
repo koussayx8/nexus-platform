@@ -28,4 +28,4 @@ results:
   - human-ok
   kind: Incident
   result: pass
-  patchedResource: patched-human-ok.yaml
+  patchedResources: patched-human-ok.yaml

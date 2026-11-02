@@ -98,8 +98,8 @@ for tfile in sorted(tests_dir.rglob("kyverno-test.yaml")):
                 err(f"{tfile}: result for missing resource {res['kind']}/{rname}")
         if res["result"] not in ("pass", "fail", "skip"):
             err(f"{tfile}: bad result {res['result']}")
-        if "patchedResource" in res and not (tfile.parent / res["patchedResource"]).exists():
-            err(f"{tfile}: patchedResource {res['patchedResource']} not found")
+        if "patchedResources" in res and not (tfile.parent / res["patchedResources"]).exists():
+            err(f"{tfile}: patchedResources {res['patchedResources']} not found")
         results.setdefault((pol, rule), []).append(res["result"])
 
 for pol, rules in rules_of.items():
