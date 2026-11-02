@@ -31,21 +31,55 @@ completion, compensation, error}; status.verification = the verifier's state.
 
 import logging
 
-from . import proposal
+from . import proposal, rules
 from .catalogue import CATALOGUE
+from .evidence import CollectionError, EvidenceCollector
 from .executor import Executed, Executor
 from .gate import Gate, GateResult, live_pods, pod_ready, selector_of
 from .killswitch import CONFIGMAP as KILLSWITCH
 from .killswitch import state_of
-from .kube import Conflict, KubeApi
+from .kube import TRANSPORT_ERRORS, ApiError, Conflict, KubeApi
+from .metrics import (
+    ACTIONS,
+    DIAGNOSE_COUNT,
+    DIAGNOSE_SUM,
+    GATE,
+    INCIDENTS,
+    METRICS,
+    REDACTIONS,
+)
 from .model import iso, parse_time
 from .mutations import Mutations
 from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
+from .redact import redact_bundle
 from .verifier import Verifier
 
 logger = logging.getLogger("nexus.act")
 
-ACT_PHASES = frozenset({"Proposed", "Executing", "Verifying", "Compensating"})
+ACT_PHASES = frozenset(
+    {"Detected", "Diagnosing", "Proposed", "Executing", "Verifying", "Compensating"}
+)
+DIAGNOSING_TIMEOUT_S = 60
+
+# D9 (§7), every edge a non-terminal phase may take. _move refuses any other, so the invariant
+# "Verifying leads only to Resolved or Compensating" (I11) holds in code and not only in the
+# spec: an illegal move is logged and not written, and the Incident stays where it is.
+LEGAL = {
+    "Detected": {"Recorded", "Diagnosing", "Escalated"},
+    "Diagnosing": {"Proposed", "Escalated", "Blocked"},
+    "Proposed": {
+        "Recommended",
+        "Dismissed",
+        "Escalated",
+        "Blocked",
+        "AwaitingApproval",
+        "Executing",
+    },
+    "AwaitingApproval": {"Executing", "Rejected", "Expired", "Blocked"},
+    "Executing": {"Verifying", "Blocked", "Escalated"},
+    "Verifying": {"Resolved", "Compensating"},
+    "Compensating": {"Escalated"},
+}
 PROPOSED_TIMEOUT_S = 30
 COMPENSATION_TIMEOUT_S = 120
 WRITE_ATTEMPTS = 3
@@ -67,6 +101,8 @@ PHASE_SEQ = {
 }
 TERMINAL_SEQ = 7
 OWNER = {
+    "Detected": "Incident Reconciler",
+    "Diagnosing": "Evidence Collector",
     "Proposed": "Safety Gate",
     "Executing": "Action Executor",
     "Verifying": "Verifier",
@@ -89,6 +125,7 @@ class ActPath:
         executor: Executor,
         verifier: Verifier,
         clock,
+        collector: EvidenceCollector | None = None,
     ) -> None:
         self.api, self.mutations, self.recorder, self.gate = (
             api,
@@ -97,6 +134,9 @@ class ActPath:
             gate,
         )
         self.executor, self.verifier, self.clock = executor, verifier, clock
+        self.collector = (
+            collector  # None: an Incident stays Detected (the M1b behaviour)
+        )
 
     # ---- status writes -------------------------------------------------------------------
     async def _write(
@@ -132,6 +172,14 @@ class ActPath:
         """Phase change: one status patch, then one transition row."""
         now = self.clock()
         old = (incident.get("status") or {}).get("phase")
+        if phase not in LEGAL.get(old, ()):
+            logger.error(
+                "refused illegal transition %s %s -> %s",
+                incident["metadata"]["name"],
+                old,
+                phase,
+            )
+            return None
         terminal = phase not in PHASE_SEQ
         stamp = "terminal" if terminal else phase.lower()
         status = {"phase": phase, "timestamps": {stamp: iso(now)}, **fields}
@@ -140,6 +188,8 @@ class ActPath:
         written = await self._write(incident, status, must=must)
         if written is None:
             return None
+        if terminal:
+            METRICS.inc(INCIDENTS, phase=phase, reason=reason or "")
         try:
             uid = incident["metadata"]["uid"]
             await self.recorder.record_transition(
@@ -172,6 +222,8 @@ class ActPath:
             if incident is None:
                 return
         handler = {
+            "Detected": self._detected,
+            "Diagnosing": self._diagnosing,
             "Proposed": self._proposed,
             "Executing": self._executing,
             "Verifying": self._verifying,
@@ -179,6 +231,106 @@ class ActPath:
         }.get(phase)
         if handler is not None:
             await handler(incident)
+
+    # ---- Detected and Diagnosing ---------------------------------------------------------
+    async def _detected(self, incident: dict) -> None:
+        """L1-L3 with the intake done: open the recorder row and enter Diagnosing."""
+        status = incident["status"]
+        if (
+            self.collector is None
+            or "autonomyLevel" not in status
+            or _level(status) == 0
+        ):
+            return  # L0 ends Recorded in the reconciler; no collector means no Diagnosing
+        if any(((status.get("kopf") or {}).get("progress") or {}).values()):
+            return  # the intake handler is still pending
+        try:
+            await self._open(incident)
+            await self.recorder.record_transition(
+                incident["metadata"]["uid"],
+                PHASE_SEQ["Detected"],
+                None,
+                "Detected",
+                parse_time(incident["metadata"]["creationTimestamp"]),
+                OWNER["Detected"],
+                None,
+            )
+        except RecorderUnavailable:
+            return  # retried next tick; the reconciler's 20 s Detected timeout bounds the wait
+        await self._move(incident, "Diagnosing")
+
+    async def _diagnosing(self, incident: dict) -> None:
+        """Collect, redact, store, run R1, and move to Proposed (spec §4, §6).
+
+        Order matters (Q1): the raw bundle exists only inside this call; the redacted copy is
+        what is hashed, stored, and given to R1. Failures retry each tick until the 60 s
+        Diagnosing timeout: an unreadable target ends Escalated / evidence_error, an unreachable
+        recorder ends Blocked / recorder_unavailable.
+        """
+        status = incident["status"]
+        uid = incident["metadata"]["uid"]
+        now = self.clock()
+        started = parse_time(
+            (status.get("timestamps") or {}).get("diagnosing") or iso(now)
+        )
+        timed_out = (now - started).total_seconds() > DIAGNOSING_TIMEOUT_S
+        try:
+            await self._open(incident)
+            raw, baseline = await self.collector.collect(incident)
+            redacted, counts = redact_bundle(raw)
+            bundle = redacted | {"redaction": {"counts": counts}}
+            bundle["hash"] = proposal.hash_of(bundle)
+            await self.recorder.record_bundle(
+                bundle["hash"], uid, "evidence/v1", bundle, counts, now
+            )
+            doc = rules.propose(bundle)  # R1 reads the redacted bundle only
+            digest = proposal.hash_of(doc)
+            errors = proposal.validate(doc)
+            await self.recorder.record_proposal(
+                digest,
+                uid,
+                "rules",
+                not errors,
+                parsed_proposal=doc,
+                fallback_used=False,
+            )
+        except RecorderUnavailable:
+            if timed_out:
+                await self._move(incident, "Blocked", "recorder_unavailable")
+            return
+        except (CollectionError, ApiError, *TRANSPORT_ERRORS) as e:
+            logger.warning("evidence for %s: %s", incident["metadata"]["name"], e)
+            if timed_out:
+                await self._move(incident, "Escalated", "evidence_error")
+            return
+        if errors:
+            await self._move(incident, "Blocked", "schema_invalid")
+            return
+        for cls, n in counts.items():
+            if n:
+                METRICS.inc(REDACTIONS, n, **{"class": cls})
+        action = doc["action"]
+        written = await self._move(
+            incident,
+            "Proposed",
+            evidence={
+                "bundleHash": bundle["hash"],
+                "redactions": sum(counts.values()),
+                "baseline": baseline,
+            },
+            reasoner={"mode": "rules", "fallbackUsed": False},
+            proposal={
+                "hash": digest,
+                "actionId": action["id"],
+                "parameters": action["parameters"],
+                "faultClass": doc["hypothesis"]["faultClass"],
+                "confidence": doc["confidence"],
+                "abstain": doc["abstain"],
+            },
+        )
+        if written is not None:
+            METRICS.inc(DIAGNOSE_SUM, (self.clock() - started).total_seconds())
+            METRICS.inc(DIAGNOSE_COUNT)
 
     # ---- Proposed ------------------------------------------------------------------------
     async def _proposed(self, incident: dict) -> None:
@@ -263,6 +415,7 @@ class ActPath:
         for d in result.decisions:
             if d.verdict == "skipped":
                 continue  # the table holds pass and fail only
+            METRICS.inc(GATE, stage=str(d.stage), verdict=d.verdict)
             try:
                 await self.recorder.record_gate_decision(
                     uid, d.stage, d.verdict, {"detail": d.detail}, self.clock()
@@ -453,8 +606,11 @@ class ActPath:
         ns, name = target["namespace"], target["name"]
         intent = self._intent(incident, pending, compensation)
         if pending["kind"] == "scale":
-            return await self.executor.scale(intent, ns, name, pending["replicas"])
-        return await self.executor.evict(intent, ns, pending["pod"], pending["uid"])
+            done = await self.executor.scale(intent, ns, name, pending["replicas"])
+        else:
+            done = await self.executor.evict(intent, ns, pending["pod"], pending["uid"])
+        METRICS.inc(ACTIONS, action_id=intent.action_id, result=done.result)
+        return done
 
     def _completion(self, pending: dict, done: Executed) -> dict | None:
         if not done.unrecorded:
