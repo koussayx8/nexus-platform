@@ -22,10 +22,17 @@ import logging
 
 import kopf
 
-from . import config, hooks, reconcile
+from . import config, hooks, metrics, reconcile
+from .act import ActPath
+from .evidence import EvidenceCollector
+from .executor import Executor
+from .gate import Gate
 from .kube import KubeApi, service_account_credentials
-from .model import INCIDENTS
+from .model import INCIDENTS, now
+from .mutations import Mutations
 from .poller import Poller
+from .recorder import AuditedClient, ReconnectingRecorder, UnavailableRecorder
+from .verifier import Prometheus, Verifier
 
 logger = logging.getLogger("nexus.operator")
 
@@ -37,6 +44,16 @@ class Runtime:
         self.loop: reconcile.Loop | None = None
         self.poller: Poller | None = None
         self.tasks: list[asyncio.Task] = []
+        # The Flight Recorder Writer (ADR-031), built from the config at startup. With no
+        # recorderHost, or while the database is down, every call raises RecorderUnavailable, so
+        # every mutation is refused as recorder_unavailable: nothing is sent that cannot first be
+        # recorded (§14, §17).
+        self.recorder: ReconnectingRecorder | UnavailableRecorder = (
+            UnavailableRecorder()
+        )
+        self.metrics_runner = None
+        self.mutations: Mutations | None = None
+        self.metrics: Prometheus | None = None
 
 
 RUNTIME = Runtime()
@@ -77,12 +94,87 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
     timing = reconcile.Timing(
         detected_timeout_s=cfg.detected_timeout_s, reconcile_s=cfg.reconcile_s
     )
-    RUNTIME.loop = reconcile.Loop(RUNTIME.api, timing)
+    RUNTIME.metrics = Prometheus(cfg.prometheus_url) if cfg.prometheus_url else None
+    if cfg.recorder_host:
+        RUNTIME.recorder = ReconnectingRecorder(
+            host=cfg.recorder_host,
+            port=cfg.recorder_port,
+            database=cfg.recorder_database,
+            user=cfg.recorder_user,
+            password_file=cfg.recorder_password_file,
+        )
+    RUNTIME.mutations = Mutations(AuditedClient.create(RUNTIME.credentials))
+    gate = Gate(
+        RUNTIME.api,
+        RUNTIME.mutations,
+        RUNTIME.recorder,
+        advisory=cfg.advisory_checks,
+        breaker_epoch=cfg.breaker_epoch,
+        clock=now,
+    )
+    act = ActPath(
+        RUNTIME.api,
+        RUNTIME.mutations,
+        RUNTIME.recorder,
+        gate,
+        Executor(RUNTIME.mutations, RUNTIME.recorder, now),
+        Verifier(RUNTIME.api, RUNTIME.metrics),
+        now,
+        EvidenceCollector(RUNTIME.api, RUNTIME.metrics, now),
+    )
+    logger.info(
+        "act path advisoryChecks=%s breakerEpoch=%d prometheus=%s recorder=%s metricsPort=%d",
+        "on" if cfg.advisory_checks else "off",
+        cfg.breaker_epoch,
+        "set" if cfg.prometheus_url else "unset",
+        f"{cfg.recorder_host}:{cfg.recorder_port}" if cfg.recorder_host else "unset",
+        cfg.metrics_port,
+    )
+    RUNTIME.loop = reconcile.Loop(RUNTIME.api, timing, act)
     RUNTIME.poller = Poller(RUNTIME.api, cfg.alertmanager_url, cfg.alert_poll_s)
     RUNTIME.tasks = [
         asyncio.create_task(RUNTIME.loop.run(), name="reconcile loop"),
         asyncio.create_task(RUNTIME.poller.run(), name="alert poller"),
     ]
+    _register_gauges()
+    RUNTIME.metrics_runner = await metrics.serve(cfg.metrics_port)
+
+
+def _register_gauges() -> None:
+    """Read-at-scrape gauges over the live runtime objects (metrics.py lists the names)."""
+
+    def loop_age() -> dict:
+        out = {}
+        clock = asyncio.get_running_loop().time()
+        for label, comp in (("reconcile", RUNTIME.loop), ("poller", RUNTIME.poller)):
+            if comp is not None and comp.last_tick is not None:
+                out[(("loop", label),)] = clock - comp.last_tick
+        return out
+
+    metrics.METRICS.gauge(
+        "nexus_operator_recorder_up",
+        "1 while the last Flight Recorder call succeeded.",
+        lambda: {(): 1.0 if getattr(RUNTIME.recorder, "up", False) else 0.0},
+    )
+    metrics.METRICS.gauge(
+        "nexus_operator_loop_age_seconds",
+        "Seconds since a loop last finished a tick.",
+        loop_age,
+    )
+    metrics.METRICS.gauge(
+        "nexus_operator_alertmanager_errors",
+        "Alert Poller errors since start.",
+        lambda: {(): float(RUNTIME.poller.errors if RUNTIME.poller else 0)},
+    )
+    metrics.METRICS.gauge(
+        "nexus_operator_killswitch_halted",
+        "1 when the kill switch is not active (halted or missing).",
+        lambda: {
+            (): 0.0
+            if (RUNTIME.poller and RUNTIME.poller.killswitch == "active")
+            else 1.0
+        },
+    )
 
 
 @kopf.on.cleanup()
@@ -94,6 +186,14 @@ async def stop(**_) -> None:
             await task
     if RUNTIME.poller is not None:
         await RUNTIME.poller.close()
+    if RUNTIME.metrics_runner is not None:
+        await RUNTIME.metrics_runner.cleanup()
+    if hasattr(RUNTIME.recorder, "close"):
+        await RUNTIME.recorder.close()
+    if RUNTIME.metrics is not None:
+        await RUNTIME.metrics.close()
+    if RUNTIME.mutations is not None:
+        await RUNTIME.mutations.close()
     if RUNTIME.api is not None:
         await RUNTIME.api.close()
     logger.info("loops stopped")

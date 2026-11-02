@@ -1,3 +1,7 @@
+> **SUPERSEDED IN PART (owner, 2026-11-02).** The scope trace stands. The host (A1), the phases M2-1 to M2-10 and their
+> gates are replaced by [`pfe-replan.md`](pfe-replan.md) and [`m2-outline.md`](m2-outline.md): M2 runs and exits on
+> WSL2 by 2026-11-20. Kept unchanged below as the record.
+
 > **Draft for GATE M2-0 (2026-10-16), rev 3, with the GATE M2-0 decisions recorded. Frozen at approval; current state lives in TASKS.md.**
 > Rev 2 applied the owner's plan-review revisions 1–8. Rev 3 applies revisions 1–5 and the resolution of
 > finding k (all 2026-10-16). Line references to `TASKS.md` are at `dev` `e5d16d2`.

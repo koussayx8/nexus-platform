@@ -1,0 +1,53 @@
+# Weekly version updates into dev (spec §19: "Dependabot opens weekly pull requests into dev").
+# Only the live components are listed: parked ones (Crossplane, Backstage; ADR-011) stay out, so
+# they cost no pull requests. Security updates are a repository setting and keep targeting the
+# default branch.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /apps/sample-api
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: pip
+    directory: /operator
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directory: /apps/sample-api
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directory: /operator
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"

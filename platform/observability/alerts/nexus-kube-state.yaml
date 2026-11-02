@@ -1,0 +1,58 @@
+# NEXUS kube-state-metrics alerts (spec §3, G6): NexusRolloutStuck (S3) and NexusCrashLooping (S3
+# variants). Same contract as the four anomaly alerts (ADR-024, ADR-025): nexus_target is
+# "<namespace>/<deployment>", and the namespace label equals the target's namespace, which is what
+# the operator's poller checks. Scope is the two measured namespaces; nexus-system and the
+# platform namespaces never raise a NEXUS target.
+# Series (kube-state-metrics, chart 86.2.2):
+#   kube_deployment_status_replicas_unavailable{namespace,deployment}
+#   kube_pod_container_status_waiting_reason{namespace,pod,container,reason}
+#   kube_pod_owner{namespace,pod,owner_kind,owner_name}   a pod's owner is its ReplicaSet,
+#   named "<deployment>-<pod-template-hash>"; the hash is stripped to get the Deployment.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nexus-kube-state
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    release: observability          # matched by the Prometheus ruleSelector
+spec:
+  groups:
+    - name: nexus-kube-state
+      interval: 30s
+      rules:
+        # Spec §3: unavailable replicas > 0 for 3 minutes.
+        - alert: NexusRolloutStuck
+          expr: |
+            max by (namespace, deployment) (
+              kube_deployment_status_replicas_unavailable{namespace=~"nexus-dev|nexus-prod"} > 0
+            )
+          for: 3m
+          labels:
+            severity: warning
+            nexus_target: '{{ $labels.namespace }}/{{ $labels.deployment }}'
+          annotations:
+            summary: "{{ $labels.deployment }} rollout stuck in {{ $labels.namespace }}"
+            description: "Unavailable replicas above 0 for 3 min"
+        # Spec §3: a container waiting in CrashLoopBackOff. The waiting state flaps while the
+        # kubelet backs off (CrashLoopBackOff, then Error or ContainerCreating, then again), and a
+        # gap would end the alert and open a second Incident for the same fault ("one Incident per
+        # firing episode", ADR-025). keep_firing_for bridges gaps shorter than the longest back-off
+        # the kubelet uses between restarts (5 min).
+        - alert: NexusCrashLooping
+          expr: |
+            max by (namespace, deployment) (
+              label_replace(
+                (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff",namespace=~"nexus-dev|nexus-prod"} == 1)
+                * on (namespace, pod) group_left (owner_name)
+                kube_pod_owner{owner_kind="ReplicaSet",namespace=~"nexus-dev|nexus-prod"},
+                "deployment", "$1", "owner_name", "(.+)-[a-z0-9]+"
+              )
+            )
+          keep_firing_for: 5m
+          labels:
+            severity: warning
+            nexus_target: '{{ $labels.namespace }}/{{ $labels.deployment }}'
+          annotations:
+            summary: "{{ $labels.deployment }} crash-looping in {{ $labels.namespace }}"
+            description: "A container is waiting in CrashLoopBackOff"

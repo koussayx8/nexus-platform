@@ -1,3 +1,7 @@
+> **SUPERSEDED (owner, 2026-11-02).** M2-1 (ADR-030 step 0) is cut: every measurement runs on WSL2 and A1 is a
+> demo-only host. Nothing in this plan was run. See [`pfe-replan.md`](pfe-replan.md) and the ADR-030 amendment. Kept
+> unchanged below as the record.
+
 > **M2-1 plan, rev 1, with the owner's plan-gate decisions recorded (2026-10-16). Frozen at approval; current state
 > lives in TASKS.md.** Line references are at `dev` `a9dbfb38403004e3cd1f1f600d580bbd16b4212d`.
 

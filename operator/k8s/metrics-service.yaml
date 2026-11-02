@@ -1,0 +1,20 @@
+# The operator's /metrics port for the ServiceMonitor (platform/observability/monitors/nexus-operator-servicemonitor.yaml).
+# Metric names: operator/nexus_operator/metrics.py, ADR-034.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-operator-metrics
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/name: nexus-operator
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-operator
+  ports:
+    - name: metrics
+      port: 9102
+      targetPort: metrics
+      protocol: TCP

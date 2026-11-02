@@ -1,0 +1,24 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k3-baseline
+policies:
+- ../../../k3-l2-approval.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-ok
+  kind: Scale
+  result: pass
+- policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-no-incident
+  kind: Scale
+  result: fail

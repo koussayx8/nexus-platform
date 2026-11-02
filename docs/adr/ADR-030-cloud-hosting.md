@@ -1,6 +1,6 @@
 # ADR-030: Cloud Hosting for M2, the Defense Demo and an x86 Replication
 
-## Status: Proposed (owner gate decisions (a)–(d) and the billing guard, 2026-10-16; revised at the #130 review, 2026-10-16: the owner's account facts, v0.3.0 for (b), step 0, host topology by addendum; docs only: this ADR creates no cloud resource and changes no cluster)
+## Status: Proposed (owner gate decisions (a)–(d) and the billing guard, 2026-10-16; revised at the #130 review, 2026-10-16: the owner's account facts, v0.3.0 for (b), step 0, host topology by addendum; docs only: this ADR creates no cloud resource and changes no cluster; **amended 2026-11-02 (owner decisions): every measurement runs on WSL2; (a) narrowed to the defense demo host, built in January 2027; (b) not done under its stop rule; step 0 cut.** See the amendment)
 
 ## Context
 - M1b closed at `v0.3.0` (`86cea844`) on a single-node k3s inside WSL2. The node is `koussay`: amd64, 12 CPUs,
@@ -156,6 +156,39 @@ Items 1–3 are in `TASKS.md`'s Spec v1.1 notes. ADR-030 governs until spec v1.1
   from turning into tuning.
 - With the billing guard, the expected spend is zero. Charges are possible on AWS (Marketplace, after expiry) and on
   OCI only after an upgrade.
+
+## Amendment (2026-11-02, owner decisions)
+
+The owner's binding decisions of 2026-11-02 ([`docs/plans/pfe-replan.md`](../plans/pfe-replan.md), O2–O5) amend
+this ADR. Docs only: nothing is created, changed or deleted in any cloud account or cluster.
+
+| Part | As decided 2026-10-16 | Now |
+|---|---|---|
+| (a) host | M2 and the defense demo on an OCI A1 node, as a new calibration | **A1 is the defense demo host only.** The owner builds it in January 2027 with a demo overlay; everything shown there is labelled demo. No measurement and no calibration run on A1 |
+| (a) step 0 | A feasibility screen on WSL2 (M2-1) | **Cut.** Nothing was run (`git log` on `dev` `d20b04b`) |
+| (a) calibration order, steps 1–5 | Before any detector run on A1 | **Does not apply.** No detector run on A1 is a measurement |
+| (a) host topology | An addendum before A1's first calibration | **Not needed for measurements:** the host components run on WSL2, as spec §3 places them. The demo's topology is fixed in the demo-overlay PR |
+| (a) demo fallback | A recording of a valid pre-registered run on A1 | **Cannot exist as written:** no run on A1 is pre-registered. Decided (re-plan Q4, owner, 2026-11-02): both a recording of the A1 demo and one of a WSL2 measured run, each labelled with its host |
+| (b) x86 replication | By 2026-11-09; stop rule: not calibrated by 2026-11-01 → not done | **Recorded as not done** under its stop rule. No replication branch exists (`git ls-remote --heads origin`, 2026-11-02) |
+| (c) Bedrock | Dropped at GATE M2-0 | Unchanged: dropped. The M2-4 addendum that was to record it is cut; this amendment records it |
+| (d) CNI | Fixed per host before its first calibration | WSL2: flannel with the k3s network-policy controller, unchanged. A1: flannel; no calibration there, so the voiding clause applies to WSL2 only |
+| Billing guard | Every paid resource deleted before its credit ends | **Nothing was ever created on OCI or AWS (owner, 2026-11-02); no deletion needed.** The A1 node stays within Always Free |
+
+**Consequences, replacing the three-calibration rule:**
+- One calibration counts: WSL2, M1b (C ≥ 200, B = 80; sample-api 1000m / 128Mi; DB 2000m / 512Mi; ADR-026,
+  ADR-027, ADR-028).
+- "Quiet when healthy" is a stated limitation, not an open item. Checkpoint B's two failures (ADR-026, ADR-028)
+  stand as reported. M4's no-fault runs count false alarms.
+- Multi-arch images are still required, for the A1 demo (arm64): re-plan task T5.
+- The new-host `bootstrap.sh` fixes (M2-3) are cut. The A1 build may hit the operator-config ordering issue
+  (`TASKS.md`, M2-3 item); it is handled at that build.
+
+**Relation to the frozen spec:**
+1. The host: for every measurement, the deviation is withdrawn (WSL2, as spec §3). A1 as a demo host remains a
+   deviation, recorded in spec v1.1.
+2. The demo fallback: both recordings, each labelled with its host (re-plan Q4); recorded in spec v1.1.
+3. Bedrock: moot.
+4. Cilium: unchanged, DEFERRED.
 
 ## References
 - ADR-017 (image pin), ADR-019 (bootstrap), ADR-024 (detection), ADR-025 addendum (S5), ADR-026 (load, R1),

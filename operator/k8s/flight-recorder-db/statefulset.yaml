@@ -1,0 +1,121 @@
+# flight-recorder-db: PostgreSQL 17 with a persistent volume (spec §14, §25). The only store the
+# operator must write before it mutates (write-ahead rule); unavailable means fail closed (§17).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flight-recorder-db
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/name: flight-recorder-db
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: database
+    app.kubernetes.io/version: "17.11"
+  annotations:
+    nexus.io/owner: koussay
+    nexus.io/adr: "ADR-031"
+spec:
+  serviceName: flight-recorder-db-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flight-recorder-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flight-recorder-db
+        app.kubernetes.io/part-of: nexus-platform
+        app.kubernetes.io/component: database
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999               # postgres in the image
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: flight-recorder-db
+          # The same postgres:17 (17.11) index digest as dependency-db (ADR-020).
+          image: postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: nexus_recorder
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata   # a subdirectory: the volume root is not postgres-owned
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: flight-recorder-db, key: postgres-password }
+            - name: WRITER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: flight-recorder-db, key: writer-password }
+            - name: RUNNER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: flight-recorder-db, key: runner-password }
+            - name: READER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: flight-recorder-db, key: reader-password }
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # TCP, never the socket: init runs on a socket-only temporary server. The marker is
+          # the last line of 99-ready.sh, so a half-initialised DB never goes Ready.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q && test -f /var/lib/postgresql/data/.nexus-init-done"]
+            periodSeconds: 2
+            failureThreshold: 150
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q && test -f /var/lib/postgresql/data/.nexus-init-done"]
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q"]
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: run
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: init
+          configMap:
+            name: flight-recorder-db-init
+            defaultMode: 365           # 0555: the entrypoint executes the script
+  # The persistent volume (k3s local-path). Survives pod replacement; a run's rows are exported
+  # per run (§14) and the table is permanent.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: flight-recorder-db
+          app.kubernetes.io/part-of: nexus-platform
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

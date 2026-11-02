@@ -1,0 +1,18 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k4-other-identity
+policies:
+- ../../../k4-killswitch.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-killswitch
+  rule: killswitch-active
+  resources:
+  - scale-halted
+  kind: Scale
+  result: skip
