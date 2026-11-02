@@ -2,7 +2,9 @@ name: NEXUS Operator
 
 # The operator's pipeline (spec §19; M1b-8, ADR-025): lint, unit tests, image build and Trivy
 # scan on every pull request that touches it; push and Cosign keyless signing on main only, as
-# ci.yml does for sample-api. The envtest integration test (operator/tests/envtest/) is run by
+# ci.yml does for sample-api. Images are multi-arch (linux/amd64 + linux/arm64, ADR-030): the pull
+# request job runs the amd64 image through Trivy and builds arm64 without pushing; main pushes one
+# index and Cosign signs its digest. The envtest integration test (operator/tests/envtest/) is run by
 # hand, never here; the unit tests check P6 as an order of events (owner, M1b-8 point 3).
 on:
   push:
@@ -72,6 +74,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Set up QEMU (arm64 builds on the amd64 runner)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
@@ -83,8 +88,8 @@ jobs:
           load: true
           push: false
           tags: nexus-operator:pr-${{ github.event.pull_request.number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=nexus-operator-amd64
+          cache-to: type=gha,scope=nexus-operator-amd64,mode=max
 
       - name: Check the image resolves UID 10001 (passwd entry)
         if: github.event_name == 'pull_request'
@@ -102,6 +107,17 @@ jobs:
           image-ref: nexus-operator:pr-${{ github.event.pull_request.number }}
           format: table
           severity: 'CRITICAL,HIGH'
+
+      - name: Build linux/arm64 (pull request, not pushed, not loaded)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: operator
+          platforms: linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=nexus-operator-arm64
+          cache-to: type=gha,scope=nexus-operator-arm64,mode=max
 
       - name: Login to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -127,26 +143,53 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: operator
+          platforms: linux/amd64,linux/arm64
           push: true
+          # No provenance/SBOM attestation manifests: the index holds only the two platform images,
+          # and the Cosign signature on its digest is the provenance (spec §19).
+          provenance: false
+          sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=nexus-operator-multi
+          cache-to: type=gha,scope=nexus-operator-multi,mode=max
 
-      - name: Trivy scan (pushed image, by digest)
+      - name: Trivy scan (pushed image, by digest, linux/amd64)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/amd64
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-amd64.sarif'
           severity: 'CRITICAL,HIGH'
 
-      - name: Upload Trivy SARIF
+      - name: Trivy scan (pushed image, by digest, linux/arm64)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-arm64.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF (amd64)
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: github/codeql-action/upload-sarif@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3.39.1
         with:
-          sarif_file: trivy-results.sarif
+          sarif_file: trivy-amd64.sarif
+          category: trivy-nexus-operator-amd64
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF (arm64)
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: github/codeql-action/upload-sarif@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3.39.1
+        with:
+          sarif_file: trivy-arm64.sarif
+          category: trivy-nexus-operator-arm64
         continue-on-error: true
 
   sign:
