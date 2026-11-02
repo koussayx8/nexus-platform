@@ -2,7 +2,9 @@
 
 It uses the operator identity only: the in-cluster ServiceAccount token, read again on every
 request because the kubelet rotates it. Every call it makes is in the staged §11 RBAC:
-incidents get/list/create, incidents/status patch, namespaces get, and get on the two ConfigMaps.
+incidents get/list/create, incidents/status patch, namespaces get, and get on the two ConfigMaps;
+for the act path (M2), reads of pods and deployments and the two mutating subresources,
+deployments/scale and pods/eviction, in nexus-dev only (platform/rbac/nexus-operator-dev.yaml).
 """
 
 import dataclasses
@@ -43,12 +45,35 @@ class ApiError(Exception):
         self.status = status
 
 
+# What a call to the API server (or Prometheus) can raise: HTTP errors, transport errors, timeouts
+# and undecodable bodies. Callers that must fail closed catch this, not Exception.
+TRANSPORT_ERRORS = (aiohttp.ClientError, TimeoutError, OSError, ValueError)
+
+
 class Conflict(ApiError):
     """409 on a write: the resourceVersion it carried is stale."""
 
 
 class AlreadyExists(ApiError):
     """409 on a create: an object with that name exists."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Outcome:
+    """A mutating (or dry-run) request's result: never raises on an HTTP error status.
+
+    audit_id is the API server's `Audit-Id` response header, present on every response, so a
+    denied request has one too (spec §14, reconciliation joins on it).
+    """
+
+    status: int
+    audit_id: str | None
+    message: str = ""
+    body: dict | None = None
+
+    @property
+    def ok(self) -> bool:
+        return 200 <= self.status < 300
 
 
 class KubeApi:
@@ -119,6 +144,76 @@ class KubeApi:
     async def get_configmap(self, name: str) -> dict | None:
         return await self._call(
             "GET", f"{self._server}/api/v1/namespaces/{NAMESPACE}/configmaps/{name}"
+        )
+
+    async def _outcome(self, method: str, url: str, **kwargs) -> Outcome:
+        headers = dict(kwargs.pop("headers", {}))
+        headers["Authorization"] = f"Bearer {self._credentials().token}"
+        async with self._session.request(method, url, headers=headers, **kwargs) as r:
+            text = await r.text()
+            body = None
+            try:
+                parsed = json.loads(text)
+                body = parsed if isinstance(parsed, dict) else None
+            except ValueError:
+                pass
+            message = (body or {}).get("message") or text[:300]
+            return Outcome(
+                r.status, r.headers.get("Audit-Id"), str(message)[:500], body
+            )
+
+    @staticmethod
+    def _dry(dry_run: bool) -> dict:
+        return {"dryRun": "All"} if dry_run else {}
+
+    async def get_deployment(self, namespace: str, name: str) -> dict | None:
+        return await self._call(
+            "GET",
+            f"{self._server}/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+        )
+
+    async def list_pods(self, namespace: str, selector: str) -> list[dict]:
+        body = await self._call(
+            "GET",
+            f"{self._server}/api/v1/namespaces/{namespace}/pods",
+            params={"labelSelector": selector},
+        )
+        return (body or {}).get("items", [])
+
+    async def get_scale(self, namespace: str, name: str) -> dict | None:
+        return await self._call(
+            "GET",
+            f"{self._server}/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale",
+        )
+
+    async def patch_scale(
+        self, namespace: str, name: str, replicas: int, dry_run: bool = False
+    ) -> Outcome:
+        """Merge-patch the Scale subresource; dry_run sends the exact request with dryRun=All."""
+        return await self._outcome(
+            "PATCH",
+            f"{self._server}/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale",
+            params=self._dry(dry_run),
+            data=json.dumps({"spec": {"replicas": replicas}}),
+            headers={"Content-Type": "application/merge-patch+json"},
+        )
+
+    async def evict(
+        self, namespace: str, pod: str, uid: str, dry_run: bool = False
+    ) -> Outcome:
+        """Create an Eviction for one pod, preconditioned on its UID."""
+        body = {
+            "apiVersion": "policy/v1",
+            "kind": "Eviction",
+            "metadata": {"name": pod, "namespace": namespace},
+            "deleteOptions": {"preconditions": {"uid": uid}},
+        }
+        return await self._outcome(
+            "POST",
+            f"{self._server}/api/v1/namespaces/{namespace}/pods/{pod}/eviction",
+            params=self._dry(dry_run),
+            data=json.dumps(body),
+            headers={"Content-Type": "application/json"},
         )
 
     async def close(self) -> None:
