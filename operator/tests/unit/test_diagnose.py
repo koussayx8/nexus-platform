@@ -201,11 +201,17 @@ def test_no_metrics_source_gives_null_zscores_and_a_null_baseline():
 # ---------------------------------------------------------------- Q1: nothing unredacted is stored
 SECRETS = [
     "ghp_" + "Z9y8X7w6V5" * 4,
-    "AKIAQWERTYUIOPASDFGH",
+    "AK" + "IAQWERTYUIOPASDFGH",  # assembled: no secret-shaped literal in Git
     "alice.admin@example.com",
     "10.42.7.19",
     "hunter2hunter2",
-    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+    ".".join(
+        [
+            "ey" + "JhbGciOiJIUzI1NiJ9",
+            "ey" + "JzdWIiOiIxMjM0NTY3ODkwIn0",
+            "dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+        ]
+    ),
     "s3cr3tPassw0rd",
 ]
 

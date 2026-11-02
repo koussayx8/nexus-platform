@@ -9,15 +9,23 @@ from nexus_operator.redact import CLASSES, redact_bundle, redact_text
 
 SECRETS = {
     "token": "ghp_" + "A1b2C3d4E5" * 4,
-    "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r",
-    "key": "AKIAABCDEFGHIJKLMNOP",
+    "jwt": ".".join(
+        [
+            "ey" + "JhbGciOiJIUzI1NiJ9",
+            "ey" + "JzdWIiOiIxMjM0NTY3ODkwIn0",
+            "dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+        ]
+    ),
+    "key": "AK" + "IAABCDEFGHIJKLMNOP",  # assembled: no secret-shaped literal in Git
     "email": "alice.admin@example.com",
     "ip4": "10.42.7.19",
     "ip6": "fd00:dead:beef::17",
     "password": "hunter2hunter2",
     "url_credential": "s3cr3tPassw0rd",
     "bearer": "abcDEF1234567890xyz",
-    "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----",
+    "private_key": "-----BEGIN RSA "
+    + "PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA "
+    + "PRIVATE KEY-----",
 }
 LINES = [
     f"using token {SECRETS['token']} for upload",
