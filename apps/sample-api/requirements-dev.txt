@@ -4,6 +4,6 @@ ruff==0.16.9
 # Testing, pinned to the versions the 0.3.0 tests ran on (moved out of requirements.txt, D4).
 # httpx2, not httpx: Starlette's TestClient prefers it and warns when only httpx is installed
 # (StarletteDeprecationWarning). The tests do not import either package themselves.
-httpx==0.28.1
+httpx2==2.16.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
