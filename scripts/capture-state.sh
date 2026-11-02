@@ -491,7 +491,7 @@ c_sampleapi_git_digest() {
 
 c_sampleapi_metrics() {
   need_jq || return 0
-  local svcs ns port lport body pflog pid code i
+  local svcs ns port lport body pflog pid code
   show "Services named sample-api (namespace, first port)"
   svcs=$(k get svc -A -o json | jq -r '.items[] | select(.metadata.name == "sample-api") | "\(.metadata.namespace) \(.spec.ports[0].port)"')
   echo "${svcs:-(none)}"
