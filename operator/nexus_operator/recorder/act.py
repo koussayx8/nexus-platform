@@ -8,17 +8,24 @@ proposal by its hash. Both are added here, inside the package, without touching 
 
     ActRecorder            the Recorder protocol plus recent_actions and get_proposal
     PostgresActRecorder    PostgresRecorder plus those two reads (one SELECT each)
+    ReconnectingRecorder   the Writer the operator holds: connects on demand, fails closed
     UnavailableRecorder    every call raises RecorderUnavailable: used until the Writer is wired in
                            (the runtime image has no asyncpg pin yet, ADR-031), so every mutation
                            ends Blocked / recorder_unavailable
 """
 
+import asyncio
 import dataclasses
 import datetime
 import json
+import logging
+import pathlib
 from typing import Any, Protocol
 
+from ..metrics import METRICS, RECORDER_ERRORS
 from .writer import PostgresRecorder, Recorder, RecorderUnavailable, connect
+
+logger = logging.getLogger("nexus.recorder")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,3 +101,89 @@ class UnavailableRecorder:
     record_proposal = record_gate_decision = record_verification = _fail
     begin_action = complete_action = count_actions = last_action_at = _fail
     recent_actions = get_proposal = _fail
+
+
+class ReconnectingRecorder:
+    """The Writer as the operator holds it: connects when first needed and again after a failure.
+
+    The database may be down when the operator starts, or go down later. Neither stops the
+    operator: while there is no connection every call raises RecorderUnavailable, which ends an
+    incident Blocked / recorder_unavailable before any request (§17, fail closed). The password
+    is read from its mounted file at each connection attempt, so a rotated Secret is picked up.
+    asyncpg's own pool re-opens broken connections; a failed call drops the pool so the next call
+    starts from a fresh connect.
+    """
+
+    _METHODS = frozenset(
+        [
+            "open_incident",
+            "close_incident",
+            "record_transition",
+            "record_bundle",
+            "record_proposal",
+            "record_gate_decision",
+            "record_verification",
+            "begin_action",
+            "complete_action",
+            "count_actions",
+            "last_action_at",
+            "recent_actions",
+            "get_proposal",
+        ]
+    )
+
+    def __init__(
+        self, *, host: str, port: int, database: str, user: str, password_file: str
+    ):
+        self._args = {"host": host, "port": port, "database": database, "user": user}
+        self._password_file = password_file
+        self._inner: PostgresActRecorder | None = None
+        self._lock = asyncio.Lock()
+        self.up = False  # for the recorder_up metric
+
+    async def _recorder(self) -> PostgresActRecorder:
+        async with self._lock:
+            if self._inner is None:
+                try:
+                    password = (
+                        await asyncio.to_thread(
+                            pathlib.Path(self._password_file).read_text, "utf-8"
+                        )
+                    ).strip()
+                except OSError as e:
+                    raise RecorderUnavailable(
+                        f"password file: {type(e).__name__}"
+                    ) from e
+                if not password:
+                    raise RecorderUnavailable("password file is empty")
+                self._inner = await connect_act(**self._args, password=password)
+            return self._inner
+
+    async def _drop(self) -> None:
+        async with self._lock:
+            inner, self._inner = self._inner, None
+        self.up = False
+        if inner is not None:
+            try:
+                await inner._pool.close()
+            except Exception:  # noqa: BLE001 - closing a broken pool must not mask the failure
+                logger.warning("closing the recorder pool failed")
+
+    def __getattr__(self, name: str):
+        if name not in self._METHODS:
+            raise AttributeError(name)
+
+        async def call(*args, **kwargs):
+            try:
+                result = await getattr((await self._recorder()), name)(*args, **kwargs)
+            except RecorderUnavailable:
+                METRICS.inc(RECORDER_ERRORS)
+                await self._drop()
+                raise
+            self.up = True
+            return result
+
+        return call
+
+    async def close(self) -> None:
+        await self._drop()
