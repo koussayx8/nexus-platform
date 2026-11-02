@@ -13,6 +13,7 @@ resources:
   - ../monitors
   - ../alerts
   - ../dashboards
+  - ../datasources
 
 commonAnnotations:
   nexus.io/owner: platform-team

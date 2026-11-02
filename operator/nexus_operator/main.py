@@ -23,9 +23,15 @@ import logging
 import kopf
 
 from . import config, hooks, reconcile
+from .act import ActPath
+from .executor import Executor
+from .gate import Gate
 from .kube import KubeApi, service_account_credentials
-from .model import INCIDENTS
+from .model import INCIDENTS, now
+from .mutations import Mutations
 from .poller import Poller
+from .recorder import AuditedClient, UnavailableRecorder
+from .verifier import Prometheus, Verifier
 
 logger = logging.getLogger("nexus.operator")
 
@@ -37,6 +43,11 @@ class Runtime:
         self.loop: reconcile.Loop | None = None
         self.poller: Poller | None = None
         self.tasks: list[asyncio.Task] = []
+        # The Flight Recorder Writer (task 1). Until it is wired in here, every mutation is
+        # refused as recorder_unavailable: nothing is sent that cannot first be recorded (§14).
+        self.recorder = UnavailableRecorder()
+        self.mutations: Mutations | None = None
+        self.metrics: Prometheus | None = None
 
 
 RUNTIME = Runtime()
@@ -77,7 +88,32 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
     timing = reconcile.Timing(
         detected_timeout_s=cfg.detected_timeout_s, reconcile_s=cfg.reconcile_s
     )
-    RUNTIME.loop = reconcile.Loop(RUNTIME.api, timing)
+    RUNTIME.metrics = Prometheus(cfg.prometheus_url) if cfg.prometheus_url else None
+    RUNTIME.mutations = Mutations(AuditedClient.create(RUNTIME.credentials))
+    gate = Gate(
+        RUNTIME.api,
+        RUNTIME.mutations,
+        RUNTIME.recorder,
+        advisory=cfg.advisory_checks,
+        breaker_epoch=cfg.breaker_epoch,
+        clock=now,
+    )
+    act = ActPath(
+        RUNTIME.api,
+        RUNTIME.mutations,
+        RUNTIME.recorder,
+        gate,
+        Executor(RUNTIME.mutations, RUNTIME.recorder, now),
+        Verifier(RUNTIME.api, RUNTIME.metrics),
+        now,
+    )
+    logger.info(
+        "act path advisoryChecks=%s breakerEpoch=%d prometheus=%s",
+        "on" if cfg.advisory_checks else "off",
+        cfg.breaker_epoch,
+        "set" if cfg.prometheus_url else "unset",
+    )
+    RUNTIME.loop = reconcile.Loop(RUNTIME.api, timing, act)
     RUNTIME.poller = Poller(RUNTIME.api, cfg.alertmanager_url, cfg.alert_poll_s)
     RUNTIME.tasks = [
         asyncio.create_task(RUNTIME.loop.run(), name="reconcile loop"),
@@ -94,6 +130,10 @@ async def stop(**_) -> None:
             await task
     if RUNTIME.poller is not None:
         await RUNTIME.poller.close()
+    if RUNTIME.metrics is not None:
+        await RUNTIME.metrics.close()
+    if RUNTIME.mutations is not None:
+        await RUNTIME.mutations.close()
     if RUNTIME.api is not None:
         await RUNTIME.api.close()
     logger.info("loops stopped")
