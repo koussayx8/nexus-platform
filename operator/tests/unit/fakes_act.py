@@ -31,6 +31,7 @@ class FakeCluster(FakeApi):
         self.limit = "1"
         self.rolling = False
         self.audit_n = 0
+        self.audit_prefix = "audit"  # a shared database needs ids unique across rigs
         self.requests: list[
             tuple
         ] = []  # every request that reached the API: (verb, args, dry)
@@ -40,6 +41,38 @@ class FakeCluster(FakeApi):
         self.raise_on = None  # callable(verb, args, dry) -> exception | None
         self.auto_ready = True  # replacement pods become Ready at once
         self.events: list[str] = []  # shared with FakeRecorder.order by the harness
+        self.replica_sets: list[dict] = [
+            {
+                "metadata": {
+                    "name": f"{DEP}-7d9",
+                    "annotations": {"deployment.kubernetes.io/revision": "3"},
+                },
+                "spec": {
+                    "template": {
+                        "spec": {"containers": [{"image": f"reg/x@sha256:{'a' * 64}"}]}
+                    }
+                },
+            },
+            {
+                "metadata": {
+                    "name": f"{DEP}-6c1",
+                    "annotations": {"deployment.kubernetes.io/revision": "2"},
+                },
+                "spec": {
+                    "template": {"spec": {"containers": [{"image": "reg/x:old"}]}}
+                },
+            },
+        ]
+        self.events_list: list[dict] = []
+        self.application: dict | None = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "c0ffee"},
+                "health": {"status": "Healthy"},
+            }
+        }
+        self.deployments_missing = False
+        self.logs_current: dict[str, str] = {}
+        self.logs_previous: dict[str, str] = {}
 
     def _new_pod(self, ready: bool) -> dict:
         self.n_pod += 1
@@ -62,7 +95,7 @@ class FakeCluster(FakeApi):
 
     def _audit(self) -> str:
         self.audit_n += 1
-        return f"audit-{self.audit_n}"
+        return f"{self.audit_prefix}-{self.audit_n}"
 
     def _enforce(self, verb: str, args: tuple, dry: bool) -> ApiResult | None:
         self.requests.append((verb, args, dry))
@@ -76,7 +109,7 @@ class FakeCluster(FakeApi):
 
     # --- reads ---
     async def get_deployment(self, namespace, name):
-        if (namespace, name) != (NS, DEP):
+        if (namespace, name) != (NS, DEP) or self.deployments_missing:
             return None
         ready = sum(
             1
@@ -106,6 +139,18 @@ class FakeCluster(FakeApi):
 
     async def list_pods(self, namespace, selector):
         return copy.deepcopy(self.pods)
+
+    async def list_replicasets(self, namespace, selector):
+        return copy.deepcopy(self.replica_sets)
+
+    async def list_events(self, namespace):
+        return copy.deepcopy(self.events_list)
+
+    async def get_application(self, name):
+        return copy.deepcopy(self.application)
+
+    async def pod_log(self, namespace, pod, *, previous, tail):
+        return (self.logs_previous if previous else self.logs_current).get(pod)
 
     async def get_scale(self, namespace, name):
         return {"spec": {"replicas": self.replicas}}
@@ -155,6 +200,7 @@ class FakeRecorder:
         self.gates: list[tuple] = []
         self.verifications: dict[tuple, tuple] = {}
         self.proposals: dict[str, object] = {}
+        self.bundles: dict[str, tuple] = {}
         self.fail_intent = False
         self.fail_complete = False
         self.fail_all = False
@@ -211,6 +257,10 @@ class FakeRecorder:
         collected_at,
     ):
         self._up()
+        self._fk(incident_uid)
+        if bundle_hash in self.bundles:
+            return False
+        self.bundles[bundle_hash] = (incident_uid, content, redaction_counts)
         return True
 
     async def record_proposal(
@@ -230,6 +280,7 @@ class FakeRecorder:
         fallback_used=False,
     ):
         self._up()
+        self._fk(incident_uid)
         self.proposals[proposal_hash] = (
             parsed_proposal if parsed_proposal is not None else (raw_output or "")
         )
@@ -357,10 +408,23 @@ class FakeRecorder:
 
 
 class FakeMetrics:
-    def __init__(self, p95=0.05, cpu=0.1):
+    def __init__(self, p95=0.05, cpu=0.1, **zscores):
+        z = {
+            "cpu": 0.0,
+            "latencyP95": 0.0,
+            "errorRatio": 0.0,
+            "requestRate": 0.0,
+        } | zscores
         self.values = {
             "namespace:nexus_sample_api_latency_p95:2m": p95,
             "namespace:nexus_sample_api_cpu:rate2m": cpu,
+            "namespace:nexus_sample_api_cpu:zscore15m": z["cpu"],
+            "namespace:nexus_sample_api_latency_p95:zscore15m": z["latencyP95"],
+            "namespace:nexus_sample_api_error_ratio:zscore15m": z["errorRatio"],
+            "namespace:nexus_sample_api_requests:zscore15m": z["requestRate"],
+            "namespace:nexus_sample_api_error_ratio:rate2m": 0.0,
+            "namespace:nexus_sample_api_latency_p95:baseline_avg15m": 0.05,
+            "namespace:nexus_sample_api_latency_p95:baseline_stddev15m": 0.01,
         }
 
     async def scalar(self, query, namespace):
