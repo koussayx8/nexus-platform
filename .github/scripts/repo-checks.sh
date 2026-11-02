@@ -23,6 +23,9 @@
 # 12. Offline unit tests for bump_digest.py, the digest-bump pull request's rewriter (standard
 #     library only).
 #
+# 14. The ignoreDifferences boundary check (G4, spec §13, I12) and the offline tests of the
+#     boundary check, the audit_id join (G5) and the Alertmanager route (G6).
+#
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
 # PATH (CI installs pinned, checksummed builds).
@@ -111,6 +114,14 @@ echo "::endgroup::"
 
 echo "::group::bump_digest.py tests (offline)"
 python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::ignoreDifferences boundary (G4, I12)"
+python3 scripts/check-ignore-differences.py
+echo "::endgroup::"
+
+echo "::group::boundary, audit_id join and Alertmanager route tests (G4, G5, G6; offline)"
+python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
 echo "::endgroup::"
 
 echo "::group::workflow actions pinned by commit SHA"

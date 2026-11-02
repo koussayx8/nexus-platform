@@ -6,3 +6,4 @@ metadata:
 
 resources:
   - nexus-detection.yaml
+  - nexus-kube-state.yaml
