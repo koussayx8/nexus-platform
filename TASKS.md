@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
-**Milestone:** M2 — the operator acts (plan at GATE M2-0). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
-**Current phase:** M2-0 — the M2 plan ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), rev 3), at GATE M2-0 (decisions recorded 2026-10-16; the merge is pending). The M1 and M1b phase records are in their sections below.
+**Milestones (re-plan, owner, 2026-11-02):** M2 live by 2026-11-20, M3 by 2026-12-06, code complete 2026-12-20, evaluation until ~2027-01-10, the A1 demo in early January 2027 ([`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md)). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
+**Current phase:** the re-plan (task T0) at its gate; tasks T1–T5 open in parallel (section "PFE re-plan" below). The GATE M2-0 record and the M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -845,7 +845,72 @@ to the recorded values means a rerun;
   - [ ] Closing PR: ADR-026 results, ADR-020 and ADR-025 addenda, `CURRENT_STATE.md`, these boxes.
     **GATE M1b-9.**
 
-## M2 — the operator acts
+## PFE re-plan (owner decisions, 2026-11-02)
+
+- **Plan:** [`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md): decisions O1–O7, tasks T0–T5, the unassigned scope
+  G1–G18, contradictions X1–X9 for spec v1.1, open questions Q1–Q6. Outlines:
+  [`m2-outline.md`](docs/plans/m2-outline.md), [`m3-outline.md`](docs/plans/m3-outline.md),
+  [`m4-outline.md`](docs/plans/m4-outline.md).
+- **Hosts:** every measurement runs on WSL2, on the M1b calibration. A1 is the defense demo host only, built in
+  January 2027 with a demo overlay, labelled demo (ADR-030 amendment).
+- **Process:** one plan per milestone, at most one revision round. Gates: each task PR and each milestone exit.
+  Pre-registration only for M4's measured runs. Merges and tags as in CLAUDE.md rule 11.
+- **Tests:** automated tests for the safety invariants (RBAC boundaries, K1–K6, K5 binding, write-ahead plus
+  `Audit-Id`, Kill Switch, verification, I1/I2); normal unit tests elsewhere; no custom harnesses or calibration
+  campaigns.
+- **Live checks:** no cluster in the agent sessions; each live check is marked "live check pending" until the owner
+  runs or approves it on WSL2.
+
+**Tasks** (one branch `claude/task-<n>-<short-name>` and one PR to `dev` each; only T0 edits `TASKS.md` and
+`docs/plans/`):
+- [ ] **T0 — re-plan**, docs only. **GATE T0.**
+- [ ] **T1 — `flight-recorder-db`:** manifests, the §14 schema, the Secrets script; the Writer with the write-ahead
+  intent row; the `Audit-Id` client wrapper; the Grafana FR datasource and dashboard JSON. [M2]
+- [ ] **T2 — operator act path** (L0, L1, L3; L2 stays `Escalated`): the catalogue, the Executor, Safety Gate stages
+  1–7, the breaker and cool-down; the Verifier against the raw baseline, and escalate; the R1 rules engine; dev-only
+  RBAC. Against T1's Writer interface; no Dockerfile change. [M2]
+- [ ] **T3 — M3 policies and tools:** K1–K6 with `kyverno` CLI tests (K5 approver stamping and hash binding);
+  `verifyImages` in Audit; NetworkPolicies N1–N6; CODEOWNERS; `nexusctl`; the approval schema and `approvalTTL`.
+  The operator's L2 states and the `nexus-prod` grants follow after T2 merges. [M3]
+- [ ] **T4 — M4 harness:** the runner (inject, reset, ArgoCD refresh); §21 metrics and statistics on fixtures; the
+  reasoner client (`proposal/v1`, redaction, timeout); BM25 over the runbooks; arm configs, incl. the Haiku arm and
+  the effort sweep. [M4]
+- [ ] **T5 — Hygiene, supply chain, multi-arch** (the items tagged → T5 below). [M3; before the A1 demo]
+
+**Not yet tasked:** G1–G18 in the re-plan (among them the Evidence Collector, the Compensator, the Reasoner service and
+runbooks, the static baseline, the containment suite, spec v1.1 and the M4 pre-registration). Each needs a task, or
+an owner decision to fold it into one.
+
+### M2 — live by 2026-11-20 ([`m2-outline.md`](docs/plans/m2-outline.md))
+
+- [ ] T1 merged; FR DB live on WSL2; one `Audit-Id` dry-run (live check pending).
+- [ ] T2 merged; the operator deployed with `nexus-dev` at L0; dev RBAC widened (live check pending).
+- [ ] G1–G5 and G7's M2 part resolved.
+- [ ] `nexus-dev` → `"3"`; the M2 exit on WSL2; `CURRENT_STATE.md`; the tag (separate approval). **GATE M2 exit.**
+
+### M3 — by 2026-12-06 ([`m3-outline.md`](docs/plans/m3-outline.md))
+
+- [ ] T3 merged; the T3 follow-up (operator L2 states, `nexus-prod` grants) merged.
+- [ ] T5 merged.
+- [ ] Live: K1–K6 in Enforce, the §16A cells, N1–N6, G7's M3 part (live check pending). **GATE M3 exit.**
+
+### M4 — code complete 2026-12-20; evaluation until ~2027-01-10 ([`m4-outline.md`](docs/plans/m4-outline.md))
+
+- [ ] T4 merged; G6 and G9–G15 merged. **Code complete.**
+- [ ] Spec v1.1 (G17) merged.
+- [ ] The M4 pre-registration (G16) merged. **GATE M4 pre-registration.**
+- [ ] Phases A–D and the no-fault runs on WSL2, as pre-registered; export; `make results`. **GATE M4 result.**
+
+### A1 demo — early January 2027
+
+- [ ] T5's arm64 images; G18's demo overlay and `demo/reset.sh`.
+- [ ] The owner builds A1 and runs the demo, labelled demo. The defense recording: re-plan Q4.
+
+## M2 as planned at GATE M2-0 (superseded in part, 2026-11-02)
+
+> **Superseded in part (owner, 2026-11-02).** The scope trace stands. The host and the phases are replaced
+> by the PFE re-plan above. Each phase and placed item below carries its new home (→ Tn, Gn or Cut). Kept as the
+> record.
 
 Scope (README): the mutation path through the Scale and Eviction subresources, Safety Gate checks, and the
 autonomy level raised on `nexus-dev`.
@@ -893,11 +958,11 @@ autonomy level raised on `nexus-dev`.
 - U5 → the M2-9 pre-registration: R2, the "twice per-pod capacity" reading, and `scale_v1`'s 70 % (now 700m).
 
 **Phases** (each planned in detail at its own gate):
-- [ ] **M2-0 — plan.** This PR. **GATE M2-0.**
-- [ ] **M2-1 — step 0 on WSL2** (ADR-030 (a)), with Locust stopped as an approved step. **GATE M2-1.**
+- [x] **M2-0 — plan.** Merged (#132). **GATE M2-0.**
+- [ ] **M2-1 — step 0 on WSL2** (ADR-030 (a)), with Locust stopped as an approved step. **GATE M2-1.** **→ Cut (owner, 2026-11-02).**
   - Plan: [`docs/plans/m2-1-plan.md`](docs/plans/m2-1-plan.md), with the go/no-go rule fixed before measurement. D1–D5
     were accepted at the plan gate (owner, 2026-10-16), with the failed-G1 options and the V1 power-off note added.
-- [ ] **M2-1b — the x86 replication** (ADR-030 (b)). **GATE M2-1b** (pre-registration, then result).
+- [ ] **M2-1b — the x86 replication** (ADR-030 (b)). **GATE M2-1b** (pre-registration, then result). **→ Not done under its stop rule; cut (owner, 2026-11-02).**
   - Plan: [`docs/plans/m2-1b-plan.md`](docs/plans/m2-1b-plan.md), rev 3, accepted at the plan gate (owner, 2026-10-16). PR1
     (no `--autostart`) is decided; PR2–PR7 are decided at GATE M2-1b pre-registration.
   - It runs `v0.3.0` plus a pre-registered, parameter-only diff (re-derived limits, Locust users and autostart),
@@ -909,15 +974,15 @@ autonomy level raised on `nexus-dev`.
   - The pre-registration names two commits: the replication head and the harness commit on `dev`.
   - **Stop rule:** not calibrated by 2026-11-01 → (b) is recorded as not done.
   - **Billing guard:** every trial resource is deleted before 2026-11-09.
-- [ ] **M2-2 — arm64 and images.** **GATE M2-2.**
-- [ ] **M2-3 — `bootstrap.sh` before the first cloud bootstrap.** **GATE M2-3.**
-- [ ] **M2-4 — the ADR-030 addendum (topology, CNI, the (c) drop), then the one Spec v1.1 PR.** **GATE M2-4.**
-- [ ] **M2-5 — the `Audit-Id` spike.** **GATE M2-5.**
-- [ ] **M2-6 — `flight-recorder-db`.** **GATE M2-6.**
-- [ ] **M2-7 — the operator's M2 stages:** PR A (code), PR B (deploy); `nexus-dev` still at L0. **GATE M2-7.**
-- [ ] **M2-8 — the KSM alerts and `group_by`, F5, the M2 verify checks.** **GATE M2-8.**
-- [ ] **M2-9 — the A1 host and its calibration,** then the owner stops WSL2's k3s. **GATE M2-9.**
-- [ ] **M2-10 — exit:**
+- [ ] **M2-2 — arm64 and images.** **→ T5.** **GATE M2-2.**
+- [ ] **M2-3 — `bootstrap.sh` before the first cloud bootstrap.** **→ Cut.** **GATE M2-3.**
+- [ ] **M2-4 — the ADR-030 addendum (topology, CNI, the (c) drop), then the one Spec v1.1 PR.** **→ ADR-030 amendment (T0); Spec v1.1 → G17.** **GATE M2-4.**
+- [ ] **M2-5 — the `Audit-Id` spike.** **→ T1.** **GATE M2-5.**
+- [ ] **M2-6 — `flight-recorder-db`.** **→ T1.** **GATE M2-6.**
+- [ ] **M2-7 — the operator's M2 stages:** PR A (code), PR B (deploy); `nexus-dev` still at L0. **→ T2, with G1–G4.** **GATE M2-7.**
+- [ ] **M2-8 — the KSM alerts and `group_by`, F5, the M2 verify checks.** **→ G6, G7.** **GATE M2-8.**
+- [ ] **M2-9 — the A1 host and its calibration,** then the owner stops WSL2's k3s. **→ Cut; A1 is demo-only, built in January 2027.** **GATE M2-9.**
+- [ ] **M2-10 — exit:** **→ the M2 exit on WSL2 by 2026-11-20 ([`m2-outline.md`](docs/plans/m2-outline.md)).**
   - `nexus-dev` → `"3"`;
   - the exit demo on the M2 host (A1, or WSL2 if A1 is not provisioned and passing `verify-state.sh` by 2026-11-20);
   - the defense recording, `CURRENT_STATE.md` and `CHANGELOG` [0.4.0];
@@ -939,7 +1004,7 @@ are in `docs/adr/` on `dev`.
 
 **M2 core**
 
-- [M2-2] **Base images: digest pins and a slimmer base** (owner, #96 gate review, 2026-10-03). The
+- [M2-2 → T5] **Base images: digest pins and a slimmer base** (owner, #96 gate review, 2026-10-03). The
   operator image pins `python:3.12-slim` by index digest (`operator/Dockerfile`, `sha256:dddfd7e0…`);
   sample-api's does not (`apps/sample-api/Dockerfile`: `python:3.12-slim`, a moving tag). Trivy on
   the #96 PR image: 45 HIGH, 0 CRITICAL, all Debian 13.7 base packages, 0 in the Python packages.
@@ -947,7 +1012,7 @@ are in `docs/adr/` on `dev`.
   minimal Python runtime), then compare the Trivy counts. `operator.yml` copies `ci.yml`'s
   `cosign-installer@v3`, so the item above applies to it too.
   - **GATE M2-0:** the sample-api digest pin goes to M2-2; the operator base is already pinned (`operator/Dockerfile:4,9`, report e). The slimmer base and its Trivy comparison go to M3, with `verifyImages`. "The item above" in its last sentence is the `cosign-installer` item, now under the ADR-030 track.
-- [M2-2] **Operator image: a passwd entry for UID 10001, then drop the USER workaround** (owner, #100 stop,
+- [M2-2 → T5] **Operator image: a passwd entry for UID 10001, then drop the USER workaround** (owner, #100 stop,
   2026-10-06). Image `ef3c6955` runs as UID 10001 with no `/etc/passwd` entry; Kopf's
   `getpass.getuser()` raised `KeyError` and the pod crash-looped at the #100 live gate.
   `operator/k8s/deployment.yaml` now sets `USER=nexus-operator` (guarded by
@@ -955,18 +1020,18 @@ are in `docs/adr/` on `dev`.
   above): `useradd --uid 10001` in the Dockerfile, new `cosign verify` and digest pin, then remove
   the env and turn the manifest test into a check that the image resolves UID 10001.
   - **GATE M2-0:** rebuilt multi-arch at M2-2 (ADR-030).
-- [M2-3] Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
+- [M2-3 → Cut; the M4 pre-registration decides] Raise the audit-log `maxbackup` (G2, owner decision at the M1-6 plan gate). The old cluster
   filled a 100 MiB file every 4.8–6.0 h, about 2.2–2.8 days of retention with `maxbackup=10`,
   not the ~10 days of change 7. **Measured in the M1-6 window:** about 500 MiB per idle day
   (502.3 MiB/day per uptime second), retention 2.19 days (ADR-019 addendum). 7 days needs
   `maxbackup` of about 35, more under load. Or narrow the §14 policy. Changing it needs a k3s
   restart: do it at a planned k3s restart (a rebuild or between measurement windows).
   - **GATE M2-0:** lands at M2-3, so the first cloud bootstrap applies it without a k3s restart (report g).
-- [M2-4] Spec v1.1 notes (M1b-5, M1b-7): the Z-score baseline excludes the most recent 3 minutes; the
+- [M2-4 → G17] Spec v1.1 notes (M1b-5, M1b-7): the Z-score baseline excludes the most recent 3 minutes; the
   latency signal includes the in-flight gauge (p95 Z > 3 OR in-flight Z > 3). ADR-022 and ADR-024 are on `feat/m1b-5-fault-hooks` and
   `feat/m1b-7-detection` (#79), not yet on `dev`.
-- [M2-4] Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
-- [M2-4] Spec v1.1 also records ADR-030's three contradictions (cloud hosting, #130 review, 2026-10-16). ADR-030
+- [M2-4 → G17] Spec v1.1 also records the Application name `observability` (spec §3 says `monitoring`, ADR-016).
+- [M2-4 → G17] Spec v1.1 also records ADR-030's three contradictions (cloud hosting, #130 review, 2026-10-16). ADR-030
   governs until then:
   1. **The host:** the spec puts the cluster and the Experiment Runner, Fault Injector, Evaluation Harness,
      K8sGPT CLI and Ollama on "Host (WSL2)" (§3). M2 runs on an OCI A1 node. Where the host components run is
@@ -974,26 +1039,26 @@ are in `docs/adr/` on `dev`.
   2. **The demo fallback:** the spec's is the Local Model via Ollama, "Offline demo only" (§16). ADR-030 adds a
      recorded demo, and a cloud-hosted demo is not offline.
   3. **Bedrock** is not in the spec. ADR-030 (c) allows one pre-registered evaluation, outside the arms R2 and R3.
-- [M2-4] Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
+- [M2-4 → G17] Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
   - **GATE M2-0:** these four Spec v1.1 items go into one Spec v1.1 PR (ADR plus version bump) at M2-4, after the ADR-030 topology addendum.
-- [M2-7] M2: an alert that clears is not a recovery; repair verification compares the raw signal with
+- [M2-7 → T2] M2: an alert that clears is not a recovery; repair verification compares the raw signal with
   its pre-fault baseline (M1b-7 gate; ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`).
-- [M2-7] The envtest harness PKI (7-day certificates) in `~/nexus-envtest` expires 2026-10-05T21:12Z.
+- [M2-7 → T2] The envtest harness PKI (7-day certificates) in `~/nexus-envtest` expires 2026-10-05T21:12Z.
   `test/m1b-6-envtest` `b9f62f0` renews it at `up`; 6a and 6b still carry the older harness. Merge
   the harness forward into 6a/6b only if a rerun after that date is needed (owner).
   - **GATE M2-0:** report c, CONTRADICTED: `b9f62f0` (PKI renewal within 24 h of expiry, `scripts/tests/envtest.sh`) is on `dev`. One envtest run at M2-7 confirms it; then close.
-- [M2-8] Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
+- [M2-8 → G7] Set the sample-api rollout strategy explicitly before any scaling (M1b-5, `fc2255b` on its
   branch: `maxSurge: 1`, `maxUnavailable: 0`). Today it is the default
   `maxSurge: 25%` / `maxUnavailable: 25%`, which rounds to 1 / 0 only at 2 replicas; at 4 or more
   replicas `maxUnavailable` becomes ≥ 1.
   - **GATE M2-0:** report b, CONTRADICTED: the strategy is already explicit. `fc2255b` (2026-09-29) set `apps/sample-api/k8s/base/deployment.yaml:16-20`, and it is on `main`, `experiment/dev-state` and `dev`. What stays is a `verify-state.sh` check of the live strategy before the first Scale; then close.
-- [M2-8] M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022 on `feat/m1b-5-fault-hooks`, not yet on `dev`).
-- [M2-8] The §3 kube-state-metrics alerts `NexusRolloutStuck` and `NexusCrashLooping`, and Alertmanager
+- [M2-8 → G6] M2: F5, SIGTERM with hung requests needs SIGKILL after the 30 s grace on eviction (ADR-022 on `feat/m1b-5-fault-hooks`, not yet on `dev`).
+- [M2-8 → G6] The §3 kube-state-metrics alerts `NexusRolloutStuck` and `NexusCrashLooping`, and Alertmanager
   `group_by: [nexus_target]` (M1b-7 plan; `TASKS.md` M1b lists only the four anomaly alerts).
-- [M2-8] `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
+- [M2-8 → G7] `verify-state.sh` gains checks per milestone: K1–K6 in Enforce, the Incident CRD and CEL, operator and Reasoner Ready, N1–N6.
   - **GATE M2-0:** M2's part (M2-8): `flight-recorder-db` Ready, the staged RBAC by `auth can-i --list` (scale and eviction in `nexus-dev`, none in `nexus-prod`), the live rollout strategy, the levels. K1–K6 and N1–N6 → M3; Reasoner Ready → M4.
 
-**M2-1b — the x86 replication**
+**M2-1b — the x86 replication** → cut (O3). Timestamp parsing with offsets → T4's runner; the Locust autostart setting → the M4 pre-registration; the `ramp.py` tooling → cut (O7).
 
 - **Timed-run analysis: timestamp parsing** (S5, 2026-10-14). The S5 analysis script's parser accepted only `Z`;
   `kubectl logs --timestamps` returned `+02:00` offsets after the reboot, and the script crashed after t8 (ADR-025
@@ -1011,21 +1076,21 @@ are in `docs/adr/` on `dev`.
 
 **ADR-030 track**
 
-- [M2-2] Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
+- [M2-2 → T5] Pin `sigstore/cosign-installer` by commit SHA in `ci.yml`, with an explicit `cosign-release`.
   Today `@v3` is a moving tag; the last sign job (run 36227651665) got `398d4b0` and cosign
   v2.5.2. Until it is pinned, at M1-5 check which cosign version the sign job used before running
   `cosign verify`.
-- [M2-2] Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
+- [M2-2 → T5] Supply chain, found during the docs pass: the actions in `ci.yml` and `operator.yml` are pinned by tag (`@v4`, `@v5`, `@v3`, `@v2`, `trivy-action@master`), and only `repo-checks.yml` pins `actions/checkout` by commit SHA. The `sample-api` Dockerfile uses `python:3.12-slim` by tag; the operator Dockerfile pins its base by digest. Pin both by SHA/digest through a PR and an ADR note.
   - **GATE M2-0:** the actions are pinned by SHA at M2-2; the sample-api Dockerfile pin goes with the base-images item (M2 core, M2-2).
-- [M2-2] CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
+- [M2-2 → T5] CI per §19: Trivy scans the pushed digest, not `:latest`; add a digest-bump PR step.
   - **GATE M2-0:** both parts land at M2-2.
-- [M2-3] **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
+- [M2-3 → Cut] **Fresh bootstrap: operator config ordering** (M1b-8 PR B, ADR-025 addendum). `bootstrap.sh` step g
   creates `nexus-operator-config` after `root` has created the `nexus` Application; image
   `ef3c6955` treats a missing ConfigMap as permanent, so on a fresh bootstrap the operator pod can
   restart until step g runs, then recovers. Fix in either way: retry a 404 like a 403 in the next
   operator image, or create the two ConfigMaps before `root` (needs `nexus-system` first). Not a
   live-gate issue: the ConfigMap exists before PR B merges.
-- [M2-3] `bootstrap.sh` hardening, from the first M1-6 bootstrap (FATAL 03:57:38Z): (1) a preflight that
+- [M2-3 → Cut; part (1) stays in Hygiene] `bootstrap.sh` hardening, from the first M1-6 bootstrap (FATAL 03:57:38Z): (1) a preflight that
   fails before the k3s install if any `/proc/mounts` line has other than 6 fields, naming the
   mount — Docker Desktop's WSL-integration mount `/Docker/host` has an unescaped space in its
   `path=` option, and the kubelet then exits with `system validation failed - wrong number of
@@ -1034,21 +1099,21 @@ are in `docs/adr/` on `dev`.
   failed". Until then, keep Docker Desktop closed (or its WSL integration off) whenever k3s may
   start.
   - **GATE M2-0:** part (2), the readyz wait, lands at M2-3. Part (1), the mounts preflight, goes to the Hygiene PR (WSL2 stays the fallback host).
-- [M2-3] `observability`'s Application sync took ~17m47s against bootstrap.sh's own 1200s (20 min)
+- [M2-3 → Cut] `observability`'s Application sync took ~17m47s against bootstrap.sh's own 1200s (20 min)
   `NEXUS_WAIT_TIMEOUT_OBSERVABILITY` budget in the 2026-09-26 from-empty rebuild — about 88% of the
   budget, driven by a Prometheus PVC provisioning retry and the kube-prometheus-stack
   admission-webhook hook Jobs running twice (evidence: `kubectl get events`, ADR-019/CHANGELOG).
   Not a failure this time, but close enough to the ceiling to revisit: raise the timeout, or look at
   why the webhook hooks re-run.
   The M1 exit rebuild passes `NEXUS_WAIT_TIMEOUT_OBSERVABILITY=1800` as an interim measure.
-- [M2-3] k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
+- [M2-3 → Cut] k3s Secrets encryption uses the AES-CBC default (M1-6 b6). The Kubernetes documentation
   prefers secretbox or a KMS provider: consider k3s's secretbox provider in `bootstrap.sh`'s k3s
   config.
-- [M2-9] Grafana's sidecar containers `grafana-sc-dashboard` and `grafana-sc-datasources` render with no
+- [M2-9 → Not planned] Grafana's sidecar containers `grafana-sc-dashboard` and `grafana-sc-datasources` render with no
   `resources` (chart 86.2.2, seen in the M1b-3 render). Set requests and limits under
   `grafana.sidecar.resources` once their usage is measured (ADR-016 M1b-3 addendum).
   - **GATE M2-0:** measured and set during the A1 calibration (M2-9).
-- [M2-9] **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
+- [M2-9 → Cut, O7] **M2: revisit the sample-api CPU limit and the per-request connection cost** (owner, R1 gate,
   2026-10-07). R1's knee is throttling-driven: about 0.04 cores per pod against the 200m limit, p95 tripled
   (ADR-026). Options: a higher limit, or no CPU limit; a DB connection pool, or cheaper connects. If either
   changes, re-run R1 and re-derive B.
@@ -1059,7 +1124,7 @@ are in `docs/adr/` on `dev`.
     change. The per-request connection stays the way S5's error reaches the log (ADR-020).
   - **GATE M2-0:** the connection-cost measurement is part of the A1 calibration (M2-9).
 
-**Re-check on the new host [M2-9]**
+**Re-check on the new host [M2-9]** → not planned (no new measured host). Relevant to M4's no-fault runs; a read-only check if time remains.
 
 - `AlertmanagerClusterCrashlooping` (kube-prometheus-stack rule) has fired since the 2026-10-01
   12:52:46Z reboot and kept firing across later reboots, while Alertmanager stayed Ready with
@@ -1078,27 +1143,27 @@ are in `docs/adr/` on `dev`.
     behaviour on a drop to zero (rates and the ε floor); no change proposed.
   - **GATE M2-0:** re-checked on the new host (M2-9). The tooling moved to M2-1b; the server-host replication is closed (now M2-1b).
 
-## Later — out of scope for M2
+## Later
 
 Placed as accepted at GATE M2-0 ([`docs/plans/m2-plan.md`](docs/plans/m2-plan.md), "Where the Later items
-go"). Items move verbatim; closed items keep their text.
+go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): each item carries its new home (→ Tn, Gn, the M4 pre-registration, or Not planned), defined in [`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md).
 
 ### M3
 
-- M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
+- [→ T3 follow-up] M2: the operator validates approval content itself until Kyverno K5 lands in M3 (owner, 6a
   gate).
   - **Placed (owner, plan review, 2026-10-16):** M3, with K5 and the L2 flow (AD-06); `approvalTTL` moves with it. In M2 an L2 namespace stays `Escalated`, as in M1b.
-- `nexusctl` (§16A), the L2 approval interface (owner, plan review, 2026-10-16).
-- The slimmer base and its Trivy comparison, from the base-images item (M2 core), with `verifyImages` (owner, plan review, 2026-10-16).
-- M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
-- M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
-- M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
-- **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
+- [→ T3] `nexusctl` (§16A), the L2 approval interface (owner, plan review, 2026-10-16).
+- [→ T5] The slimmer base and its Trivy comparison, from the base-images item (M2 core), with `verifyImages` (owner, plan review, 2026-10-16).
+- [→ T3] M3: WSL2 changes the node IP on restart, so NetworkPolicies template it at bootstrap and never hardcode `172.19.233.100`. N1–N6.
+- [→ T3] M3: CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue (§19), once those paths exist.
+- [→ T3] M3: Kyverno `verifyImages` (Audit first) for the signing identity recorded in ADR-017 (SHOULD, §19).
+- [→ T3, the `nexus-load` policy] **Locust master API is unauthenticated** (M1b-9 L1, #107 gate review, 2026-10-06): `locust-master`
   in `nexus-load` serves its web UI and API on 8089 (`/swarm`, `/stop`, `/stats/reset`) with no
   authentication, and any pod in the cluster can reach it until the M3 NetworkPolicies (§18: Locust
   is reached only through a port-forward). Until then anyone with pod access can start load on
   sample-api. Close it with the §18 NetworkPolicy for `nexus-load` in M3, or with Locust's web auth if it is needed sooner.
-- **Automate post-deploy verification** (owner, #108 gate review, 2026-10-07).
+- [→ Not planned (not in O1)] **Automate post-deploy verification** (owner, #108 gate review, 2026-10-07).
   - An ArgoCD PostSync hook: an in-cluster Job that runs the verify checks after each sync.
   - Consider also a CronJob that exposes a verify metric with an alert.
   - **One shared check implementation**, used by the hook, the CronJob and `verify-state.sh`.
@@ -1110,7 +1175,7 @@ go"). Items move verbatim; closed items keep their text.
 
 ### M4
 
-- **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
+- [→ T4] **High priority, before any MTTR measurement in M1b** (owner, #77 review, 2026-09-27): ArgoCD
   pickup takes about 1.8 to 6.4 minutes (the repo-server's revision cache plus the controller's
   refresh; measured 108–382 s, ADR-020 addenda). If NEXUS repairs through Git commits, this dominates
   measured recovery time. Decide how NEXUS triggers ArgoCD: an operator refresh after committing,
@@ -1124,41 +1189,52 @@ go"). Items move verbatim; closed items keep their text.
     it makes, and a run's injection time is when ArgoCD applied the revision, not the commit time.
     `verify-state.sh` stays read-only. Still open: whether selfHeal touches the refresh annotation
     (one approved live test, moved from M1b-4 to the runner milestone).
-- Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
+- [→ M4 pre-registration] Re-measure audit-log growth and effective retention at M4, once the Experiment Runner exists
   (change 7 assumed about 10 days; the M1-6 window measured 2.19 at idle, ADR-019 addendum).
-- M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
+- [→ T4] M4: the runner's pre-check uses `baseline_stddev15m`; with the 3 min lag a clean baseline needs
   15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
-- The Flight Recorder datasource and the NEXUS Operations dashboard (§3) (owner, plan review, 2026-10-16).
-- Full reconciliation against the API Audit Log (`reconcile-audit`, `audit_links`, §14). The M2 exit uses a minimal `audit_id` join (owner, plan review, 2026-10-16).
+- [→ T1] The Flight Recorder datasource and the NEXUS Operations dashboard (§3) (owner, plan review, 2026-10-16).
+- [→ G13] Full reconciliation against the API Audit Log (`reconcile-audit`, `audit_links`, §14). The M2 exit uses a minimal `audit_id` join (owner, plan review, 2026-10-16).
 
 ### Hygiene — one pull request that gates nothing
 
-- No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
+- [→ T5] No CI job runs shellcheck: neither `repo-checks` nor `ci.yml` checks
   `apps/dependency-db/10-roles.sh` or `scripts/*.sh`. It was run by hand (clean) for #70. Add a
   shellcheck step to `repo-checks`.
-- `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
+- [→ T5, with shellcheck] `scripts/capture-state.sh:508`: `for i in $(seq 1 40); do ... done` (the port-forward readiness
   wait) never references `$i` in the loop body — a shellcheck SC2034-shaped unused-variable pattern
   (`for _ in $(seq 1 40)` reads the intent correctly). Harmless as written, worth a lint pass.
-- ruff's first-party detection depends on the working directory: `ruff check .` inside
+- [→ T5] ruff's first-party detection depends on the working directory: `ruff check .` inside
   `apps/sample-api` and `ruff check apps/sample-api/` from the root (as CI runs it) disagree on
   import order. Set `src` / `known-first-party` so local runs match CI.
-- `apps/sample-api/requirements-dev.txt` (from #88, `036e7aa`): lines 9–12 keep the old
+- [→ T5] `apps/sample-api/requirements-dev.txt` (from #88, `036e7aa`): lines 9–12 keep the old
   `httpx>=0.27.0`, `pytest>=8.3.0`, `pytest-asyncio>=0.24.0` lines beside the `==` pins above them.
   Harmless (the `==` pins win; dev only, never in the image). Remove the leftover lines (owner,
   #88 gate review, 2026-09-30).
-- sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
+- [→ T5] sample-api tests: Starlette warns `StarletteDeprecationWarning: Using httpx with
   starlette.testclient is deprecated; install httpx2 instead` (seen in the M1-1 pytest run, #69).
   Move the test client off `httpx` before Starlette drops support for it. Still seen with
   Starlette 1.7 on `feat/m1b-5-fault-hooks`.
-- CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
-- `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
-- `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
-- Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
-- A deliberate CI job that runs `scripts/tests/incident-crd.sh` on the envtest harness (owner, 6a
+- [→ T5] CI per §19: "Dependabot opens weekly pull requests into `dev`". That needs a `dependabot.yml` with `target-branch: dev`. Today only security updates run, against `main`.
+- [→ T5] `repo-checks`: on a push that creates a branch, the range falls back to `-1 <sha>`. For a merge commit that scans 0 commits (seen when `dev` was created); the tree scan still ran. Make that path scan `origin/main..<sha>`, or accept it.
+- [→ Frozen with Crossplane] `platform/argocd/configs/argocd-cm-patch.yaml` still configures Crossplane exclusions; M0-5 decides what `bootstrap.sh` applies.
+- [→ Not tasked] Docs pass: `README.md` is rewritten (docs PR `docs/readme-professional`). `docs/NEXUS_STATUS.md`, `docs/CUT_LIST.md` and `docs/CONTRIBUTION.md` are marked historical in `docs/README.md`; still to decide: rewrite or archive them.
+- [→ Not tasked] A deliberate CI job that runs `scripts/tests/incident-crd.sh` on the envtest harness (owner, 6a
   gate, 2026-09-28).
   - **GATE M2-0:** Hygiene: test coverage only; it gates nothing.
-- `bootstrap.sh` hardening part (1), the mounts preflight. The item is under M2-3 (ADR-030 track); WSL2 stays the fallback host.
-- Stale status lines (GATE M2-0 report j): the README M1b row still reads "In progress" (M1b closed at `v0.3.0`, 2026-10-14), and the M1b-9 L2 and closing-PR boxes in this file are unticked.
+- [→ Not tasked] `bootstrap.sh` hardening part (1), the mounts preflight. The item is under M2-3 (ADR-030 track); WSL2 stays the fallback host.
+- [→ Not tasked; README status goes in PR descriptions] Stale status lines (GATE M2-0 report j): the README M1b row still reads "In progress" (M1b closed at `v0.3.0`, 2026-10-14), and the M1b-9 L2 and closing-PR boxes in this file are unticked.
+
+### Cut (owner, 2026-11-02)
+
+- M2-1, step 0 on WSL2. Nothing was run.
+- M2-1b, the x86 replication: **not done** under its stop rule (not calibrated by 2026-11-01). No replication
+  branch exists (`git ls-remote --heads origin`, 2026-11-02). Billing guard: the owner confirms that no OCI trial
+  resource remains before 2026-11-09.
+- M2-3, the new-host bootstrap fixes (items tagged "→ Cut" above).
+- M2-9, the A1 calibration and its measurements. A1 is built in January 2027 for the demo only (ADR-030 amendment).
+- ADR-030 (c), Bedrock: dropped at GATE M2-0; recorded in the ADR-030 amendment.
+- "Quiet when healthy" as an open item: now a stated limitation (O5). M4's no-fault runs count false alarms.
 
 ### Closed (accepted at GATE M2-0)
 
