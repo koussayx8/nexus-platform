@@ -1,0 +1,8 @@
+# CODEOWNERS (spec §19): the Trusted Enforcement Plane changes only with the owner's review.
+# Self-merge after green checks is allowed and documented (one-person project); whether review
+# by a code owner is *required* is a branch-protection setting, recorded in ADR-031.
+/platform/policies/                     @koussayx8
+/platform/rbac/                         @koussayx8
+# The Action Catalogue (spec §9). The operator implements it in one module or package.
+/operator/nexus_operator/catalogue.py   @koussayx8
+/operator/nexus_operator/catalogue/     @koussayx8
