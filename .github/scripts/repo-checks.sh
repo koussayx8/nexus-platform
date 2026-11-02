@@ -20,10 +20,15 @@
 #
 #  11. Offline test for .github/scripts/bump-digest.sh, against copies of the real overlay and
 #      operator manifests (the digest-bump jobs of ci.yml and operator.yml).
+#  12. shellcheck (severity warning, following `source=` directives) on every tracked *.sh outside
+#      parked paths. SC2034 is excluded for now: scripts/capture-state.sh:508 has the known unused
+#      loop variable (TASKS.md Later, Hygiene) and that script belongs to another change. Drop the
+#      exclusion when it is fixed.
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
-# installs pinned, checksummed builds).
+# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl, python3 and shellcheck on
+# PATH (CI installs pinned, checksummed builds; shellcheck is the one the ubuntu-24.04 runner image
+# ships, not pinned).
 set -euo pipefail
 
 RANGE=${1:?usage: repo-checks.sh "<git log range>"}
@@ -105,4 +110,10 @@ echo "::endgroup::"
 
 echo "::group::digest-bump script test (offline)"
 bash .github/scripts/tests/bump-digest.sh
+echo "::endgroup::"
+
+echo "::group::shellcheck ($(shellcheck --version | sed -n 's/^version: //p'))"
+mapfile -t shells < <(git ls-files '*.sh' | grep -vE "$PARKED_RE")
+shellcheck -S warning -x -P SCRIPTDIR --exclude=SC2034 "${shells[@]}"
+echo "checked ${#shells[@]} scripts"
 echo "::endgroup::"
