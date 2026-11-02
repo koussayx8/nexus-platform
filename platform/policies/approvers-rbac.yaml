@@ -1,0 +1,77 @@
+# RBAC the approval path needs (spec §11 rows "Group nexus-approvers" and "Kyverno admission
+# controller"). Kept beside the policies it serves, under CODEOWNERS.
+#
+# Kyverno's admission controller reads Incidents for the K3 lookup (aggregated ClusterRole).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-kyverno-read-incidents
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    rbac.kyverno.io/aggregate-to-admission-controller: "true"
+rules:
+  - apiGroups: [nexus.io]
+    resources: [incidents]
+    verbs: [get, list, watch]
+---
+# Group nexus-approvers in nexus-system: read, create, patch Incidents (what they may put in
+# spec.approval or spec.source is K5 and K6), and get the two ConfigMaps for `nexusctl status`
+# and `level get`. No status, no delete.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-approvers
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [nexus.io]
+    resources: [incidents]
+    verbs: [get, list, watch, create, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [nexus-killswitch, nexus-operator-config]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-approvers
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-approvers
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: nexus-approvers
+---
+# Namespaces are cluster-scoped: nexusctl reads their autonomy-level labels.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-approvers-namespaces
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-approvers-namespaces
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-approvers-namespaces
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: nexus-approvers
