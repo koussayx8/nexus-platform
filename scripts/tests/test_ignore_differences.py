@@ -51,9 +51,16 @@ class Boundary(unittest.TestCase):
         self.assertEqual(self.rules(), ["B2"])
 
     def test_b3_extra_write_verb(self):
+        # The read-only evidence ClusterRole (#144) gains a write on Deployments themselves.
         self.edit("platform/rbac/nexus-operator-dev.yaml",
-                  "resources: [deployments]\n    verbs: [get, list, watch]",
-                  "resources: [deployments]\n    verbs: [get, list, watch, patch]")
+                  "resources: [deployments, replicasets]\n    verbs: [get, list, watch]",
+                  "resources: [deployments, replicasets]\n    verbs: [get, list, watch, patch]")
+        self.assertEqual(self.rules(), ["B3"])
+
+    def test_b3_cluster_wide_scale(self):
+        self.edit("platform/rbac/nexus-operator-dev.yaml",
+                  "resources: [deployments, replicasets]\n    verbs: [get, list, watch]",
+                  "resources: [deployments/scale]\n    verbs: [get, patch, update]")
         self.assertEqual(self.rules(), ["B3"])
 
     def test_b3_wildcard(self):
