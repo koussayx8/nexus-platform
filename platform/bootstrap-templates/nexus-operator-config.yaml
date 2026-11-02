@@ -11,6 +11,12 @@
 #   approvalTTL             L2 approval TTL (M3; 15 min, spec line 538)
 #   breakerEpoch            Circuit Breaker epoch (M2; set by each run reset, spec line 1844)
 #   reasonerEndpoint        the Reasoner's URL (M2; empty until then)
+#   prometheusURL           Prometheus HTTP API, for the Evidence Collector and the Verifier
+#   recorderHost            Flight Recorder DB Service (ADR-031); empty: no Writer, every mutation
+#                           is refused as recorder_unavailable
+#   recorderPort, recorderDatabase, recorderUser   the DB endpoint and the nexus_writer role
+#   recorderPasswordFile    the mounted Secret file holding the nexus_writer password
+#   metricsPort             the /metrics port (ADR-034)
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,3 +35,10 @@ data:
   approvalTTL: "15m"
   breakerEpoch: "0"
   reasonerEndpoint: ""
+  prometheusURL: http://observability-kube-prometh-prometheus.monitoring.svc:9090
+  recorderHost: flight-recorder-db.nexus-system.svc
+  recorderPort: "5432"
+  recorderDatabase: nexus_recorder
+  recorderUser: nexus_writer
+  recorderPasswordFile: /var/run/nexus/flight-recorder-writer/password
+  metricsPort: "9102"

@@ -7,6 +7,7 @@ from .act import (
     ActionRecord,
     ActRecorder,
     PostgresActRecorder,
+    ReconnectingRecorder,
     UnavailableRecorder,
     connect_act,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "AuditedClient",
     "PostgresActRecorder",
     "PostgresRecorder",
+    "ReconnectingRecorder",
     "Recorder",
     "RecorderUnavailable",
     "UnavailableRecorder",
