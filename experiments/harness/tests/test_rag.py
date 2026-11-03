@@ -1,5 +1,6 @@
 """Offline tests for rag.py (lint, index) and the real runbooks/ corpus."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -137,6 +138,50 @@ class IndexTest(unittest.TestCase):
             (Path(d) / "rb-traffic-spike.md").write_text(GOOD.replace("signals:", "x:"))
             with self.assertRaises(ValueError):
                 rag.build_index(Path(d), Path(d) / "out")
+
+
+class RetrievalEvalTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = (REPO / "experiments/retrieval/queries.json").read_bytes()
+        cls.queries = json.loads(cls.raw)["queries"]
+        cls.idx = bm25.Index.from_dir(CORPUS)
+
+    def test_query_set_shape(self):
+        labels = [q["label"] for q in self.queries]
+        self.assertEqual(len(labels), 30)
+        self.assertEqual(len({q["id"] for q in self.queries}), 30)
+        for rb in EXPECTED:
+            self.assertEqual(labels.count(rb), 3, rb)
+        self.assertEqual(labels.count("no_runbook"), 6)
+
+    def test_metrics_on_a_known_ranking(self):
+        # Two in-corpus queries (hit at rank 1, hit at rank 2) and one out-of-corpus.
+        qs = [
+            {"id": "a", "label": "rb-traffic-spike", "bundle": {"incident": {"alerts": [{"name": "NexusTrafficAnomaly"}]}}},
+            {"id": "b", "label": "rb-gray-failure", "bundle": {"incident": {"alerts": [{"name": "NexusTrafficAnomaly"}]}}},
+            {"id": "c", "label": "no_runbook", "bundle": {}},
+        ]  # fmt: skip
+        m = rag.evaluate(self.idx, qs)["metrics"]
+        self.assertEqual(m["recall_at_1"], 0.5)
+        self.assertEqual(m["false_retrieval_rate_no_floor"], 0.0)  # empty query: no hit
+        self.assertLessEqual(m["mrr"], 1.0)
+        self.assertGreater(m["mrr"], 0.5)
+
+    def test_committed_results_are_current(self):
+        res = json.loads((REPO / "experiments/retrieval/results.json").read_text())
+        self.assertEqual(res["corpus_hash"], self.idx.corpus_hash)
+        self.assertEqual(res["queries_sha256"], hashlib.sha256(self.raw).hexdigest())
+        again = rag.evaluate(self.idx, self.queries)
+        self.assertEqual(res["metrics"], again["metrics"])
+        self.assertEqual(res["queries"], again["queries"])
+
+    def test_floor_makes_no_runbook(self):
+        floor = json.loads((REPO / "experiments/retrieval/results.json").read_text())[
+            "metrics"
+        ]["proposed_floor"]
+        empty = self.idx.retrieve([], floor)
+        self.assertEqual(empty, [])
 
 
 if __name__ == "__main__":
