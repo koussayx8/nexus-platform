@@ -33,6 +33,7 @@ from dataclasses import asdict, dataclass
 CLI = "kubectl"
 NS_DEV = "nexus-dev"
 NS_DATA = "nexus-data"
+NS_SYSTEM = "nexus-system"
 APPS = ("sample-api-dev", "dependency-db-dev")
 BRANCH = "experiment/dev-state"
 LEVEL_LABEL = "nexus.io/autonomy-level"
@@ -184,8 +185,38 @@ class Runner:
             for app in APPS
         ]  # fmt: skip
 
-    def plan_reset(self, level: int, baseline_ref: str | None = None):
-        """Reset, in the order of spec section 20."""
+    def plan_operator_config(self, advisory: str, breaker_epoch: int):
+        """Write advisoryChecks and breakerEpoch into the admin-owned ConfigMap, then restart the
+        operator, which reads its configuration at startup (ADR-025). The ConfigMap is created by
+        bootstrap, never by ArgoCD (template header), so this is not an ArgoCD-managed resource.
+        advisoryChecks is "off" only in phase D (spec line 394); the caller decides, the batch driver
+        refuses "off" for any other cell."""
+        if advisory not in ("on", "off"):
+            raise ValueError(f"advisoryChecks must be on or off, not {advisory!r}")
+        if not isinstance(breaker_epoch, int) or breaker_epoch < 0:
+            raise ValueError(
+                "breakerEpoch must be a non-negative integer (Unix seconds)"
+            )
+        patch = json.dumps(
+            {"data": {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}}
+        )
+        return [
+            self.k("patch", "configmap", "nexus-operator-config", "--type", "merge", "-p", patch,
+                   ns=NS_SYSTEM, note=f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"),
+            self.k("rollout", "restart", "deployment/nexus-operator", ns=NS_SYSTEM,
+                   note="the operator reads its configuration at startup"),
+            self.k("rollout", "status", "deployment/nexus-operator", "--timeout=180s", ns=NS_SYSTEM),
+        ]  # fmt: skip
+
+    def plan_reset(
+        self,
+        level: int,
+        baseline_ref: str | None = None,
+        advisory: str = "on",
+        breaker_epoch: int | None = None,
+    ):
+        """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
+        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D)."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -220,6 +251,8 @@ class Runner:
                 note="block's level",
             )
         )
+        if breaker_epoch is not None:
+            steps += self.plan_operator_config(advisory, breaker_epoch)
         return steps
 
     # ---------------------------------------------------------------- execution
