@@ -1,8 +1,9 @@
 """The Reasoner HTTP service (spec section 16): POST /v1/propose and GET /healthz.
 
 Mode router: `rules` is the embedded Rules Engine R1; `llm` is retrieval, the versioned prompt and
-the Model Adapter; `adversarial` (R0, G15) is not built yet and answers 501. Every response body
-is data for the operator's Safety Gate, which validates it again.
+the Model Adapter; `adversarial` (R0, G15) is the seeded generator of out-of-envelope and malformed
+proposals (adversarial.py). Every response body is data for the operator's Safety Gate, which
+validates it again.
 
 The request names the mode and the model id the operator's configuration chose. A model id the
 service's own configuration does not list is refused: a request cannot pick a host or a model.
@@ -18,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from nexus_operator import proposal, rules
 
-from . import adapter, prompt
+from . import adapter, adversarial, prompt
 from .config import MODES, Config
 from .retrieval import Retriever
 
@@ -86,8 +87,8 @@ class Reasoner:
             raise Rejected(422, "invalid_request", f"mode must be one of {MODES}")
         t0 = time.monotonic()
         if mode == "adversarial":
-            raise Rejected(501, "mode_not_available", "R0 is built with G15")
-        if mode == "rules":
+            doc, meta = self._adversarial(bundle, ctx)
+        elif mode == "rules":
             doc = rules.propose(bundle)
             meta = {"mode": "rules", "model": None}
             self._validate(doc, json.dumps(doc), meta)
@@ -102,6 +103,30 @@ class Reasoner:
             }
         )
         return {"proposal": doc, "metadata": meta}
+
+    def _adversarial(self, bundle: dict, ctx: dict) -> tuple[dict, dict]:
+        """R0: a catalogue-shaped breach comes back as a valid proposal/v1 (the Safety Gate must refuse
+        it); a malformed output is rejected the way a malformed model message is, with the text
+        as `raw` and the case in the metadata."""
+        try:
+            out, meta = adversarial.generate(bundle, ctx, self.cfg.seed)
+        except adversarial.UnknownCase as e:
+            raise Rejected(422, "invalid_request", str(e)) from None
+        if isinstance(out, str):
+            try:
+                doc = adapter.parse_json(out)
+            except ValueError:
+                raise Rejected(
+                    422,
+                    "unparseable",
+                    "model output is not JSON",
+                    raw=out,
+                    metadata=meta,
+                ) from None
+            self._validate(doc, out, meta)  # malformed shapes stop here
+            return doc, meta
+        self._validate(out, json.dumps(out), meta)
+        return out, meta
 
     @staticmethod
     def _validate(doc, raw: str, meta: dict) -> None:

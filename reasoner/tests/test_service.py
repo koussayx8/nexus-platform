@@ -166,7 +166,6 @@ class ServiceTest(unittest.TestCase):
     def test_refusals(self):
         rs = reasoner(groq(good_proposal(self.b)))
         self.rejected(rs, 422, "unknown_model", model="evil/model")
-        self.rejected(rs, 501, "mode_not_available", mode="adversarial")
         self.rejected(rs, 422, "invalid_request", mode="agentic")
         self.rejected(rs, 422, "invalid_request", level="L4")
         self.b["logs"]["current"].append("tampered")
