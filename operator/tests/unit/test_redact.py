@@ -162,3 +162,20 @@ def test_a_redacted_bundle_redacts_to_itself():
     assert twice == once
     assert all(v == 0 for v in counts2.values())
     assert sum(counts.values()) >= 3
+
+
+def test_redaction_is_idempotent_so_a_second_pass_can_verify_the_first():
+    once_counts: dict[str, int] = {}
+    again_counts: dict[str, int] = {}
+    for line in LINES:
+        once = redact_text(line, once_counts)
+        assert redact_text(once, again_counts) == once
+    assert once_counts and not again_counts
+
+
+def test_unredacted_lists_the_classes_left_in_a_bundle():
+    from nexus_operator.redact import unredacted
+
+    bundle, counts = redact_bundle({"logs": {"current": LINES}})
+    assert unredacted(bundle | {"redaction": {"counts": counts}, "hash": "h"}) == []
+    assert unredacted({"logs": {"current": [LINES[0], LINES[3]]}}) == ["email", "token"]
