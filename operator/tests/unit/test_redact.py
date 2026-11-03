@@ -102,3 +102,63 @@ def test_every_string_at_any_depth_is_scrubbed_and_keys_are_kept():
     assert set(counts) == set(CLASSES)
     assert counts["email"] >= 2 and counts["token"] >= 2 and counts["ip"] >= 2
     assert bundle["logs"]["current"][0] == LINES[0]  # the input is not modified
+
+
+# One line per entry of redact._PATTERNS, plus marker-adjacent shapes that used to be re-matched.
+_EVERY_PATTERN = [
+    *LINES,
+    "ghp_" + "Z9y8X7w6V5" * 3 + " tail",
+    "github_pat_" + "A1b2C3d4E5" * 3,
+    "xox" + "b-1234567890-abcdefghij",
+    "sk-" + "A1b2C3d4E5F6G7H8I9",
+    "glpat-" + "A1b2C3d4E5F6G7H8I9",
+    "AIza" + "A1b2C3d4E5" * 3 + "xyz",
+    "api_key: 'topsecretvalue'",
+    "10.0.0.1 and 2001:db8::1",
+    "password=hunter2hunter2 token=ghp_" + "Q1w2E3r4T5" * 3,
+]
+
+
+@pytest.mark.parametrize("line", _EVERY_PATTERN)
+def test_a_second_pass_changes_nothing_and_counts_nothing(line):
+    first: dict[str, int] = {}
+    once = redact_text(line, first)
+    second: dict[str, int] = {}
+    twice = redact_text(once, second)
+    assert twice == once
+    assert second == {}
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "{m}",
+        "password={m}",
+        "secret: {m}",
+        'api_key="{m}"',
+        "postgres://app:{m}@db:5432/x",
+        "Bearer {m}",
+        "{m}@example.com",
+        "{m} 10.0.0.1",
+    ],
+)
+def test_a_marker_is_never_matched(cls, shape):
+    text = shape.format(m=f"[REDACTED:{cls}]")
+    counts: dict[str, int] = {}
+    out = redact_text(text, counts)
+    if "10.0.0.1" not in text:
+        assert out == text
+        assert counts == {}
+    else:
+        assert out == f"[REDACTED:{cls}] [REDACTED:ip]"
+        assert counts == {"ip": 1}
+
+
+def test_a_redacted_bundle_redacts_to_itself():
+    bundle = {"a": [LINES[6], {"b": LINES[7]}], "c": LINES[0]}
+    once, counts = redact_bundle(bundle)
+    twice, counts2 = redact_bundle(once)
+    assert twice == once
+    assert all(v == 0 for v in counts2.values())
+    assert sum(counts.values()) >= 3
