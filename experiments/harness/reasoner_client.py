@@ -55,6 +55,25 @@ class Result:
     blocked: bool = False
 
 
+def _rejection(e: urllib.error.HTTPError) -> Result:
+    """A 422 from the Reasoner after the model answered carries `error`, `detail`, the model's
+    message as received (`raw`) and `metadata`. Keep them: the Flight Recorder stores the raw
+    output and the reason of a rejected proposal. A 422 without such a body (invalid bundle,
+    unknown model) keeps just the reason."""
+    try:
+        body = json.loads(e.read().decode("utf-8", "replace"))
+    except Exception:  # noqa: BLE001 - an unreadable body is the plain http_422 case
+        body = None
+    if not isinstance(body, dict):
+        return Result(False, "http_422")
+    meta = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    meta = {**meta, "rejection": body.get("error")}
+    raw = body.get("raw") if isinstance(body.get("raw"), str) else None
+    return Result(
+        False, "http_422", raw=raw, errors=[str(body.get("detail", ""))], meta=meta
+    )
+
+
 def propose(
     endpoint: str, bundle: dict, context: dict, timeout: float = TIMEOUT_S, opener=None
 ) -> Result:
@@ -72,6 +91,8 @@ def propose(
         with (opener or urllib.request.urlopen)(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
+        if e.code == 422:
+            return _rejection(e)
         return Result(False, f"http_{e.code}")
     except TimeoutError:
         return Result(False, "timeout")

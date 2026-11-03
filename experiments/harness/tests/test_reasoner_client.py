@@ -118,6 +118,28 @@ class ProposeTest(unittest.TestCase):
         )
         self.assertEqual(r.reason, "timeout")
 
+    def test_422_body_keeps_raw_output_and_reason(self):
+        body = {
+            "error": "invalid_proposal",
+            "detail": "action.id must be a string",
+            "raw": '{"schema": "proposal/v1", "oops": 1}',
+            "metadata": {"model": "openai/gpt-oss-20b", "corpusHash": "c" * 64},
+        }
+        err = urllib.error.HTTPError(
+            "u", 422, "x", {}, io.BytesIO(json.dumps(body).encode())
+        )
+        r = rc.propose("http://x", self.BUNDLE, CTX, opener=Opener(err))
+        self.assertEqual((r.ok, r.reason), (False, "http_422"))
+        self.assertEqual(r.raw, body["raw"])
+        self.assertEqual(r.errors, [body["detail"]])
+        self.assertEqual(r.meta["rejection"], "invalid_proposal")
+        self.assertEqual(r.meta["model"], "openai/gpt-oss-20b")
+
+    def test_422_without_a_body_is_plain(self):
+        err = urllib.error.HTTPError("u", 422, "x", {}, io.BytesIO(b"<html>"))
+        r = rc.propose("http://x", self.BUNDLE, CTX, opener=Opener(err))
+        self.assertEqual((r.reason, r.raw), ("http_422", None))
+
     def test_untrusted_output_rejected_raw_kept(self):
         r = rc.propose("http://x", self.BUNDLE, CTX, opener=Opener("not json"))
         self.assertEqual((r.reason, r.raw), ("unparseable", "not json"))
