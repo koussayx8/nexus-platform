@@ -10,6 +10,9 @@ resources:
 
 configMapGenerator:
   - name: flight-recorder-db-init
+    # Same namespace as the StatefulSet: without it kustomize does not rewrite the StatefulSet's
+    # reference to the hashed name, and the pod waits for a ConfigMap that does not exist.
+    namespace: nexus-system
     files:
       - 05-schema.sql
       - 10-roles.sql
