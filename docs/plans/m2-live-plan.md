@@ -35,7 +35,7 @@ an injected run (standing rule). The rollback for any Git step is a revert PR to
 
 ## What `dev` holds that `main` doesn't
 
-304 files, +29,579/−354, PRs #128–#150.
+304 files, +29,579/−354, PRs #128–#150; since then #151 (results tooling), #152 (Reasoner Client; only `operator/k8s/flight-recorder-db/05-schema.sql` reaches a live path, and it ships with the first deploy) and #154 (containment harness; nothing deploys).
 
 | Deploys on promotion (Application on `main`) | Change |
 |---|---|
@@ -66,7 +66,7 @@ Not deployed by a promotion: `platform/m3-live` (K1–K6, N1–N6; nothing refer
 |---|---|---|---|---|
 | B1 | `DIGEST_BUMP_TOKEN` (Q8): fine-grained PAT, this repository only, permissions Contents and Pull requests read/write, with an expiry. `gh secret set DIGEST_BUMP_TOKEN --repo koussayx8/nexus-platform` (prompted; never in argv) | owner | `gh secret list` shows the name | `gh secret delete`; revoke the PAT |
 | B2 | `scripts/flight-recorder-secrets.sh` (from a `dev` checkout). Required first: the FR DB `secretKeyRef`s are not optional (`statefulset.yaml:50-61`) | owner | Output names 3 Secrets, `created` or `exists`; no value printed | Delete the 3 Secrets and the 4 `~/.nexus/flight-recorder-*` files (script header) |
-| B3 | Add the 7 new keys of `platform/bootstrap-templates/nexus-operator-config.yaml` (`dev`) to the live ConfigMap (`kubectl patch --type merge`; not ArgoCD-managed). The running M1b operator ignores them; the new image reads them at its next start | owner | `kubectl get configmap` lists the keys | Patch the keys out, or set `recorderHost` empty (fail closed: `recorder_unavailable`) |
+| B3 | Add every new key of the operator-config template on `dev` at B3 time (10 at `2821332`) to the live ConfigMap (`kubectl patch --type merge`; not ArgoCD-managed). The running M1b operator ignores them; the new image reads them at its next start | owner | `kubectl get configmap` lists the keys | Patch the keys out, or set `recorderHost` empty (fail closed: `recorder_unavailable`) |
 | B4 | First live run of `scripts/capture-state.sh --backup` (shellcheck-touched, `b05643c`, `543c30a`); doubles as the pre-promotion snapshot. It opens a temporary port-forward | owner, or agent with approval | Exit 0; leak check clean | — (read-only) |
 | B5 | `verify-state.sh` baseline | owner, or agent with approval | Exit 0, except the new A3 checks, which fail before C1 | — |
 | B6 | Audit policy records request bodies for the act path. reconcile-audit's envelope check reads `requestObject.spec.replicas`. Read `/etc/rancher/k3s/audit-policy.yaml` (mode 0644, no `sudo`), named by `audit-policy-file` in `/etc/rancher/k3s/config.yaml`. The Git copy (`scripts/bootstrap.sh:169-195`) has `RequestResponse` for the `nexus-operator` ServiceAccount on both | agent (read) | A rule at level `Request` or `RequestResponse` covers `apps` `deployments/scale` and core `pods/eviction` for `nexus-operator`. If not: the policy change is scheduled with the `maxbackup` change and its k3s restart (`TASKS.md:1026`; owner, `sudo`) | — (read-only) |

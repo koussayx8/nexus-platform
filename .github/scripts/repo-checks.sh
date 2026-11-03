@@ -96,6 +96,10 @@ echo "::group::verify-state /items tests (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-items.sh
 echo "::endgroup::"
 
+echo "::group::verify-state M2 checks (offline, stub kubectl)"
+KUBECONFIG=/nonexistent bash scripts/tests/verify-m2.sh
+echo "::endgroup::"
+
 echo "::group::detection-inputs.jq fixture tests (M1b-6c)"
 bash scripts/tests/detection-inputs.sh
 echo "::endgroup::"
