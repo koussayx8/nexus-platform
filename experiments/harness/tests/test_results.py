@@ -617,6 +617,157 @@ class ResultsTest(unittest.TestCase):
             self.assertTrue((pathlib.Path(d) / "r" / "T09.csv").exists())
 
 
+class FixtureMarkerTest(unittest.TestCase):
+    """Everything built from fixture runs says so, on the table or the figure itself."""
+
+    MARK = "FIXTURE — not measured"
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.out = pathlib.Path(cls._tmp.name)
+        cls.summary = build(cls.out)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_every_csv_starts_with_the_marker(self):
+        files = sorted(self.out.glob("T*.csv"))
+        self.assertGreaterEqual(len(files), 15)
+        for f in files:
+            self.assertEqual(f.read_text().splitlines()[0], f"# {self.MARK}", f.name)
+
+    def test_every_figure_shows_the_marker_as_visible_text(self):
+        for f in sorted(self.out.glob("F*.svg")):
+            root = ET.fromstring(f.read_text())
+            texts = [e.text for e in root.iter() if e.tag.endswith("text")]
+            self.assertIn(self.MARK, texts, f.name)
+
+    def test_every_table_in_tables_md_and_the_index_carry_it(self):
+        md = (self.out / "tables.md").read_text()
+        self.assertEqual(
+            md.count(f"> **{self.MARK}**"), 1 + md.count("\n### ")
+        )  # the page, and each table
+        self.assertIn(self.MARK, (self.out / "INDEX.md").read_text())
+        self.assertTrue(self.summary["fixture"])
+        self.assertTrue(json.loads((self.out / "results.json").read_text())["fixture"])
+
+    def test_the_export_flags_fixtures_and_the_manifest_carries_the_flag(self):
+        man = json.loads(
+            (SAMPLE / "runs" / "A-R1-S1-L3-1" / "MANIFEST.json").read_text()
+        )
+        self.assertIs(man["fixture"], True)
+        self.assertIs(
+            json.loads((SAMPLE / "runs" / "A-R1-S1-L3-1" / "run.json").read_text())[
+                "fixture"
+            ],
+            True,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            kw = make_queue_run(pathlib.Path(d))  # no --fixture: a measured run
+            self.assertIs(
+                json.loads((EXPORT.export(**kw) / "MANIFEST.json").read_text())[
+                    "fixture"
+                ],
+                False,
+            )
+
+    def test_measured_runs_carry_no_marker(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            kw = make_queue_run(d)
+            kw["ground_truth"], kw["out_dir"] = SAMPLE / "ground-truth.json", d / "runs"
+            EXPORT.export(**kw)
+            s = build(d / "out", runs=d / "runs")
+            self.assertFalse(s["fixture"])
+            self.assertFalse((d / "out" / "T01.csv").read_text().startswith("#"))
+            self.assertNotIn(
+                "FIXTURE",
+                (d / "out" / "tables.md").read_text()
+                + (d / "out" / "F1.svg").read_text(),
+            )
+
+    def test_fixture_and_measured_runs_are_never_mixed(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            shutil.copytree(SAMPLE / "runs", d / "runs")
+            kw = make_queue_run(d)
+            kw["ground_truth"], kw["out_dir"] = (
+                SAMPLE / "ground-truth.json",
+                d / "measured",
+            )
+            shutil.copytree(
+                EXPORT.export(**kw), d / "runs" / "measured-1"
+            )  # the same run id as a fixture's: the directory decides
+            with self.assertRaises(ValueError):
+                build(d / "out", runs=d / "runs")
+
+    def test_the_export_command_line_has_a_fixture_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            kw = make_queue_run(pathlib.Path(d))
+            argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
+                    "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
+                    "--out", str(kw["out_dir"]), "--fixture"]  # fmt: skip
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(EXPORT.main(argv), 0)
+            self.assertIs(
+                json.loads(
+                    (
+                        pathlib.Path(kw["out_dir"]) / "A-R1-S1-L3-1" / "MANIFEST.json"
+                    ).read_text()
+                )["fixture"],
+                True,
+            )
+
+
+class OneEnvelopeCheckTest(unittest.TestCase):
+    """metrics holds no envelope logic; reconcile-audit holds the only one, on the catalogue's bounds."""
+
+    def test_metrics_checks_no_envelope(self):
+        src = (ROOT / "experiments/harness/metrics.py").read_text()
+        for needle in (
+            "REPLICAS",
+            "nexus-dev",
+            "out_of_envelope",
+            "previous_replicas",
+            "deployments/scale",
+            "def check_envelope",
+        ):
+            self.assertNotIn(needle, src, needle)
+
+    def test_the_bounds_are_the_catalogues_not_literals(self):
+        from nexus_operator import catalogue
+
+        self.assertEqual((RECON.REPLICAS_MIN, RECON.REPLICAS_MAX, RECON.REPLICAS_MAX_STEP),
+                         (catalogue.REPLICAS_MIN, catalogue.REPLICAS_MAX, catalogue.REPLICAS_MAX_STEP))  # fmt: skip
+        src = (ROOT / "scripts/reconcile-audit.py").read_text()
+        self.assertIn("from nexus_operator.catalogue import", src)
+        self.assertNotRegex(
+            src, r"REPLICAS_\w+\s*(,\s*REPLICAS_\w+\s*)*=\s*[\(\d]"
+        )  # assigned from nothing but the import
+
+    def test_metrics_containment_reads_the_envelope_verdicts_of_reconcile_audit(self):
+        ev = event("a1", replicas=6)  # admitted, outside [1, 5]
+        rec = RECON.reconcile(RUN, {"actions": [row("k1", "a1", prev=5)]}, [ev])
+        c = metrics.containment(rec)
+        self.assertEqual(
+            (c["violations"], c["violation_audit_ids"], c["run_counts"]),
+            (1, ["a1"], True),
+        )
+        self.assertIsNone(c["rate_upper_95"])
+        clean = metrics.containment(
+            RECON.reconcile(
+                RUN, {"actions": [row("k1", "a1", prev=3)]}, [event("a1", replicas=4)]
+            )
+        )
+        self.assertEqual((clean["violations"], clean["admitted_checked"]), (0, 1))
+        agg = metrics.containment_from_reconciliations(
+            [("R1", rec), ("R1", RECON.reconcile(RUN, {"actions": []}, []))]
+        )
+        self.assertEqual((agg["R1"]["violations"], agg["R1"]["runs"]), (1, 2))
+
+
 class MetricsAdditionsTest(unittest.TestCase):
     def test_recommendation_may_be_a_list(self):
         truth = {

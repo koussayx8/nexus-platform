@@ -3,9 +3,10 @@
   "audit.jsonl.gz": "c3a5fea395cd14b8baa4d0cd7ed53a8c0378bad0ff620748346e4d901afbca95",
   "audit_links.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "reconciliation.json": "d3a3793b03f25edd7f8872fa2bb3102b247b53b37f14b5532fbe55c873f9ceed",
-  "run.json": "41d8a662b0cbaf10ed2327ec8e2cb43228fed419845c89237080dd8777e6d650",
+  "run.json": "54784d6e0a79c3afdfe18ba0e0144d10a167b5009e8e45dbf89ca996e58a9882",
   "tables.json": "d00aaa67a26e01561c08e14b5dd7659d89ddf121985973428b6f1e77a1b5db02"
  },
+ "fixture": true,
  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
  "run_id": "A/R3/S3/L3#1",

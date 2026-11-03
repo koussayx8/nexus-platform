@@ -26,17 +26,26 @@ def _f(x: float) -> str:
     return f"{x:.1f}"
 
 
-def _frame(title: str, height: int, body: str) -> str:
+def _frame(title: str, height: int, body: str, banner: str = "") -> str:
+    mark = (
+        f'<text x="{W - 8}" y="14" text-anchor="end" font-size="12" font-weight="bold" fill="#C62828">{escape(banner)}</text>'
+        if banner
+        else ""
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{height}" viewBox="0 0 {W} {height}" '
         f'font-family="sans-serif" font-size="12">'
         f'<rect width="{W}" height="{height}" fill="#ffffff"/>'
-        f'<text x="{LEFT}" y="22" font-size="14" font-weight="bold">{escape(title)}</text>{body}</svg>\n'
+        f'<text x="{LEFT}" y="22" font-size="14" font-weight="bold">{escape(title)}</text>{mark}{body}</svg>\n'
     )
 
 
 def stacked_bars(
-    title: str, rows: list[tuple[str, list[float]]], series: list[str], unit: str = ""
+    title: str,
+    rows: list[tuple[str, list[float]]],
+    series: list[str],
+    unit: str = "",
+    banner: str = "",
 ) -> str:
     """rows: (label, [value per series]); one bar per row, drawn in order."""
     top = max((sum(v) for _, v in rows), default=0) or 1
@@ -64,11 +73,13 @@ def stacked_bars(
         body.append(
             f'<text x="{_f(x + 6)}" y="{y + 14}">{_f(sum(vals))}{escape(unit)}</text>'
         )
-    return _frame(title, TOP + 20 + len(rows) * ROW, "".join(body))
+    return _frame(title, TOP + 20 + len(rows) * ROW, "".join(body), banner)
 
 
 def interval_plot(
-    title: str, rows: list[tuple[str, float | None, float | None, float | None]]
+    title: str,
+    rows: list[tuple[str, float | None, float | None, float | None]],
+    banner: str = "",
 ) -> str:
     """rows: (label, p, lo, hi) on 0..1; a row with no data (n = 0) is drawn as 'no data'."""
     span = W - LEFT - RIGHT
@@ -96,4 +107,4 @@ def interval_plot(
             f'<line x1="{_f(x0)}" y1="{y}" x2="{_f(x1)}" y2="{y}" stroke="#4C78A8" stroke-width="2"/>'
         )
         body.append(f'<circle cx="{_f(xp)}" cy="{y}" r="4" fill="#4C78A8"/>')
-    return _frame(title, TOP + 24 + len(rows) * ROW, "".join(body))
+    return _frame(title, TOP + 24 + len(rows) * ROW, "".join(body), banner)

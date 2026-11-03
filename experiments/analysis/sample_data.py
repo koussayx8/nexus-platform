@@ -286,7 +286,7 @@ def generate(out: pathlib.Path) -> None:
                 )
             exporter.export(
                 queue_dir=tmp / "queue", run_id=r["run_id"], injection=n_in[1] if n_in else iso(BASE), ground_truth=gt,
-                git_commit="f" * 40, out_dir=runs_dir,
+                git_commit="f" * 40, out_dir=runs_dir, fixture=True,
                 tables=tmp / f"in{n_in[0]}" / "tables.json" if n_in else None,
                 audit=tmp / f"in{n_in[0]}" / "audit.log" if n_in else None, k8sgpt=k8s,
             )  # fmt: skip

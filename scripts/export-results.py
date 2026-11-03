@@ -16,6 +16,8 @@ Inputs (the runner produces them on the host; this script never touches the clus
                        the incidents inside it.
   --audit FILE         the API audit log (/var/log/nexus-audit/audit.log, JSON lines); only the
                        operator's events inside the run window are kept (the extract)
+  --fixture            mark the run as a FIXTURE (invented data): `make results` then stamps every table
+                       and figure "FIXTURE — not measured" and refuses to mix it with measured runs
   --injection TS       when the fault took effect (ArgoCD applied the revision), RFC 3339
   --ground-truth FILE  hashed into the run row: the pre-registered file (spec §20)
 
@@ -120,6 +122,7 @@ def export(
     tables=None,
     audit=None,
     k8sgpt=None,
+    fixture=False,
 ):
     aj = _load("audit-join")
     queue = batch.Queue.load(queue_dir)
@@ -138,7 +141,13 @@ def export(
     files = ["run.json"]
     _dump(
         dest / "run.json",
-        {"schema": SCHEMA, "run": run, "queue_record": rec, "injection_at": injection},
+        {
+            "schema": SCHEMA,
+            "run": run,
+            "queue_record": rec,
+            "injection_at": injection,
+            "fixture": fixture,
+        },
     )
 
     if not run["discarded"]:
@@ -184,7 +193,7 @@ def export(
         files.append("k8sgpt.json")
     _dump(
         dest / "MANIFEST.json",
-        {"schema": SCHEMA, "run_id": run_id, "ground_truth_hash": run["ground_truth_hash"],
+        {"schema": SCHEMA, "run_id": run_id, "fixture": fixture, "ground_truth_hash": run["ground_truth_hash"],
          "git_commit": git_commit, "files": {f: sha256(dest / f) for f in sorted(files)}},
     )  # fmt: skip
     return dest
@@ -200,11 +209,16 @@ def main(argv=None) -> int:
     p.add_argument("--ground-truth", required=True)
     p.add_argument("--git-commit", required=True)
     p.add_argument("--k8sgpt")
+    p.add_argument(
+        "--fixture",
+        action="store_true",
+        help="mark the run as a fixture: every table and figure built from it says so",
+    )
     p.add_argument("--out", default="experiments/runs")
     a = p.parse_args(argv)
     try:
         dest = export(queue_dir=a.queue, run_id=a.run_id, injection=a.injection, ground_truth=a.ground_truth,
-                      git_commit=a.git_commit, out_dir=a.out, tables=a.tables, audit=a.audit, k8sgpt=a.k8sgpt)  # fmt: skip
+                      git_commit=a.git_commit, out_dir=a.out, tables=a.tables, audit=a.audit, k8sgpt=a.k8sgpt, fixture=a.fixture)  # fmt: skip
     except (ExportError, batch.Refused, OSError, ValueError, KeyError) as e:
         print(f"REFUSED: {type(e).__name__}: {e}", file=sys.stderr)
         return 2

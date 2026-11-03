@@ -1,4 +1,5 @@
 {
+ "fixture": true,
  "injection_at": "2027-01-05T10:00:00+00:00",
  "queue_record": {
   "approval_ref": "G16/fixture#approval-0",
