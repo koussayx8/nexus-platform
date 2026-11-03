@@ -81,6 +81,9 @@ CLASSES = (
     "ip",
 )
 MARK = "[REDACTED:{}]"
+# Redaction is idempotent: no pattern may see a marker, so a marker is never matched, counted or
+# nested. Each pass splits the text on markers and rewrites only the text between them.
+_MARKER = re.compile(r"\[REDACTED:[a-z_]+\]")
 
 
 def redact_text(text: str, counts: dict[str, int]) -> str:
@@ -103,7 +106,12 @@ def redact_text(text: str, counts: dict[str, int]) -> str:
             )
             return whole[:lo] + MARK.format(cls) + whole[hi:]
 
-        text = pattern.sub(sub, text)
+        parts = _MARKER.split(text)
+        markers = _MARKER.findall(text)
+        parts = [pattern.sub(sub, part) for part in parts]
+        text = "".join(
+            p + (markers[i] if i < len(markers) else "") for i, p in enumerate(parts)
+        )
     return text
 
 
