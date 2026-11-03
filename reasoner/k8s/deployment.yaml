@@ -1,0 +1,80 @@
+# The Reasoner (spec §16, §11, §18; G9). Untrusted, stateless, no memory, no Kubernetes
+# credentials: the pod mounts no ServiceAccount token (I1, N6). Restricted Pod Security
+# (nexus-reasoner enforces it): non-root, no privilege escalation, all capabilities dropped,
+# read-only root filesystem, RuntimeDefault seccomp. Labels match the NetworkPolicies in
+# platform/network/reasoner.yaml (app.kubernetes.io/name: nexus-reasoner).
+#
+# Image: PLACEHOLDER digest. The reasoner.yml workflow builds and signs the multi-arch image on main;
+# the digest of that build replaces this value in a reviewed change before M4 syncs this directory.
+#
+# Provider keys come from the Secret `nexus-reasoner-keys` (keys groq-api-key, anthropic-api-key),
+# which the owner creates. Both are optional: a missing key makes that provider answer 503, and the
+# operator falls back to R1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-reasoner
+  namespace: nexus-reasoner
+  labels:
+    app.kubernetes.io/name: nexus-reasoner
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-reasoner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-reasoner
+        app.kubernetes.io/part-of: nexus-platform
+    spec:
+      serviceAccountName: nexus-reasoner
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reasoner
+          image: ghcr.io/koussayx8/nexus-platform/nexus-reasoner@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef: {name: nexus-reasoner-keys, key: groq-api-key, optional: true}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: {name: nexus-reasoner-keys, key: anthropic-api-key, optional: true}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nexus-reasoner
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # /healthz answers only once the baked index is loaded and its hash verified.
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+      volumes:
+        - name: config
+          configMap:
+            name: nexus-reasoner-config

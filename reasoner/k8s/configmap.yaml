@@ -1,0 +1,31 @@
+# Reasoner configuration (spec §16): model ids, endpoints, effort and the score floor live here, never
+# in code. API keys are NOT here: `apiKeyEnv` names an environment variable that the Secret
+# `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git).
+#
+# scoreFloor 2.9584 is the value PROPOSED by experiments/retrieval/results.json (PR #147); it is
+# frozen only at G16. The Ollama demo fallback has no baseUrl here: the host IP changes on WSL2 and
+# is set at bootstrap (spec §18), so `demo` is unavailable (503) until then.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-reasoner-config
+  namespace: nexus-reasoner
+  labels:
+    app.kubernetes.io/name: nexus-reasoner
+    app.kubernetes.io/part-of: nexus-platform
+data:
+  reasoner.json: |
+    {
+      "indexPath": "/app/index/index.json",
+      "scoreFloor": 2.9584,
+      "timeoutSeconds": 30,
+      "maxOutputTokens": 1024,
+      "seed": 0,
+      "port": 8080,
+      "models": {
+        "R2": {"provider": "groq", "model": "openai/gpt-oss-20b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
+        "R3": {"provider": "groq", "model": "openai/gpt-oss-120b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
+        "H1": {"provider": "anthropic", "model": "claude-haiku-5-5", "baseUrl": "https://api.anthropic.com", "apiKeyEnv": "ANTHROPIC_API_KEY"},
+        "demo": {"provider": "ollama", "model": "llama3.1:8b", "baseUrl": ""}
+      }
+    }
