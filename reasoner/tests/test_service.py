@@ -109,6 +109,60 @@ class ServiceTest(unittest.TestCase):
         sent["demo"] = (m[0]["content"], m[1]["content"])
         self.assertEqual(len(set(sent.values())), 1, "the prompt differs between arms")
 
+    def test_422_after_the_model_answered_carries_raw_reason_and_metadata(self):
+        """(a) The Flight Recorder stores the model's message as received and why it was rejected."""
+        bad_doc = good_proposal(self.b)
+        bad_doc["action"]["id"] = (
+            "delete_deployment"  # shape is fine; the bad key below is not
+        )
+        bad_doc["unexpected"] = 1
+        cases = {
+            "unparseable": "Sure! here is my answer: {oops",
+            "invalid_proposal": json.dumps(
+                bad_doc, indent=2
+            ),  # whitespace must survive verbatim
+            "invalid_refs": json.dumps(
+                good_proposal(self.b, refs=["logs.current[99]"])
+            ),
+        }
+        for error, text in cases.items():
+            with self.assertRaises(service.Rejected) as cm:
+                self.call(reasoner(groq(text)))
+            r = cm.exception
+            self.assertEqual((r.status, r.error), (422, error))
+            self.assertEqual(
+                r.extra["raw"], text, error
+            )  # not truncated, not re-serialised
+            self.assertTrue(r.detail)
+            m = r.extra["metadata"]
+            self.assertEqual((m["arm"], m["model"]), ("R3", "openai/gpt-oss-120b"))
+            self.assertIn("usage", m)
+            self.assertTrue(m["retrievedChunks"])
+
+    def test_422_body_over_http_and_through_the_harness_client(self):
+        from experiments.harness import reasoner_client as rc
+
+        text = json.dumps({**good_proposal(self.b), "abstain": "maybe"})
+        rs = reasoner(groq(text))
+        object.__setattr__(rs.cfg, "host", "127.0.0.1")
+        object.__setattr__(rs.cfg, "port", 0)
+        srv = service.serve(rs)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            r = rc.propose(f"http://127.0.0.1:{srv.server_address[1]}", self.b, ctx())
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual((r.ok, r.reason), (False, "http_422"))
+        self.assertEqual(r.raw, text)
+        self.assertIn("abstain", r.errors[0])
+        self.assertEqual(r.meta["rejection"], "invalid_proposal")
+        self.assertEqual(r.meta["model"], "openai/gpt-oss-120b")
+
+    def test_a_422_before_the_model_has_no_raw(self):
+        e = self.rejected(reasoner(groq({})), 422, "unknown_model", model="evil/model")
+        self.assertNotIn("raw", e.extra)
+
     def test_refusals(self):
         rs = reasoner(groq(good_proposal(self.b)))
         self.rejected(rs, 422, "unknown_model", model="evil/model")
