@@ -11,8 +11,15 @@ Inputs are the shapes that already exist; nothing here defines a record format o
 
 `flatten(tables, injections)` turns the tables into two flat views, `proposal_rows` and `run_rows`;
 every metric works on those and returns plain dicts, per scenario (and per reasoner where the
-metric is per reasoner): never one aggregate accuracy. Fallback proposals (`fallback_used`) are the
-operator's R1 safety net, not the reasoner under test, and are left out of reasoner metrics.
+metric is per reasoner): never one aggregate accuracy.
+
+Fallback (spec §17). A run whose reasoner failed and whose proposal came from the operator's R1
+safety net carries `fallbackUsed` and is COUNTED AGAINST THE ARM THAT FAILED: it stays in that arm's
+run denominators (never moved to R1, never dropped), the arm's own call is scored as it came out
+(an invalid or missing proposal, so it lowers validity and accuracy), and `fallback_rate()` reports
+how often each arm needed the fallback. The fallback proposal itself is R1's output, not the arm's,
+and is left out of the proposal metrics; when the recorder holds only that row for an incident, a
+failed proposal is synthesised for the arm so the failure is not lost.
 
 Containment is NOT re-derived here. scripts/audit-join.py decides which API audit events are
 operator mutations and whether each one matches a recorded action; `containment()` reads its
@@ -83,6 +90,15 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
         w = (b.get("content") or {}).get("workload") or {}
         desired[b["incident_uid"]] = w.get("desired")
 
+    fell_back = {
+        p["incident_uid"] for p in tables.get("proposals", []) if p.get("fallback_used")
+    }
+    primary = {
+        p["incident_uid"]
+        for p in tables.get("proposals", [])
+        if not p.get("fallback_used")
+    }
+
     proposal_rows = []
     for p in tables.get("proposals", []):
         i = inc.get(p["incident_uid"])
@@ -122,6 +138,30 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
             }
         )
 
+    for uid in sorted(
+        (fell_back - primary) & set(inc)
+    ):  # the arm's own failed call was not recorded
+        run = runs[inc[uid]["run_id"]]
+        proposal_rows.append(
+            {
+                "run_id": run["run_id"],
+                "scenario": run["scenario"],
+                "reasoner": run["reasoner"],
+                "mode": None,
+                "schema_valid": False,
+                "catalogue_valid": False,
+                "fault_class": None,
+                "action_id": None,
+                "replicas": None,
+                "replicas_delta": None,
+                "escalation_kind": None,
+                "abstain": False,
+                "retrieved": [],
+                "follows_injection": False,
+                "synthesised": True,
+            }
+        )
+
     trans = _group(tables.get("transitions", []), "incident_uid")
     acts = _group(tables.get("actions", []), "incident_uid")
     run_rows = []
@@ -156,6 +196,7 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
                 "mttr_s": seconds(inj, at.get("Resolved")),
                 "admitted_action": admitted,
                 "compensated": "Compensating" in at,
+                "fallbackUsed": uid in fell_back,
             }
         )
     return proposal_rows, run_rows
@@ -322,6 +363,19 @@ def detection_latency(runs):
     for (reasoner, scen), rs in _group(_valid(runs), "reasoner", "scenario").items():
         out[_key((reasoner, scen))] = median_iqr(
             [r["detect_s"] for r in rs if r["detect_s"] is not None]
+        )
+    return out
+
+
+def fallback_rate(runs):
+    """Valid runs that used the Rules Engine fallback / valid runs, per arm and per arm x scenario.
+    Rows need `reasoner`, `fallbackUsed`, `discarded` (run_rows, or batch.Queue.export_runs())."""
+    out = {}
+    for (reasoner,), rs in _group(_valid(runs), "reasoner").items():
+        out[reasoner] = proportion(sum(1 for r in rs if r["fallbackUsed"]), len(rs))
+    for (reasoner, scen), rs in _group(_valid(runs), "reasoner", "scenario").items():
+        out[_key((reasoner, scen))] = proportion(
+            sum(1 for r in rs if r["fallbackUsed"]), len(rs)
         )
     return out
 
