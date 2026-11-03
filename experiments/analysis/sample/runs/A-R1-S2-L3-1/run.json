@@ -1,0 +1,46 @@
+{
+ "injection_at": "2027-01-05T10:00:00+00:00",
+ "queue_record": {
+  "approval_ref": "G16/fixture#approval-0",
+  "attempt": 1,
+  "boot_id_end": "boot-A",
+  "boot_id_start": "boot-A",
+  "cell": "A/R1/S2/L3",
+  "discard_reason": "precheck_timeout",
+  "ended_at": "2027-01-05T13:20:00+00:00",
+  "fallbackUsed": false,
+  "pause_gap_s": 0.0,
+  "run_id": "A/R1/S2/L3#1",
+  "started_at": "2027-01-05T13:00:00+00:00",
+  "status": "discarded",
+  "terminal": null,
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16/fixture#approval-0",
+   "cell": {
+    "cell": "A/R1/S2/L3",
+    "level": 3,
+    "max_attempts": 4,
+    "reasoner": "R1",
+    "scenario": "S2",
+    "tier": 1,
+    "valid_target": 2
+   }
+  },
+  "discard_reason": "precheck_timeout",
+  "discarded": true,
+  "ended_at": "2027-01-05T13:20:00+00:00",
+  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
+  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+  "level": 3,
+  "reasoner": "R1",
+  "repetition": 1,
+  "run_id": "A/R1/S2/L3#1",
+  "scenario": "S2",
+  "started_at": "2027-01-05T13:00:00+00:00"
+ },
+ "schema": "run-export/v1"
+}

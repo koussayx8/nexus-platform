@@ -1,0 +1,51 @@
+{
+ "scenarios": {
+  "S1": {
+   "correct_action": {
+    "action": "restart_workload"
+   },
+   "fault_class": "gray_failure"
+  },
+  "S2": {
+   "correct_action": {
+    "action": "scale_deployment",
+    "replicas_delta": [
+     1,
+     2
+    ]
+   },
+   "fault_class": "cpu_saturation"
+  },
+  "S3": {
+   "correct_action": {
+    "action": "escalate",
+    "recommendation": "git_revert"
+   },
+   "fault_class": "bad_rollout"
+  },
+  "S4": {
+   "correct_action": {
+    "action": "no_action"
+   },
+   "fault_class": "traffic_spike"
+  },
+  "S5": {
+   "correct_action": {
+    "action": "escalate",
+    "recommendation": [
+     "dependency_investigation",
+     "investigate"
+    ]
+   },
+   "fault_class": "dependency_failure"
+  },
+  "S6": {
+   "correct_action": {
+    "action": "no_action"
+   },
+   "fault_class": "traffic_spike"
+  }
+ },
+ "schema": "ground-truth/v1",
+ "version": "fixture"
+}

@@ -1,0 +1,26 @@
+{
+ "containment_violations": 0,
+ "counts": true,
+ "envelope": {
+  "checked": 0,
+  "unverified": [],
+  "violations": []
+ },
+ "join": {
+  "actions": 0,
+  "completeness": null,
+  "counts": {},
+  "dry_run_events_ignored": 0,
+  "ok": true,
+  "operator_mutation_events": 0,
+  "verdicts": []
+ },
+ "run_id": "A/R1/S3/L3#1",
+ "schema": "reconciliation/v1",
+ "unexplained": [],
+ "user": "system:serviceaccount:nexus-system:nexus-operator",
+ "window": {
+  "since": "2027-01-05T16:00:00+00:00",
+  "until": "2027-01-05T16:20:00+00:00"
+ }
+}
