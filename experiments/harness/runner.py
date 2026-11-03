@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
+import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -37,6 +40,9 @@ NS_SYSTEM = "nexus-system"
 APPS = ("sample-api-dev", "dependency-db-dev")
 BRANCH = "experiment/dev-state"
 LEVEL_LABEL = "nexus.io/autonomy-level"
+LEVEL_FILE = (
+    "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
+)
 APP_PORT = 8000
 
 HANG_PY = (
@@ -71,6 +77,7 @@ class Runner:
         locust=None,
         git_dir=None,
         http_post=None,
+        http_get=None,
     ):
         if not context:
             raise ValueError("a cluster context is required")
@@ -80,6 +87,7 @@ class Runner:
         self.locust = locust
         self.git_dir = git_dir
         self.http_post = http_post or _post_form
+        self.http_get = http_get or _get_text
 
     # ---------------------------------------------------------------- helpers
     def k(
@@ -228,8 +236,16 @@ class Runner:
                 steps += [
                     Step(("git", "restore", f"--source={baseline_ref}", "--staged", "--worktree", "--", "."), True),
                     Step(("git", "commit", "-m", "chore(exp): reset to baseline"), True, "skipped when no diff", True),
-                    Step(("git", "push", "origin", f"HEAD:{BRANCH}"), True, "forward push, never forced"),
                 ]  # fmt: skip
+            # The nexus-dev level is declared in Git (overlays/dev/namespace.yaml, owned by
+            # sample-api-dev), so a level change is a commit (spec §3); a kubectl label would be
+            # reverted by selfHeal within about 30 s. Skipped when the level is already right.
+            steps += [
+                Step(("SETLEVEL", str(level)), True, "nexus-dev level, in the file"),
+                Step(("git", "add", LEVEL_FILE), True),
+                Step(("git", "commit", "-m", f"chore(exp): nexus-dev level {level}"), True, "skipped when no diff", True),
+                Step(("git", "push", "origin", f"HEAD:{BRANCH}"), True, "forward push, never forced"),
+            ]  # fmt: skip
         steps += self.plan_refresh()
         steps += [
             self.k("rollout", "restart", "deployment/sample-api", ns=NS_DEV, note="replace pods"),
@@ -241,16 +257,6 @@ class Runner:
             steps.append(
                 Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
             )
-        steps.append(
-            self.k(
-                "label",
-                "namespace",
-                NS_DEV,
-                f"{LEVEL_LABEL}={level}",
-                "--overwrite",
-                note="block's level",
-            )
-        )
         if breaker_epoch is not None:
             steps += self.plan_operator_config(advisory, breaker_epoch)
         return steps
@@ -266,6 +272,8 @@ class Runner:
                     urllib.parse.parse_qs(body, keep_blank_values=True) if body else {},
                 )
                 rc = 0
+            elif s.argv[0] == "SETLEVEL":
+                rc = set_level(self.git_dir, int(s.argv[1]))
             elif s.argv[0] == "git":
                 rc, _ = self.exec(list(s.argv), cwd=self.git_dir)
             else:
@@ -310,6 +318,38 @@ def _subprocess_exec(argv, cwd=None, timeout=120):
     except subprocess.TimeoutExpired:
         return 124, ""
     return p.returncode, p.stdout
+
+
+def _get_text(url, timeout=10):
+    """(status, body) of a GET; (0, "") when nothing answers."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, ""
+    except (OSError, ValueError):
+        return 0, ""
+
+
+def set_level(git_dir, level: int) -> int:
+    """Set the autonomy-level label in the experiment clone's nexus-dev Namespace file.
+    0 on success (also when it already has that value), 1 when the file or the label is missing."""
+    path = pathlib.Path(git_dir or ".") / LEVEL_FILE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 1
+    new, n = re.subn(
+        rf'^(\s+{re.escape(LEVEL_LABEL)}:\s*)"[0-9]+"',
+        rf'\g<1>"{int(level)}"',
+        text,
+        flags=re.MULTILINE,
+    )
+    if n != 1:
+        return 1
+    if new != text:
+        path.write_text(new, encoding="utf-8")
+    return 0
 
 
 def _post_form(url, fields):

@@ -134,14 +134,75 @@ class RunnerTest(unittest.TestCase):
         r, _ = self.runner(locust="http://l", git_dir="/g")
         steps = r.plan_reset(2, baseline_ref="abc123")
         flat = [" ".join(s.argv) for s in steps]
-        order = [next(i for i, f in enumerate(flat) if key in f) for key in
-                 ("git push origin", "refresh=hard", "rollout restart", "--replicas=2", "LOGIN", "/stop", "autonomy-level=2")]  # fmt: skip
+        keys = ("reset to baseline", "SETLEVEL 2", "git push origin", "refresh=hard", "rollout restart",
+                "--replicas=2", "LOGIN", "/stop")  # fmt: skip
+        order = [next(i for i, f in enumerate(flat) if key in f) for key in keys]
         self.assertEqual(order, sorted(order))
         self.assertFalse(any("--force" in f or "reset --hard" in f for f in flat))
-        self.assertIn(
-            "chore(exp): reset to baseline",
-            flat[3] if "commit" in flat[3] else " ".join(flat),
+
+    def test_the_level_is_a_commit_never_a_kubectl_label(self):
+        """selfHeal reverts a hand-set label (the Namespace is declared in overlays/dev, tracked by
+        sample-api-dev), so the reset commits the level on experiment/dev-state instead."""
+        r, _ = self.runner(locust="http://l", git_dir="/g")
+        flat = [" ".join(s.argv) for s in r.plan_reset(3, breaker_epoch=5)]
+        self.assertFalse(any(" label " in f for f in flat))
+        self.assertIn("git commit -m chore(exp): nexus-dev level 3", flat)
+        i = flat.index("SETLEVEL 3")
+        self.assertEqual(flat[i + 1], "git add overlays/dev/namespace.yaml")
+        self.assertTrue(
+            flat[i + 3].startswith("git push origin HEAD:experiment/dev-state")
         )
+        self.assertLess(
+            i, next(j for j, f in enumerate(flat) if "refresh=hard" in f)
+        )  # refresh picks it up
+
+    def test_set_level_edits_only_the_label_and_is_idempotent(self):
+        import pathlib
+        import tempfile
+
+        src = (
+            pathlib.Path(__file__).resolve().parents[3] / "overlays/dev/namespace.yaml"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            f = pathlib.Path(d, "overlays/dev/namespace.yaml")
+            f.parent.mkdir(parents=True)
+            f.write_text(src.read_text())
+            before = f.read_text()
+            self.assertEqual(runner.set_level(d, 3), 0)
+            after = f.read_text()
+            self.assertIn('nexus.io/autonomy-level: "3"', after)
+            self.assertEqual(
+                before.replace('autonomy-level: "0"', 'autonomy-level: "3"'), after
+            )
+            self.assertEqual(
+                runner.set_level(d, 3), 0
+            )  # same value: no change, no error
+            self.assertEqual(f.read_text(), after)
+            f.write_text("kind: Namespace\n")
+            self.assertEqual(
+                runner.set_level(d, 1), 1
+            )  # no label to set: a failed step
+            self.assertEqual(runner.set_level(d + "/nope", 1), 1)
+
+    def test_executing_setlevel_runs_in_the_clone(self):
+        import pathlib
+        import tempfile
+
+        src = (
+            pathlib.Path(__file__).resolve().parents[3] / "overlays/dev/namespace.yaml"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            f = pathlib.Path(d, "overlays/dev/namespace.yaml")
+            f.parent.mkdir(parents=True)
+            f.write_text(src.read_text())
+            r = runner.Runner(
+                "ctx",
+                exec_=lambda argv, cwd=None: (0, ""),
+                git_dir=d,
+                sleep=lambda s: None,
+            )
+            r.execute([runner.Step(("SETLEVEL", "2"))])
+            self.assertIn('autonomy-level: "2"', f.read_text())
 
     def test_operator_config_patch_then_restart_then_wait(self):
         r, _ = self.runner()
@@ -167,10 +228,8 @@ class RunnerTest(unittest.TestCase):
         r, _ = self.runner(locust="http://l")
         self.assertFalse(any("configmap" in " ".join(s.argv) for s in r.plan_reset(3)))
         flat = [" ".join(s.argv) for s in r.plan_reset(3, breaker_epoch=5)]
-        self.assertIn(
-            "autonomy-level=3", flat[-4]
-        )  # the level label, then the config steps
         self.assertIn("patch configmap", flat[-3])
+        self.assertIn("rollout restart deployment/nexus-operator", flat[-2])
 
     def test_refresh_annotates_without_sync(self):
         r, _ = self.runner()
