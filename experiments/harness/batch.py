@@ -498,7 +498,9 @@ class LiveRun:
         sleep=time.sleep,
         monotonic=time.monotonic,
         wall=time.time,
+        stat=precheck._file_mtime,
     ):
+        self.stat = stat
         self.r, self.cfg = runner, precheck.normalise(precheck_cfg)
         self.wait_s, self.poll_s = wait_s, poll_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
@@ -530,9 +532,11 @@ class LiveRun:
             self.incidents,
             before,
             model.TERMINAL_PHASES,
+            int(cell["level"]),
             monotonic=self.monotonic,
             wall=self.wall,
             sleep=self.sleep,
+            stat=self.stat,
         )
         # the no-fault record and the pre-check outcome go on the run record, kept whatever follows
         rec["no_fault"] = pc.window

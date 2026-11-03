@@ -24,6 +24,8 @@ PRE = {  # the pre-registration's clean baseline (a stddev per signal); the rest
     "clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
     "cap_s": 100,
     "poll_s": 10,
+    "locust": {"baseline_users": 160, "baseline_rps_per_namespace": 80},  # B = 80 per namespace (ADR-026)
+    "reasoner": {"expected_index_hash": "sha256:index-1"},
 }  # fmt: skip
 UNIT = pathlib.Path(__file__).resolve().parents[1] / "systemd" / "nexus-batch.service"
 
@@ -599,6 +601,16 @@ class FakeTime:
         self.clock.tick(s)
 
 
+def runner_for(cluster, ft, **kw):
+    """A Runner whose exec, sleep and Locust GET are all the fakes."""
+    return runner.Runner("ctx", exec_=cluster, sleep=ft.sleep, locust="http://l", http_post=lambda u, f: None,
+                         http_get=lambda url: (200, json.dumps(cluster.locust_doc)), **kw)  # fmt: skip
+
+
+def audit_fresh(ft):
+    return lambda path: ft.wall() - 5.0  # written five seconds ago
+
+
 class FakeCluster:
     """Answers the runner's kubectl calls, the Prometheus proxy reads and the Incident list.
 
@@ -636,6 +648,14 @@ class FakeCluster:
             [],
             {},
         )
+        self.sample = (2, 2, 2)  # desired, ready, updated
+        self.killswitch, self.level_label, self.backstage_pods = "active", "3", 0
+        self.reasoner = {
+            "ready": True,
+            "corpusHash": "sha256:index-1",
+        }  # None: the call fails
+        self.locust_doc = {"state": "running", "user_count": 160}
+        self.rps = 80.0
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
 
     def vector(self, value):
@@ -650,6 +670,8 @@ class FakeCluster:
         for key, val in self.prom.items():
             if key in q:
                 return val
+        if ":rate2m" in q:
+            return self.rps
         if ":zscore15m" in q:
             return self.z
         if ":baseline_stddev15m" in q:
@@ -665,6 +687,34 @@ class FakeCluster:
 
     def __call__(self, argv, cwd=None):
         self.calls.append(argv)
+        line = " ".join(argv)
+        if "--raw" in argv and "/proxy/healthz" in argv[-1]:
+            return (
+                (0, json.dumps(self.reasoner)) if self.reasoner is not None else (1, "")
+            )
+        if line.endswith("-n nexus-dev get deployment sample-api -o json"):
+            d, r_, u = self.sample
+            return 0, json.dumps(
+                {
+                    "spec": {"replicas": d},
+                    "status": {"readyReplicas": r_, "updatedReplicas": u},
+                }
+            )
+        if "get configmap nexus-killswitch" in line:
+            return (
+                (0, json.dumps({"data": {"state": self.killswitch}}))
+                if self.killswitch is not None
+                else (1, "")
+            )
+        if line.endswith("get namespace nexus-dev -o json"):
+            labels = (
+                {"nexus.io/autonomy-level": self.level_label}
+                if self.level_label is not None
+                else {}
+            )
+            return 0, json.dumps({"metadata": {"labels": labels}})
+        if line.endswith("-n backstage get pods -o json"):
+            return 0, json.dumps({"items": [{}] * self.backstage_pods})
         if "--raw" in argv:
             q = urllib.parse.parse_qs(urllib.parse.urlsplit(argv[-1]).query)["query"][0]
             ans = self.promql(q)
@@ -724,23 +774,20 @@ class PrecheckTest(unittest.TestCase):
         self.ft = FakeTime(self.clock)
         self.cfg = precheck.normalise(PRE)
 
-    def run_pc(self, cluster, before=frozenset()):
-        r = runner.Runner("ctx", exec_=cluster, sleep=self.ft.sleep)
+    def run_pc(self, cluster, before=frozenset(), level=3, stat=None):
+        r = runner_for(cluster, self.ft)
         live = batch.LiveRun(
             r, PRE, monotonic=self.ft.monotonic, wall=self.ft.wall, sleep=self.ft.sleep
         )
         return precheck.run_prechecks(precheck.Prom(r), self.cfg, live.incidents, set(before),
-                                      batch.model.TERMINAL_PHASES, self.ft.monotonic, self.ft.wall, self.ft.sleep)  # fmt: skip
+                                      batch.model.TERMINAL_PHASES, level, self.ft.monotonic, self.ft.wall,
+                                      self.ft.sleep, stat or audit_fresh(self.ft))  # fmt: skip
 
     def test_clean_baseline_and_quiet_node_pass_on_the_first_poll(self):
         pc = self.run_pc(FakeCluster(self.ft))
         self.assertEqual(
             (pc.ok, pc.polls, pc.failures, pc.stop_reason), (True, 1, [], None)
         )
-        qs = [
-            a[-1] for a in FakeCluster(self.ft).calls
-        ]  # (no calls on a fresh fake; the queries are checked below)
-        self.assertEqual(qs, [])
 
     def test_the_queries_use_baseline_stddev15m_for_every_signal_in_the_namespace(self):
         c = FakeCluster(self.ft)
@@ -892,14 +939,8 @@ class LiveRunTest(Base):
         self.ft = FakeTime(self.clock)
 
     def live(self, cluster):
-        r = runner.Runner(
-            "ctx",
-            exec_=cluster,
-            sleep=self.ft.sleep,
-            locust="http://l",
-            http_post=lambda u, f: None,
-        )
-        return batch.LiveRun(r, PRE, wait_s=50, poll_s=5, sleep=self.ft.sleep, monotonic=self.ft.monotonic, wall=self.ft.wall)  # fmt: skip
+        return batch.LiveRun(runner_for(cluster, self.ft), PRE, wait_s=50, poll_s=5, sleep=self.ft.sleep,
+                             monotonic=self.ft.monotonic, wall=self.ft.wall, stat=audit_fresh(self.ft))  # fmt: skip
 
     def joined(self, c):
         return [" ".join(a) for a in c.calls]
@@ -1107,3 +1148,236 @@ class NoFaultMetricTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SevenPrechecksTest(unittest.TestCase):
+    """The remaining spec section 20 pre-checks, each on its own and wired into run_prechecks."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.ft = FakeTime(self.clock)
+        self.cfg = precheck.normalise(PRE)
+
+    def pc(self, cluster, level=3, stat=None, locust=True):
+        r = runner_for(cluster, self.ft)
+        if not locust:
+            r.locust = None
+        live = batch.LiveRun(
+            r, PRE, monotonic=self.ft.monotonic, wall=self.ft.wall, sleep=self.ft.sleep
+        )
+        return precheck.run_prechecks(
+            precheck.Prom(r), self.cfg, live.incidents, set(), batch.model.TERMINAL_PHASES, level,
+            self.ft.monotonic, self.ft.wall, self.ft.sleep, stat or audit_fresh(self.ft),
+        )  # fmt: skip
+
+    def failing(self, mutate, **kw):
+        c = FakeCluster(self.ft)
+        mutate(c)
+        pc = self.pc(c, **kw)
+        self.assertFalse(pc.ok)
+        self.assertIsNone(pc.stop_reason)  # a discard, not a halt
+        return pc.failures
+
+    def test_everything_clean_passes_on_the_first_poll(self):
+        pc = self.pc(FakeCluster(self.ft))
+        self.assertEqual((pc.ok, pc.polls, pc.failures), (True, 1, []))
+
+    def test_every_check_is_read_only(self):
+        c = FakeCluster(self.ft)
+        self.pc(c)
+        for argv in c.calls:
+            if argv[0] != "kubectl":
+                continue
+            rest = argv[3:]
+            if rest[0] == "-n":
+                rest = rest[2:]
+            self.assertEqual(
+                rest[0], "get", argv
+            )  # no patch, exec, label, delete, annotate, scale
+        self.assertFalse(any("delete" in " ".join(a) for a in c.calls))
+
+    def test_sample_api_needs_two_of_two_ready_and_updated(self):
+        for sample in ((2, 1, 2), (2, 2, 1), (1, 1, 1), (3, 3, 3), (2, 0, 0)):
+            f = self.failing(lambda c, s=sample: setattr(c, "sample", s))
+            self.assertTrue(any(x.startswith("sample_api:") for x in f), (sample, f))
+
+    def test_sample_api_with_no_answer_fails(self):
+        c = FakeCluster(self.ft)
+        r = runner_for(c, self.ft)
+        r.exec = lambda argv, cwd=None: (
+            (1, "") if "deployment" in argv else c(argv, cwd)
+        )
+        self.assertEqual(
+            precheck.sample_api_failures(r, self.cfg), ["sample_api:no_answer"]
+        )
+
+    def test_killswitch_must_be_active(self):
+        for state in ("halted", "", "ACTIVE", None):
+            f = self.failing(lambda c, s=state: setattr(c, "killswitch", s))
+            self.assertTrue(any(x.startswith("killswitch:") for x in f), (state, f))
+        self.assertIn(
+            "killswitch:missing", self.failing(lambda c: setattr(c, "killswitch", None))
+        )  # absent = halted
+
+    def test_namespace_level_is_the_cells_level(self):
+        self.assertTrue(self.pc(FakeCluster(self.ft), level=3).ok)
+        f = self.failing(lambda c: None, level=2)  # the label says 3, the cell wants 2
+        self.assertIn("namespace_level:3!=2", f)
+
+    def test_a_missing_level_label_is_l0(self):
+        c = FakeCluster(self.ft)
+        c.level_label = None
+        self.assertTrue(self.pc(c, level=0).ok)
+        self.assertIn(
+            "namespace_level:0!=1",
+            self.failing(lambda c: setattr(c, "level_label", None), level=1),
+        )
+
+    def test_backstage_must_have_no_pod(self):
+        f = self.failing(lambda c: setattr(c, "backstage_pods", 1))
+        self.assertIn("backstage:pods=1", f)
+
+    def test_locust_must_be_running_at_the_baseline_within_ten_percent(self):
+        for users, ok_ in (
+            (160, True),
+            (144, True),
+            (176, True),
+            (143, False),
+            (177, False),
+            (0, False),
+        ):
+            c = FakeCluster(self.ft)
+            c.locust_doc = {"state": "running", "user_count": users}
+            self.assertEqual(self.pc(c).ok, ok_, users)
+        f = self.failing(
+            lambda c: setattr(c, "locust_doc", {"state": "stopped", "user_count": 160})
+        )
+        self.assertIn("locust:state='stopped'", f)
+
+    def test_locust_server_side_rate_is_checked_in_each_namespace(self):
+        for rps, ok_ in ((72.0, True), (88.0, True), (71.9, False), (88.1, False)):
+            c = FakeCluster(self.ft)
+            c.rps = rps
+            self.assertEqual(self.pc(c).ok, ok_, rps)
+        f = self.failing(
+            lambda c: c.prom.update({":rate2m": []})
+        )  # no series: no answer is not at baseline
+        self.assertIn("locust:nexus-dev:no_rate", f)
+        self.assertIn("locust:nexus-prod:no_rate", f)
+
+    def test_locust_without_a_url_or_an_answer_fails(self):
+        self.assertIn(
+            "locust:no_url", self.pc(FakeCluster(self.ft), locust=False).failures
+        )
+        c = FakeCluster(self.ft)
+        r = runner_for(c, self.ft)
+        r.http_get = lambda url: (0, "")
+        live = batch.LiveRun(
+            r, PRE, monotonic=self.ft.monotonic, wall=self.ft.wall, sleep=self.ft.sleep
+        )
+        pc = precheck.run_prechecks(precheck.Prom(r), self.cfg, live.incidents, set(), batch.model.TERMINAL_PHASES, 3,
+                                    self.ft.monotonic, self.ft.wall, self.ft.sleep, audit_fresh(self.ft))  # fmt: skip
+        self.assertIn("locust:no_answer", pc.failures)
+
+    def test_reasoner_must_be_ready_with_the_expected_index_hash(self):
+        for key in precheck.HASH_KEYS:  # any of the field names the Reasoner may use
+            c = FakeCluster(self.ft)
+            c.reasoner = {"status": "ok", key: "sha256:index-1"}
+            self.assertTrue(self.pc(c).ok, key)
+        cases = {
+            "reasoner:index_hash=sha256:other": {
+                "ready": True,
+                "corpusHash": "sha256:other",
+            },
+            "reasoner:not_ready": {"ready": False, "corpusHash": "sha256:index-1"},
+            "reasoner:no_index_hash": {"ready": True},
+        }
+        for want, doc in cases.items():
+            self.assertIn(
+                want, self.failing(lambda c, d=doc: setattr(c, "reasoner", d))
+            )
+        self.assertIn(
+            "reasoner:not_ready", self.failing(lambda c: setattr(c, "reasoner", None))
+        )  # 5xx / unreachable
+
+    def test_reasoner_is_read_through_the_service_proxy_get(self):
+        c = FakeCluster(self.ft)
+        self.pc(c)
+        raw = [a for a in c.calls if "--raw" in a and "healthz" in a[-1]]
+        self.assertEqual(
+            raw[0][-1],
+            "/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz",
+        )
+        self.assertEqual(raw[0][:3], ["kubectl", "--context", "ctx"])
+
+    def test_audit_log_must_be_readable_and_recently_written(self):
+        t = self.ft
+        self.assertTrue(
+            self.pc(FakeCluster(t), stat=lambda p: t.wall() - 60).ok
+        )  # exactly at the limit
+        f = self.failing(lambda c: None, stat=lambda p: t.wall() - 61)
+        self.assertIn("audit_log:stale=61s", f)
+
+        def unreadable(path):
+            raise PermissionError(path)
+
+        self.assertIn(
+            "audit_log:unreadable", self.failing(lambda c: None, stat=unreadable)
+        )
+
+    def test_the_audit_log_check_reads_the_configured_path_and_sends_no_probe(self):
+        seen = []
+        c = FakeCluster(self.ft)
+        self.pc(c, stat=lambda p: seen.append(p) or self.ft.wall())
+        self.assertEqual(seen, ["/var/log/nexus-audit/audit.log"])
+        self.assertFalse(
+            any("dry-run" in " ".join(a) or "create" in a for a in c.calls)
+        )
+
+    def test_one_failing_check_blocks_the_run_and_nothing_is_injected(self):
+        for mutate in (
+            lambda c: setattr(c, "sample", (2, 1, 2)),
+            lambda c: setattr(c, "killswitch", "halted"),
+            lambda c: setattr(c, "backstage_pods", 2),
+            lambda c: setattr(c, "reasoner", None),
+        ):
+            with tempfile.TemporaryDirectory() as d:
+                q = batch.Queue.create(d, REF, CELLS, precheck_cfg=PRE)
+                c = FakeCluster(self.ft)
+                mutate(c)
+                live = batch.LiveRun(runner_for(c, self.ft), PRE, sleep=self.ft.sleep, monotonic=self.ft.monotonic,
+                                     wall=self.ft.wall, stat=audit_fresh(self.ft))  # fmt: skip
+                batch.drive(
+                    q,
+                    live,
+                    clock=self.clock,
+                    execute=True,
+                    approval_ref=REF,
+                    max_runs=1,
+                )
+                r = q.runs[0]
+                self.assertEqual(
+                    (r["status"], r["discard_reason"]),
+                    ("discarded", "precheck_timeout"),
+                )
+                self.assertFalse(c.injected)
+                self.assertTrue(r["precheck"]["failures"])
+
+    def test_configuration_needs_the_locust_baseline_and_the_index_hash(self):
+        base = {k: v for k, v in PRE.items() if k not in ("locust", "reasoner")}
+        for bad in (
+            base,
+            {**base, "locust": {"baseline_users": 160}, "reasoner": PRE["reasoner"]},
+            {**base, "locust": PRE["locust"]},
+            {**base, "locust": PRE["locust"], "reasoner": {"expected_index_hash": ""}},
+            {**PRE, "locust": {**PRE["locust"], "tolerance": 0}},
+            {**PRE, "audit_log": {"max_age_s": -1}},
+            {**PRE, "sample_api": {"replicas": 0}},
+        ):
+            with self.assertRaises(precheck.ConfigError, msg=bad):
+                precheck.normalise(bad)
+        n = precheck.normalise(PRE)  # the spec's names fill in
+        self.assertEqual((n["sample_api"]["replicas"], n["killswitch"]["configmap"], n["backstage"]["namespace"]),
+                         (2, "nexus-killswitch", "backstage"))  # fmt: skip
+        self.assertEqual(n["audit_log"]["path"], "/var/log/nexus-audit/audit.log")
+        self.assertEqual(n["locust"]["tolerance"], 0.10)

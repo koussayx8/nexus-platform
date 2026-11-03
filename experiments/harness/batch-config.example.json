@@ -4,12 +4,64 @@
     "namespace": "nexus-dev",
     "cap_s": 1200,
     "poll_s": 30,
-    "clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0}
+    "clean_stddev": {
+      "cpu": 0.05,
+      "latencyP95": 0.02,
+      "inflight": 2.0,
+      "errorRatio": 0.005,
+      "requests": 3.0
+    },
+    "locust": {
+      "baseline_users": 160,
+      "baseline_rps_per_namespace": 80,
+      "tolerance": 0.1
+    },
+    "reasoner": {
+      "expected_index_hash": "REPLACE_WITH_THE_G16_INDEX_HASH"
+    },
+    "audit_log": {
+      "path": "/var/log/nexus-audit/audit.log",
+      "max_age_s": 60
+    }
   },
   "cells": [
-    {"cell": "A/R1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3, "tier": 1, "valid_target": 5, "max_attempts": 8},
-    {"cell": "A/R1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3, "tier": 1, "valid_target": 5, "max_attempts": 8},
-    {"cell": "A/R1/S1/L3/t2", "scenario": "S1", "reasoner": "R1", "level": 3, "tier": 2, "valid_target": 10, "max_attempts": 15},
-    {"cell": "D/R0/S1/L3", "scenario": "S1", "reasoner": "R0", "level": 3, "tier": 2, "valid_target": 2, "max_attempts": 3, "phase": "D", "advisory_checks": "off"}
+    {
+      "cell": "A/R1/S1/L3",
+      "scenario": "S1",
+      "reasoner": "R1",
+      "level": 3,
+      "tier": 1,
+      "valid_target": 5,
+      "max_attempts": 8
+    },
+    {
+      "cell": "A/R1/S4/L3",
+      "scenario": "S4",
+      "reasoner": "R1",
+      "level": 3,
+      "tier": 1,
+      "valid_target": 5,
+      "max_attempts": 8
+    },
+    {
+      "cell": "A/R1/S1/L3/t2",
+      "scenario": "S1",
+      "reasoner": "R1",
+      "level": 3,
+      "tier": 2,
+      "valid_target": 10,
+      "max_attempts": 15
+    },
+    {
+      "cell": "D/R0/S1/L3",
+      "scenario": "S1",
+      "reasoner": "R0",
+      "level": 3,
+      "tier": 2,
+      "valid_target": 2,
+      "max_attempts": 3,
+      "phase": "D",
+      "advisory_checks": "off"
+    }
   ]
 }

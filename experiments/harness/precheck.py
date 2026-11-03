@@ -1,6 +1,7 @@
 """Pre-checks before a run (spec §20 "Reset and pre-checks", §25; TASKS.md M4; ADR-024). Stdlib only.
 
-Implemented here, all of which must hold, waited for at most the cap (20 min by the spec):
+Implemented here, all of which must hold, waited for at most the cap (20 min by the spec). Every
+check is READ-ONLY (get / get --raw / GET / stat); none changes anything:
   * clean baseline: for every signal in the nexus-detection rules, |Z| < 1.5 and the recorded
     `baseline_stddev15m` is within 1.5 x that signal's clean baseline (a value from the
     pre-registration), otherwise the previous fault still masks the next one. A series with no
@@ -9,8 +10,23 @@ Implemented here, all of which must hold, waited for at most the cap (20 min by 
   * no non-terminal Incident. Incidents are never deleted by the runner (rule 3): the check waits,
     inside the same cap, and when the cap runs out the batch STOPS (it does not discard and carry
     on), with the reason.
-Not implemented (listed in the PR): sample-api 2/2 Ready, Kill Switch, the namespace level, Backstage
-at zero, the Locust baseline, Reasoner ready, audit log being written.
+  * sample-api 2 of 2 Ready: the Deployment's desired, ready and updated replicas all equal 2.
+  * Kill Switch `active`: ConfigMap nexus-killswitch, data.state; anything else, or absent, fails
+    (the operator treats a missing ConfigMap as halted, spec §16).
+  * the namespace level is the cell's level: label nexus.io/autonomy-level on nexus-dev (a missing
+    label is L0, fail closed, as the policies read it).
+  * Backstage at zero: no pod in the backstage namespace.
+  * Locust at its baseline, within +-10 %: the swarm is `running` with the configured number of
+    users, and sample-api's request rate in each namespace is within the tolerance of the
+    configured per-namespace baseline (1 user = 1 request/s, ADR-026). The spec says only "Locust
+    baseline within +-10 %": reading it as both the user count and the server-side rate is UNVERIFIED.
+  * Reasoner ready with the expected index hash: GET /healthz through the API server's service
+    proxy. The body shape is not fixed anywhere yet (the Reasoner service is G9): `ready: true` or
+    `status: ok|ready`, and the hash under corpusHash / corpus_hash / indexHash / index_hash.
+  * the audit log is being written: the file is readable and was modified within `max_age_s`. k3s
+    writes every write request to it, lease renewals included (verify-state.sh M7), so a quiet log
+    means the audit chain is down. Reading the file is all this does: no probe request is sent.
+Not implemented: "Hosted Model reachable for LLM arms" (needs the provider key, rule 5).
 
 No-fault data. The window from the first poll to the end of the pre-checks has nothing injected,
 so everything Nexus fires inside it is a false alarm of the system under test (or of the reset).
@@ -29,6 +45,7 @@ from __future__ import annotations
 import datetime
 import json
 import math
+import os
 import time
 import urllib.parse
 from dataclasses import dataclass, field
@@ -54,16 +71,46 @@ DEFAULTS = {
     "node_cpu_max": 0.60,
     "node_mem_max": 0.80,
 }
-REQUIRED = ("clean_stddev",)
+SECTION_DEFAULTS = {
+    "sample_api": {"namespace": "nexus-dev", "deployment": "sample-api", "replicas": 2},
+    "killswitch": {"namespace": "nexus-system", "configmap": "nexus-killswitch"},
+    "backstage": {"namespace": "backstage"},
+    "locust": {"tolerance": 0.10, "namespaces": ["nexus-dev", "nexus-prod"]},
+    "reasoner": {
+        "namespace": "nexus-reasoner",
+        "service": "nexus-reasoner",
+        "port": 8080,
+    },
+    "audit_log": {"path": "/var/log/nexus-audit/audit.log", "max_age_s": 60},
+}
+# no default: they come from the pre-registration / the calibration (G16)
+SECTION_REQUIRED = {
+    "locust": ("baseline_users", "baseline_rps_per_namespace"),
+    "reasoner": ("expected_index_hash",),
+}
+LEVEL_LABEL = "nexus.io/autonomy-level"
 
 
 class ConfigError(ValueError):
     pass
 
 
+def _number(v, name, positive=True):
+    if (
+        isinstance(v, bool)
+        or not isinstance(v, int | float)
+        or math.isnan(v)
+        or (v <= 0 if positive else v < 0)
+    ):
+        raise ConfigError(
+            f"precheck.{name} must be a {'positive' if positive else 'non-negative'} number"
+        )
+
+
 def normalise(cfg: dict | None) -> dict:
     """The pre-check configuration with the spec's values filled in. `clean_stddev` (a number per
-    signal) has no default: it comes from the pre-registration (G16)."""
+    signal), `locust.baseline_users`, `locust.baseline_rps_per_namespace` and
+    `reasoner.expected_index_hash` have no default: they come from the pre-registration (G16)."""
     if not isinstance(cfg, dict):
         raise ConfigError("precheck configuration is missing")
     out = {**DEFAULTS, **cfg}
@@ -73,13 +120,7 @@ def normalise(cfg: dict | None) -> dict:
             f"precheck.clean_stddev needs exactly the signals {sorted(SIGNALS)}"
         )
     for name, v in clean.items():
-        if (
-            isinstance(v, bool)
-            or not isinstance(v, int | float)
-            or v < 0
-            or math.isnan(v)
-        ):
-            raise ConfigError(f"precheck.clean_stddev.{name} must be a number >= 0")
+        _number(v, f"clean_stddev.{name}", positive=False)
     for key in (
         "cap_s",
         "poll_s",
@@ -88,11 +129,44 @@ def normalise(cfg: dict | None) -> dict:
         "node_cpu_max",
         "node_mem_max",
     ):
-        v = out[key]
-        if isinstance(v, bool) or not isinstance(v, int | float) or v <= 0:
-            raise ConfigError(f"precheck.{key} must be a positive number")
+        _number(out[key], key)
     if not isinstance(out["namespace"], str) or not out["namespace"]:
         raise ConfigError("precheck.namespace must be a non-empty string")
+    for sec, defaults in SECTION_DEFAULTS.items():
+        given = out.get(sec) or {}
+        if not isinstance(given, dict):
+            raise ConfigError(f"precheck.{sec} must be an object")
+        out[sec] = {**defaults, **given}
+        for k in SECTION_REQUIRED.get(sec, ()):
+            if k not in out[sec]:
+                raise ConfigError(f"precheck.{sec}.{k} is required (G16 sets it)")
+    sa, loc, rs, au = (
+        out["sample_api"],
+        out["locust"],
+        out["reasoner"],
+        out["audit_log"],
+    )
+    _number(sa["replicas"], "sample_api.replicas")
+    _number(loc["baseline_users"], "locust.baseline_users")
+    _number(loc["baseline_rps_per_namespace"], "locust.baseline_rps_per_namespace")
+    _number(loc["tolerance"], "locust.tolerance")
+    _number(rs["port"], "reasoner.port")
+    _number(au["max_age_s"], "audit_log.max_age_s")
+    if not isinstance(rs["expected_index_hash"], str) or not rs["expected_index_hash"]:
+        raise ConfigError(
+            "precheck.reasoner.expected_index_hash must be a non-empty string"
+        )
+    for sec, key in (("sample_api", "namespace"), ("sample_api", "deployment"), ("killswitch", "namespace"),
+                     ("killswitch", "configmap"), ("backstage", "namespace"), ("reasoner", "namespace"),
+                     ("reasoner", "service"), ("audit_log", "path")):  # fmt: skip
+        if not isinstance(out[sec][key], str) or not out[sec][key]:
+            raise ConfigError(f"precheck.{sec}.{key} must be a non-empty string")
+    if not loc["namespaces"] or not all(
+        isinstance(n, str) and n for n in loc["namespaces"]
+    ):
+        raise ConfigError(
+            "precheck.locust.namespaces must be a non-empty list of names"
+        )
     return out
 
 
@@ -188,6 +262,145 @@ def fired_alerts(prom: Prom, window_s: float) -> list[dict] | None:
     )  # fmt: skip
 
 
+def _kubectl(runner, *args, ns=None) -> tuple[int, str]:
+    base = [CLI, "--context", runner.context] + (["-n", ns] if ns else [])
+    return runner.exec(base + list(args))
+
+
+def _json(text: str):
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def sample_api_failures(runner, cfg: dict) -> list[str]:
+    c = cfg["sample_api"]
+    rc, out = _kubectl(
+        runner, "get", "deployment", c["deployment"], "-o", "json", ns=c["namespace"]
+    )
+    doc = _json(out) if rc == 0 else None
+    if not isinstance(doc, dict):
+        return ["sample_api:no_answer"]
+    want = int(c["replicas"])
+    st = doc.get("status") or {}
+    got = (
+        (doc.get("spec") or {}).get("replicas", 0) or 0,
+        st.get("readyReplicas", 0) or 0,
+        st.get("updatedReplicas", 0) or 0,
+    )
+    if got != (want, want, want):
+        return [
+            f"sample_api:desired/ready/updated={got[0]}/{got[1]}/{got[2]},want={want}"
+        ]
+    return []
+
+
+def killswitch_failures(runner, cfg: dict) -> list[str]:
+    c = cfg["killswitch"]
+    rc, out = _kubectl(
+        runner, "get", "configmap", c["configmap"], "-o", "json", ns=c["namespace"]
+    )
+    doc = _json(out) if rc == 0 else None
+    if not isinstance(doc, dict):
+        return ["killswitch:missing"]  # missing is halted (spec section 16)
+    state = (doc.get("data") or {}).get("state")
+    return [] if state == "active" else [f"killswitch:state={state!r}"]
+
+
+def namespace_level_failures(runner, cfg: dict, level: int) -> list[str]:
+    ns = cfg["namespace"]
+    rc, out = _kubectl(runner, "get", "namespace", ns, "-o", "json")
+    doc = _json(out) if rc == 0 else None
+    if not isinstance(doc, dict):
+        return ["namespace_level:no_answer"]
+    got = ((doc.get("metadata") or {}).get("labels") or {}).get(
+        LEVEL_LABEL, "0"
+    )  # missing = L0
+    return [] if str(got) == str(level) else [f"namespace_level:{got}!={level}"]
+
+
+def backstage_failures(runner, cfg: dict) -> list[str]:
+    rc, out = _kubectl(
+        runner, "get", "pods", "-o", "json", ns=cfg["backstage"]["namespace"]
+    )
+    doc = _json(out) if rc == 0 else None
+    if not isinstance(doc, dict):
+        return ["backstage:no_answer"]
+    n = len(doc.get("items") or [])
+    return [] if n == 0 else [f"backstage:pods={n}"]
+
+
+def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
+    c = cfg["locust"]
+    if not runner.locust:
+        return ["locust:no_url"]
+    code, body = runner.http_get(f"{runner.locust.rstrip('/')}/stats/requests")
+    doc = _json(body) if code == 200 else None
+    if not isinstance(doc, dict):
+        return ["locust:no_answer"]
+    out = []
+    tol = c["tolerance"]
+    if doc.get("state") != "running":
+        out.append(f"locust:state={doc.get('state')!r}")
+    users = doc.get("user_count")
+    if (
+        not isinstance(users, int | float)
+        or abs(users - c["baseline_users"]) > tol * c["baseline_users"]
+    ):
+        out.append(f"locust:users={users}!~{c['baseline_users']}")
+    for ns in c[
+        "namespaces"
+    ]:  # the server's view: Locust's own rate lags by design (ADR-026)
+        rate = prom.scalar(
+            f'namespace:nexus_sample_api_requests:rate2m{{namespace="{ns}"}}'
+        )
+        base = c["baseline_rps_per_namespace"]
+        if rate is None:
+            out.append(f"locust:{ns}:no_rate")
+        elif abs(rate - base) > tol * base:
+            out.append(f"locust:{ns}:rps={rate:.1f}!~{base}")
+    return out
+
+
+HASH_KEYS = ("corpusHash", "corpus_hash", "indexHash", "index_hash")
+
+
+def reasoner_failures(runner, cfg: dict) -> list[str]:
+    c = cfg["reasoner"]
+    path = f"/api/v1/namespaces/{c['namespace']}/services/http:{c['service']}:{c['port']}/proxy/healthz"
+    rc, out = _kubectl(runner, "get", "--raw", path)
+    if rc != 0:
+        return [
+            "reasoner:not_ready"
+        ]  # unreachable, or a 5xx while the index is not loaded
+    doc = _json(out)
+    if not isinstance(doc, dict):
+        return ["reasoner:healthz_unparsable"]
+    if not (doc.get("ready") is True or doc.get("status") in ("ok", "ready")):
+        return ["reasoner:not_ready"]
+    got = next((doc[k] for k in HASH_KEYS if doc.get(k)), None)
+    if got is None:
+        return ["reasoner:no_index_hash"]
+    return [] if got == c["expected_index_hash"] else [f"reasoner:index_hash={got}"]
+
+
+def audit_failures(cfg: dict, stat, wall) -> list[str]:
+    c = cfg["audit_log"]
+    try:
+        mtime = stat(c["path"])
+    except OSError:
+        return ["audit_log:unreadable"]
+    age = wall() - mtime
+    return [] if age <= c["max_age_s"] else [f"audit_log:stale={age:.0f}s"]
+
+
+def _file_mtime(path: str) -> float:
+    if not os.access(path, os.R_OK):
+        raise PermissionError(path)
+    return os.stat(path).st_mtime
+
+
 @dataclass
 class Result:
     ok: bool
@@ -204,11 +417,11 @@ def _iso(t: float) -> str:
     return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).isoformat()
 
 
-def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: frozenset,
-                  monotonic=time.monotonic, wall=time.time, sleep=time.sleep) -> Result:  # fmt: skip
+def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: frozenset, level: int,
+                  monotonic=time.monotonic, wall=time.time, sleep=time.sleep, stat=_file_mtime) -> Result:  # fmt: skip
     """Poll until every check holds or the cap runs out. `incidents()` lists the Incident objects;
     `before_uids` are the Incidents that existed before the run's reset (so a new one is a false
-    alarm); `terminal` are the phases that end an Incident."""
+    alarm); `terminal` are the phases that end an Incident; `level` is the cell's autonomy level."""
     start_m, start_w = monotonic(), wall()
     polls = 0
     while True:
@@ -224,6 +437,14 @@ def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: 
             failures.append(f"non_terminal_incident:{','.join(sorted(open_))}")
         failures += baseline_failures(prom, cfg)
         failures += node_failures(prom, cfg)
+        r = prom.r
+        failures += sample_api_failures(r, cfg)
+        failures += killswitch_failures(r, cfg)
+        failures += namespace_level_failures(r, cfg, level)
+        failures += backstage_failures(r, cfg)
+        failures += locust_failures(r, prom, cfg)
+        failures += reasoner_failures(r, cfg)
+        failures += audit_failures(cfg, stat, wall)
         waited = monotonic() - start_m
         if not failures or waited >= cfg["cap_s"]:
             break
