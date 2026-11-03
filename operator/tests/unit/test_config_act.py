@@ -85,3 +85,54 @@ def test_recorder_keys_are_read():
 def test_bad_recorder_keys_are_refused(extra):
     with pytest.raises(ConfigError):
         parse(cm(**extra))
+
+
+def test_the_reasoner_client_is_off_by_default():
+    c = parse(cm())
+    assert c.reasoner_endpoint == "" and c.reasoner_mode == "llm"
+    assert c.reasoner_model == "" and c.reasoner_effort is None
+
+
+def test_reasoner_keys_are_read():
+    c = parse(
+        cm(
+            reasonerEndpoint="http://nexus-reasoner.nexus-reasoner.svc:8080/",
+            reasonerMode="llm",
+            reasonerModel="openai/gpt-oss-120b",
+            reasonerEffort="low",
+        )
+    )
+    assert c.reasoner_endpoint == "http://nexus-reasoner.nexus-reasoner.svc:8080"
+    assert (c.reasoner_mode, c.reasoner_model, c.reasoner_effort) == (
+        "llm",
+        "openai/gpt-oss-120b",
+        "low",
+    )
+    assert (
+        parse(cm(reasonerEndpoint="http://r:8080", reasonerMode="rules")).reasoner_model
+        == ""
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"reasonerEndpoint": "ftp://r"},
+        {"reasonerEndpoint": "http://u:p@r:8080"},
+        {"reasonerEndpoint": "http://r:8080?x=1"},
+        {"reasonerEndpoint": "http://r:8080", "reasonerMode": "llm"},  # no model
+        {
+            "reasonerEndpoint": "http://r:8080",
+            "reasonerMode": "agentic",
+            "reasonerModel": "m",
+        },
+        {
+            "reasonerEndpoint": "http://r:8080",
+            "reasonerModel": "m",
+            "reasonerEffort": "max",
+        },
+    ],
+)
+def test_bad_reasoner_keys_are_refused(extra):
+    with pytest.raises(ConfigError):
+        parse(cm(**extra))
