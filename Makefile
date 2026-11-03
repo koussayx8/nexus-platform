@@ -1,7 +1,7 @@
 # NEXUS developer targets. Python is the standard library only for these targets.
 PYTHON ?= python3
 
-.PHONY: index lint-runbooks eval-retrieval results
+.PHONY: index lint-runbooks eval-retrieval results detectors
 
 # Spec section 15, phase 3: lint, ingest, index. Writes build/index/{index,manifest}.json.
 index:
@@ -26,3 +26,12 @@ RESULTS ?= build/results
 results:
 	$(PYTHON) -m experiments.analysis.results --runs $(RUNS) --truth $(TRUTH) --suite $(SUITE) \
 	    --retrieval experiments/retrieval/results.json --out $(RESULTS)
+
+# Spec section 21, G14: the offline detector comparison, Z-score against Isolation Forest, on the metric
+# windows of the exported runs. Needs the analysis-only requirements (scikit-learn, pinned with hashes):
+#   pip install --only-binary=:all: --require-hashes -r experiments/detectors/requirements.txt
+# Same RUNS and TRUTH as `make results` (the fixtures by default; outputs say FIXTURE - not measured).
+DETECTORS_OUT ?= build/detectors
+
+detectors:
+	$(PYTHON) -m experiments.detectors.compare --runs $(RUNS) --truth $(TRUTH) --out $(DETECTORS_OUT)

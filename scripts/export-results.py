@@ -2,7 +2,7 @@
 """G13: export one run to experiments/runs/<run>/ (spec §14, §25). Offline: files in, a directory out.
 
   export-results.py --queue STATE_DIR --run-id ID --tables FILE --audit FILE --injection TS \\
-      --ground-truth FILE --git-commit SHA [--k8sgpt FILE] [--out experiments/runs]
+      --ground-truth FILE --git-commit SHA [--k8sgpt FILE] [--metrics FILE] [--out experiments/runs]
 
 Inputs (the runner produces them on the host; this script never touches the cluster):
   --queue / --run-id   the batch queue (scripts: experiments.harness.batch) and the attempt to export
@@ -18,6 +18,17 @@ Inputs (the runner produces them on the host; this script never touches the clus
                        operator's events inside the run window are kept (the extract)
   --fixture            mark the run as a FIXTURE (invented data): `make results` then stamps every table
                        and figure "FIXTURE — not measured" and refuses to mix it with measured runs
+  --metrics FILE       the run's metric windows, for the offline detector comparison (G14): the five
+                       signals of platform/observability/alerts/nexus-detection.yaml over the run
+                       window plus 20 minutes of history before it (the Z-score baseline needs 18).
+                       JSON {"namespace": "nexus-dev", "step_s": 30, "signals": {"cpu": [[t, v], ...],
+                       "latencyP95": ..., "inflight": ..., "errorRatio": ..., "requests": ...}}, t in epoch
+                       seconds, one list per recorded series, e.g. from the host with
+                         kubectl --context C -n monitoring get --raw "<prom proxy>/api/v1/query_range?
+                           query=namespace:nexus_sample_api_cpu:rate2m{namespace=\"nexus-dev\"}
+                           &start=<start-20m>&end=<end>&step=30"
+                       (values of the first result's `values`, as floats). Validated and rewritten as
+                       metrics.json (schema metrics-window/v1); optional, valid runs only
   --injection TS       when the fault took effect (ArgoCD applied the revision), RFC 3339
   --ground-truth FILE  hashed into the run row: the pre-registered file (spec §20)
 
@@ -27,6 +38,7 @@ Writes, then reconciles (scripts/reconcile-audit.py) and seals:
   audit.jsonl.gz    the audit extract, gzip with mtime 0       (valid runs)
   reconciliation.json, audit_links.jsonl                       (valid runs)
   k8sgpt.json       the K8sGPT diagnosis, if given
+  metrics.json      the run's metric windows (valid runs, if --metrics is given)
   MANIFEST.json     sha256 of every file above, written last: `make results` refuses a run whose
                     files no longer match it
 
@@ -89,6 +101,51 @@ def _dump(path: pathlib.Path, doc) -> None:
     path.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
 
+METRIC_SIGNALS = ("cpu", "latencyP95", "inflight", "errorRatio", "requests")
+METRICS_SCHEMA = "metrics-window/v1"
+
+
+def metrics_window(doc: dict) -> dict:
+    """Validate and normalise a run's metric windows (the only place they enter an export):
+    all five signals, finite numbers, strictly increasing timestamps on the step, sorted keys."""
+    import math
+
+    step = doc.get("step_s")
+    if not isinstance(step, int | float) or step <= 0:
+        raise ExportError("metrics: step_s must be a positive number")
+    sig = doc.get("signals")
+    if not isinstance(sig, dict) or set(sig) != set(METRIC_SIGNALS):
+        raise ExportError(f"metrics: signals must be exactly {list(METRIC_SIGNALS)}")
+    out = {}
+    for name in METRIC_SIGNALS:
+        pts = []
+        for p in sig[name]:
+            if not (
+                isinstance(p, list | tuple)
+                and len(p) == 2
+                and all(
+                    isinstance(x, int | float) and not isinstance(x, bool) for x in p
+                )
+            ):
+                raise ExportError(f"metrics: {name} has a point that is not [t, value]")
+            if not (math.isfinite(p[0]) and math.isfinite(p[1])):
+                raise ExportError(
+                    f"metrics: {name} has a non-finite point"
+                )  # a NaN sample is not recorded (nexus-detection.yaml)
+            if pts and p[0] <= pts[-1][0]:
+                raise ExportError(f"metrics: {name} timestamps must increase")
+            pts.append([float(p[0]), float(p[1])])
+        if not pts:
+            raise ExportError(f"metrics: {name} is empty")
+        out[name] = pts
+    return {
+        "schema": METRICS_SCHEMA,
+        "namespace": doc.get("namespace", "nexus-dev"),
+        "step_s": step,
+        "signals": out,
+    }
+
+
 def run_row(rec: dict, cell: dict, git_commit: str, gt_hash: str) -> dict:
     """The `runs` row of spec §14 (05-schema.sql), from the queue record and the cell."""
     void_or_discard = rec["status"] in ("void", "discarded")
@@ -122,6 +179,7 @@ def export(
     tables=None,
     audit=None,
     k8sgpt=None,
+    metrics=None,
     fixture=False,
 ):
     aj = _load("audit-join")
@@ -185,6 +243,14 @@ def export(
         result = _load("reconcile-audit").reconcile(run, out_tables, events)
         _load("reconcile-audit").write(dest, result)
         files += ["reconciliation.json", "audit_links.jsonl"]
+    if metrics and not run["discarded"]:
+        _dump(
+            dest / "metrics.json",
+            metrics_window(
+                json.loads(pathlib.Path(metrics).read_text(encoding="utf-8"))
+            ),
+        )
+        files.append("metrics.json")
     if k8sgpt:
         _dump(
             dest / "k8sgpt.json",
@@ -209,6 +275,7 @@ def main(argv=None) -> int:
     p.add_argument("--ground-truth", required=True)
     p.add_argument("--git-commit", required=True)
     p.add_argument("--k8sgpt")
+    p.add_argument("--metrics")
     p.add_argument(
         "--fixture",
         action="store_true",
@@ -218,7 +285,7 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     try:
         dest = export(queue_dir=a.queue, run_id=a.run_id, injection=a.injection, ground_truth=a.ground_truth,
-                      git_commit=a.git_commit, out_dir=a.out, tables=a.tables, audit=a.audit, k8sgpt=a.k8sgpt, fixture=a.fixture)  # fmt: skip
+                      git_commit=a.git_commit, out_dir=a.out, tables=a.tables, audit=a.audit, k8sgpt=a.k8sgpt, metrics=a.metrics, fixture=a.fixture)  # fmt: skip
     except (ExportError, batch.Refused, OSError, ValueError, KeyError) as e:
         print(f"REFUSED: {type(e).__name__}: {e}", file=sys.stderr)
         return 2

@@ -1,0 +1,30 @@
+# ANALYSIS ONLY. The offline detector comparison (spec section 21, G14): scikit-learn's Isolation Forest
+# and its dependencies. Never installed in the cluster, the operator, the Reasoner or any image; the only
+# code that imports them is experiments/detectors/. Pinned with the hashes of the Linux CPython 3.12
+# wheels for x86_64 and aarch64 (pure-Python packages have one wheel); each hash is the sha256 PyPI
+# lists for that file (https://pypi.org/pypi/<package>/<version>/json). Install:
+#   pip install --only-binary=:all: --require-hashes -r experiments/detectors/requirements.txt
+# Releases are at least two weeks old at the time of pinning (2026-11-03). scikit-learn 1.9.1 needs
+# numpy >= 1.24.1, scipy >= 1.10, joblib >= 1.4, threadpoolctl >= 3.5, narwhals >= 2.0.1; scipy 1.18.1
+# needs numpy < 2.8; joblib 1.6.0 needs cloudpickle >= 3.0. In --require-hashes mode every transitive
+# dependency must be listed (the first CI run caught cloudpickle). The closure is checked with
+#   pip download --only-binary=:all: --require-hashes --python-version 3.12 --implementation cp --abi cp312 \
+#     --platform manylinux_2_28_x86_64 -d <dir> -r experiments/detectors/requirements.txt
+# (and the aarch64 platform). On another Python, regenerate the hashes the same way; do not install unhashed.
+scikit-learn==1.9.1 \
+    --hash=sha256:e4c20a6c017d820faa7ac8c783e3d0c6a9a2e297bf9f55332ca17cdf7fd4d04d \
+    --hash=sha256:e5d7b18a5b9dca241a74695f3275fa4c895a9dadc72b3d8df5fa9d1083c9b83e
+numpy==2.5.4 \
+    --hash=sha256:fe4d21ab149f15e4e6043dfb0de87e6e5f34ac176cde83060e9802981fca2ac2 \
+    --hash=sha256:fbde6962867ee75b48b0ee29b2b9372ec5d617799dbaf38e82dc0596f2f7738a
+scipy==1.18.1 \
+    --hash=sha256:3c085faa2cfa879c5141df483f836f4d691045a078224a670fa570fa01612d89 \
+    --hash=sha256:f55fa87b6c612ecd6b058f167c53231b1d14e412efe361d3d6e38b3631c73218
+joblib==1.6.0 \
+    --hash=sha256:3dbbf9f6e4b592a2357b854608e980fe6390d131d7a82f011a377ef2ebef7aba
+threadpoolctl==3.7.0 \
+    --hash=sha256:cd8b60b5641b45c67bbf73c64c843235fc2d8a480c87389f52f5dbee893b86be
+narwhals==2.27.1 \
+    --hash=sha256:d057df13f5852b8e157596e82eb5e955fad267425df5e420e0ee9863da483b31
+cloudpickle==3.1.2 \
+    --hash=sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a

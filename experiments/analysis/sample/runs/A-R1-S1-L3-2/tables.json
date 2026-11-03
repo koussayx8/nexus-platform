@@ -7,19 +7,19 @@
    "http_status": 200,
    "idempotency_key": "k-02",
    "incident_uid": "uid-02",
-   "intent_at": "2027-01-05T12:03:06+00:00",
+   "intent_at": "2027-01-05T12:06:36+00:00",
    "parameters": {},
    "previous_state": {
     "replicas": 2
    },
-   "request_at": "2027-01-05T12:03:07+00:00",
+   "request_at": "2027-01-05T12:06:37+00:00",
    "result": "admitted"
   }
  ],
  "evidence_bundles": [
   {
    "bundle_hash": "sha256:b02",
-   "collected_at": "2027-01-05T12:02:48+00:00",
+   "collected_at": "2027-01-05T12:06:18+00:00",
    "content": {
     "workload": {
      "desired": 2
@@ -32,7 +32,7 @@
  ],
  "gate_decisions": [
   {
-   "at": "2027-01-05T12:03:01+00:00",
+   "at": "2027-01-05T12:06:31+00:00",
    "detail": null,
    "incident_uid": "uid-02",
    "stage": 7,
@@ -41,7 +41,7 @@
  ],
  "incidents": [
   {
-   "detected_at": "2027-01-05T12:02:46+00:00",
+   "detected_at": "2027-01-05T12:06:16+00:00",
    "incident_uid": "uid-02",
    "reason": "remediation_verified",
    "run_id": "A/R1/S1/L3#2",
@@ -85,7 +85,7 @@
  ],
  "transitions": [
   {
-   "at": "2027-01-05T12:02:46+00:00",
+   "at": "2027-01-05T12:06:16+00:00",
    "from_phase": null,
    "incident_uid": "uid-02",
    "reason": null,
@@ -94,7 +94,7 @@
    "to_phase": "Detected"
   },
   {
-   "at": "2027-01-05T12:02:51+00:00",
+   "at": "2027-01-05T12:06:21+00:00",
    "from_phase": "Detected",
    "incident_uid": "uid-02",
    "reason": null,
@@ -103,7 +103,7 @@
    "to_phase": "Diagnosing"
   },
   {
-   "at": "2027-01-05T12:03:01+00:00",
+   "at": "2027-01-05T12:06:31+00:00",
    "from_phase": "Diagnosing",
    "incident_uid": "uid-02",
    "reason": null,
@@ -112,7 +112,7 @@
    "to_phase": "Proposed"
   },
   {
-   "at": "2027-01-05T12:03:07+00:00",
+   "at": "2027-01-05T12:06:37+00:00",
    "from_phase": "Proposed",
    "incident_uid": "uid-02",
    "reason": null,
@@ -121,7 +121,7 @@
    "to_phase": "Executing"
   },
   {
-   "at": "2027-01-05T12:03:15+00:00",
+   "at": "2027-01-05T12:06:45+00:00",
    "from_phase": "Executing",
    "incident_uid": "uid-02",
    "reason": null,
@@ -130,7 +130,7 @@
    "to_phase": "Verifying"
   },
   {
-   "at": "2027-01-05T12:05:26+00:00",
+   "at": "2027-01-05T12:08:56+00:00",
    "from_phase": "Verifying",
    "incident_uid": "uid-02",
    "reason": null,
@@ -141,7 +141,7 @@
  ],
  "verifications": [
   {
-   "at": "2027-01-05T12:04:26+00:00",
+   "at": "2027-01-05T12:07:56+00:00",
    "criteria_id": "restart_v1",
    "incident_uid": "uid-02",
    "observations": {},
