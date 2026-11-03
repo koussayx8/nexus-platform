@@ -43,8 +43,6 @@ def check_bundle(bundle) -> None:
         raise Rejected(422, "invalid_bundle", "hash does not match the bundle")
 
 
-
-
 def resolves(bundle, path: str) -> bool:
     """True when a path such as logs.current[2] or metrics.zscores.latencyP95 exists in the bundle."""
     cur = bundle
