@@ -14,7 +14,7 @@ resources:
 # A digest bump is a commit.
 images:
   - name: ghcr.io/koussayx8/nexus-platform/sample-api
-    digest: sha256:3321d6faaeda4a8c11c0d17bfced448fae2c38f39fd7aafd77bbb3791201f268
+    digest: sha256:dd39bb56d3af3d3c6774fe640af2f475cabe74ac8759726487cc896f02a49eb4
 
 # The DB role for this environment (ADR-020, change 3); the rest of the DB env is in the base.
 patches:
