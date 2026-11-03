@@ -22,6 +22,7 @@ on:
       - 'operator/nexus_operator/proposal.py'
       - 'operator/nexus_operator/rules.py'
       - 'operator/nexus_operator/redact.py'
+      - 'operator/nexus_operator/model.py'   # imported by operator_lib (index stage)
       - '.github/workflows/reasoner.yml'
   pull_request:
     branches: [main, dev]
@@ -36,6 +37,7 @@ on:
       - 'operator/nexus_operator/proposal.py'
       - 'operator/nexus_operator/rules.py'
       - 'operator/nexus_operator/redact.py'
+      - 'operator/nexus_operator/model.py'   # imported by operator_lib (index stage)
       - '.github/workflows/reasoner.yml'
 
 env:

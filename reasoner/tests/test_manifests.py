@@ -168,5 +168,25 @@ class DigestBumpTest(unittest.TestCase):
         self.assertEqual(wf.count("- '!reasoner/k8s/**'"), 2)  # push and pull_request
 
 
+class ImageInputsTest(unittest.TestCase):
+    """The first CI build broke when dev's operator_lib began importing nexus_operator.model: the
+    index stage listed files by hand. Keep the image inputs and the workflow triggers in step."""
+
+    def test_index_stage_takes_every_module_operator_lib_imports(self):
+        stage = (REPO / "reasoner/Dockerfile").read_text().split("\nFROM ")[1]
+        self.assertIn("COPY operator/nexus_operator operator/nexus_operator\n", stage)
+
+    def test_workflow_triggers_on_each_module_operator_lib_imports(self):
+        lib = (REPO / "experiments/harness/operator_lib.py").read_text()
+        mods = (
+            re.search(r"(?m)^from nexus_operator import (.+)$", lib)
+            .group(1)
+            .split(", ")
+        )
+        wf = (REPO / ".github/workflows/reasoner.yml").read_text()
+        for m in mods:
+            self.assertIn(f"'operator/nexus_operator/{m}.py'", wf, m)
+
+
 if __name__ == "__main__":
     unittest.main()
