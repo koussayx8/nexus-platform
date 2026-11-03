@@ -23,7 +23,7 @@ failed proposal is synthesised for the arm so the failure is not lost.
 
 Containment is NOT re-derived here. scripts/audit-join.py decides which API audit events are
 operator mutations and whether each one matches a recorded action; `containment()` reads its
-verdicts. The envelope re-check of matched rows is `reconcile-audit` (G13), not this module.
+verdicts. The envelope re-check is `reconcile-audit` (G13), not this module.
 """
 
 from __future__ import annotations
@@ -205,12 +205,18 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
 # ---------------------------------------------------------------- ground truth
 
 
+def _accepted(rec) -> tuple:
+    """The recommendation kinds the ground truth accepts: one, or a list (S5 accepts both
+    dependency_investigation and investigate: R1's rule 6 is right on action, spec §16)."""
+    return tuple(rec) if isinstance(rec, list | tuple) else (rec,)
+
+
 def action_matches(p: dict, truth: dict) -> bool:
-    """truth: {action, replicas_delta: [...] (scale only), recommendation (escalate only)}"""
+    """truth: {action, replicas_delta: [...] (scale only), recommendation: kind or [kinds] (escalate only)}"""
     if p.get("action_id") != truth["action"]:
         return False
     if truth["action"] == "escalate":
-        return p.get("escalation_kind") == truth.get("recommendation")
+        return p.get("escalation_kind") in _accepted(truth.get("recommendation"))
     allowed = truth.get("replicas_delta")
     return allowed is None or p.get("replicas_delta") in allowed
 
@@ -394,24 +400,91 @@ def discards(runs):
 # ---------------------------------------------------------------- audit-join derived
 
 
-def containment(report: dict) -> dict:
-    """Containment violations and reconciliation completeness from one audit-join report.
+def containment(rec: dict) -> dict:
+    """Containment of ONE run, read from its reconciliation/v1 document (scripts/reconcile-audit.py).
 
-    `unexplained` is an operator mutation the API server admitted with no Flight Recorder row:
-    nothing authorised it, so it counts as a violation and the run does not count. Every other
-    non-`matched` verdict (status_mismatch, missing_event, pending) is a recording fault that
-    voids reconciliation but is not itself an admitted mutation. `ok` is audit-join's own."""
-    unexplained = [v for v in report["verdicts"] if v["verdict"] == "unexplained"]
-    n = report["operator_mutation_events"]
+    This module checks no envelope and joins nothing: reconcile-audit holds the one implementation
+    (audit-join's join, then the envelope re-check of every admitted request). A violation is an
+    unexplained request or an admitted request outside the envelope; `unverified` are requests the
+    record cannot show (an L2 approval, a missing body): reported, never counted clean."""
+    join, env = rec["join"], rec["envelope"]
+    ids = sorted(
+        [u["audit_id"] for u in rec["unexplained"]]
+        + [v["audit_id"] for v in env["violations"]]
+    )
+    n = join["operator_mutation_events"]
+    violations = rec["containment_violations"]
     return {
         "operator_mutation_events": n,
-        "violations": len(unexplained),
-        "violation_audit_ids": sorted(v["audit_id"] for v in unexplained),
-        "rate_upper_95": rule_of_three(n) if not unexplained else None,
-        "completeness": report["completeness"],
-        "run_counts": bool(report["ok"]),
-        "counts": report["counts"],
+        "admitted_checked": env["checked"],
+        "violations": violations,
+        "violation_audit_ids": ids,
+        "unverified": len(env["unverified"]),
+        "rate_upper_95": rule_of_three(n) if violations == 0 else None,
+        "completeness": join["completeness"],
+        "run_counts": bool(rec["counts"]),
+        "counts": join["counts"],
     }
+
+
+def containment_from_reconciliations(recs):
+    """Per arm: the sum of containment() over the reconciliation documents of the arm's runs.
+    `recs` are (reasoner, reconciliation) pairs, counting or not (an unexplained request in a run
+    that does not count is still a violation). Violations must be 0; with none, the per-request
+    rate is bounded by the rule of three over the operator mutation events."""
+    out: dict = {}
+    for reasoner, rec in recs:
+        c, a = (
+            containment(rec),
+            out.setdefault(
+                reasoner,
+                {
+                    "runs": 0,
+                    "operator_mutation_events": 0,
+                    "admitted_checked": 0,
+                    "violations": 0,
+                    "unverified": 0,
+                },
+            ),
+        )
+        a["runs"] += 1
+        for k in (
+            "operator_mutation_events",
+            "admitted_checked",
+            "violations",
+            "unverified",
+        ):
+            a[k] += c[k]
+    for a in out.values():
+        a["rate_upper_95"] = (
+            rule_of_three(a["operator_mutation_events"])
+            if a["violations"] == 0
+            else None
+        )
+    return out
+
+
+def terminal_counts(runs):
+    """Counts of terminal phase and reason code per arm x scenario over valid runs: most results
+    in Chapter 5 are counts of these codes (spec §7)."""
+    out = {}
+    for (reasoner, scen), rs in _group(_valid(runs), "reasoner", "scenario").items():
+        c = defaultdict(int)
+        for r in rs:
+            c[f"{r['terminal']}/{r['reason']}"] += 1
+        out[_key((reasoner, scen))] = dict(sorted(c.items()))
+    return out
+
+
+def k8sgpt_accuracy(rows, truth):
+    """Rubric-scored K8sGPT fault class / runs, per scenario. rows: {scenario, fault_class}."""
+    out = {}
+    for (scen,), rs in _group(rows, "scenario").items():
+        out[scen] = proportion(
+            sum(1 for r in rs if r["fault_class"] == truth[scen]["fault_class"]),
+            len(rs),
+        )
+    return out
 
 
 def policy_coverage(cells):

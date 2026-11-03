@@ -1,0 +1,155 @@
+{
+ "actions": [
+  {
+   "action_class": "scale",
+   "action_id": "scale_deployment",
+   "audit_id": "aid-04",
+   "http_status": 200,
+   "idempotency_key": "k-04",
+   "incident_uid": "uid-04",
+   "intent_at": "2027-01-05T14:03:01+00:00",
+   "parameters": {
+    "replicas": 3
+   },
+   "previous_state": {
+    "replicas": 2
+   },
+   "request_at": "2027-01-05T14:03:02+00:00",
+   "result": "admitted"
+  }
+ ],
+ "evidence_bundles": [
+  {
+   "bundle_hash": "sha256:b04",
+   "collected_at": "2027-01-05T14:02:44+00:00",
+   "content": {
+    "workload": {
+     "desired": 2
+    }
+   },
+   "incident_uid": "uid-04",
+   "redaction_counts": {},
+   "schema_version": "evidence/v1"
+  }
+ ],
+ "gate_decisions": [
+  {
+   "at": "2027-01-05T14:02:57+00:00",
+   "detail": null,
+   "incident_uid": "uid-04",
+   "stage": 7,
+   "verdict": "pass"
+  }
+ ],
+ "incidents": [
+  {
+   "detected_at": "2027-01-05T14:02:42+00:00",
+   "incident_uid": "uid-04",
+   "reason": "remediation_verified",
+   "run_id": "A/R1/S2/L3#2",
+   "source": "detector",
+   "target": "nexus-dev/sample-api",
+   "terminal_phase": "Resolved"
+  }
+ ],
+ "proposals": [
+  {
+   "fallback_used": false,
+   "incident_uid": "uid-04",
+   "model_id": null,
+   "parsed_proposal": {
+    "abstain": false,
+    "action": {
+     "id": "scale_deployment",
+     "parameters": {
+      "replicas": 3
+     },
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     }
+    },
+    "confidence": 0.8,
+    "escalation": null,
+    "evidenceRefs": [],
+    "expectedEffect": "fixture",
+    "hypothesis": {
+     "faultClass": "cpu_saturation",
+     "summary": "fixture"
+    },
+    "runbookRefs": [],
+    "schema": "proposal/v1"
+   },
+   "proposal_hash": "sha256:p04",
+   "reasoner_mode": "rules",
+   "retrieved_chunk_ids": [],
+   "schema_valid": true
+  }
+ ],
+ "transitions": [
+  {
+   "at": "2027-01-05T14:02:42+00:00",
+   "from_phase": null,
+   "incident_uid": "uid-04",
+   "reason": null,
+   "seq": 0,
+   "stage": "reconciler",
+   "to_phase": "Detected"
+  },
+  {
+   "at": "2027-01-05T14:02:47+00:00",
+   "from_phase": "Detected",
+   "incident_uid": "uid-04",
+   "reason": null,
+   "seq": 1,
+   "stage": "reconciler",
+   "to_phase": "Diagnosing"
+  },
+  {
+   "at": "2027-01-05T14:02:56+00:00",
+   "from_phase": "Diagnosing",
+   "incident_uid": "uid-04",
+   "reason": null,
+   "seq": 2,
+   "stage": "reconciler",
+   "to_phase": "Proposed"
+  },
+  {
+   "at": "2027-01-05T14:03:02+00:00",
+   "from_phase": "Proposed",
+   "incident_uid": "uid-04",
+   "reason": null,
+   "seq": 3,
+   "stage": "reconciler",
+   "to_phase": "Executing"
+  },
+  {
+   "at": "2027-01-05T14:03:10+00:00",
+   "from_phase": "Executing",
+   "incident_uid": "uid-04",
+   "reason": null,
+   "seq": 4,
+   "stage": "reconciler",
+   "to_phase": "Verifying"
+  },
+  {
+   "at": "2027-01-05T14:05:37+00:00",
+   "from_phase": "Verifying",
+   "incident_uid": "uid-04",
+   "reason": null,
+   "seq": 5,
+   "stage": "reconciler",
+   "to_phase": "Resolved"
+  }
+ ],
+ "verifications": [
+  {
+   "at": "2027-01-05T14:04:22+00:00",
+   "criteria_id": "scale_v1",
+   "incident_uid": "uid-04",
+   "observations": {},
+   "result": "met"
+  }
+ ]
+}

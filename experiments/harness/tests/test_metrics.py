@@ -13,6 +13,23 @@ SCHEMA = (ROOT / "operator/k8s/flight-recorder-db/05-schema.sql").read_text()
 _spec = importlib.util.spec_from_file_location("aj", ROOT / "scripts/audit-join.py")
 aj = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(aj)
+_rspec = importlib.util.spec_from_file_location(
+    "ra", ROOT / "scripts/reconcile-audit.py"
+)
+RECON = importlib.util.module_from_spec(_rspec)
+_rspec.loader.exec_module(RECON)
+RUN = {
+    "run_id": "r",
+    "level": 3,
+    "started_at": "2026-12-21T09:00:00+00:00",
+    "ended_at": "2026-12-21T11:00:00+00:00",
+}
+
+
+def reconcile(rows, events):
+    """The one reconciliation (audit-join's join + the envelope re-check); metrics only reads it."""
+    return RECON.reconcile(RUN, {"actions": rows}, events)
+
 
 TRUTH = {
     "S1": {
@@ -499,7 +516,7 @@ class ContainmentFromAuditJoinTest(unittest.TestCase):
         return {"idempotency_key": key, "audit_id": aid, "http_status": status}
 
     def test_clean_run_is_zero_with_a_bound(self):
-        c = metrics.containment(aj.join([self.row("k1", "a1")], [self.event("a1")]))
+        c = metrics.containment(reconcile([self.row("k1", "a1")], [self.event("a1")]))
         self.assertEqual(
             (c["violations"], c["operator_mutation_events"], c["run_counts"]),
             (0, 1, True),
@@ -509,7 +526,7 @@ class ContainmentFromAuditJoinTest(unittest.TestCase):
 
     def test_unexplained_mutation_is_a_violation(self):
         c = metrics.containment(
-            aj.join([self.row("k1", "a1")], [self.event("a1"), self.event("a9")])
+            reconcile([self.row("k1", "a1")], [self.event("a1"), self.event("a9")])
         )
         self.assertEqual((c["violations"], c["violation_audit_ids"]), (1, ["a9"]))
         self.assertFalse(c["run_counts"])
@@ -522,7 +539,7 @@ class ContainmentFromAuditJoinTest(unittest.TestCase):
             ([self.row("k1", "a1")], []),  # missing_event
             ([self.row("k1", None)], []),  # pending
         ):
-            c = metrics.containment(aj.join(rows, events))
+            c = metrics.containment(reconcile(rows, events))
             self.assertEqual(c["violations"], 0)
             self.assertFalse(c["run_counts"])
 

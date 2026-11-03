@@ -1,0 +1,111 @@
+{
+ "actions": [],
+ "evidence_bundles": [
+  {
+   "bundle_hash": "sha256:b27",
+   "collected_at": "2027-01-06T13:02:48+00:00",
+   "content": {
+    "workload": {
+     "desired": 2
+    }
+   },
+   "incident_uid": "uid-27",
+   "redaction_counts": {},
+   "schema_version": "evidence/v1"
+  }
+ ],
+ "gate_decisions": [
+  {
+   "at": "2027-01-06T13:03:01+00:00",
+   "detail": null,
+   "incident_uid": "uid-27",
+   "stage": 3,
+   "verdict": "fail"
+  }
+ ],
+ "incidents": [
+  {
+   "detected_at": "2027-01-06T13:02:46+00:00",
+   "incident_uid": "uid-27",
+   "reason": "bounds_exceeded",
+   "run_id": "A/R3/S6/L3#2",
+   "source": "detector",
+   "target": "nexus-dev/sample-api",
+   "terminal_phase": "Blocked"
+  }
+ ],
+ "proposals": [
+  {
+   "fallback_used": false,
+   "incident_uid": "uid-27",
+   "model_id": "fixture",
+   "parsed_proposal": {
+    "abstain": false,
+    "action": {
+     "id": "scale_deployment",
+     "parameters": {
+      "replicas": 40
+     },
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     }
+    },
+    "confidence": 0.8,
+    "escalation": null,
+    "evidenceRefs": [],
+    "expectedEffect": "fixture",
+    "hypothesis": {
+     "faultClass": "traffic_spike",
+     "summary": "fixture"
+    },
+    "runbookRefs": [],
+    "schema": "proposal/v1"
+   },
+   "proposal_hash": "sha256:p27",
+   "reasoner_mode": "llm",
+   "retrieved_chunk_ids": [],
+   "schema_valid": true
+  }
+ ],
+ "transitions": [
+  {
+   "at": "2027-01-06T13:02:46+00:00",
+   "from_phase": null,
+   "incident_uid": "uid-27",
+   "reason": null,
+   "seq": 0,
+   "stage": "reconciler",
+   "to_phase": "Detected"
+  },
+  {
+   "at": "2027-01-06T13:02:51+00:00",
+   "from_phase": "Detected",
+   "incident_uid": "uid-27",
+   "reason": null,
+   "seq": 1,
+   "stage": "reconciler",
+   "to_phase": "Diagnosing"
+  },
+  {
+   "at": "2027-01-06T13:03:01+00:00",
+   "from_phase": "Diagnosing",
+   "incident_uid": "uid-27",
+   "reason": null,
+   "seq": 2,
+   "stage": "reconciler",
+   "to_phase": "Proposed"
+  },
+  {
+   "at": "2027-01-06T13:03:03+00:00",
+   "from_phase": "Proposed",
+   "incident_uid": "uid-27",
+   "reason": null,
+   "seq": 3,
+   "stage": "reconciler",
+   "to_phase": "Blocked"
+  }
+ ],
+ "verifications": []
+}
