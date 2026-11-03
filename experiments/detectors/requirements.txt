@@ -6,7 +6,11 @@
 #   pip install --only-binary=:all: --require-hashes -r experiments/detectors/requirements.txt
 # Releases are at least two weeks old at the time of pinning (2026-11-03). scikit-learn 1.9.1 needs
 # numpy >= 1.24.1, scipy >= 1.10, joblib >= 1.4, threadpoolctl >= 3.5, narwhals >= 2.0.1; scipy 1.18.1
-# needs numpy < 2.8. On another Python, regenerate the hashes the same way; do not install unhashed.
+# needs numpy < 2.8; joblib 1.6.0 needs cloudpickle >= 3.0. In --require-hashes mode every transitive
+# dependency must be listed (the first CI run caught cloudpickle). The closure is checked with
+#   pip download --only-binary=:all: --require-hashes --python-version 3.12 --implementation cp --abi cp312 \
+#     --platform manylinux_2_28_x86_64 -d <dir> -r experiments/detectors/requirements.txt
+# (and the aarch64 platform). On another Python, regenerate the hashes the same way; do not install unhashed.
 scikit-learn==1.9.1 \
     --hash=sha256:e4c20a6c017d820faa7ac8c783e3d0c6a9a2e297bf9f55332ca17cdf7fd4d04d \
     --hash=sha256:e5d7b18a5b9dca241a74695f3275fa4c895a9dadc72b3d8df5fa9d1083c9b83e
@@ -22,3 +26,5 @@ threadpoolctl==3.7.0 \
     --hash=sha256:cd8b60b5641b45c67bbf73c64c843235fc2d8a480c87389f52f5dbee893b86be
 narwhals==2.27.1 \
     --hash=sha256:d057df13f5852b8e157596e82eb5e955fad267425df5e420e0ee9863da483b31
+cloudpickle==3.1.2 \
+    --hash=sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a
