@@ -8,14 +8,23 @@ import pathlib
 import re
 import tempfile
 import unittest
+import urllib.parse
 
-from .. import batch, metrics
+from .. import batch, metrics, precheck, runner
 
 REF = "G16/pre-registration#approval-1"
+# Targets, caps and tiers are G16 configuration; these are test values (Tier 1 = a small target).
 CELLS = [
-    {"cell": "C1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3},
-    {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3},
-]
+    {"cell": "C1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3,
+     "tier": 1, "valid_target": 4, "max_attempts": 6},
+    {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3,
+     "tier": 1, "valid_target": 4, "max_attempts": 6},
+]  # fmt: skip
+PRE = {  # the pre-registration's clean baseline (a stddev per signal); the rest are spec defaults
+    "clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
+    "cap_s": 100,
+    "poll_s": 10,
+}  # fmt: skip
 UNIT = pathlib.Path(__file__).resolve().parents[1] / "systemd" / "nexus-batch.service"
 
 
@@ -50,7 +59,7 @@ class Base(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.dir = pathlib.Path(self._tmp.name)
         self.clock = FakeClock()
-        self.q = batch.Queue.create(self.dir, REF, CELLS)
+        self.q = batch.Queue.create(self.dir, REF, CELLS, precheck_cfg=PRE)
 
     def drive(self, run_one, queue=None, **kw):
         return batch.drive(
@@ -87,7 +96,7 @@ class PersistenceTest(Base):
     def test_atomic_write_leaves_no_temp_file_and_never_overwrites_a_queue(self):
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["queue.json"])
         with self.assertRaises(batch.Refused):
-            batch.Queue.create(self.dir, REF, CELLS)
+            batch.Queue.create(self.dir, REF, CELLS, precheck_cfg=PRE)
 
     def test_a_torn_temp_file_does_not_damage_the_queue(self):
         (self.dir / "queue.json.tmp").write_text(
@@ -106,7 +115,7 @@ class PersistenceTest(Base):
                 with self.assertRaises(batch.Refused):
                     batch.Queue.create(d, REF, cells)
 
-    def test_cells_run_in_order_and_finish_before_the_next(self):
+    def test_round_robin_then_every_cell_reaches_its_target(self):
         order = []
 
         def run_one(cell, rec, guard):
@@ -114,7 +123,7 @@ class PersistenceTest(Base):
             return ok()
 
         self.drive(run_one)
-        self.assertEqual(order, ["C1/S1/L3"] * 10 + ["C1/S4/L3"] * 10)
+        self.assertEqual(order, ["C1/S1/L3", "C1/S4/L3"] * 4)
         self.assertEqual(
             [c["status"] for c in batch._status(self.q)["cells"]], ["done", "done"]
         )
@@ -163,12 +172,12 @@ class ResumeTest(Base):
     def test_a_fresh_process_continues_where_the_last_one_stopped(self):
         self.drive(lambda *a: ok(), max_runs=4)
         q = self.reload()  # "the machine restarted": a new process reads the file
-        self.assertEqual(q.cell_state("C1/S1/L3")["valid"], 4)
+        self.assertEqual(q.cell_state("C1/S1/L3")["valid"], 2)
         order = []
         self.drive(
             lambda c, r, g: order.append(r["run_id"]) or ok(), queue=q, max_runs=1
         )
-        self.assertEqual(order, ["C1/S1/L3#5"])
+        self.assertEqual(order, ["C1/S1/L3#3"])
 
     def test_stop_file_halts_between_runs(self):
         stop = self.dir / "STOP"
@@ -221,7 +230,7 @@ class VoidAndRequeueTest(Base):
         self.assertEqual(r["status"], "valid")
         self.assertAlmostEqual(r["pause_gap_s"], 0.5)
         with tempfile.TemporaryDirectory() as d:
-            q = batch.Queue.create(d, REF, CELLS, max_pause_gap=0.1)
+            q = batch.Queue.create(d, REF, CELLS, max_pause_gap=0.1, precheck_cfg=PRE)
             batch.drive(
                 q, run_one, clock=self.clock, execute=True, approval_ref=REF, max_runs=1
             )
@@ -255,17 +264,23 @@ class VoidAndRequeueTest(Base):
     def test_a_discard_counts_and_does_not_stop(self):
         outs = iter([ok(False, why="precheck_timeout")] + [ok()] * 30)
         self.drive(lambda *a: next(outs), max_runs=3)
-        st = self.reload().cell_state("C1/S1/L3")
-        self.assertEqual((st["valid"], st["attempts"], st["discarded"]), (2, 3, 1))
+        q = self.reload()
+        st = q.cell_state(
+            "C1/S1/L3"
+        )  # the discarded run is requeued at once, then the other cell has its turn
+        self.assertEqual((st["valid"], st["attempts"], st["discarded"]), (1, 2, 1))
+        self.assertEqual(q.cell_state("C1/S4/L3")["valid"], 1)
 
 
 class AttemptCapTest(Base):
-    def test_ten_valid_runs_close_a_cell(self):
-        self.drive(lambda *a: ok(), max_runs=10)
-        self.assertEqual(self.reload().cell_state("C1/S1/L3")["status"], "done")
+    def test_the_target_closes_a_cell(self):
+        self.drive(lambda *a: ok(), max_runs=8)
+        self.assertEqual(
+            [c["status"] for c in batch._status(self.reload())["cells"]],
+            ["done", "done"],
+        )
 
-    def test_fifteen_attempts_exhaust_a_cell_that_never_reaches_ten(self):
-        # every other attempt is void: 7 or 8 valid in 15 attempts
+    def test_the_cap_exhausts_a_cell_that_never_reaches_its_target(self):
         flip = iter(range(1000))
 
         def run_one(cell, rec, guard):
@@ -276,26 +291,183 @@ class AttemptCapTest(Base):
         self.drive(run_one)
         q = self.reload()
         s1 = q.cell_state("C1/S1/L3")
-        self.assertEqual((s1["status"], s1["attempts"]), ("exhausted", 15))
-        self.assertLess(s1["valid"], 10)
-        self.assertEqual(len(q.cell_runs("C1/S1/L3")), 15)  # never a 16th
+        self.assertEqual((s1["status"], s1["attempts"], s1["cap"]), ("exhausted", 6, 6))
+        self.assertLess(s1["valid"], 4)
+        self.assertEqual(len(q.cell_runs("C1/S1/L3")), 6)  # never a 7th
         self.assertEqual(
             q.cell_state("C1/S4/L3")["status"], "done"
         )  # the batch moved on
 
     def test_void_runs_use_attempts_like_any_other(self):
         def run_one(cell, rec, guard):
-            self.clock.boot = f"boot-{rec['attempt']}"  # a reboot during every run
+            self.clock.boot = (
+                f"boot-{len(self.reload().runs)}"  # a reboot during every run
+            )
             guard.check()
             return ok()
 
-        self.drive(run_one, max_runs=15)
-        st = self.reload().cell_state("C1/S1/L3")
-        self.assertEqual(
-            (st["void"], st["attempts"], st["status"]), (15, 15, "exhausted")
+        out = self.drive(run_one)
+        q = self.reload()
+        for c in ("C1/S1/L3", "C1/S4/L3"):
+            st = q.cell_state(c)
+            self.assertEqual(
+                (st["void"], st["attempts"], st["status"]), (6, 6, "exhausted")
+            )
+        self.assertEqual(out["stopped"], "finished")
+
+    def test_caps_and_targets_are_per_cell_configuration(self):
+        cells = [
+            {**CELLS[0], "valid_target": 1, "max_attempts": 1},
+            {**CELLS[1], "valid_target": 2, "max_attempts": 3},
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            q = batch.Queue.create(d, REF, cells, precheck_cfg=PRE)
+            batch.drive(
+                q,
+                lambda *a: ok(False, why="x"),
+                clock=self.clock,
+                execute=True,
+                approval_ref=REF,
+            )
+            self.assertEqual([len(q.cell_runs(c["cell"])) for c in cells], [1, 3])
+
+
+class TierTest(Base):
+    def make(self, cells):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        return batch.Queue.create(d.name, REF, cells, precheck_cfg=PRE)
+
+    def cells(self):
+        t1 = {"tier": 1, "valid_target": 2, "max_attempts": 3}
+        t2 = {"tier": 2, "valid_target": 4, "max_attempts": 5}
+        mk = lambda n, **kw: {
+            "cell": n,
+            "scenario": "S1",
+            "reasoner": "R1",
+            "level": 3,
+            **kw,
+        }
+        # declared with Tier 2 first: the tier, not the order, decides
+        return [mk("t2-a", **t2), mk("t1-a", **t1), mk("t1-b", **t1), mk("t2-b", **t2)]
+
+    def test_tier_one_runs_before_tier_two_and_round_robin_inside_a_tier(self):
+        q = self.make(self.cells())
+        order = []
+        batch.drive(
+            q,
+            lambda c, r, g: order.append(c["cell"]) or ok(),
+            clock=self.clock,
+            execute=True,
+            approval_ref=REF,
         )
-        out = self.drive(lambda *a: ok(), queue=self.reload(), max_runs=0)
-        self.assertEqual(out["stopped"], "max_runs")
+        self.assertEqual(
+            order[:4], ["t1-a", "t1-b", "t1-a", "t1-b"]
+        )  # all of Tier 1 first
+        self.assertEqual(order[4:12], ["t2-a", "t2-b"] * 4)
+        self.assertEqual(len(order), 12)
+
+    def test_stopping_anywhere_leaves_equal_repetitions(self):
+        q = self.make(self.cells())
+        for stop_after in range(1, 13):
+            with tempfile.TemporaryDirectory() as d:
+                q = batch.Queue.create(d, REF, self.cells(), precheck_cfg=PRE)
+                batch.drive(
+                    q,
+                    lambda *a: ok(),
+                    clock=self.clock,
+                    execute=True,
+                    approval_ref=REF,
+                    max_runs=stop_after,
+                )
+                for tier in (1, 2):
+                    v = [
+                        q.cell_state(c["cell"])["valid"]
+                        for c in q.doc["cells"]
+                        if c["tier"] == tier
+                    ]
+                    self.assertLessEqual(max(v) - min(v), 1, (stop_after, tier, v))
+                if any(
+                    q.cell_state(c["cell"])["valid"]
+                    for c in q.doc["cells"]
+                    if c["tier"] == 2
+                ):
+                    self.assertTrue(  # Tier 2 only ever started once Tier 1 was finished
+                        all(
+                            q.cell_state(c["cell"])["status"] == "done"
+                            for c in q.doc["cells"]
+                            if c["tier"] == 1
+                        )
+                    )
+
+    def test_an_exhausted_tier_one_cell_does_not_block_tier_two(self):
+        cells = self.cells()
+        q = self.make(cells)
+
+        def run_one(cell, rec, guard):
+            return ok(False, why="x") if cell["cell"] == "t1-a" else ok()
+
+        batch.drive(q, run_one, clock=self.clock, execute=True, approval_ref=REF)
+        self.assertEqual(q.cell_state("t1-a")["status"], "exhausted")
+        self.assertEqual(
+            [q.cell_state(c)["status"] for c in ("t1-b", "t2-a", "t2-b")], ["done"] * 3
+        )
+
+    def test_targets_caps_and_tiers_are_required_configuration(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3}
+            bad = [
+                base,  # no tier, target or cap
+                {**base, "tier": 1, "valid_target": 5},  # no cap
+                {**base, "tier": 0, "valid_target": 5, "max_attempts": 8},
+                {**base, "tier": 1, "valid_target": 0, "max_attempts": 8},
+                {
+                    **base,
+                    "tier": 1,
+                    "valid_target": 5,
+                    "max_attempts": 4,
+                },  # cap below target
+                {
+                    **base,
+                    "tier": 1,
+                    "valid_target": 5,
+                    "max_attempts": 8,
+                    "advisory_checks": "maybe",
+                },
+                {
+                    **base,
+                    "tier": 1,
+                    "valid_target": 5,
+                    "max_attempts": 8,
+                    "advisory_checks": "off",
+                },  # not phase D
+            ]
+            for cell in bad:
+                with self.assertRaises(batch.Refused, msg=cell):
+                    batch.Queue.create(d, REF, [cell], precheck_cfg=PRE)
+            good = {
+                **base,
+                "tier": 1,
+                "valid_target": 5,
+                "max_attempts": 8,
+                "phase": "D",
+                "advisory_checks": "off",
+            }
+            batch.Queue.create(d, REF, [good], precheck_cfg=PRE)
+
+    def test_the_precheck_configuration_is_required_and_checked(self):
+        for pre in (
+            None,
+            {},
+            {"clean_stddev": {"cpu": 1}},
+            {**PRE, "cap_s": 0},
+            {**PRE, "clean_stddev": {**PRE["clean_stddev"], "cpu": -1}},
+        ):
+            with (
+                tempfile.TemporaryDirectory() as d,
+                self.assertRaises(batch.Refused, msg=pre),
+            ):
+                batch.Queue.create(d, REF, CELLS, precheck_cfg=pre)
 
 
 class FallbackRecordTest(Base):
@@ -404,27 +576,132 @@ class SystemdUnitTest(unittest.TestCase):
             batch.check_ref(batch.PLACEHOLDER_REF)
 
 
-# ---------------------------------------------------------------- the live run, on a fake exec
+# ---------------------------------------------------------------- pre-checks and the live run, on a fake exec
+
+CLEAN = PRE["clean_stddev"]
+RULE = {"cpu": "cpu", "latencyP95": "latency_p95", "inflight": "inflight", "errorRatio": "error_ratio", "requests": "requests"}  # fmt: skip
+
+
+class FakeTime:
+    """monotonic/wall/sleep in one: sleeping advances every clock, so no real waiting and no pause gap."""
+
+    def __init__(self, clock):
+        self.t, self.clock = 0.0, clock
+
+    def monotonic(self):
+        return self.t
+
+    def wall(self):
+        return 1_800_000_000.0 + self.t
+
+    def sleep(self, s):
+        self.t += s
+        self.clock.tick(s)
 
 
 class FakeCluster:
-    """Answers the runner's kubectl calls; Incidents appear after the inject step."""
+    """Answers the runner's kubectl calls, the Prometheus proxy reads and the Incident list.
+
+    z / sd_factor / node_cpu / node_mem / alerts drive the pre-check answers; `prom` maps a substring
+    of the PromQL to a replacement (None = the call fails). Incidents: `existing` are there from the
+    start; `open_polls` > 0 makes a non-terminal one end after that many Incident reads; an injected
+    fault creates the run's own Incident."""
 
     def __init__(
-        self, existing=(), phases=("Resolved",), fallback=False, synced="Synced/Healthy"
+        self,
+        ft,
+        existing=(),
+        phases=("Resolved",),
+        fallback=False,
+        open_polls=0,
+        stuck=False,
     ):
-        self.calls, self.injected, self.synced = [], False, synced
-        self.existing = list(existing)
-        self.phases, self.fallback = list(phases), fallback
+        self.ft, self.calls, self.injected, self.synced = (
+            ft,
+            [],
+            False,
+            "Synced/Healthy",
+        )
+        self.existing, self.phases, self.fallback = (
+            list(existing),
+            list(phases),
+            fallback,
+        )
+        self.reads, self.open_polls, self.stuck = 0, open_polls, stuck
+        self.z, self.sd_factor, self.node_cpu, self.node_mem, self.alerts, self.prom = (
+            0.2,
+            1.0,
+            0.3,
+            0.5,
+            [],
+            {},
+        )
+        self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
+
+    def vector(self, value):
+        return json.dumps(
+            {
+                "status": "success",
+                "data": {"result": [{"metric": {}, "value": [0, str(value)]}]},
+            }
+        )
+
+    def promql(self, q):
+        for key, val in self.prom.items():
+            if key in q:
+                return val
+        if ":zscore15m" in q:
+            return self.z
+        if ":baseline_stddev15m" in q:
+            rule = q.split("nexus_sample_api_")[1].split(":")[0]
+            return CLEAN[next(k for k, v in RULE.items() if v == rule)] * self.sd_factor
+        if "node_cpu_seconds_total" in q:
+            return self.node_cpu
+        if "MemAvailable" in q:
+            return self.node_mem
+        if "ALERTS" in q:
+            return [{"metric": m} for m in self.alerts]
+        raise AssertionError(f"unexpected PromQL {q}")
 
     def __call__(self, argv, cwd=None):
         self.calls.append(argv)
+        if "--raw" in argv:
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(argv[-1]).query)["query"][0]
+            ans = self.promql(q)
+            if ans is None:
+                return 1, ""
+            if isinstance(ans, list):
+                return 0, json.dumps({"status": "success", "data": {"result": ans}})
+            return 0, self.vector(ans)
         if "incidents" in argv:
-            items = list(self.existing)
+            self.reads += 1
+            items = []
+            for i in self.existing:
+                st = dict(i["status"])
+                if self.open_polls and self.reads > self.open_polls and not self.stuck:
+                    st["phase"] = "Resolved"
+                items.append({**i, "status": st})
+            if (
+                self.false_alarm_after is not None
+                and self.reads > self.false_alarm_after
+                and not self.injected
+            ):
+                items.append(
+                    {
+                        "metadata": {"uid": "false-alarm"},
+                        "status": {"phase": "Escalated"},
+                    }
+                )
             if self.injected:
+                if self.false_alarm_after is not None:
+                    items.append(
+                        {
+                            "metadata": {"uid": "false-alarm"},
+                            "status": {"phase": "Escalated"},
+                        }
+                    )
                 phase = self.phases.pop(0) if len(self.phases) > 1 else self.phases[0]
-                items.append({"metadata": {"uid": "new"},
-                              "status": {"phase": phase, "reasoner": {"fallbackUsed": self.fallback}}})  # fmt: skip
+                items.append({"metadata": {"uid": "new"}, "status": {"phase": phase, "reasoner": {"fallbackUsed": self.fallback}}})  # fmt: skip
             return 0, json.dumps({"items": items})
         if any("sync.status" in a for a in argv):
             return 0, self.synced
@@ -435,48 +712,333 @@ class FakeCluster:
         return 0, ""
 
 
-class LiveRunTest(Base):
-    def live(self, cluster, **kw):
-        from .. import runner
+def firing(name, state="firing", ns="nexus-dev"):
+    return {"alertname": name, "alertstate": state, "namespace": ns}
 
+
+class PrecheckTest(unittest.TestCase):
+    """precheck.run_prechecks against the fake cluster; no queue involved."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.ft = FakeTime(self.clock)
+        self.cfg = precheck.normalise(PRE)
+
+    def run_pc(self, cluster, before=frozenset()):
+        r = runner.Runner("ctx", exec_=cluster, sleep=self.ft.sleep)
+        live = batch.LiveRun(
+            r, PRE, monotonic=self.ft.monotonic, wall=self.ft.wall, sleep=self.ft.sleep
+        )
+        return precheck.run_prechecks(precheck.Prom(r), self.cfg, live.incidents, set(before),
+                                      batch.model.TERMINAL_PHASES, self.ft.monotonic, self.ft.wall, self.ft.sleep)  # fmt: skip
+
+    def test_clean_baseline_and_quiet_node_pass_on_the_first_poll(self):
+        pc = self.run_pc(FakeCluster(self.ft))
+        self.assertEqual(
+            (pc.ok, pc.polls, pc.failures, pc.stop_reason), (True, 1, [], None)
+        )
+        qs = [
+            a[-1] for a in FakeCluster(self.ft).calls
+        ]  # (no calls on a fresh fake; the queries are checked below)
+        self.assertEqual(qs, [])
+
+    def test_the_queries_use_baseline_stddev15m_for_every_signal_in_the_namespace(self):
+        c = FakeCluster(self.ft)
+        self.run_pc(c)
+        qs = [urllib.parse.unquote(a[-1]) for a in c.calls if "--raw" in a]
+        for rule in RULE.values():
+            self.assertTrue(
+                any(
+                    f"nexus_sample_api_{rule}:baseline_stddev15m" in q
+                    and 'namespace="nexus-dev"' in q
+                    for q in qs
+                ),
+                rule,
+            )
+            self.assertTrue(
+                any(f"nexus_sample_api_{rule}:zscore15m" in q for q in qs), rule
+            )
+        raw = next(a for a in c.calls if "--raw" in a)
+        self.assertEqual(
+            raw[:6], ["kubectl", "--context", "ctx", "-n", "monitoring", "get"]
+        )  # context and namespace named
+
+    def test_a_masking_zscore_fails_until_the_cap_and_discards(self):
+        c = FakeCluster(self.ft)
+        c.z = 1.5  # the limit is "below 1.5"
+        pc = self.run_pc(c)
+        self.assertFalse(pc.ok)
+        self.assertIsNone(pc.stop_reason)  # a discard, not a stop
+        self.assertGreaterEqual(pc.waited_s, 100)  # waited the whole cap
+        self.assertEqual(pc.polls, 11)
+        self.assertIn("baseline:cpu:zscore=1.50", pc.failures)
+
+    def test_negative_z_counts_by_absolute_value(self):
+        c = FakeCluster(self.ft)
+        c.z = -2.0
+        self.assertFalse(self.run_pc(c).ok)
+
+    def test_stddev_within_one_and_a_half_times_the_clean_baseline(self):
+        c = FakeCluster(self.ft)
+        c.sd_factor = 1.5
+        self.assertTrue(self.run_pc(c).ok)  # exactly 1.5x is within
+        c = FakeCluster(self.ft)
+        c.sd_factor = 1.51
+        pc = self.run_pc(c)
+        self.assertFalse(pc.ok)
+        self.assertTrue(any(f.startswith("baseline:cpu:stddev=") for f in pc.failures))
+
+    def test_a_series_with_no_answer_is_not_clean(self):
+        for key, want in (
+            (":zscore15m", "no_zscore"),
+            (":baseline_stddev15m", "no_stddev"),
+        ):
+            c = FakeCluster(self.ft)
+            c.prom = {key: []}  # an empty vector: the rule needs 27 of 30 samples
+            pc = self.run_pc(c)
+            self.assertFalse(pc.ok)
+            self.assertTrue(any(want in f for f in pc.failures), (key, pc.failures))
+        c = FakeCluster(self.ft)
+        c.prom = {":zscore15m": None}  # a failed call
+        self.assertFalse(self.run_pc(c).ok)
+
+    def test_baseline_recovers_while_waiting(self):
+        c = FakeCluster(self.ft)
+        orig = c.promql
+        c.promql = lambda q: (self.ft.t < 40 and ":zscore15m" in q) and 4.0 or orig(q)
+        pc = self.run_pc(c)
+        self.assertTrue(pc.ok)
+        self.assertEqual(pc.polls, 5)
+
+    def test_node_load_limits_cpu_60_and_memory_80_percent(self):
+        for attr, value in (("node_cpu", 0.60), ("node_mem", 0.80)):
+            c = FakeCluster(self.ft)
+            setattr(c, attr, value)
+            pc = self.run_pc(c)
+            self.assertFalse(pc.ok, attr)
+            self.assertTrue(any(f.startswith("node:") for f in pc.failures))
+        c = FakeCluster(self.ft)
+        c.node_cpu, c.node_mem = 0.59, 0.79
+        self.assertTrue(self.run_pc(c).ok)
+        c = FakeCluster(self.ft)
+        c.prom = {"node_cpu_seconds_total": None}
+        self.assertFalse(self.run_pc(c).ok)  # no answer is not "quiet"
+
+    def test_an_open_incident_is_waited_for_inside_the_cap(self):
+        open_ = {"metadata": {"uid": "old"}, "status": {"phase": "Executing"}}
+        c = FakeCluster(self.ft, existing=[open_], open_polls=3)
+        pc = self.run_pc(c, before={"old"})
+        self.assertTrue(pc.ok)
+        self.assertGreater(pc.polls, 1)
+        self.assertFalse(any(" delete " in " ".join(a) for a in c.calls))
+
+    def test_an_incident_still_open_at_the_cap_stops_the_batch_and_is_never_deleted(
+        self,
+    ):
+        open_ = {"metadata": {"uid": "old"}, "status": {"phase": "Executing"}}
+        c = FakeCluster(self.ft, existing=[open_], stuck=True)
+        pc = self.run_pc(c, before={"old"})
+        self.assertEqual((pc.ok, pc.stop_reason), (False, "non_terminal_incident"))
+        self.assertGreaterEqual(pc.waited_s, 100)
+        self.assertIn("non_terminal_incident:old", pc.failures)
+        self.assertFalse(
+            any("delete" in a or "patch" in a for call in c.calls for a in call)
+        )
+
+    def test_the_window_records_alerts_and_incidents_that_fired_with_nothing_injected(
+        self,
+    ):
+        c = FakeCluster(self.ft)
+        c.alerts = [
+            firing("NexusTrafficAnomaly"),
+            firing("NexusLatencyAnomaly", "pending"),
+        ]
+        c.false_alarm_after = 0
+        pc = self.run_pc(c, before={"pre-existing"})
+        w = pc.window
+        self.assertEqual([(a["alertname"], a["state"]) for a in w["alerts"]],
+                         [("NexusLatencyAnomaly", "pending"), ("NexusTrafficAnomaly", "firing")])  # fmt: skip
+        self.assertEqual(w["incidents"], [{"uid": "false-alarm", "phase": "Escalated"}])
+        self.assertGreaterEqual(w["polls"], 1)
+        raw = [
+            urllib.parse.unquote(a[-1])
+            for a in c.calls
+            if "--raw" in a and "ALERTS" in a[-1]
+        ]
+        self.assertEqual(len(raw), 1)
+        self.assertIn(
+            "max_over_time(ALERTS", raw[0]
+        )  # the whole window, not only the polls
+
+    def test_a_quiet_window_is_recorded_as_empty_and_an_unanswered_one_as_null(self):
+        w = self.run_pc(FakeCluster(self.ft)).window
+        self.assertEqual((w["alerts"], w["incidents"]), ([], []))
+        c = FakeCluster(self.ft)
+        c.prom = {"ALERTS": None}
+        self.assertIsNone(self.run_pc(c).window["alerts"])  # unknown, never "none"
+
+    def test_window_is_kept_when_the_precheck_fails(self):
+        c = FakeCluster(self.ft)
+        c.z = 9
+        c.alerts = [firing("NexusCpuAnomaly")]
+        pc = self.run_pc(c)
+        self.assertFalse(pc.ok)
+        self.assertEqual(pc.window["alerts"][0]["alertname"], "NexusCpuAnomaly")
+
+
+class LiveRunTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.ft = FakeTime(self.clock)
+
+    def live(self, cluster):
         r = runner.Runner(
             "ctx",
             exec_=cluster,
-            sleep=lambda s: None,
+            sleep=self.ft.sleep,
             locust="http://l",
             http_post=lambda u, f: None,
         )
-        return batch.LiveRun(r, wait_s=5, poll_s=0, sleep=lambda s: None, **kw)
+        return batch.LiveRun(r, PRE, wait_s=50, poll_s=5, sleep=self.ft.sleep, monotonic=self.ft.monotonic, wall=self.ft.wall)  # fmt: skip
 
-    def test_happy_path_reads_terminal_phase_and_fallback(self):
-        c = FakeCluster(phases=("Diagnosing", "Resolved"), fallback=True)
+    def joined(self, c):
+        return [" ".join(a) for a in c.calls]
+
+    def test_happy_path_reads_terminal_phase_fallback_and_the_no_fault_record(self):
+        c = FakeCluster(self.ft, phases=("Diagnosing", "Resolved"), fallback=True)
+        c.alerts = [firing("NexusTrafficAnomaly")]
         out = self.drive(self.live(c), max_runs=1)
         r = self.reload().runs[0]
         self.assertEqual(
             (r["status"], r["terminal"], r["fallbackUsed"]), ("valid", "Resolved", True)
         )
-        joined = [" ".join(a) for a in c.calls]
-        self.assertTrue(
-            all("--context ctx" in j for j in joined if j.startswith("kubectl"))
-        )
-        self.assertFalse(
-            any(" delete " in j for j in joined)
-        )  # Incidents are not deleted by the runner
+        self.assertEqual(r["no_fault"]["alerts"][0]["alertname"], "NexusTrafficAnomaly")
+        self.assertEqual((r["precheck"]["ok"], r["precheck"]["polls"]), (True, 1))
+        j = self.joined(c)
+        self.assertTrue(all("--context ctx" in x for x in j if x.startswith("kubectl")))
+        self.assertFalse(any(" delete " in x for x in j))  # Incidents are never deleted
         self.assertEqual(out["ran"], 1)
 
-    def test_non_terminal_incident_discards_with_a_reason(self):
+    def test_order_reset_then_config_then_sync_then_prechecks_then_injection(self):
+        c = FakeCluster(self.ft)
+        self.drive(self.live(c), max_runs=1)
+        j = self.joined(c)
+        idx = lambda key: next(i for i, x in enumerate(j) if key in x)
+        order = [idx("rollout restart deployment/sample-api"), idx("patch configmap nexus-operator-config"),
+                 idx("rollout restart deployment/nexus-operator"), idx("sync.status"), idx("zscore15m"), idx("/fault/hang")]  # fmt: skip
+        self.assertEqual(order, sorted(order))
+
+    def test_a_masked_baseline_discards_with_precheck_timeout_and_injects_nothing(self):
+        c = FakeCluster(self.ft)
+        c.z = 5
+        self.drive(self.live(c), max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual(
+            (r["status"], r["discard_reason"]), ("discarded", "precheck_timeout")
+        )
+        self.assertFalse(c.injected)
+        self.assertTrue(r["precheck"]["failures"])
+        self.assertIn("no_fault", r)  # the window is kept for a discarded run too
+
+    def test_an_open_incident_at_the_cap_halts_the_batch_with_the_reason_recorded(self):
         c = FakeCluster(
-            existing=[{"metadata": {"uid": "old"}, "status": {"phase": "Executing"}}]
+            self.ft,
+            existing=[{"metadata": {"uid": "old"}, "status": {"phase": "Executing"}}],
+            stuck=True,
+        )
+        out = self.drive(self.live(c))
+        self.assertEqual(out["stopped"], "halt:non_terminal_incident")
+        q = self.reload()
+        self.assertEqual(len(q.runs), 1)  # no second run was started
+        self.assertEqual(
+            (q.runs[0]["status"], q.runs[0]["discard_reason"]),
+            ("discarded", "non_terminal_incident"),
+        )
+        self.assertEqual(q.doc["halt"]["reason"], "non_terminal_incident")
+        self.assertEqual(q.doc["halt"]["run_id"], q.runs[0]["run_id"])
+        self.assertFalse(c.injected)
+        self.assertFalse(any(" delete " in x for x in self.joined(c)))
+        # a restarted batch refuses to go on until the owner clears the halt
+        with self.assertRaises(batch.Refused):
+            self.drive(self.live(c), queue=q)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(batch.main(["clear-halt", "--state", str(self.dir)]), 0)
+        self.assertIsNone(self.reload().doc["halt"])
+        self.assertEqual(
+            self.reload().doc["halts"][0]["reason"], "non_terminal_incident"
+        )
+
+    def test_an_open_incident_that_ends_inside_the_cap_lets_the_run_go_on(self):
+        c = FakeCluster(
+            self.ft,
+            existing=[{"metadata": {"uid": "old"}, "status": {"phase": "Executing"}}],
+            open_polls=3,
+        )
+        self.drive(self.live(c), max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual((r["status"], r["precheck"]["ok"]), ("valid", True))
+        self.assertGreater(r["precheck"]["polls"], 1)
+
+    def test_a_false_alarm_in_the_window_is_recorded_and_not_taken_for_the_runs_incident(
+        self,
+    ):
+        c = FakeCluster(self.ft, phases=("Executing", "Resolved"))
+        c.false_alarm_after = (
+            1  # appears after the run's first read, i.e. inside the pre-check window
         )
         self.drive(self.live(c), max_runs=1)
         r = self.reload().runs[0]
         self.assertEqual(
-            (r["status"], r["discard_reason"]), ("discarded", "non_terminal_incident")
+            [i["uid"] for i in r["no_fault"]["incidents"]], ["false-alarm"]
         )
-        self.assertFalse(c.injected)  # no fault was injected over a live incident
+        self.assertEqual(
+            (r["status"], r["terminal"]), ("valid", "Resolved")
+        )  # the injected fault's own Incident
+
+    def test_advisory_checks_off_only_in_a_phase_d_cell_and_restored_after(self):
+        cells = [
+            {
+                **CELLS[0],
+                "cell": "D/S1",
+                "phase": "D",
+                "advisory_checks": "off",
+                "valid_target": 1,
+            },
+            {**CELLS[1], "cell": "A/S4", "valid_target": 1},
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            q = batch.Queue.create(d, REF, cells, precheck_cfg=PRE)
+            c = FakeCluster(self.ft)
+            batch.drive(
+                q, self.live(c), clock=self.clock, execute=True, approval_ref=REF
+            )
+        patches = [
+            json.loads(x.split(" -p ", 1)[1])["data"]
+            for x in self.joined(c)
+            if "patch configmap" in x
+        ]
+        self.assertEqual(
+            [p["advisoryChecks"] for p in patches], ["off", "on"]
+        )  # "on" again for the next cell
+        self.assertEqual([r["advisory_checks"] for r in q.runs], ["off", "on"])
+        self.assertTrue(all(int(p["breakerEpoch"]) > 1_700_000_000 for p in patches))
+
+    def test_the_config_patch_waits_for_the_operator_restart(self):
+        c = FakeCluster(self.ft)
+        self.drive(self.live(c), max_runs=1)
+        j = self.joined(c)
+        self.assertTrue(
+            any(
+                x.endswith("rollout status deployment/nexus-operator --timeout=180s")
+                for x in j
+            )
+        )
+        self.assertTrue(
+            any("-n nexus-system" in x and "patch configmap" in x for x in j)
+        )
 
     def test_unsynced_applications_discard_before_any_injection(self):
-        c = FakeCluster(synced="OutOfSync/Healthy")
+        c = FakeCluster(self.ft)
         live = self.live(c)
         live.r.wait_synced = lambda *a, **k: False
         self.drive(live, max_runs=1)
@@ -486,13 +1048,61 @@ class LiveRunTest(Base):
         self.assertFalse(c.injected)
 
     def test_incident_that_never_ends_is_discarded(self):
-        c = FakeCluster(phases=("Executing",))
+        c = FakeCluster(self.ft, phases=("Executing",))
         live = self.live(c)
         live.wait_s = 0
         self.drive(live, max_runs=1)
         self.assertEqual(
             self.reload().runs[0]["discard_reason"], "no_terminal_incident"
         )
+
+
+class ExampleConfigTest(unittest.TestCase):
+    def test_the_example_cells_file_is_a_valid_queue(self):
+        p = pathlib.Path(__file__).resolve().parents[1] / "batch-config.example.json"
+        conf = json.loads(p.read_text())
+        with tempfile.TemporaryDirectory() as d:
+            q = batch.Queue.create(d, REF, conf["cells"], precheck_cfg=conf["precheck"])
+            self.assertEqual([c["tier"] for c in q.doc["cells"]], [1, 1, 2, 2])
+            self.assertEqual(
+                q.doc["cells"][0]["valid_target"], 5
+            )  # Tier 1 = 5 valid runs
+
+    def test_init_through_the_command_line(self):
+        p = pathlib.Path(__file__).resolve().parents[1] / "batch-config.example.json"
+        with (
+            tempfile.TemporaryDirectory() as d,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            rc = batch.main(
+                ["init", "--state", d + "/s", "--approval-ref", REF, "--cells", str(p)]
+            )
+            self.assertEqual(rc, 0)
+            self.assertEqual(batch.main(["status", "--state", d + "/s"]), 0)
+
+
+class NoFaultMetricTest(unittest.TestCase):
+    def test_pre_check_windows_report_false_alarms_per_arm_and_unknown_is_not_clean(
+        self,
+    ):
+        w = lambda alerts, incs: {"alerts": alerts, "incidents": incs}
+        runs = [
+            {"reasoner": "R1", "no_fault": w([], [])},
+            {"reasoner": "R1", "no_fault": w([{"alertname": "NexusCpuAnomaly"}], [])},
+            {"reasoner": "R1", "no_fault": w(None, [{"uid": "x"}])},
+            {"reasoner": "R3", "no_fault": w([], [])},
+            {"reasoner": "R3"},  # no window recorded: not counted
+        ]
+        m = metrics.pre_check_windows(runs)
+        self.assertEqual(m["R1"]["windows"], 3)
+        self.assertEqual(
+            (m["R1"]["with_incident"]["k"], m["R1"]["with_incident"]["n"]), (1, 3)
+        )
+        self.assertEqual(
+            (m["R1"]["with_alert"]["k"], m["R1"]["with_alert"]["n"]), (1, 2)
+        )  # the unknown one is out
+        self.assertEqual(m["R1"]["alerts_unknown"], 1)
+        self.assertEqual(m["R3"]["with_alert"]["k"], 0)
 
 
 if __name__ == "__main__":
