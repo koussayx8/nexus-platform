@@ -21,8 +21,10 @@ check is READ-ONLY (get / get --raw / GET / stat); none changes anything:
     configured per-namespace baseline (1 user = 1 request/s, ADR-026). The spec says only "Locust
     baseline within +-10 %": reading it as both the user count and the server-side rate is UNVERIFIED.
   * Reasoner ready with the expected index hash: GET /healthz through the API server's service
-    proxy. The body shape is not fixed anywhere yet (the Reasoner service is G9): `ready: true` or
-    `status: ok|ready`, and the hash under corpusHash / corpus_hash / indexHash / index_hash.
+    proxy. The service (reasoner/nexus_reasoner/service.py) answers 200
+    {"status": "ready", "corpusHash": "<64 hex>", "promptVersion": ..., "scoreFloor": ...}; the
+    check needs `status` "ready" and `corpusHash` equal to the configured hash (a `sha256:` prefix
+    on the configured value is ignored).
   * the audit log is being written: the file is readable and was modified within `max_age_s`. k3s
     writes every write request to it, lease renewals included (verify-state.sh M7), so a quiet log
     means the audit chain is down. Reading the file is all this does: no probe request is sent.
@@ -46,6 +48,7 @@ import datetime
 import json
 import math
 import os
+import re
 import time
 import urllib.parse
 from dataclasses import dataclass, field
@@ -152,9 +155,9 @@ def normalise(cfg: dict | None) -> dict:
     _number(loc["tolerance"], "locust.tolerance")
     _number(rs["port"], "reasoner.port")
     _number(au["max_age_s"], "audit_log.max_age_s")
-    if not isinstance(rs["expected_index_hash"], str) or not rs["expected_index_hash"]:
+    if _bare_hash(rs["expected_index_hash"]) is None:
         raise ConfigError(
-            "precheck.reasoner.expected_index_hash must be a non-empty string"
+            "precheck.reasoner.expected_index_hash must be the 64-hex corpus hash (`make index`)"
         )
     for sec, key in (("sample_api", "namespace"), ("sample_api", "deployment"), ("killswitch", "namespace"),
                      ("killswitch", "configmap"), ("backstage", "namespace"), ("reasoner", "namespace"),
@@ -363,26 +366,38 @@ def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
     return out
 
 
-HASH_KEYS = ("corpusHash", "corpus_hash", "indexHash", "index_hash")
+def _bare_hash(h) -> str | None:
+    """The corpus hash without an optional `sha256:` prefix (the Reasoner returns bare hex, the
+    spec's examples carry the prefix); None unless what is left is 64 lowercase hex digits."""
+    if not isinstance(h, str):
+        return None
+    h = h.removeprefix("sha256:")
+    return h if re.fullmatch(r"[0-9a-f]{64}", h) else None
 
 
 def reasoner_failures(runner, cfg: dict) -> list[str]:
+    """GET /healthz of the Reasoner service (reasoner/nexus_reasoner/service.py, G9), which answers
+    200 {"status": "ready", "corpusHash": "<64 hex>", "promptVersion": ..., "scoreFloor": ...} once
+    its index is loaded. A Pod whose index is missing never serves it, so an unreachable or non-200
+    answer is "not ready"."""
     c = cfg["reasoner"]
     path = f"/api/v1/namespaces/{c['namespace']}/services/http:{c['service']}:{c['port']}/proxy/healthz"
     rc, out = _kubectl(runner, "get", "--raw", path)
     if rc != 0:
-        return [
-            "reasoner:not_ready"
-        ]  # unreachable, or a 5xx while the index is not loaded
+        return ["reasoner:not_ready"]
     doc = _json(out)
     if not isinstance(doc, dict):
         return ["reasoner:healthz_unparsable"]
-    if not (doc.get("ready") is True or doc.get("status") in ("ok", "ready")):
+    if doc.get("status") != "ready":
         return ["reasoner:not_ready"]
-    got = next((doc[k] for k in HASH_KEYS if doc.get(k)), None)
+    got = _bare_hash(doc.get("corpusHash"))
     if got is None:
         return ["reasoner:no_index_hash"]
-    return [] if got == c["expected_index_hash"] else [f"reasoner:index_hash={got}"]
+    return (
+        []
+        if got == _bare_hash(c["expected_index_hash"])
+        else [f"reasoner:index_hash={got}"]
+    )
 
 
 def audit_failures(cfg: dict, stat, wall) -> list[str]:

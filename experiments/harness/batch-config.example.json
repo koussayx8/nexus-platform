@@ -17,7 +17,8 @@
       "tolerance": 0.1
     },
     "reasoner": {
-      "expected_index_hash": "REPLACE_WITH_THE_G16_INDEX_HASH"
+      "_comment": "expected_index_hash is the 64-hex corpus hash `make index` prints; G16 fixes it. This all-zero value only shows the shape and fails the check.",
+      "expected_index_hash": "0000000000000000000000000000000000000000000000000000000000000000"
     },
     "audit_log": {
       "path": "/var/log/nexus-audit/audit.log",

@@ -20,12 +20,15 @@ CELLS = [
     {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3,
      "tier": 1, "valid_target": 4, "max_attempts": 6},
 ]  # fmt: skip
+INDEX_HASH = (
+    "ab" * 32
+)  # a corpus hash is 64 lowercase hex digits (bm25.Index.corpus_hash)
 PRE = {  # the pre-registration's clean baseline (a stddev per signal); the rest are spec defaults
     "clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
     "cap_s": 100,
     "poll_s": 10,
     "locust": {"baseline_users": 160, "baseline_rps_per_namespace": 80},  # B = 80 per namespace (ADR-026)
-    "reasoner": {"expected_index_hash": "sha256:index-1"},
+    "reasoner": {"expected_index_hash": INDEX_HASH},
 }  # fmt: skip
 UNIT = pathlib.Path(__file__).resolve().parents[1] / "systemd" / "nexus-batch.service"
 
@@ -650,10 +653,12 @@ class FakeCluster:
         )
         self.sample = (2, 2, 2)  # desired, ready, updated
         self.killswitch, self.level_label, self.backstage_pods = "active", "3", 0
-        self.reasoner = {
-            "ready": True,
-            "corpusHash": "sha256:index-1",
-        }  # None: the call fails
+        self.reasoner = {  # the shape reasoner/nexus_reasoner/service.py returns; None: the call fails
+            "status": "ready",
+            "corpusHash": INDEX_HASH,
+            "promptVersion": "prompt/v1",
+            "scoreFloor": 2.9584,
+        }
         self.locust_doc = {"state": "running", "user_count": 160}
         self.rps = 80.0
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
@@ -1280,25 +1285,99 @@ class SevenPrechecksTest(unittest.TestCase):
         self.assertIn("locust:no_answer", pc.failures)
 
     def test_reasoner_must_be_ready_with_the_expected_index_hash(self):
-        for key in precheck.HASH_KEYS:  # any of the field names the Reasoner may use
-            c = FakeCluster(self.ft)
-            c.reasoner = {"status": "ok", key: "sha256:index-1"}
-            self.assertTrue(self.pc(c).ok, key)
+        ok = {"status": "ready", "corpusHash": INDEX_HASH}
+        self.assertTrue(self.pc(self._with_reasoner(ok)).ok)
+        other = "cd" * 32
         cases = {
-            "reasoner:index_hash=sha256:other": {
-                "ready": True,
-                "corpusHash": "sha256:other",
-            },
-            "reasoner:not_ready": {"ready": False, "corpusHash": "sha256:index-1"},
-            "reasoner:no_index_hash": {"ready": True},
+            f"reasoner:index_hash={other}": {**ok, "corpusHash": other},
+            "reasoner:not_ready": {**ok, "status": "loading"},
+            "reasoner:no_index_hash": {"status": "ready"},
         }
         for want, doc in cases.items():
             self.assertIn(
                 want, self.failing(lambda c, d=doc: setattr(c, "reasoner", d))
             )
+        for bad in ("sha256:", "AB" * 32, "ab" * 31, 123, None):  # not a 64-hex hash
+            f = self.failing(
+                lambda c, b=bad: setattr(c, "reasoner", {**ok, "corpusHash": b})
+            )
+            self.assertIn("reasoner:no_index_hash", f, bad)
         self.assertIn(
             "reasoner:not_ready", self.failing(lambda c: setattr(c, "reasoner", None))
         )  # 5xx / unreachable
+        # the old guesses are not the Reasoner's fields: `ready: true` or `indexHash` alone do not pass
+        self.assertIn(
+            "reasoner:not_ready",
+            self.failing(
+                lambda c: setattr(
+                    c, "reasoner", {"ready": True, "corpusHash": INDEX_HASH}
+                )
+            ),
+        )
+        self.assertIn(
+            "reasoner:no_index_hash",
+            self.failing(
+                lambda c: setattr(
+                    c, "reasoner", {"status": "ready", "indexHash": INDEX_HASH}
+                )
+            ),
+        )
+
+    def _with_reasoner(self, doc):
+        c = FakeCluster(self.ft)
+        c.reasoner = doc
+        return c
+
+    def test_a_sha256_prefix_on_the_configured_hash_is_ignored(self):
+        cfg = precheck.normalise(
+            {**PRE, "reasoner": {"expected_index_hash": "sha256:" + INDEX_HASH}}
+        )
+        self.assertEqual(
+            precheck.reasoner_failures(runner_for(FakeCluster(self.ft), self.ft), cfg),
+            [],
+        )
+
+    def test_the_exact_response_of_the_reasoner_service_passes(self):
+        """The shape comes from the producer itself: Reasoner.health() of reasoner/nexus_reasoner,
+        built on the fixture runbooks, served through the fake proxy."""
+        import sys
+
+        root = pathlib.Path(__file__).resolve().parents[3]
+        sys.path.insert(0, str(root / "reasoner"))
+        try:
+            from nexus_reasoner import config as rcfg
+            from nexus_reasoner.retrieval import Retriever
+            from nexus_reasoner.service import Reasoner
+
+            from .. import bm25
+        finally:
+            sys.path.remove(str(root / "reasoner"))
+        index = bm25.Index.from_dir(
+            pathlib.Path(__file__).parent / "fixtures" / "runbooks"
+        )
+        cfg = rcfg.parse({"indexPath": "x", "scoreFloor": 1.0, "models": {}})
+        body = Reasoner(cfg, Retriever(index, 1.0), None).health()
+        self.assertEqual(
+            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor"}
+        )
+        self.assertEqual(body["status"], "ready")
+        self.assertRegex(
+            body["corpusHash"], r"^[0-9a-f]{64}$"
+        )  # bare hex, no sha256: prefix
+        real = json.loads(json.dumps(body))  # what crosses the wire
+        c = FakeCluster(self.ft)
+        c.reasoner = real
+        good = precheck.normalise(
+            {**PRE, "reasoner": {"expected_index_hash": index.corpus_hash}}
+        )
+        self.assertEqual(precheck.reasoner_failures(runner_for(c, self.ft), good), [])
+        bad = precheck.normalise(
+            {**PRE, "reasoner": {"expected_index_hash": "00" * 32}}
+        )
+        self.assertEqual(
+            precheck.reasoner_failures(runner_for(c, self.ft), bad),
+            [f"reasoner:index_hash={index.corpus_hash}"],
+        )
 
     def test_reasoner_is_read_through_the_service_proxy_get(self):
         c = FakeCluster(self.ft)
@@ -1370,6 +1449,16 @@ class SevenPrechecksTest(unittest.TestCase):
             {**base, "locust": {"baseline_users": 160}, "reasoner": PRE["reasoner"]},
             {**base, "locust": PRE["locust"]},
             {**base, "locust": PRE["locust"], "reasoner": {"expected_index_hash": ""}},
+            {
+                **base,
+                "locust": PRE["locust"],
+                "reasoner": {"expected_index_hash": "sha256:index-1"},
+            },  # not 64 hex
+            {
+                **base,
+                "locust": PRE["locust"],
+                "reasoner": {"expected_index_hash": "REPLACE_WITH_THE_G16_INDEX_HASH"},
+            },
             {**PRE, "locust": {**PRE["locust"], "tolerance": 0}},
             {**PRE, "audit_log": {"max_age_s": -1}},
             {**PRE, "sample_api": {"replicas": 0}},
