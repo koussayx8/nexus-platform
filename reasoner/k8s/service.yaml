@@ -1,0 +1,17 @@
+# The operator's only way in (TCP 8080, allow-operator-ingress in platform/network/reasoner.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-reasoner
+  namespace: nexus-reasoner
+  labels:
+    app.kubernetes.io/name: nexus-reasoner
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  selector:
+    app.kubernetes.io/name: nexus-reasoner
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
