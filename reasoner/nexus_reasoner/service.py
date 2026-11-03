@@ -90,13 +90,9 @@ class Reasoner:
         if mode == "rules":
             doc = rules.propose(bundle)
             meta = {"mode": "rules", "model": None}
+            self._validate(doc, json.dumps(doc), meta)
         else:
             doc, meta = self._llm(bundle, ctx)
-        errs = proposal.validate(doc)
-        if errs:
-            raise Rejected(
-                422, "invalid_proposal", "; ".join(errs[:5]), raw=json.dumps(doc)[:4000]
-            )
         meta.update(
             {
                 "corpusHash": self.retriever.corpus_hash,
@@ -106,6 +102,16 @@ class Reasoner:
             }
         )
         return {"proposal": doc, "metadata": meta}
+
+    @staticmethod
+    def _validate(doc, raw: str, meta: dict) -> None:
+        """proposal/v1 shape, checked by the operator's own proposal.py (copied into the image at
+        build time; this service has no second validator)."""
+        errs = proposal.validate(doc)
+        if errs:
+            raise Rejected(
+                422, "invalid_proposal", "; ".join(errs), raw=raw, metadata=meta
+            )
 
     def _llm(self, bundle: dict, ctx: dict) -> tuple[dict, dict]:
         level = ctx.get("level")
@@ -136,12 +142,6 @@ class Reasoner:
                 else 502
             )
             raise Rejected(code, "model_unavailable", e.reason) from None
-        try:
-            doc = adapter.parse_json(comp.text)
-        except ValueError:
-            raise Rejected(
-                422, "unparseable", "model output is not JSON", raw=comp.text[:4000]
-            ) from None
         meta = {
             "mode": "llm",
             "arm": entry.name,
@@ -152,25 +152,33 @@ class Reasoner:
             "retrievedChunks": [c["id"] for c in chunks],
             "noRunbook": not chunks,
         }
-        self._check_refs(doc, bundle, chunks)
+        # From here the model has answered. Every rejection below carries the model's message
+        # exactly as received (`raw`), the rejection reason (`error`, `detail`) and the metadata,
+        # so the caller can store all of it in the Flight Recorder `proposals` table.
+        raw = comp.text
+        try:
+            doc = adapter.parse_json(raw)
+        except ValueError:
+            raise Rejected(
+                422, "unparseable", "model output is not JSON", raw=raw, metadata=meta
+            ) from None
+        self._validate(doc, raw, meta)
+        self._check_refs(doc, bundle, chunks, raw, meta)
         return doc, meta
 
     @staticmethod
-    def _check_refs(doc, bundle, chunks) -> None:
-        if not isinstance(doc, dict):
-            return  # validate() reports it
+    def _check_refs(doc, bundle, chunks, raw: str, meta: dict) -> None:
         got = {c["id"] for c in chunks}
-        bad_rb = [r for r in doc.get("runbookRefs") or [] if r not in got]
-        bad_ev = [
-            r
-            for r in doc.get("evidenceRefs") or []
-            if not isinstance(r, str) or not resolves(bundle, r)
-        ]
+        bad_rb = [r for r in doc["runbookRefs"] if r not in got]
+        bad_ev = [r for r in doc["evidenceRefs"] if not resolves(bundle, r)]
         if bad_rb or bad_ev:
             raise Rejected(
-                422, "invalid_refs", f"runbookRefs not retrieved: {bad_rb[:5]}; evidenceRefs not in bundle: {bad_ev[:5]}",
-                raw=json.dumps(doc)[:4000],
-            )  # fmt: skip
+                422,
+                "invalid_refs",
+                f"runbookRefs not retrieved: {bad_rb[:5]}; evidenceRefs not in bundle: {bad_ev[:5]}",
+                raw=raw,
+                metadata=meta,
+            )
 
 
 def make_handler(rs: Reasoner):
