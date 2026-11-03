@@ -146,7 +146,10 @@ class Index:
         self.idf = {t: math.log(1 + (n - f + 0.5) / (f + 0.5)) for t, f in df.items()}
         self.corpus_hash = hashlib.sha256(
             json.dumps(
-                [[c["id"], c["version"], c["text"]] for c in self.chunks]
+                [
+                    [c["id"], c["version"], c["fault_classes"], c["text"]]
+                    for c in self.chunks
+                ]
             ).encode()
         ).hexdigest()
 
@@ -160,6 +163,47 @@ class Index:
             seen.add(cs[0]["runbook"])
             chunks += cs
         return cls(chunks)
+
+    def artifact(self) -> dict:
+        """The index artifact (`index/v1`): parameters, the corpus hash and the chunks. Scores are
+        recomputed from the chunks on load, so the artifact cannot disagree with its own hash."""
+        return {
+            "schema": "index/v1",
+            "k1": K1,
+            "b": B,
+            "top_k": TOP_K,
+            "corpus_hash": self.corpus_hash,
+            "chunks": self.chunks,
+        }
+
+    @classmethod
+    def from_artifact(cls, art: dict) -> Index:
+        if art.get("schema") != "index/v1":
+            raise ValueError("not an index/v1 artifact")
+        if (art.get("k1"), art.get("b")) != (K1, B):
+            raise ValueError("artifact BM25 parameters differ from this code")
+        idx = cls(art["chunks"])
+        if idx.corpus_hash != art.get("corpus_hash"):
+            raise ValueError("artifact corpus hash does not match its chunks")
+        return idx
+
+    def manifest(self) -> dict:
+        """Deterministic summary of the artifact: no timestamp, so equal input gives equal bytes."""
+        runbooks: dict[str, dict] = {}
+        for c in self.chunks:
+            r = runbooks.setdefault(
+                c["runbook"], {"id": c["runbook"], "version": c["version"], "chunks": 0}
+            )
+            r["chunks"] += 1
+        return {
+            "schema": "index-manifest/v1",
+            "corpus_hash": self.corpus_hash,
+            "k1": K1,
+            "b": B,
+            "top_k": TOP_K,
+            "chunk_count": len(self.chunks),
+            "runbooks": sorted(runbooks.values(), key=lambda r: r["id"]),
+        }
 
     def score(self, query_tokens: list[str]) -> list[tuple[str, float]]:
         out = []
