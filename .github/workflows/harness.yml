@@ -14,6 +14,7 @@ on:
       - 'operator/nexus_operator/catalogue.py'
       - 'operator/nexus_operator/rules.py'
       - 'operator/nexus_operator/model.py'
+      - 'reasoner/nexus_reasoner/**'   # a test pins the pre-check to the real /healthz response
       - 'operator/k8s/flight-recorder-db/05-schema.sql'
       - 'scripts/audit-join.py'
       - 'runbooks/**'
@@ -29,6 +30,7 @@ on:
       - 'operator/nexus_operator/catalogue.py'
       - 'operator/nexus_operator/rules.py'
       - 'operator/nexus_operator/model.py'
+      - 'reasoner/nexus_reasoner/**'   # a test pins the pre-check to the real /healthz response
       - 'operator/k8s/flight-recorder-db/05-schema.sql'
       - 'scripts/audit-join.py'
       - 'runbooks/**'
