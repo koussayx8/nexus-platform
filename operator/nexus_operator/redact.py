@@ -46,7 +46,7 @@ _PATTERNS: list[tuple[str, re.Pattern, int | None]] = [
         "password",
         re.compile(
             r"(?i)\b[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key"
-            r"|private[_-]?key|credentials?|authorization)[\w.-]*\s*[:=]\s*[\"']?(?!\[REDACTED:)([^\s\"',;&]{3,})"
+            r"|private[_-]?key|credentials?|authorization)[\w.-]*\s*[:=]\s*[\"']?([^\s\"',;&]{3,})"
         ),
         1,
     ),
