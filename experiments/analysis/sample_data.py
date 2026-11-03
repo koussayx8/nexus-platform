@@ -15,6 +15,7 @@ void (R3, S4), a false action executed (R3, S4), a manipulated proposal stopped 
 from __future__ import annotations
 
 import datetime
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -28,6 +29,12 @@ sys.path.insert(0, str(ROOT))
 from experiments.harness import batch
 
 BASE = datetime.datetime(2027, 1, 5, 10, 0, 0, tzinfo=datetime.timezone.utc)
+PRECHECK_S = 300  # the no-fault window before the injection: 10 points at the 30 s step
+RUN_S = 1200  # started_at to ended_at
+HISTORY_S = (
+    1200  # metric history before started_at: the Z-score baseline needs 18 minutes
+)
+STEP_S = 30
 SCENARIOS = ("S1", "S2", "S3", "S4", "S5", "S6")
 ARMS = ("R1", "R3")
 TARGET = {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}
@@ -102,7 +109,7 @@ def run_inputs(
 ):
     """(queue record, FR tables, audit events, injection) for one valid run."""
     t0 = BASE + datetime.timedelta(hours=n)  # started_at
-    inj = t0 + datetime.timedelta(seconds=90)
+    inj = t0 + datetime.timedelta(seconds=PRECHECK_S)
     det = inj + datetime.timedelta(seconds=68 + 4 * rep)
     uid = f"uid-{n:02d}"
 
@@ -114,7 +121,7 @@ def run_inputs(
         steps += [
             ("Executing", 19 + rep),
             ("Verifying", 27 + rep),
-            ("Resolved", 110 + 25 * rep + (40 if scen == "S2" else 0)),
+            ("Resolved", resolved_s(scen, rep)),
         ]
     elif b["path"] == "blocked":
         steps += [("Blocked", 17)]
@@ -180,10 +187,80 @@ def run_inputs(
         if (arm, scen, rep) == ("R3", "S4", 2)
         else []
     )
-    rec = {"no_fault": {"start": iso(t0), "end": iso(inj), "seconds": 90.0, "polls": 3, "alerts": alerts, "incidents": []},
+    rec = {"no_fault": {"start": iso(t0), "end": iso(inj), "seconds": float(PRECHECK_S), "polls": 10, "alerts": alerts, "incidents": []},
            "precheck": {"ok": True, "polls": 3, "waited_s": 60.0, "failures": []}, "fallbackUsed": fallback,
            "terminal": b["terminal"][0], "advisory_checks": "on", "breaker_epoch": int(t0.timestamp())}  # fmt: skip
     return rec, tables, events, inj
+
+
+def resolved_s(scen: str, rep: int) -> int:
+    """Seconds from the Incident to Resolved for a run that acts (also used by run_inputs' steps)."""
+    return 110 + 25 * rep + (40 if scen == "S2" else 0)
+
+
+BASELINE = {
+    "cpu": (0.30, 0.01),
+    "latencyP95": (0.050, 0.004),
+    "inflight": (2.0, 0.4),
+    "errorRatio": (0.002, 0.001),
+    "requests": (80.0, 2.0),
+}
+# what each fault adds at full effect (ramped in over 60 s); S3 moves none of the five signals
+FAULT = {
+    "S1": {"inflight": 38.0, "latencyP95": 0.10},
+    "S2": {"cpu": 0.60, "latencyP95": 0.20, "requests": 5.0},
+    "S3": {},
+    "S4": {"requests": 40.0},
+    "S5": {"errorRatio": 0.40, "latencyP95": 0.01},
+    "S6": {"requests": 40.0},
+}
+
+
+def noise(n: int, sig: str, i: int) -> float:
+    """Deterministic pseudo-noise in [-1, 1): a hash, not a random generator."""
+    return (
+        int.from_bytes(hashlib.sha256(f"{n}/{sig}/{i}".encode()).digest()[:4], "big")
+        / 2**31
+        - 1.0
+    )
+
+
+def metrics_for(n: int, arm: str, scen: str, rep: int, b: dict) -> dict:
+    """The run's metric windows (the --metrics input of export-results): FIXTURE data. A run that
+    resolves has its fault end at Resolved; any other keeps it until the run ends. Two runs carry a
+    blemish in the no-fault window: a four-point traffic blip (R3 S4 rep 2: the Z-score alert fires)
+    and a slow latency drift (R3 S2 rep 1: the adaptive Z baseline follows it, a forest trained on
+    the early runs does not)."""
+    t0 = BASE + datetime.timedelta(hours=n)
+    inj = PRECHECK_S
+    det_s = PRECHECK_S + 68 + 4 * rep
+    end = det_s + resolved_s(scen, rep) if b["path"] == "act" else RUN_S
+    series = {sig: [] for sig in BASELINE}
+    for i in range(-HISTORY_S // STEP_S, RUN_S // STEP_S + 1):
+        t = i * STEP_S  # seconds from started_at
+        for sig, (base, amp) in BASELINE.items():
+            v = base + amp * noise(n, sig, i)
+            if inj <= t < end:
+                v += FAULT[scen].get(sig, 0.0) * min(1.0, (t - inj) / 60.0)
+            if (
+                (arm, scen, rep) == ("R3", "S4", 2)
+                and sig == "requests"
+                and 120 <= t < 240
+            ):
+                v += 8.0
+            if (
+                (arm, scen, rep) == ("R3", "S2", 1)
+                and sig == "latencyP95"
+                and 0 <= t < inj
+            ):
+                v += 0.025 * t / inj
+            series[sig].append(
+                [
+                    float((t0 + datetime.timedelta(seconds=t)).timestamp()),
+                    round(max(v, 0.0), 6),
+                ]
+            )
+    return {"namespace": "nexus-dev", "step_s": STEP_S, "signals": series}
 
 
 def batch_operator() -> str:
@@ -258,6 +335,9 @@ def generate(out: pathlib.Path) -> None:
                     rec["status"] = "valid"
                     (tmp / f"in{n}").mkdir()
                     (tmp / f"in{n}" / "tables.json").write_text(json.dumps(tables))
+                    (tmp / f"in{n}" / "metrics.json").write_text(
+                        json.dumps(metrics_for(n, a, s, reps, behaviour(a, s, reps)))
+                    )
                     (tmp / f"in{n}" / "audit.log").write_text(
                         "".join(json.dumps(e) + "\n" for e in events)
                     )
@@ -289,6 +369,7 @@ def generate(out: pathlib.Path) -> None:
                 git_commit="f" * 40, out_dir=runs_dir, fixture=True,
                 tables=tmp / f"in{n_in[0]}" / "tables.json" if n_in else None,
                 audit=tmp / f"in{n_in[0]}" / "audit.log" if n_in else None, k8sgpt=k8s,
+                metrics=tmp / f"in{n_in[0]}" / "metrics.json" if n_in else None,
             )  # fmt: skip
     suite = {
         "cells": [{"expected": "deny", "observed": "deny"}] * 7 + [{"expected": "allow", "observed": "allow"}] * 3

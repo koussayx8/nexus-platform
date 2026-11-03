@@ -3,9 +3,10 @@
   "audit.jsonl.gz": "c3a5fea395cd14b8baa4d0cd7ed53a8c0378bad0ff620748346e4d901afbca95",
   "audit_links.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "k8sgpt.json": "fa6009bd4cf89c99cac84d3908396b6955443e8befdf45a5124466291f042e39",
+  "metrics.json": "2c3cb8e1129d6dd4c543aad7cd4b0d3f84c15aac4696b3a1955e27033da879b6",
   "reconciliation.json": "1b6ba2d71d6cd0dd528879faa1fe119def4ac2e98ac095bf22270722e54a2ef9",
-  "run.json": "024b2058894924e322599dce59f4f7a7e2b71d4113e6c52c506b4c0733335544",
-  "tables.json": "cab25b1842507cc26485909a28463b03bfac8bf92595af809fa5893342225798"
+  "run.json": "6957afcf91a21dd939428b432c97313de9fc3b06bf94b3d16a3be513179ad224",
+  "tables.json": "21994a8dff11101ae582119229c7d2c7c54e3612948b745bc85048f73837ffda"
  },
  "fixture": true,
  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",

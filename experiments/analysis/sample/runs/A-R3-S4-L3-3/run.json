@@ -1,6 +1,6 @@
 {
  "fixture": true,
- "injection_at": "2027-01-06T09:01:30+00:00",
+ "injection_at": "2027-01-06T09:05:00+00:00",
  "queue_record": {
   "advisory_checks": "on",
   "approval_ref": "G16/fixture#approval-0",
@@ -20,10 +20,10 @@
      "state": "pending"
     }
    ],
-   "end": "2027-01-06T09:01:30+00:00",
+   "end": "2027-01-06T09:05:00+00:00",
    "incidents": [],
-   "polls": 3,
-   "seconds": 90.0,
+   "polls": 10,
+   "seconds": 300.0,
    "start": "2027-01-06T09:00:00+00:00"
   },
   "pause_gap_s": 0.0,
