@@ -1,5 +1,5 @@
 # Development tools for sample-api, installed by CI (not by the image).
-ruff==0.16.9
+ruff==0.17.3
 
 # Testing, pinned to the versions the 0.3.0 tests ran on (moved out of requirements.txt, D4).
 # httpx2 is the client Starlette's TestClient now asks for (it warns when it finds httpx).
