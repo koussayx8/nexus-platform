@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS proposals (
     latency_ms         integer,
     fallback_used      boolean NOT NULL DEFAULT false
 );
+-- Added after ADR-031 (task 2c, ADR-035): the Reasoner request id (links a failed attempt and its
+-- fallback row) and why a proposal was rejected. Additive and idempotent, so it also applies to a
+-- volume that was initialised before: psql -f 05-schema.sql as the database owner.
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS request_id    text;
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reject_reason text;
 CREATE INDEX IF NOT EXISTS proposals_incident ON proposals (incident_uid);
 
 CREATE TABLE IF NOT EXISTS gate_decisions (

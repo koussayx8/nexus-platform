@@ -80,3 +80,33 @@ def test_get_proposal_by_hash(pg):
         assert await rec.get_proposal("h-none") is None
 
     run(pg, go)
+
+
+def test_a_rejected_proposal_row_keeps_its_request_id_and_reason(pg):
+    async def go(rec):
+        await rec.open_incident("u-act3", "nexus-dev/act-api", "detector", T0)
+        assert await rec.record_proposal(
+            "h-fail",
+            "u-act3",
+            "llm",
+            False,
+            model_id="m",
+            raw_output='{"x": 1}',
+            request_id="req-1",
+            reject_reason="rejected: not JSON",
+        )
+        assert await rec.record_proposal(
+            "h-used", "u-act3", "rules", True, fallback_used=True, request_id="req-1"
+        )
+        rows = await rec._pool.fetch(
+            "SELECT proposal_hash, request_id, reject_reason, fallback_used, raw_output"
+            " FROM proposals WHERE incident_uid = 'u-act3' ORDER BY proposal_hash"
+        )
+        assert [dict(r) for r in rows] == [
+            {"proposal_hash": "h-fail", "request_id": "req-1", "reject_reason": "rejected: not JSON",
+             "fallback_used": False, "raw_output": '{"x": 1}'},
+            {"proposal_hash": "h-used", "request_id": "req-1", "reject_reason": None,
+             "fallback_used": True, "raw_output": None},
+        ]  # fmt: skip
+
+    run(pg, go)
