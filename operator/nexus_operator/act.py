@@ -29,6 +29,8 @@ status.execution = {startedAt, plan, seq, idempotencyKey, auditIds, evicted, pen
 completion, compensation, error}; status.verification = the verifier's state.
 """
 
+import asyncio
+import dataclasses
 import logging
 
 from . import proposal, rules
@@ -46,10 +48,14 @@ from .metrics import (
     GATE,
     INCIDENTS,
     METRICS,
+    REASONER_CALLS,
+    REASONER_FALLBACKS,
     REDACTIONS,
 )
 from .model import iso, parse_time
 from .mutations import Mutations
+from .reasoner_client import ReasonerClient
+from .reasoner_client import Result as ReasonerResult
 from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
 from .redact import redact_bundle
 from .verifier import Verifier
@@ -110,6 +116,35 @@ OWNER = {
 }
 
 
+@dataclasses.dataclass
+class Diagnosis:
+    """One Incident's in-flight diagnosis: the redacted bundle and the Reasoner call. Kept in
+    memory between ticks so a retry never asks the Reasoner twice; a restart starts it again."""
+
+    bundle: dict
+    counts: dict
+    baseline: dict
+    task: "asyncio.Task | None" = None
+    counted: bool = False
+    fell_back: bool = False
+
+
+@dataclasses.dataclass
+class Answer:
+    doc: dict | None
+    errors: list[str]
+    mode: str
+    meta: dict
+    result: ReasonerResult | None
+    fallback_used: bool
+    latency_ms: int | None
+    digest: str = ""
+
+    @property
+    def request_id(self) -> str | None:
+        return self.result.request_id if self.result is not None else None
+
+
 def _level(status: dict) -> int:
     v = status.get("autonomyLevel")
     return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 3 else 0
@@ -126,6 +161,7 @@ class ActPath:
         verifier: Verifier,
         clock,
         collector: EvidenceCollector | None = None,
+        reasoner: ReasonerClient | None = None,
     ) -> None:
         self.api, self.mutations, self.recorder, self.gate = (
             api,
@@ -134,9 +170,9 @@ class ActPath:
             gate,
         )
         self.executor, self.verifier, self.clock = executor, verifier, clock
-        self.collector = (
-            collector  # None: an Incident stays Detected (the M1b behaviour)
-        )
+        self.collector = collector  # None: an Incident stays Detected (M1b behaviour)
+        self.reasoner = reasoner  # None: Diagnosing is R1 only
+        self._diagnoses: dict[str, Diagnosis] = {}
 
     # ---- status writes -------------------------------------------------------------------
     async def _write(
@@ -260,12 +296,16 @@ class ActPath:
         await self._move(incident, "Diagnosing")
 
     async def _diagnosing(self, incident: dict) -> None:
-        """Collect, redact, store, run R1, and move to Proposed (spec §4, §6).
+        """Collect, redact, store, ask the Reasoner (if configured), and move to Proposed.
 
-        Order matters (Q1): the raw bundle exists only inside this call; the redacted copy is
-        what is hashed, stored, and given to R1. Failures retry each tick until the 60 s
-        Diagnosing timeout: an unreadable target ends Escalated / evidence_error, an unreachable
-        recorder ends Blocked / recorder_unavailable.
+        Order matters (Q1): the raw bundle exists only inside the collection step; the redacted
+        copy is what is hashed, stored, sent to the Reasoner and given to R1. The Reasoner call
+        (30 s, one attempt) runs as a task, so a slow Reasoner never stalls the reconcile loop or
+        its liveness probe; a later tick collects the answer. On a timeout, a provider error, a
+        422 or an invalid proposal, R1 answers once with fallbackUsed = true, and an invalid R1
+        proposal ends the Incident Blocked (§6 transitions 4-6). Failures before the answer retry
+        each tick until the 60 s Diagnosing timeout: an unreadable target ends Escalated /
+        evidence_error, an unreachable recorder ends Blocked / recorder_unavailable.
         """
         status = incident["status"]
         uid = incident["metadata"]["uid"]
@@ -274,53 +314,75 @@ class ActPath:
             (status.get("timestamps") or {}).get("diagnosing") or iso(now)
         )
         timed_out = (now - started).total_seconds() > DIAGNOSING_TIMEOUT_S
-        try:
-            await self._open(incident)
-            raw, baseline = await self.collector.collect(incident)
+        work = self._diagnoses.get(uid)
+        if work is None:
+            try:
+                await self._open(incident)
+                raw, baseline = await self.collector.collect(incident)
+            except RecorderUnavailable:
+                if timed_out:
+                    await self._move(incident, "Blocked", "recorder_unavailable")
+                return
+            except (CollectionError, ApiError, *TRANSPORT_ERRORS) as e:
+                logger.warning("evidence for %s: %s", incident["metadata"]["name"], e)
+                if timed_out:
+                    await self._move(incident, "Escalated", "evidence_error")
+                return
             redacted, counts = redact_bundle(raw)
             bundle = redacted | {"redaction": {"counts": counts}}
             bundle["hash"] = proposal.hash_of(bundle)
-            await self.recorder.record_bundle(
-                bundle["hash"], uid, "evidence/v1", bundle, counts, now
-            )
-            doc = rules.propose(bundle)  # R1 reads the redacted bundle only
-            digest = proposal.hash_of(doc)
-            errors = proposal.validate(doc)
-            await self.recorder.record_proposal(
-                digest,
-                uid,
-                "rules",
-                not errors,
-                parsed_proposal=doc,
-                fallback_used=False,
-            )
+            work = Diagnosis(bundle, counts, baseline)
+            if self.reasoner is not None:
+                work.task = asyncio.create_task(
+                    self.reasoner.propose(
+                        bundle, incident_uid=uid, level=_level(status)
+                    )
+                )
+            self._diagnoses[uid] = work
+            if work.task is not None:
+                return  # the answer is collected on a later tick
+        if work.task is not None and not work.task.done():
+            if (
+                timed_out
+            ):  # the client's own 30 s timeout should have fired long before this
+                work.task.cancel()
+                self._diagnoses.pop(uid, None)
+                await self._move(incident, "Escalated", "reasoner_unavailable")
+            return
+        answer = self._answer(work)
+        if answer.result is not None and answer.result.reason == "not_redacted":
+            self._diagnoses.pop(
+                uid, None
+            )  # nothing was sent: redaction failed (§6 transition 3)
+            await self._move(incident, "Escalated", "evidence_error")
+            return
+        try:
+            await self._store(uid, work, answer, now)
         except RecorderUnavailable:
             if timed_out:
+                self._diagnoses.pop(uid, None)
                 await self._move(incident, "Blocked", "recorder_unavailable")
-            return
-        except (CollectionError, ApiError, *TRANSPORT_ERRORS) as e:
-            logger.warning("evidence for %s: %s", incident["metadata"]["name"], e)
-            if timed_out:
-                await self._move(incident, "Escalated", "evidence_error")
-            return
-        if errors:
+            return  # the answer is kept: the next tick stores it, and asks nobody again
+        self._diagnoses.pop(uid, None)
+        if answer.errors:
             await self._move(incident, "Blocked", "schema_invalid")
             return
-        for cls, n in counts.items():
+        for cls, n in work.counts.items():
             if n:
                 METRICS.inc(REDACTIONS, n, **{"class": cls})
+        doc = answer.doc
         action = doc["action"]
         written = await self._move(
             incident,
             "Proposed",
             evidence={
-                "bundleHash": bundle["hash"],
-                "redactions": sum(counts.values()),
-                "baseline": baseline,
+                "bundleHash": work.bundle["hash"],
+                "redactions": sum(work.counts.values()),
+                "baseline": work.baseline,
             },
-            reasoner={"mode": "rules", "fallbackUsed": False},
+            reasoner=self._reasoner_status(answer),
             proposal={
-                "hash": digest,
+                "hash": answer.digest,
                 "actionId": action["id"],
                 "parameters": action["parameters"],
                 "faultClass": doc["hypothesis"]["faultClass"],
@@ -331,6 +393,108 @@ class ActPath:
         if written is not None:
             METRICS.inc(DIAGNOSE_SUM, (self.clock() - started).total_seconds())
             METRICS.inc(DIAGNOSE_COUNT)
+
+    @staticmethod
+    def _reasoner_status(answer: "Answer") -> dict:
+        """status.reasoner (§8). Without a Reasoner it is exactly what R1-only Diagnosing wrote."""
+        if answer.result is None:
+            return {"mode": "rules", "fallbackUsed": False}
+        meta = answer.meta
+        status = {
+            "mode": answer.mode,
+            "modelId": meta.get("model"),
+            "promptVersion": meta.get("promptVersion"),
+            "indexHash": meta.get("corpusHash"),
+            "chunks": meta.get("retrievedChunks"),
+            "latencyMs": answer.latency_ms,
+            "requestId": answer.request_id,
+            "fallbackUsed": answer.fallback_used,
+        }
+        return {k: v for k, v in status.items() if v is not None}
+
+    def _answer(self, work: "Diagnosis") -> "Answer":
+        """The proposal this diagnosis ends with: the Reasoner's if it passed, else R1's once."""
+        result = None
+        if work.task is not None:
+            if work.task.cancelled() or work.task.exception() is not None:
+                result = ReasonerResult(False, "none", "transport")
+            else:
+                result = work.task.result()
+        if result is None:  # no Reasoner configured: today's R1-only behaviour
+            doc = rules.propose(work.bundle)
+            return Answer(doc, proposal.validate(doc), "rules", {}, None, False, None)
+        if result.ok:
+            # The client has validated the answer; the operator checks it again here, so nothing
+            # reaches the Gate that proposal.py has not accepted, whatever the client says.
+            errors = proposal.validate(result.doc)
+            if errors:
+                result = dataclasses.replace(
+                    result, ok=False, reason="schema_invalid", errors=errors
+                )
+        if not work.counted:
+            METRICS.inc(REASONER_CALLS, result="ok" if result.ok else result.reason)
+            work.counted = True
+        if result.ok:
+            return Answer(
+                result.doc,
+                [],
+                str(result.meta.get("mode") or self.reasoner.mode),
+                result.meta,
+                result,
+                False,
+                result.latency_ms,
+            )
+        if result.reason == "not_redacted":
+            return Answer(None, [], "rules", {}, result, False, None)
+        if not work.fell_back:
+            METRICS.inc(REASONER_FALLBACKS)
+            work.fell_back = True
+        doc = rules.propose(work.bundle)  # R1 once; fallbackUsed = true
+        return Answer(
+            doc, proposal.validate(doc), "rules", {}, result, True, result.latency_ms
+        )
+
+    async def _store(self, uid: str, work: "Diagnosis", answer: "Answer", now) -> None:
+        """Every row of this diagnosis, idempotently: the bundle, a failed Reasoner attempt if
+        there was one, and the proposal that is used (or the invalid one that ended it)."""
+        bundle = work.bundle
+        await self.recorder.record_bundle(
+            bundle["hash"], uid, "evidence/v1", bundle, work.counts, now
+        )
+        result = answer.result
+        if result is not None and not result.ok:
+            reason = result.reason + (f": {result.errors[0]}" if result.errors else "")
+            await self.recorder.record_proposal(
+                proposal.hash_of({"requestId": result.request_id, "failure": reason}),
+                uid,
+                self.reasoner.mode,
+                False,
+                model_id=self.reasoner.model or None,
+                raw_output=result.raw,
+                parsed_proposal=result.doc,
+                latency_ms=result.latency_ms,
+                fallback_used=False,
+                request_id=result.request_id,
+                reject_reason=reason[:500],
+            )
+        meta = answer.meta
+        answer.digest = proposal.hash_of(answer.doc)
+        await self.recorder.record_proposal(
+            answer.digest,
+            uid,
+            answer.mode,
+            not answer.errors,
+            model_id=meta.get("model"),
+            prompt_version=meta.get("promptVersion"),
+            index_hash=meta.get("corpusHash"),
+            retrieved_chunk_ids=meta.get("retrievedChunks") or (),
+            raw_output=result.raw if result is not None and result.ok else None,
+            parsed_proposal=answer.doc,
+            latency_ms=answer.latency_ms,
+            fallback_used=answer.fallback_used,
+            request_id=answer.request_id,
+            reject_reason="; ".join(answer.errors)[:500] or None,
+        )
 
     # ---- Proposed ------------------------------------------------------------------------
     async def _proposed(self, incident: dict) -> None:

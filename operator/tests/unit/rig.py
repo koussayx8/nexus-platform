@@ -33,6 +33,7 @@ class Rig:
         metrics=None,
         recorder=None,
         collector=False,
+        reasoner=None,
     ):
         self.loop = asyncio.new_event_loop()
         self.api = FakeCluster(replicas, level, killswitch)
@@ -54,6 +55,7 @@ class Rig:
             EvidenceCollector(self.api, self.metrics, self.clock)
             if collector
             else None,
+            reasoner,
         )
 
     def call(self, coro):
