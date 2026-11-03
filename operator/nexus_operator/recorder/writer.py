@@ -93,6 +93,8 @@ class Recorder(Protocol):
         parsed_proposal: dict | None = None,
         latency_ms: int | None = None,
         fallback_used: bool = False,
+        request_id: str | None = None,
+        reject_reason: str | None = None,
     ) -> bool: ...
 
     async def record_gate_decision(
@@ -143,6 +145,9 @@ class PostgresRecorder:
     def __init__(self, pool: Any, timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
         self._pool = pool
         self._timeout = timeout_s
+        self._extras = (
+            False  # proposals.request_id / reject_reason exist (see record_proposal)
+        )
 
     async def _run(self, call):
         try:
@@ -233,13 +238,19 @@ class PostgresRecorder:
         parsed_proposal=None,
         latency_ms=None,
         fallback_used=False,
+        request_id=None,
+        reject_reason=None,
     ) -> bool:
-        return await self._insert(
-            "INSERT INTO proposals (proposal_hash, incident_uid, reasoner_mode, model_id,"
-            " prompt_version, index_hash, retrieved_chunk_ids, raw_output, parsed_proposal,"
-            " schema_valid, latency_ms, fallback_used)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)"
-            " ON CONFLICT (proposal_hash) DO NOTHING",
+        """request_id and reject_reason are two columns added to `proposals` after ADR-031
+        (05-schema.sql, ADD COLUMN IF NOT EXISTS). Until a database has them, they are left out
+        of the INSERT, so a new image against an old volume still records everything else."""
+        columns = (
+            "proposal_hash, incident_uid, reasoner_mode, model_id, prompt_version, index_hash,"
+            " retrieved_chunk_ids, raw_output, parsed_proposal, schema_valid, latency_ms,"
+            " fallback_used"
+        )
+        values = "$1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12"
+        args = [
             proposal_hash,
             incident_uid,
             reasoner_mode,
@@ -252,7 +263,28 @@ class PostgresRecorder:
             schema_valid,
             latency_ms,
             fallback_used,
+        ]
+        if await self._has_proposal_extras():
+            columns += ", request_id, reject_reason"
+            values += ", $13, $14"
+            args += [request_id, reject_reason]
+        return await self._insert(
+            f"INSERT INTO proposals ({columns}) VALUES ({values})"
+            " ON CONFLICT (proposal_hash) DO NOTHING",
+            *args,
         )
+
+    async def _has_proposal_extras(self) -> bool:
+        if not self._extras:
+            found = await self._run(
+                self._pool.fetchval(
+                    "SELECT count(*) FROM information_schema.columns"
+                    " WHERE table_name = 'proposals'"
+                    " AND column_name IN ('request_id', 'reject_reason')"
+                )
+            )
+            self._extras = int(found) == 2  # only a True answer is kept
+        return self._extras
 
     async def record_gate_decision(
         self, incident_uid, stage, verdict, detail, at

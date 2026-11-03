@@ -8,7 +8,8 @@ Verifier's metrics source; empty means the Verifier cannot measure, so no repair
 The Writer's keys (recorderHost, recorderPort, recorderDatabase, recorderUser,
 recorderPasswordFile; ADR-031) say where the Flight Recorder DB is and which mounted file holds the
 nexus_writer password; the password is never a ConfigMap value. metricsPort is the /metrics port.
-approvalTTL and reasonerEndpoint stay unread until M3 and M4. A change takes effect at the
+The Reasoner Client reads reasonerEndpoint (empty: off), reasonerMode, reasonerModel and
+reasonerEffort. approvalTTL stays unread until M3. A change takes effect at the
 next operator start.
 """
 
@@ -40,6 +41,12 @@ class Config:
     recorder_user: str = "nexus_writer"
     recorder_password_file: str = "/var/run/nexus/flight-recorder-writer/password"
     metrics_port: int = 9102
+    reasoner_endpoint: str = (
+        ""  # empty: the Reasoner Client is off, Diagnosing is R1 only
+    )
+    reasoner_mode: str = "llm"  # rules | llm | adversarial (the Reasoner's own modes)
+    reasoner_model: str = ""
+    reasoner_effort: str | None = None
 
 
 def _seconds(data: dict, key: str, default: int) -> int:
@@ -101,8 +108,31 @@ def parse(configmap: dict | None) -> Config:
     pw_file = str(data.get("recorderPasswordFile") or "").strip()
     if pw_file and not pw_file.startswith("/"):
         raise ConfigError(f"recorderPasswordFile is not an absolute path: {pw_file!r}")
+    reasoner = str(data.get("reasonerEndpoint") or "").strip().rstrip("/")
+    if reasoner:
+        rp = urllib.parse.urlsplit(reasoner)
+        if (
+            rp.scheme not in ("http", "https")
+            or not rp.hostname
+            or rp.username
+            or rp.query
+        ):
+            raise ConfigError(f"reasonerEndpoint is not an http(s) URL: {reasoner!r}")
+    mode = str(data.get("reasonerMode") or "llm").strip()
+    if mode not in ("rules", "llm", "adversarial"):
+        raise ConfigError(f"reasonerMode is not rules, llm or adversarial: {mode!r}")
+    model = str(data.get("reasonerModel") or "").strip()
+    if reasoner and mode == "llm" and not model:
+        raise ConfigError("reasonerModel is required for reasonerMode llm")
+    effort = str(data.get("reasonerEffort") or "").strip() or None
+    if effort not in (None, "low", "medium", "high"):
+        raise ConfigError(f"reasonerEffort is not low, medium or high: {effort!r}")
     return Config(
         alertmanager_url=url,
+        reasoner_endpoint=reasoner,
+        reasoner_mode=mode,
+        reasoner_model=model,
+        reasoner_effort=effort,
         recorder_host=host,
         recorder_port=port,
         recorder_database=str(data.get("recorderDatabase") or "nexus_recorder").strip(),

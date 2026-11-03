@@ -46,7 +46,7 @@ _PATTERNS: list[tuple[str, re.Pattern, int | None]] = [
         "password",
         re.compile(
             r"(?i)\b[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key"
-            r"|private[_-]?key|credentials?|authorization)[\w.-]*\s*[:=]\s*[\"']?([^\s\"',;&]{3,})"
+            r"|private[_-]?key|credentials?|authorization)[\w.-]*\s*[:=]\s*[\"']?(?!\[REDACTED:)([^\s\"',;&]{3,})"
         ),
         1,
     ),
@@ -131,3 +131,16 @@ def redact_bundle(bundle: dict) -> tuple[dict, dict[str, int]]:
     counts: dict[str, int] = {}
     out = redact(bundle, counts)
     return out, {cls: counts.get(cls, 0) for cls in CLASSES}
+
+
+def unredacted(bundle: dict) -> list[str]:
+    """Classes still found in a bundle that claims to be redacted; empty means it is.
+
+    A second pass over every string. It is idempotent on the operator's own output (the marker
+    `[REDACTED:<class>]` is not itself a match), so any hit is something redaction did not
+    remove. The Reasoner Client refuses to send a bundle with a hit (Q1, defence in depth).
+    """
+    counts: dict[str, int] = {}
+    body = {k: v for k, v in bundle.items() if k not in ("hash", "redaction")}
+    redact(body, counts)
+    return sorted(cls for cls, n in counts.items() if n)

@@ -201,6 +201,7 @@ class FakeRecorder:
         self.verifications: dict[tuple, tuple] = {}
         self.proposals: dict[str, object] = {}
         self.bundles: dict[str, tuple] = {}
+        self.proposal_rows: dict[str, dict] = {}
         self.fail_intent = False
         self.fail_complete = False
         self.fail_all = False
@@ -278,9 +279,28 @@ class FakeRecorder:
         parsed_proposal=None,
         latency_ms=None,
         fallback_used=False,
+        request_id=None,
+        reject_reason=None,
     ):
         self._up()
         self._fk(incident_uid)
+        if proposal_hash in self.proposal_rows:
+            return False
+        self.proposal_rows[proposal_hash] = {
+            "incident_uid": incident_uid,
+            "mode": reasoner_mode,
+            "valid": schema_valid,
+            "model_id": model_id,
+            "prompt_version": prompt_version,
+            "index_hash": index_hash,
+            "chunks": list(retrieved_chunk_ids),
+            "raw_output": raw_output,
+            "parsed": parsed_proposal,
+            "latency_ms": latency_ms,
+            "fallback_used": fallback_used,
+            "request_id": request_id,
+            "reject_reason": reject_reason,
+        }
         self.proposals[proposal_hash] = (
             parsed_proposal if parsed_proposal is not None else (raw_output or "")
         )

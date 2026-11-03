@@ -31,6 +31,7 @@ from .kube import KubeApi, service_account_credentials
 from .model import INCIDENTS, now
 from .mutations import Mutations
 from .poller import Poller
+from .reasoner_client import ReasonerClient
 from .recorder import AuditedClient, ReconnectingRecorder, UnavailableRecorder
 from .verifier import Prometheus, Verifier
 
@@ -52,6 +53,7 @@ class Runtime:
             UnavailableRecorder()
         )
         self.metrics_runner = None
+        self.reasoner: ReasonerClient | None = None
         self.mutations: Mutations | None = None
         self.metrics: Prometheus | None = None
 
@@ -95,6 +97,16 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         detected_timeout_s=cfg.detected_timeout_s, reconcile_s=cfg.reconcile_s
     )
     RUNTIME.metrics = Prometheus(cfg.prometheus_url) if cfg.prometheus_url else None
+    RUNTIME.reasoner = (
+        ReasonerClient(
+            cfg.reasoner_endpoint,
+            mode=cfg.reasoner_mode,
+            model=cfg.reasoner_model,
+            effort=cfg.reasoner_effort,
+        )
+        if cfg.reasoner_endpoint
+        else None
+    )
     if cfg.recorder_host:
         RUNTIME.recorder = ReconnectingRecorder(
             host=cfg.recorder_host,
@@ -121,14 +133,18 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         Verifier(RUNTIME.api, RUNTIME.metrics),
         now,
         EvidenceCollector(RUNTIME.api, RUNTIME.metrics, now),
+        RUNTIME.reasoner,
     )
     logger.info(
-        "act path advisoryChecks=%s breakerEpoch=%d prometheus=%s recorder=%s metricsPort=%d",
+        "act path advisoryChecks=%s breakerEpoch=%d prometheus=%s recorder=%s metricsPort=%d reasoner=%s",
         "on" if cfg.advisory_checks else "off",
         cfg.breaker_epoch,
         "set" if cfg.prometheus_url else "unset",
         f"{cfg.recorder_host}:{cfg.recorder_port}" if cfg.recorder_host else "unset",
         cfg.metrics_port,
+        f"{cfg.reasoner_mode} {cfg.reasoner_endpoint}"
+        if cfg.reasoner_endpoint
+        else "off",
     )
     RUNTIME.loop = reconcile.Loop(RUNTIME.api, timing, act)
     RUNTIME.poller = Poller(RUNTIME.api, cfg.alertmanager_url, cfg.alert_poll_s)
@@ -188,6 +204,8 @@ async def stop(**_) -> None:
         await RUNTIME.poller.close()
     if RUNTIME.metrics_runner is not None:
         await RUNTIME.metrics_runner.cleanup()
+    if RUNTIME.reasoner is not None:
+        await RUNTIME.reasoner.close()
     if hasattr(RUNTIME.recorder, "close"):
         await RUNTIME.recorder.close()
     if RUNTIME.metrics is not None:

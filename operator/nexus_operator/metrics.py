@@ -11,6 +11,8 @@ prefix `nexus_operator_`; labels are reason codes and ids from the spec, never f
   nexus_operator_recorder_errors_total                  Flight Recorder calls that failed
   nexus_operator_recorder_up                            1 while the last recorder call succeeded
   nexus_operator_redactions_total{class}                values scrubbed from evidence bundles
+  nexus_operator_reasoner_calls_total{result}           Reasoner calls: ok or the failure reason
+  nexus_operator_reasoner_fallbacks_total               diagnoses that used the Rules Engine fallback
   nexus_operator_diagnose_seconds_{sum,count}           time from Diagnosing start to Proposed
   nexus_operator_loop_age_seconds{loop}                 seconds since the loop's last finished tick
   nexus_operator_alertmanager_errors                    Alert Poller errors since start (gauge)
@@ -87,6 +89,8 @@ GATE = "nexus_operator_gate_decisions_total"
 ACTIONS = "nexus_operator_actions_total"
 RECORDER_ERRORS = "nexus_operator_recorder_errors_total"
 REDACTIONS = "nexus_operator_redactions_total"
+REASONER_CALLS = "nexus_operator_reasoner_calls_total"
+REASONER_FALLBACKS = "nexus_operator_reasoner_fallbacks_total"
 DIAGNOSE_SUM = "nexus_operator_diagnose_seconds_sum"
 DIAGNOSE_COUNT = "nexus_operator_diagnose_seconds_count"
 for _name, _help in (
@@ -95,6 +99,8 @@ for _name, _help in (
     (ACTIONS, "Mutating requests the Executor sent, by action id and result."),
     (RECORDER_ERRORS, "Flight Recorder calls that failed."),
     (REDACTIONS, "Values scrubbed from evidence bundles, by class."),
+    (REASONER_CALLS, "Reasoner calls, by result: ok or the failure reason."),
+    (REASONER_FALLBACKS, "Diagnoses that used the Rules Engine fallback."),
     (DIAGNOSE_SUM, "Seconds from Diagnosing to Proposed, summed."),
     (DIAGNOSE_COUNT, "Incidents that went from Diagnosing to Proposed."),
 ):
