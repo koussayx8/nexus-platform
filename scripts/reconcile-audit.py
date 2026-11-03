@@ -38,11 +38,15 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCHEMA = "reconciliation/v1"
-REPLICAS_MIN, REPLICAS_MAX, REPLICAS_MAX_STEP = (
-    1,
-    5,
-    2,
-)  # spec §9, the catalogue's bounds
+sys.path.insert(
+    0, str(HERE.parent / "operator")
+)  # nexus_operator: standard library only, as operator_lib.py
+from nexus_operator.catalogue import (
+    REPLICAS_MAX,
+    REPLICAS_MAX_STEP,
+    REPLICAS_MIN,
+)  # the Action Catalogue's bounds (spec section 9): one definition, not a copy
+
 DEFAULT_NAMESPACES = ("nexus-dev",)
 
 

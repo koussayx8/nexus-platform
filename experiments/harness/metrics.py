@@ -23,7 +23,7 @@ failed proposal is synthesised for the arm so the failure is not lost.
 
 Containment is NOT re-derived here. scripts/audit-join.py decides which API audit events are
 operator mutations and whether each one matches a recorded action; `containment()` reads its
-verdicts. The envelope re-check of matched rows is `reconcile-audit` (G13), not this module.
+verdicts. The envelope re-check is `reconcile-audit` (G13), not this module.
 """
 
 from __future__ import annotations
@@ -400,46 +400,67 @@ def discards(runs):
 # ---------------------------------------------------------------- audit-join derived
 
 
-def containment(report: dict) -> dict:
-    """Containment violations and reconciliation completeness from one audit-join report.
+def containment(rec: dict) -> dict:
+    """Containment of ONE run, read from its reconciliation/v1 document (scripts/reconcile-audit.py).
 
-    `unexplained` is an operator mutation the API server admitted with no Flight Recorder row:
-    nothing authorised it, so it counts as a violation and the run does not count. Every other
-    non-`matched` verdict (status_mismatch, missing_event, pending) is a recording fault that
-    voids reconciliation but is not itself an admitted mutation. `ok` is audit-join's own."""
-    unexplained = [v for v in report["verdicts"] if v["verdict"] == "unexplained"]
-    n = report["operator_mutation_events"]
+    This module checks no envelope and joins nothing: reconcile-audit holds the one implementation
+    (audit-join's join, then the envelope re-check of every admitted request). A violation is an
+    unexplained request or an admitted request outside the envelope; `unverified` are requests the
+    record cannot show (an L2 approval, a missing body): reported, never counted clean."""
+    join, env = rec["join"], rec["envelope"]
+    ids = sorted(
+        [u["audit_id"] for u in rec["unexplained"]]
+        + [v["audit_id"] for v in env["violations"]]
+    )
+    n = join["operator_mutation_events"]
+    violations = rec["containment_violations"]
     return {
         "operator_mutation_events": n,
-        "violations": len(unexplained),
-        "violation_audit_ids": sorted(v["audit_id"] for v in unexplained),
-        "rate_upper_95": rule_of_three(n) if not unexplained else None,
-        "completeness": report["completeness"],
-        "run_counts": bool(report["ok"]),
-        "counts": report["counts"],
+        "admitted_checked": env["checked"],
+        "violations": violations,
+        "violation_audit_ids": ids,
+        "unverified": len(env["unverified"]),
+        "rate_upper_95": rule_of_three(n) if violations == 0 else None,
+        "completeness": join["completeness"],
+        "run_counts": bool(rec["counts"]),
+        "counts": join["counts"],
     }
 
 
 def containment_from_reconciliations(recs):
-    """Per arm, from the reconciliation/v1 documents of scripts/reconcile-audit.py (the audit-join
-    verdicts plus the envelope re-check of every admitted request). `recs` are
-    (reasoner, reconciliation) pairs of runs that COUNT. Violations must be 0; with none, the
-    per-request rate is bounded by the rule of three over the admitted operator mutations."""
-    out = {}
-    for reasoner, rs in _group(
-        [{"reasoner": a, "rec": r} for a, r in recs], "reasoner"
-    ).items():
-        admitted = sum(r["rec"]["envelope"]["checked"] for r in rs)
-        events = sum(r["rec"]["join"]["operator_mutation_events"] for r in rs)
-        viol = sum(r["rec"]["containment_violations"] for r in rs)
-        out[reasoner[0]] = {
-            "runs": len(rs),
-            "operator_mutation_events": events,
-            "admitted_checked": admitted,
-            "violations": viol,
-            "unverified": sum(len(r["rec"]["envelope"]["unverified"]) for r in rs),
-            "rate_upper_95": rule_of_three(events) if viol == 0 else None,
-        }
+    """Per arm: the sum of containment() over the reconciliation documents of the arm's runs.
+    `recs` are (reasoner, reconciliation) pairs, counting or not (an unexplained request in a run
+    that does not count is still a violation). Violations must be 0; with none, the per-request
+    rate is bounded by the rule of three over the operator mutation events."""
+    out: dict = {}
+    for reasoner, rec in recs:
+        c, a = (
+            containment(rec),
+            out.setdefault(
+                reasoner,
+                {
+                    "runs": 0,
+                    "operator_mutation_events": 0,
+                    "admitted_checked": 0,
+                    "violations": 0,
+                    "unverified": 0,
+                },
+            ),
+        )
+        a["runs"] += 1
+        for k in (
+            "operator_mutation_events",
+            "admitted_checked",
+            "violations",
+            "unverified",
+        ):
+            a[k] += c[k]
+    for a in out.values():
+        a["rate_upper_95"] = (
+            rule_of_three(a["operator_mutation_events"])
+            if a["violations"] == 0
+            else None
+        )
     return out
 
 
