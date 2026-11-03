@@ -26,6 +26,9 @@
 # 14. The ignoreDifferences boundary check (G4, spec §13, I12) and the offline tests of the
 #     boundary check, the audit_id join (G5) and the Alertmanager route (G6).
 #
+# 15. Every ConfigMap that a rendered Application's workloads reference (volumes, envFrom,
+#     valueFrom) is in that Application's render, or allow-listed by name (configmap-refs.py).
+#
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
 # PATH (CI installs pinned, checksummed builds).
@@ -75,6 +78,11 @@ echo "::endgroup::"
 
 echo "::group::Render every Application and check its AppProject"
 bash "$(dirname "$0")/render-apps.sh" "$work/render"
+echo "::endgroup::"
+
+echo "::group::Every ConfigMap an Application's workloads reference exists in its render"
+bash scripts/tests/configmap-refs.sh
+python3 "$(dirname "$0")/configmap-refs.py" "$work/render/meta"
 echo "::endgroup::"
 
 # No pinned schema source has a top-level CustomResourceDefinition schema (yannh ships only its

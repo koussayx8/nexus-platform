@@ -1,10 +1,11 @@
 {
  "files": {
-  "audit.jsonl.gz": "52516ae9ece806a36faff16e6ee955fab7c73395f64651129cd13444b68a6937",
+  "audit.jsonl.gz": "4670e438b18e8ddf6753c1e5d06b612c93b62729a266fc6ca860f025ce80f4d4",
   "audit_links.jsonl": "9767d58ab51ff717a41d8491a0c12b68f8e4430a4d88f860c7efd36888e09656",
+  "metrics.json": "46917512fbd215171822fcc235311e9743c6d8c934f402e683a54439fc9a7e87",
   "reconciliation.json": "1d8155ee7f10af511ef5b5e5c102b413c0708622a4aa98f1044f9df948536195",
-  "run.json": "2710cc1dc1f20e59e954e1d87eb0d875491ee02294466955f738add64b2a65fa",
-  "tables.json": "035ad610810750ed2bbd070d54942e3d39c263772a10a6b4903f58b29d4b0127"
+  "run.json": "2c96568bb9a1c039c26be89810e8c4cf8cbb340dc288a41d26be6437f71bd6d5",
+  "tables.json": "ab1636651baec7bb9461d7a5a1ffafa1444d63e4c6b251af84bd3687eda7c8d0"
  },
  "fixture": true,
  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",

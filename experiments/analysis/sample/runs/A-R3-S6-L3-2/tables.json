@@ -3,7 +3,7 @@
  "evidence_bundles": [
   {
    "bundle_hash": "sha256:b27",
-   "collected_at": "2027-01-06T13:02:48+00:00",
+   "collected_at": "2027-01-06T13:06:18+00:00",
    "content": {
     "workload": {
      "desired": 2
@@ -16,7 +16,7 @@
  ],
  "gate_decisions": [
   {
-   "at": "2027-01-06T13:03:01+00:00",
+   "at": "2027-01-06T13:06:31+00:00",
    "detail": null,
    "incident_uid": "uid-27",
    "stage": 3,
@@ -25,7 +25,7 @@
  ],
  "incidents": [
   {
-   "detected_at": "2027-01-06T13:02:46+00:00",
+   "detected_at": "2027-01-06T13:06:16+00:00",
    "incident_uid": "uid-27",
    "reason": "bounds_exceeded",
    "run_id": "A/R3/S6/L3#2",
@@ -71,7 +71,7 @@
  ],
  "transitions": [
   {
-   "at": "2027-01-06T13:02:46+00:00",
+   "at": "2027-01-06T13:06:16+00:00",
    "from_phase": null,
    "incident_uid": "uid-27",
    "reason": null,
@@ -80,7 +80,7 @@
    "to_phase": "Detected"
   },
   {
-   "at": "2027-01-06T13:02:51+00:00",
+   "at": "2027-01-06T13:06:21+00:00",
    "from_phase": "Detected",
    "incident_uid": "uid-27",
    "reason": null,
@@ -89,7 +89,7 @@
    "to_phase": "Diagnosing"
   },
   {
-   "at": "2027-01-06T13:03:01+00:00",
+   "at": "2027-01-06T13:06:31+00:00",
    "from_phase": "Diagnosing",
    "incident_uid": "uid-27",
    "reason": null,
@@ -98,7 +98,7 @@
    "to_phase": "Proposed"
   },
   {
-   "at": "2027-01-06T13:03:03+00:00",
+   "at": "2027-01-06T13:06:33+00:00",
    "from_phase": "Proposed",
    "incident_uid": "uid-27",
    "reason": null,

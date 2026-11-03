@@ -617,6 +617,87 @@ class ResultsTest(unittest.TestCase):
             self.assertTrue((pathlib.Path(d) / "r" / "T09.csv").exists())
 
 
+class ExportMetricsTest(unittest.TestCase):
+    """--metrics: the one place the detector comparison's metric windows enter an export (G14)."""
+
+    @staticmethod
+    def doc(**over):
+        pts = [[1800000000.0 + 30 * i, 1.0 + i] for i in range(4)]
+        d = {
+            "namespace": "nexus-dev",
+            "step_s": 30,
+            "signals": {n: [list(p) for p in pts] for n in EXPORT.METRIC_SIGNALS},
+        }
+        d.update(over)
+        return d
+
+    def test_a_valid_window_is_normalised(self):
+        out = EXPORT.metrics_window(self.doc())
+        self.assertEqual(
+            (out["schema"], out["step_s"], out["namespace"]),
+            ("metrics-window/v1", 30, "nexus-dev"),
+        )
+        self.assertEqual(set(out["signals"]), set(EXPORT.METRIC_SIGNALS))
+        self.assertEqual(out["signals"]["cpu"][1], [1800000030.0, 2.0])
+
+    def test_bad_windows_are_refused(self):
+        bad = {
+            "missing signal": self.doc(
+                signals={n: [[1.0, 1.0]] for n in EXPORT.METRIC_SIGNALS[:-1]}
+            ),
+            "extra signal": self.doc(
+                signals={**self.doc()["signals"], "memory": [[1.0, 1.0]]}
+            ),
+            "empty": self.doc(signals={**self.doc()["signals"], "cpu": []}),
+            "nan": self.doc(
+                signals={**self.doc()["signals"], "cpu": [[1.0, float("nan")]]}
+            ),
+            "inf time": self.doc(
+                signals={**self.doc()["signals"], "cpu": [[float("inf"), 1.0]]}
+            ),
+            "not increasing": self.doc(
+                signals={**self.doc()["signals"], "cpu": [[2.0, 1.0], [2.0, 1.0]]}
+            ),
+            "not a pair": self.doc(signals={**self.doc()["signals"], "cpu": [[1.0]]}),
+            "bool": self.doc(signals={**self.doc()["signals"], "cpu": [[1.0, True]]}),
+            "step": self.doc(step_s=0),
+        }
+        for name, doc in bad.items():
+            with self.assertRaises(EXPORT.ExportError, msg=name):
+                EXPORT.metrics_window(doc)
+
+    def test_export_writes_and_seals_metrics_json_for_valid_runs_only(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = pathlib.Path(t)
+            kw = make_queue_run(t)
+            (t / "metrics.json").write_text(json.dumps(self.doc()))
+            d = EXPORT.export(**kw, metrics=t / "metrics.json")
+            self.assertTrue((d / "metrics.json").exists())
+            man = json.loads((d / "MANIFEST.json").read_text())
+            self.assertEqual(
+                man["files"]["metrics.json"], EXPORT.sha256(d / "metrics.json")
+            )
+        with tempfile.TemporaryDirectory() as t:
+            t = pathlib.Path(t)
+            kw = make_queue_run(t, status="void")
+            (t / "metrics.json").write_text(json.dumps(self.doc()))
+            d = EXPORT.export(**kw, metrics=t / "metrics.json")
+            self.assertFalse(
+                (d / "metrics.json").exists()
+            )  # a void attempt carries no windows
+
+    def test_a_bad_window_refuses_the_export_command(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = pathlib.Path(t)
+            kw = make_queue_run(t)
+            (t / "metrics.json").write_text(json.dumps(self.doc(step_s=-1)))
+            argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
+                    "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
+                    "--out", str(kw["out_dir"]), "--metrics", str(t / "metrics.json")]  # fmt: skip
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(EXPORT.main(argv), 2)
+
+
 class FixtureMarkerTest(unittest.TestCase):
     """Everything built from fixture runs says so, on the table or the figure itself."""
 

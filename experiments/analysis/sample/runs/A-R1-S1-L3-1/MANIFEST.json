@@ -1,11 +1,12 @@
 {
  "files": {
-  "audit.jsonl.gz": "10c12045940467fca8a56e973ca61b03228e53d5c708aaf809d88eafa2084dd4",
+  "audit.jsonl.gz": "f5fe06b75b9699acb703282657375e5440f6335286f5c8d1756d619d74f814e4",
   "audit_links.jsonl": "bcf8831117f00f3f8188ef51e3442fee67038200df6478a77f4d8b35a1605df6",
   "k8sgpt.json": "f9f2899a4959a3eae96ea64e1ed46dcf49466cefde26c671439623ecacac39d1",
+  "metrics.json": "a53a6590dc02dfbf17800320e2d5f3b3f03c7af7552434163bc00e5cc1dcf279",
   "reconciliation.json": "d818c4db73531aafcbefd7b85737d3a92fb2fc79367430bd0a52e5fea7fda1cc",
-  "run.json": "e8e2321f38fa21df5190b10eb2eb2d939f0a8004e77b24d039084e926da7afcb",
-  "tables.json": "4e07ab2da2c6250cba3b66b2048786247b1adf9243225bded3fea39ad149e79f"
+  "run.json": "26044ebcb64f573658bf0f94bb0eff0bee56d7d2adbf22cacb2e81d46f38e85d",
+  "tables.json": "ce0431676240df018b7994439862babab972c1a7cb39caa207d12947a5060a19"
  },
  "fixture": true,
  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
