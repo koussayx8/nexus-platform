@@ -1,5 +1,6 @@
 """Offline tests for arms.py and runner.py (fake exec: no cluster, no network)."""
 
+import json
 import unittest
 
 from .. import arms, runner
@@ -141,6 +142,35 @@ class RunnerTest(unittest.TestCase):
             "chore(exp): reset to baseline",
             flat[3] if "commit" in flat[3] else " ".join(flat),
         )
+
+    def test_operator_config_patch_then_restart_then_wait(self):
+        r, _ = self.runner()
+        steps = r.plan_operator_config("off", 1_800_000_000)
+        flat = [" ".join(s.argv) for s in steps]
+        self.assertIn(
+            "-n nexus-system patch configmap nexus-operator-config --type merge -p",
+            flat[0],
+        )
+        self.assertEqual(
+            json.loads(flat[0].split(" -p ", 1)[1]),
+            {"data": {"advisoryChecks": "off", "breakerEpoch": "1800000000"}},
+        )
+        self.assertTrue(flat[1].endswith("rollout restart deployment/nexus-operator"))
+        self.assertTrue(
+            flat[2].endswith("rollout status deployment/nexus-operator --timeout=180s")
+        )
+        for bad in (("maybe", 1), ("on", -1), ("on", "1")):
+            with self.assertRaises(ValueError):
+                r.plan_operator_config(*bad)
+
+    def test_reset_sets_breaker_epoch_last_and_only_when_asked(self):
+        r, _ = self.runner(locust="http://l")
+        self.assertFalse(any("configmap" in " ".join(s.argv) for s in r.plan_reset(3)))
+        flat = [" ".join(s.argv) for s in r.plan_reset(3, breaker_epoch=5)]
+        self.assertIn(
+            "autonomy-level=3", flat[-4]
+        )  # the level label, then the config steps
+        self.assertIn("patch configmap", flat[-3])
 
     def test_refresh_annotates_without_sync(self):
         r, _ = self.runner()
