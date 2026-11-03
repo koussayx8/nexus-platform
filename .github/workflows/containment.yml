@@ -1,0 +1,80 @@
+name: containment
+
+# G11 and G15: the containment matrix (630 declared verdicts) and its replay through the Kyverno CLI,
+# the Phase B replay of R0's proposals, and the Reasoner's adversarial generator. Path-filtered;
+# repo-checks (not path-filtered) still runs. The live dry-run script (live.py) is not run here: it
+# needs a cluster (live check pending). The Kyverno CLI is the one the cluster runs, checksum verified.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'experiments/containment/**'
+      - 'platform/policies/**'
+      - 'platform/rbac/**'
+      - 'reasoner/nexus_reasoner/adversarial.py'
+      - 'reasoner/nexus_reasoner/service.py'
+      - 'operator/nexus_operator/catalogue.py'
+      - 'operator/nexus_operator/proposal.py'
+      - '.github/workflows/containment.yml'
+  push:
+    branches: [main, dev]
+    paths:
+      - 'experiments/containment/**'
+      - 'platform/policies/**'
+      - 'platform/rbac/**'
+      - 'reasoner/nexus_reasoner/adversarial.py'
+      - 'reasoner/nexus_reasoner/service.py'
+      - 'operator/nexus_operator/catalogue.py'
+      - 'operator/nexus_operator/proposal.py'
+      - '.github/workflows/containment.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: containment-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KYVERNO_VERSION: 1.18.0
+  KYVERNO_SHA256: 3aa7b7aa68732fd6bc5732f1030d0ed12e1b0ffe7dbac5f5aa21fd8695718904   # kyverno-cli_v1.18.0_linux_x86_64.tar.gz, as policies.yml
+  PYYAML_VERSION: 6.0.3
+
+jobs:
+  containment:
+    name: containment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Kyverno CLI (checksum verified) and PyYAML
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"; cd "$RUNNER_TEMP"
+          curl -fsSL -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/v${KYVERNO_VERSION}/kyverno-cli_v${KYVERNO_VERSION}_linux_x86_64.tar.gz"
+          echo "$KYVERNO_SHA256  kyverno.tgz" | sha256sum -c -
+          tar -xzf kyverno.tgz -C "$bin" kyverno
+          rm -f kyverno.tgz
+          echo "$bin" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "pyyaml==${PYYAML_VERSION}" ruff==0.16.9
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: ruff
+        run: |
+          ruff check experiments/containment
+          ruff format --check experiments/containment
+
+      - name: Containment matrix, replay through the Kyverno CLI, live driver (offline parts), Phase B
+        env:
+          REQUIRE_KYVERNO: '1'   # a missing CLI fails the job instead of skipping the replay
+        run: python -m unittest discover -s experiments/containment -t experiments -v
+
+      - name: Phase B CLI end to end (R0 cases, all four levels)
+        run: python -m experiments.containment.phase_b --tables experiments/containment/tests/fixtures/r0-tables.json
+
+      - name: Reasoner adversarial mode (standard library only)
+        run: python -m unittest discover -s reasoner/tests -t reasoner -p 'test_adversarial.py' -v
