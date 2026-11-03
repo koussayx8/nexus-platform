@@ -451,6 +451,29 @@ def false_alarms(no_fault_runs):
     return proportion(k, len(no_fault_runs))
 
 
+def pre_check_windows(runs):
+    """False alarms seen in the pre-check windows of the batch's run records (`no_fault`, written by
+    batch.LiveRun: the Nexus alerts and the Incidents that appeared while nothing was injected).
+    Per arm: windows with an Incident, and windows with a pending or firing Nexus alert. A window
+    whose alert query got no answer (`alerts` null) is counted as unknown, never as clean."""
+    out = {}
+    for (reasoner,), rs in _group(
+        [r for r in runs if r.get("no_fault")], "reasoner"
+    ).items():
+        known = [r for r in rs if r["no_fault"]["alerts"] is not None]
+        out[reasoner] = {
+            "windows": len(rs),
+            "with_incident": proportion(
+                sum(1 for r in rs if r["no_fault"]["incidents"]), len(rs)
+            ),
+            "with_alert": proportion(
+                sum(1 for r in known if r["no_fault"]["alerts"]), len(known)
+            ),
+            "alerts_unknown": len(rs) - len(known),
+        }
+    return out
+
+
 # ---------------------------------------------------------------- retrieval
 
 
