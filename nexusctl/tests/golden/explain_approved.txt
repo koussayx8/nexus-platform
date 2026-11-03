@@ -1,0 +1,22 @@
+INCIDENT     inc-s2-run0042   nexus-dev/sample-api   level L2   phase AwaitingApproval (proposed_escalation)
+DETECTION    NexusCpuAnomaly   source detector   requester system:serviceaccount:nexus-system:nexus-operator   detected 2026-10-14T09:12:03Z
+EVIDENCE     bundle sha256:9e41   record 118   redactions 3
+RETRIEVAL    index sha256:77c0   chunks rb-s2#2, rb-s2#1
+SAFETY GATE  verdict requires_approval   first failing stage none   dry run allowed
+APPROVAL     approved by approver-1 at 2026-10-14T09:13:40Z   expires 2026-10-14T09:27:03Z   pinned sha256:ab12
+ENFORCEMENT  no mutation attempted
+VERIFICATION not recorded
+RESULT       AwaitingApproval (proposed_escalation)
+FLIGHT REC.  not available: the Flight Recorder reader is not part of this build
+AUDIT LOG    not available: the API Audit Log reader is not part of this build
+
++-- UNTRUSTED: PROPOSAL (model or evidence text; never a decision) ----
+| action: scale_deployment
+| parameters: {'replicas': 4}
+| hash: sha256:ab12
+| faultClass: cpu_saturation
+| abstain: False
+| hypothesis: CPU saturation on sample-api
+| model: openai/gpt-oss-120b
+| prompt: p-1.2
++----------

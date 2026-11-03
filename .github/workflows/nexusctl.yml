@@ -1,0 +1,50 @@
+name: nexusctl
+
+# Spec §19 "nexusctl" workflow: ruff, mypy (strict) and pytest for nexusctl and nexus-client
+# (sanitisation against S6 strings and escape sequences, approval pinning, exit codes, snapshot
+# of the explain view). Path-filtered; the package build joins when nexusctl is first released.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths: ['nexusctl/**', 'libs/nexus-client/**', 'platform/crds/**', '.github/workflows/nexusctl.yml']
+  push:
+    branches: [main, dev]
+    paths: ['nexusctl/**', 'libs/nexus-client/**', 'platform/crds/**', '.github/workflows/nexusctl.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexusctl-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nexusctl:
+    name: nexusctl
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install (the runner's Python 3.12)
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: ruff
+        run: ruff check libs/nexus-client nexusctl
+
+      - name: mypy (strict)
+        run: |
+          (cd libs/nexus-client && mypy src tests)
+          (cd nexusctl && mypy src)
+
+      - name: pytest
+        run: |
+          pytest -q libs/nexus-client
+          pytest -q nexusctl

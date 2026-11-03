@@ -1,0 +1,76 @@
+# K6 nexus-incident-source (spec §11). Who may create which kind of Incident, and who the
+# Incident says created it. Tests: tests/k6.
+#   stamp-requester     source.requester comes from the request identity; a client value is
+#                       overwritten. CREATE only: C1 freezes spec.source afterwards.
+#   detector-operator   source.type detector only from nexus-operator (or nexus-baseline).
+#   human-approvers     source.type human only from group nexus-approvers.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-incident-source
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/spec: "§11 K6"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: stamp-requester
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE]
+      mutate:
+        patchStrategicMerge:
+          spec:
+            source:
+              requester: "{{ request.userInfo.username }}"
+    - name: detector-operator
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.source.type || '' }}"
+            operator: Equals
+            value: detector
+      validate:
+        failureAction: Enforce
+        message: >-
+          K6 nexus-incident-source: source.type detector may only be created by nexus-operator
+          (request identity: {{ request.userInfo.username }}).
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.userInfo.username }}"
+                operator: AnyNotIn
+                value:
+                  - system:serviceaccount:nexus-system:nexus-operator
+                  - system:serviceaccount:nexus-system:nexus-baseline
+    - name: human-approvers
+      match:
+        any:
+          - resources:
+              kinds: [nexus.io/v1alpha1/Incident]
+              operations: [CREATE]
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.source.type || '' }}"
+            operator: Equals
+            value: human
+      validate:
+        failureAction: Enforce
+        message: >-
+          K6 nexus-incident-source: source.type human may only be created by group nexus-approvers
+          (request identity: {{ request.userInfo.username }}).
+        deny:
+          conditions:
+            all:
+              - key: nexus-approvers
+                operator: AnyNotIn
+                value: "{{ request.userInfo.groups || `[]` }}"

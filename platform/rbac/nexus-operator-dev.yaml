@@ -1,0 +1,92 @@
+# The operator's act-path RBAC, nexus-dev ONLY (M2; spec §11 rows "nexus-dev, nexus-prod only"
+# and the cluster reads, staged). nexus-prod stays unbound: its rights come in M3 with Kyverno in
+# Enforce, so a mutation there is refused by RBAC before any policy is asked. The two mutating
+# rights are exactly deployments/scale (get, patch, update) and pods/eviction (create).
+# Still denied by omission (§11): delete anywhere, patch on Incident spec or metadata, writes to
+# namespaces, ConfigMaps, Secrets, RBAC or policies, and impersonate, bind, escalate.
+# The reads the Gate, Executor, Verifier and Evidence Collector use are §11's cluster-wide read
+# row, in the ClusterRole nexus-operator-evidence below (ADR-034): read-only, so an Incident in
+# nexus-prod or nexus-data can be diagnosed and recommended without any right to change them.
+# Tested on envtest by operator/tests/envtest/ (RBAC boundary) and by the unit test
+# operator/tests/unit/test_rbac_manifest.py, which fails if this file widens.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-operator-act
+  namespace: nexus-dev
+rules:
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-operator-act
+  namespace: nexus-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-operator-act
+subjects:
+  - kind: ServiceAccount
+    name: nexus-operator
+    namespace: nexus-system
+---
+# Sync revision and health for the evidence bundle (§11): read-only, in argocd.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-operator-applications
+  namespace: argocd
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-operator-applications
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-operator-applications
+subjects:
+  - kind: ServiceAccount
+    name: nexus-operator
+    namespace: nexus-system
+---
+# §11 "Cluster (read)": get, list, watch on pods, pods/log, events, services, endpoints, namespaces,
+# deployments, replicasets and endpointslices. Namespaces are already in nexus-operator-namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-operator-evidence
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events, services, endpoints]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-operator-evidence
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-operator-evidence
+subjects:
+  - kind: ServiceAccount
+    name: nexus-operator
+    namespace: nexus-system

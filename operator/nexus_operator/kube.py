@@ -2,7 +2,10 @@
 
 It uses the operator identity only: the in-cluster ServiceAccount token, read again on every
 request because the kubelet rotates it. Every call it makes is in the staged §11 RBAC:
-incidents get/list/create, incidents/status patch, namespaces get, and get on the two ConfigMaps.
+incidents get/list/create, incidents/status patch, namespaces get, and get on the two ConfigMaps;
+for the act path (M2), reads of pods and deployments in nexus-dev (platform/rbac/nexus-operator-dev.yaml).
+The two mutating requests, Scale and Eviction, are not here: they go through the recorder
+package's AuditedClient, so every one returns its Audit-Id (mutations.py).
 """
 
 import dataclasses
@@ -41,6 +44,11 @@ class ApiError(Exception):
     def __init__(self, status: int, method: str, url: str, message: str = "") -> None:
         super().__init__(f"{method} {url}: HTTP {status} {message}".rstrip())
         self.status = status
+
+
+# What a call to the API server (or Prometheus) can raise: HTTP errors, transport errors, timeouts
+# and undecodable bodies. Callers that must fail closed catch this, not Exception.
+TRANSPORT_ERRORS = (aiohttp.ClientError, TimeoutError, OSError, ValueError)
 
 
 class Conflict(ApiError):
@@ -119,6 +127,60 @@ class KubeApi:
     async def get_configmap(self, name: str) -> dict | None:
         return await self._call(
             "GET", f"{self._server}/api/v1/namespaces/{NAMESPACE}/configmaps/{name}"
+        )
+
+    async def get_deployment(self, namespace: str, name: str) -> dict | None:
+        return await self._call(
+            "GET",
+            f"{self._server}/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+        )
+
+    async def list_pods(self, namespace: str, selector: str) -> list[dict]:
+        body = await self._call(
+            "GET",
+            f"{self._server}/api/v1/namespaces/{namespace}/pods",
+            params={"labelSelector": selector},
+        )
+        return (body or {}).get("items", [])
+
+    async def list_events(self, namespace: str) -> list[dict]:
+        body = await self._call(
+            "GET", f"{self._server}/api/v1/namespaces/{namespace}/events"
+        )
+        return (body or {}).get("items", [])
+
+    async def list_replicasets(self, namespace: str, selector: str) -> list[dict]:
+        body = await self._call(
+            "GET",
+            f"{self._server}/apis/apps/v1/namespaces/{namespace}/replicasets",
+            params={"labelSelector": selector},
+        )
+        return (body or {}).get("items", [])
+
+    async def get_application(self, name: str) -> dict | None:
+        return await self._call(
+            "GET",
+            f"{self._server}/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/{name}",
+        )
+
+    async def pod_log(
+        self, namespace: str, pod: str, *, previous: bool, tail: int
+    ) -> str | None:
+        """The last `tail` log lines of a pod's containers' log, or None (no log, e.g. no previous)."""
+        headers = {"Authorization": f"Bearer {self._credentials().token}"}
+        params = {"tailLines": str(tail), "previous": "true" if previous else "false"}
+        url = f"{self._server}/api/v1/namespaces/{namespace}/pods/{pod}/log"
+        async with self._session.get(url, headers=headers, params=params) as r:
+            if r.status in (400, 404):
+                return None  # no previous container, or the pod is gone
+            if r.status >= 400:
+                raise ApiError(r.status, "GET", url, (await r.text())[:200])
+            return await r.text()
+
+    async def get_scale(self, namespace: str, name: str) -> dict | None:
+        return await self._call(
+            "GET",
+            f"{self._server}/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale",
         )
 
     async def close(self) -> None:

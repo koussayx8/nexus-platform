@@ -1,0 +1,50 @@
+# NetworkPolicies for nexus-load (spec §18, ADR-033). Locust. Closes the unauthenticated Locust master API (TASKS.md Later, M1b-9 L1).
+---
+# Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: nexus-load
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Workers reach the master on 5557; Locust reaches sample-api on 8000 and DNS. The web UI (8089) has
+# no ingress rule: the runner reaches it through kubectl port-forward only (spec §18).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: locust-internal
+  namespace: nexus-load
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: locust}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: locust}}
+      ports:
+        - {protocol: TCP, port: 5557}
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: locust, app.kubernetes.io/component: master}}
+      ports:
+        - {protocol: TCP, port: 5557}
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-dev}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: sample-api}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-prod}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: sample-api}}
+      ports:
+        - {protocol: TCP, port: 8000}

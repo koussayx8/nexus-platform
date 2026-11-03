@@ -90,6 +90,7 @@ class FakeApi:
         obj = {
             "metadata": {
                 "name": name,
+                "uid": f"uid-{name}",
                 "creationTimestamp": iso(created),
                 "resourceVersion": self._next_rv(),
                 "labels": labels or {},

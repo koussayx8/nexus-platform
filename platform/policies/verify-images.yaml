@@ -1,0 +1,42 @@
+# verifyImages for NEXUS images (spec §19 "SHOULD, in Audit mode first"; ADR-017). Keyless Cosign:
+# the signer must be a NEXUS workflow on refs/heads/main, issued by GitHub Actions. Audit only: a
+# failed verification is reported, never blocks (failurePolicy Ignore, failureAction Audit), so
+# this policy cannot stop a rollout. Moving to Enforce is a later, separate commit.
+# Not testable offline: verification needs the registry and the transparency log. Live check
+# pending: kubectl get events / the admission audit log for the nexus-verify-images rule after
+# the first sync.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-verify-images
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-017"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Ignore
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-nexus-images
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              operations: [CREATE, UPDATE]
+      verifyImages:
+        - type: Cosign
+          failureAction: Audit
+          imageReferences:
+            - "ghcr.io/koussayx8/nexus-platform/*"
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subjectRegExp: '^https://github\.com/koussayx8/nexus-platform/\.github/workflows/(ci|operator)\.yml@refs/heads/main$'
+                    rekor:
+                      url: https://rekor.sigstore.dev

@@ -1,0 +1,50 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: k6-operator
+policies:
+- ../../../k6-incident-source.yaml
+resources:
+- resources.yaml
+variables: values.yaml
+userinfo: userinfo.yaml
+results:
+- policy: nexus-incident-source
+  rule: detector-operator
+  resources:
+  - detector-ok
+  kind: Incident
+  result: pass
+- policy: nexus-incident-source
+  rule: detector-operator
+  resources:
+  - detector-forged-requester
+  kind: Incident
+  result: pass
+- policy: nexus-incident-source
+  rule: human-approvers
+  resources:
+  - human-by-operator
+  kind: Incident
+  result: fail
+- policy: nexus-incident-source
+  rule: detector-operator
+  resources:
+  - human-by-operator
+  kind: Incident
+  result: skip
+- policy: nexus-incident-source
+  rule: stamp-requester
+  resources:
+  - detector-ok
+  kind: Incident
+  result: pass
+  patchedResources: patched-detector-ok.yaml
+- policy: nexus-incident-source
+  rule: stamp-requester
+  resources:
+  - detector-forged-requester
+  kind: Incident
+  result: pass
+  patchedResources: patched-detector-forged-requester.yaml

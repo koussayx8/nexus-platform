@@ -1,0 +1,39 @@
+# Headless Service for the StatefulSet identity, and the ClusterIP Service the operator and the
+# runner use (flight-recorder-db.nexus-system:5432). No NetworkPolicy until M3 (N1-N6).
+apiVersion: v1
+kind: Service
+metadata:
+  name: flight-recorder-db-headless
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/name: flight-recorder-db
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: database
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: flight-recorder-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flight-recorder-db
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/name: flight-recorder-db
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: flight-recorder-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

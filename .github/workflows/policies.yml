@@ -1,0 +1,65 @@
+name: policies
+
+# Spec §19 "platform" workflow, M3 part: `kyverno test` in both directions for K1-K6 (spec §11),
+# and the offline checks on the policies and the NetworkPolicies. Path-filtered; repo-checks
+# (not path-filtered) still runs kustomize build and kubeconform over the same files.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'platform/policies/**'
+      - 'platform/network/**'
+      - 'scripts/tests/policies-offline.py'
+      - 'scripts/tests/network-offline.py'
+      - '.github/workflows/policies.yml'
+  push:
+    branches: [main, dev]
+    paths:
+      - 'platform/policies/**'
+      - 'platform/network/**'
+      - 'scripts/tests/policies-offline.py'
+      - 'scripts/tests/network-offline.py'
+      - '.github/workflows/policies.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: policies-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KYVERNO_VERSION: 1.18.0       # the Kyverno the cluster runs (chart 3.8.0, ADR-015)
+  KYVERNO_SHA256: 3aa7b7aa68732fd6bc5732f1030d0ed12e1b0ffe7dbac5f5aa21fd8695718904   # kyverno-cli_v1.18.0_linux_x86_64.tar.gz, from the release's checksums.txt
+  PYYAML_VERSION: 6.0.2
+
+jobs:
+  policies:
+    name: policies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Kyverno CLI (checksum verified)
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"; cd "$RUNNER_TEMP"
+          curl -fsSL -o kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/v${KYVERNO_VERSION}/kyverno-cli_v${KYVERNO_VERSION}_linux_x86_64.tar.gz"
+          echo "$KYVERNO_SHA256  kyverno.tgz" | sha256sum -c -
+          tar -xzf kyverno.tgz -C "$bin" kyverno
+          rm -f kyverno.tgz
+          echo "$bin" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "pyyaml==${PYYAML_VERSION}"
+
+      - name: kyverno test (K1-K6, both directions)
+        run: kyverno test platform/policies/tests
+
+      - name: Policy structure and coverage (offline)
+        run: $RUNNER_TEMP/venv/bin/python scripts/tests/policies-offline.py
+
+      - name: NetworkPolicy reachability model (offline, N1-N5)
+        run: $RUNNER_TEMP/venv/bin/python scripts/tests/network-offline.py

@@ -1,0 +1,45 @@
+# K4 nexus-killswitch (spec §11). Deny every NEXUS mutation unless ConfigMap nexus-killswitch has
+# data.state "active". A missing ConfigMap (or a missing key) denies. Compensation is a mutation
+# too, so a halt stops it as well (§16A). Tests: platform/policies/tests/k4.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-killswitch
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/spec: "§11 K4"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: killswitch-active
+      match:
+        any:
+          - resources:
+              kinds: [Deployment/scale, Pod/eviction]
+              operations: [CREATE, UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: AnyIn
+            value:
+              - system:serviceaccount:nexus-system:nexus-operator
+              - system:serviceaccount:nexus-system:nexus-baseline
+      context:
+        - name: killswitchState
+          apiCall:
+            urlPath: /api/v1/namespaces/nexus-system/configmaps/nexus-killswitch
+            jmesPath: "data.state || 'missing'"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K4 nexus-killswitch: the Kill Switch state is '{{ killswitchState }}', not 'active';
+          every NEXUS mutation is refused.
+        deny:
+          conditions:
+            all:
+              - key: "{{ killswitchState }}"
+                operator: NotEquals
+                value: active

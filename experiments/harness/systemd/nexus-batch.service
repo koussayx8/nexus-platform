@@ -1,0 +1,42 @@
+# NEXUS M4 unattended batch (re-plan "Unattended runs"). A user unit for the WSL2 distro.
+# NOT installed by the repository: installing and enabling it is the owner's step, after the
+# pre-registration (G16) names the approval reference. Owner setup, once:
+#
+#   1. Edit the three paths and the approval reference below (the placeholder is refused).
+#   2. cp nexus-batch.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#   3. loginctl enable-linger "$USER"      # start at WSL start, not at first login (needs sudo)
+#   4. systemctl --user enable --now nexus-batch.service
+#   5. Windows side: start WSL at logon and keep sleep off overnight.
+#
+# After a WSL2 reboot systemd starts the unit again; `run` voids the run the reboot cut off
+# (boot_id_changed) and the cell requeues it. Stop between runs: touch "$STATE/STOP".
+[Unit]
+Description=NEXUS M4 batch runner (queue in %h/nexus-batch)
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/nexus-platform
+Environment=PYTHONUNBUFFERED=1
+# Replace with the reference the G16 pre-registration names; `batch run` refuses the placeholder.
+Environment=NEXUS_APPROVAL_REF=REPLACE_WITH_G16_APPROVAL_REF
+ExecStart=/usr/bin/python3 -m experiments.harness.batch run \
+  --state %h/nexus-batch \
+  --approval-ref ${NEXUS_APPROVAL_REF} \
+  --context REPLACE_WITH_CONTEXT \
+  --locust REPLACE_WITH_LOCUST_URL \
+  --git-dir %h/nexus-experiment-clone \
+  --execute
+# Exit 0: queue finished or STOP file. Exit 2: refused. Exit 3: stopped by an error, recorded in the
+# queue; do not restart unattended. Anything else (a crash, a kill, a reboot) restarts the unit.
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=2 3
+SuccessExitStatus=0
+# No secret is in this file: kubectl uses the owner's own kubeconfig, which the unit does not read
+# or print. The runner uses no model provider key.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

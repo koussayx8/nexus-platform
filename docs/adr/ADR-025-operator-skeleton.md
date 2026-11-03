@@ -293,3 +293,20 @@ code of image `ef3c6955`:
    not NEXUS; NEXUS's own guards (kill switch, L0) were in the pre-fault check.
 
 **Still open.** The S5 pin guard is removed or re-pinned through an ADR (`TASKS.md`).
+
+## Addendum (2026-10-16, M2 start): the S5 pin guard is removed
+- **What S5 was graded on.** The four rule-defining paths at `d351d964f2a50ffd07916e69f30e6c067e567cb9` (#79's
+  head):
+  - `platform/observability/alerts/kustomization.yaml`;
+  - `platform/observability/alerts/nexus-detection.yaml`;
+  - `platform/observability/tests/nexus-detection.test.yaml`;
+  - `scripts/tests/promtool-rules.sh`.
+
+  `git diff --quiet` of the pin against the graded `main` `01838a4e53c8161017cad09af277a09e921eea0a` and against
+  `v0.3.0` (`86cea844dff5dac8cbd3f61f57a3ffc94aac2838`) exits 0 for those four paths (read 2026-10-16).
+- **The guard is removed** (owner, 2026-10-16). Removed: `repo-checks.sh` step 9 (its number is kept, so step 10
+  keeps its name), `scripts/lib/s5-pin-guard.sh` and `scripts/tests/s5-pin-guard.sh`. From now on, the four
+  paths change through ordinary reviewed pull requests.
+- **Any S5 re-run** either deploys `v0.3.0` or pre-registers the rule revision it runs, with the full SHA, in a
+  decision gate. The S5 record above stays bound to `d351d964`.
+- This closes "Still open" above.

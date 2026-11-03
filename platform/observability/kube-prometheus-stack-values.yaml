@@ -60,6 +60,55 @@ prometheus:
 # Alertmanager
 # ------------------------------------------------------------------------------
 alertmanager:
+  # G6 (spec §3): "Alertmanager groups by nexus_target". There is no NEXUS receiver: the operator
+  # polls the v2 API for active alerts, so the receiver stays "null". `config` replaces the chart's
+  # default wholesale, so the rest is that default, copied from kube-prometheus-stack 86.2.2
+  # (values.yaml, alertmanager.config). The only addition is the second route: every alert that
+  # carries nexus_target is grouped by it, and any other alert keeps the chart's group_by.
+  config:
+    global:
+      resolve_timeout: 5m
+    inhibit_rules:
+      - source_matchers:
+          - 'severity = critical'
+        target_matchers:
+          - 'severity =~ warning|info'
+        equal:
+          - 'namespace'
+          - 'alertname'
+      - source_matchers:
+          - 'severity = warning'
+        target_matchers:
+          - 'severity = info'
+        equal:
+          - 'namespace'
+          - 'alertname'
+      - source_matchers:
+          - 'alertname = InfoInhibitor'
+        target_matchers:
+          - 'severity = info'
+        equal:
+          - 'namespace'
+      - target_matchers:
+          - 'alertname = InfoInhibitor'
+    route:
+      group_by: ['namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'null'
+      routes:
+        - receiver: 'null'
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: 'null'
+          matchers:
+            - nexus_target =~ ".+"
+          group_by: ['nexus_target']
+    receivers:
+      - name: 'null'
+    templates:
+      - '/etc/alertmanager/config/*.tmpl'
   alertmanagerSpec:
     resources:
       limits:
@@ -79,6 +128,15 @@ grafana:
     existingSecret: grafana-admin
     userKey: admin-user
     passwordKey: admin-password
+  # The Flight Recorder datasource password (ADR-031): the Secret monitoring/flight-recorder-reader
+  # is made by scripts/flight-recorder-secrets.sh. optional: Grafana still starts without it; only
+  # that datasource then fails to authenticate.
+  envValueFrom:
+    FR_READER_PASSWORD:
+      secretKeyRef:
+        name: flight-recorder-reader
+        key: password
+        optional: true
   # M1b-3 (ADR-016 addendum). Basis, M1-5 run 1 (2026-09-27): with one dashboard open, the
   # container was throttled in 99 % of CFS periods at the 200m limit, the working set grew
   # 270 -> 483 MiB of 512 MiB, the readiness probe (chart default: no timeout, so 1 s) failed 123

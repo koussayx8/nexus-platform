@@ -1,0 +1,115 @@
+{
+ "actions": [],
+ "evidence_bundles": [
+  {
+   "bundle_hash": "sha256:b25",
+   "collected_at": "2027-01-06T11:02:48+00:00",
+   "content": {
+    "workload": {
+     "desired": 2
+    }
+   },
+   "incident_uid": "uid-25",
+   "redaction_counts": {},
+   "schema_version": "evidence/v1"
+  }
+ ],
+ "gate_decisions": [
+  {
+   "at": "2027-01-06T11:03:01+00:00",
+   "detail": null,
+   "incident_uid": "uid-25",
+   "stage": 7,
+   "verdict": "pass"
+  }
+ ],
+ "incidents": [
+  {
+   "detected_at": "2027-01-06T11:02:46+00:00",
+   "incident_uid": "uid-25",
+   "reason": "proposed_escalation",
+   "run_id": "A/R3/S5/L3#2",
+   "source": "detector",
+   "target": "nexus-dev/sample-api",
+   "terminal_phase": "Escalated"
+  }
+ ],
+ "proposals": [
+  {
+   "fallback_used": false,
+   "incident_uid": "uid-25",
+   "model_id": "fixture",
+   "parsed_proposal": {
+    "abstain": false,
+    "action": {
+     "id": "escalate",
+     "parameters": {},
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     }
+    },
+    "confidence": 0.8,
+    "escalation": {
+     "reason": "fixture",
+     "recommendation": {
+      "detail": "fixture",
+      "kind": "dependency_investigation"
+     }
+    },
+    "evidenceRefs": [],
+    "expectedEffect": "fixture",
+    "hypothesis": {
+     "faultClass": "dependency_failure",
+     "summary": "fixture"
+    },
+    "runbookRefs": [],
+    "schema": "proposal/v1"
+   },
+   "proposal_hash": "sha256:p25",
+   "reasoner_mode": "llm",
+   "retrieved_chunk_ids": [],
+   "schema_valid": true
+  }
+ ],
+ "transitions": [
+  {
+   "at": "2027-01-06T11:02:46+00:00",
+   "from_phase": null,
+   "incident_uid": "uid-25",
+   "reason": null,
+   "seq": 0,
+   "stage": "reconciler",
+   "to_phase": "Detected"
+  },
+  {
+   "at": "2027-01-06T11:02:51+00:00",
+   "from_phase": "Detected",
+   "incident_uid": "uid-25",
+   "reason": null,
+   "seq": 1,
+   "stage": "reconciler",
+   "to_phase": "Diagnosing"
+  },
+  {
+   "at": "2027-01-06T11:03:01+00:00",
+   "from_phase": "Diagnosing",
+   "incident_uid": "uid-25",
+   "reason": null,
+   "seq": 2,
+   "stage": "reconciler",
+   "to_phase": "Proposed"
+  },
+  {
+   "at": "2027-01-06T11:03:03+00:00",
+   "from_phase": "Proposed",
+   "incident_uid": "uid-25",
+   "reason": null,
+   "seq": 3,
+   "stage": "reconciler",
+   "to_phase": "Escalated"
+  }
+ ],
+ "verifications": []
+}

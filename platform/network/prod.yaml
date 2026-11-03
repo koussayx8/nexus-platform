@@ -1,0 +1,59 @@
+# NetworkPolicies for nexus-prod (spec §18, ADR-033). sample-api.
+---
+# Starting point for every NEXUS namespace: nothing in, nothing out until a policy below allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: nexus-prod
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Locust and Prometheus on 8000.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sample-api-ingress
+  namespace: nexus-prod
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: sample-api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-load}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: locust}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+      ports:
+        - {protocol: TCP, port: 8000}
+---
+# The Dependency DB on 5432 and DNS. Nothing else, so sample-api cannot reach the Flight Recorder DB (N5).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sample-api-egress
+  namespace: nexus-prod
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: sample-api}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: nexus-data}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: dependency-db}}
+      ports:
+        - {protocol: TCP, port: 5432}

@@ -1,0 +1,108 @@
+name: Base image comparison
+
+# Non-deploying: builds sample-api and the operator on python:3.12-slim (the deployed base),
+# python:3.12-alpine and a distroless Python runtime, scans each with Trivy and prints the
+# HIGH/CRITICAL counts side by side (job summary and log). Nothing is pushed, signed or deployed,
+# and no registry credentials are used. Run it by hand or when this workflow or the comparison
+# Dockerfile changes. The distroless variant is allowed to fail to build.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [dev]
+    paths:
+      - '.github/workflows/base-compare.yml'
+      - '.github/base-compare/**'
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Compare (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: sample-api
+            context: apps/sample-api
+          - app: nexus-operator
+            context: operator
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build slim
+        id: slim
+        run: |
+          docker build -f .github/base-compare/Dockerfile -t cmp:slim \
+            --build-arg BUILDER=python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 \
+            --build-arg RUNTIME=python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 \
+            "${{ matrix.context }}"
+
+      - name: Build alpine
+        id: alpine
+        continue-on-error: true
+        run: |
+          docker build -f .github/base-compare/Dockerfile -t cmp:alpine \
+            --build-arg BUILDER=python:3.12-alpine --build-arg RUNTIME=python:3.12-alpine \
+            "${{ matrix.context }}"
+
+      # Distroless ships CPython 3.13 on Debian 13, so the packages are built on python:3.13-slim.
+      - name: Build distroless
+        id: distroless
+        continue-on-error: true
+        run: |
+          docker build -f .github/base-compare/Dockerfile -t cmp:distroless \
+            --build-arg BUILDER=python:3.13-slim --build-arg RUNTIME=gcr.io/distroless/python3-debian13 \
+            --build-arg PYVER=3.13 \
+            "${{ matrix.context }}"
+
+      - name: Trivy slim
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: cmp:slim
+          format: json
+          output: trivy-slim.json
+          severity: 'CRITICAL,HIGH'
+
+      - name: Trivy alpine
+        if: steps.alpine.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: cmp:alpine
+          format: json
+          output: trivy-alpine.json
+          severity: 'CRITICAL,HIGH'
+
+      - name: Trivy distroless
+        if: steps.distroless.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: cmp:distroless
+          format: json
+          output: trivy-distroless.json
+          severity: 'CRITICAL,HIGH'
+
+      - name: Table
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Trivy HIGH/CRITICAL, ${APP} (linux/amd64, comparison images, not deployed)"
+            echo
+            echo "| Base | Size | OS pkgs HIGH | OS pkgs CRIT | Python pkgs HIGH | Python pkgs CRIT | Built |"
+            echo "|---|---|---|---|---|---|---|"
+            for v in slim alpine distroless; do
+              f="trivy-$v.json"
+              if [ -f "$f" ]; then
+                size=$(docker image inspect "cmp:$v" --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1000000}')
+                c() { jq "[.Results[]? | select(.Class==\"$1\") | .Vulnerabilities[]? | select(.Severity==\"$2\")] | length" "$f"; }
+                echo "| $v | $size | $(c os-pkgs HIGH) | $(c os-pkgs CRITICAL) | $(c lang-pkgs HIGH) | $(c lang-pkgs CRITICAL) | yes |"
+              else
+                echo "| $v | - | - | - | - | - | no (build failed) |"
+              fi
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
