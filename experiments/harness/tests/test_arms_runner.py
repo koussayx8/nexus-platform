@@ -312,7 +312,9 @@ class ProdTargetTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.Runner("ctx", namespace="nexus-data")
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-            runner.main(["plan", "inject", "S1", "--context", "c", "--namespace", "kube-system"])
+            runner.main(
+                ["plan", "inject", "S1", "--context", "c", "--namespace", "kube-system"]
+            )
 
     def test_prod_at_level_0_or_1_targets_prod_pods(self):
         for level in ("0", "1"):
@@ -321,7 +323,15 @@ class ProdTargetTest(unittest.TestCase):
             self.assertEqual(s.argv[3:5], ("-n", "nexus-prod"))
 
     def test_prod_above_level_1_or_unreadable_is_refused(self):
-        for level, rc in (("2", 0), ("3", 0), ("10", 0), ("", 0), ("abc", 0), ("-1", 0), ("0", 1)):
+        for level, rc in (
+            ("2", 0),
+            ("3", 0),
+            ("10", 0),
+            ("", 0),
+            ("abc", 0),
+            ("-1", 0),
+            ("0", 1),
+        ):
             r, _ = self.runner(level, rc=rc)
             with self.assertRaises(ValueError, msg=f"{level!r} rc={rc}"):
                 r.plan_inject("S1")
@@ -344,8 +354,22 @@ class ProdTargetTest(unittest.TestCase):
 
         for flags in ([], ["--execute"]):
             calls.clear()
-            with mock.patch.object(runner, "_subprocess_exec", ex), contextlib.redirect_stdout(io.StringIO()):
-                rc = runner.main(["run", "inject", "S1", "--context", "c", "--namespace", "nexus-prod"] + flags)
+            with (
+                mock.patch.object(runner, "_subprocess_exec", ex),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                rc = runner.main(
+                    [
+                        "run",
+                        "inject",
+                        "S1",
+                        "--context",
+                        "c",
+                        "--namespace",
+                        "nexus-prod",
+                    ]
+                    + flags
+                )
             self.assertEqual(rc, 0)
             mutating = [c for c in calls if "exec" in c]  # the S1 kubectl exec
             self.assertEqual(bool(mutating), bool(flags))

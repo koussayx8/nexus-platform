@@ -87,7 +87,9 @@ class Runner:
         if not context:
             raise ValueError("a cluster context is required")
         if namespace not in INJECT_NAMESPACES:
-            raise ValueError(f"namespace must be one of {INJECT_NAMESPACES}, not {namespace!r}")
+            raise ValueError(
+                f"namespace must be one of {INJECT_NAMESPACES}, not {namespace!r}"
+            )
         self.namespace = namespace
         self.context = context
         self.exec = exec_ or _subprocess_exec
@@ -141,7 +143,9 @@ class Runner:
         sc = scenario.upper()
         if self.namespace == NS_PROD:
             if sc == "S3":
-                raise ValueError("S3 is a Git change to nexus-dev (experiment/dev-state); not for nexus-prod")
+                raise ValueError(
+                    "S3 is a Git change to nexus-dev (experiment/dev-state); not for nexus-prod"
+                )
             self.require_prod_level()
         sample = "app.kubernetes.io/name=sample-api"
         if sc == "S1":
@@ -392,8 +396,12 @@ def main(argv=None):
     ap.add_argument("op", choices=("inject", "reset", "refresh"))
     ap.add_argument("scenario", nargs="?")
     ap.add_argument("--context", required=True)
-    ap.add_argument("--namespace", choices=INJECT_NAMESPACES, default=NS_DEV,
-                    help="fault target for inject (default nexus-dev); nexus-prod needs level <= 1")
+    ap.add_argument(
+        "--namespace",
+        choices=INJECT_NAMESPACES,
+        default=NS_DEV,
+        help="fault target for inject (default nexus-dev); nexus-prod needs level <= 1",
+    )
     ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
     ap.add_argument("--locust")
     ap.add_argument("--users", type=int)
