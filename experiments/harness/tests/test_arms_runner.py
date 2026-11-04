@@ -311,9 +311,8 @@ class ProdTargetTest(unittest.TestCase):
     def test_unknown_namespace_is_rejected(self):
         with self.assertRaises(ValueError):
             runner.Runner("ctx", namespace="nexus-data")
-        with self.assertRaises(SystemExit):
-            with contextlib.redirect_stderr(io.StringIO()):
-                runner.main(["plan", "inject", "S1", "--context", "c", "--namespace", "kube-system"])
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            runner.main(["plan", "inject", "S1", "--context", "c", "--namespace", "kube-system"])
 
     def test_prod_at_level_0_or_1_targets_prod_pods(self):
         for level in ("0", "1"):
