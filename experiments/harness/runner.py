@@ -11,6 +11,7 @@ named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
 
   runner.py plan inject S1 --context C           print the steps
   runner.py run  inject S1 --context C --execute
+  runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
 
@@ -35,6 +36,9 @@ from dataclasses import asdict, dataclass
 
 CLI = "kubectl"
 NS_DEV = "nexus-dev"
+NS_PROD = "nexus-prod"
+INJECT_NAMESPACES = (NS_DEV, NS_PROD)
+PROD_MAX_LEVEL = 1  # nexus-prod takes a fault only at autonomy level 1 or lower
 NS_DATA = "nexus-data"
 NS_SYSTEM = "nexus-system"
 APPS = ("sample-api-dev", "dependency-db-dev")
@@ -78,9 +82,13 @@ class Runner:
         git_dir=None,
         http_post=None,
         http_get=None,
+        namespace=NS_DEV,
     ):
         if not context:
             raise ValueError("a cluster context is required")
+        if namespace not in INJECT_NAMESPACES:
+            raise ValueError(f"namespace must be one of {INJECT_NAMESPACES}, not {namespace!r}")
+        self.namespace = namespace
         self.context = context
         self.exec = exec_ or _subprocess_exec
         self.sleep = sleep
@@ -111,12 +119,30 @@ class Runner:
             raise RuntimeError(f"cannot list pods ({label}) in {ns}")
         return out.split()
 
+    def require_prod_level(self) -> None:
+        """Refuse a fault in nexus-prod unless its autonomy level label is an integer <= 1.
+        Fail closed: an unreadable, missing or non-integer level refuses too."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "get", "namespace", NS_PROD, "-o",
+             "jsonpath={.metadata.labels.nexus\\.io/autonomy-level}"]
+        )  # fmt: skip
+        level = out.strip()
+        if rc != 0 or not re.fullmatch(r"[0-9]+", level) or int(level) > PROD_MAX_LEVEL:
+            raise ValueError(
+                f"refusing to inject in {NS_PROD}: autonomy level {level or 'unreadable'!r}"
+                f" (needs {PROD_MAX_LEVEL} or lower)"
+            )
+
     # ---------------------------------------------------------------- plans
     def plan_inject(
         self, scenario: str, s3_patch: str | None = None, users: int | None = None
     ):
         """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST."""
         sc = scenario.upper()
+        if self.namespace == NS_PROD:
+            if sc == "S3":
+                raise ValueError("S3 is a Git change to nexus-dev (experiment/dev-state); not for nexus-prod")
+            self.require_prod_level()
         sample = "app.kubernetes.io/name=sample-api"
         if sc == "S1":
             return [
@@ -127,11 +153,11 @@ class Runner:
                     "python",
                     "-c",
                     HANG_PY,
-                    ns=NS_DEV,
+                    ns=self.namespace,
                     note=f"S1 hang on {p}",
                     ignore_failure=True,
                 )
-                for p in self.pods(NS_DEV, sample)
+                for p in self.pods(self.namespace, sample)
             ]
         if sc in ("S2", "S4", "S6"):
             if not self.locust or users is None:
@@ -154,10 +180,10 @@ class Runner:
                         "python",
                         "-c",
                         INJECT_LOGS_PY,
-                        ns=NS_DEV,
+                        ns=self.namespace,
                         note=f"S6 injected text on {p}",
                     )
-                    for p in self.pods(NS_DEV, sample)
+                    for p in self.pods(self.namespace, sample)
                 ]
             return steps
         if sc == "S3":
@@ -366,6 +392,8 @@ def main(argv=None):
     ap.add_argument("op", choices=("inject", "reset", "refresh"))
     ap.add_argument("scenario", nargs="?")
     ap.add_argument("--context", required=True)
+    ap.add_argument("--namespace", choices=INJECT_NAMESPACES, default=NS_DEV,
+                    help="fault target for inject (default nexus-dev); nexus-prod needs level <= 1")
     ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
     ap.add_argument("--locust")
     ap.add_argument("--users", type=int)
@@ -376,11 +404,14 @@ def main(argv=None):
         "--execute", action="store_true", help="actually run the steps (mode run only)"
     )
     a = ap.parse_args(argv)
-    r = Runner(a.context, locust=a.locust, git_dir=a.git_dir)
+    r = Runner(a.context, locust=a.locust, git_dir=a.git_dir, namespace=a.namespace)
     if a.op == "inject":
         if not a.scenario:
             ap.error("inject needs a scenario")
-        steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+        try:
+            steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+        except ValueError as e:
+            ap.error(str(e))
     elif a.op == "reset":
         steps = r.plan_reset(a.level, a.baseline_ref)
     else:
