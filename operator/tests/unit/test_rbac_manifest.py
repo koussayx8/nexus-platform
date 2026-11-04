@@ -134,3 +134,77 @@ def test_argocd_applications_are_read_only():
     rules = [rule for ns, rule in operator_roles() if ns == "argocd"]
     assert len(rules) == 1 and rules[0]["resources"] == ["applications"]
     assert set(rules[0]["verbs"]) == {"get", "list", "watch"}
+
+
+# ---- platform/m3-live: the nexus-prod grants (G8), not deployed until the M3-live PR ----------
+M3_LIVE = RBAC.parent / "m3-live"
+
+
+def prod_docs():
+    return [
+        d
+        for d in yaml.safe_load_all((M3_LIVE / "nexus-operator-prod.yaml").read_text())
+        if d
+    ]
+
+
+def test_deployed_rbac_still_stops_at_nexus_dev():
+    # the existing tests above read platform/rbac only; m3-live must not leak into it
+    assert not any(d["metadata"].get("namespace") == "nexus-prod" for d in docs())
+
+
+def test_m3_live_grants_scale_and_eviction_in_nexus_prod_only():
+    roles = [d for d in prod_docs() if d["kind"] == "Role"]
+    bindings = [d for d in prod_docs() if d["kind"] == "RoleBinding"]
+    assert len(roles) == len(bindings) == 1
+    assert {d["metadata"]["namespace"] for d in prod_docs()} == {"nexus-prod"}
+    rules = {
+        (g, r): set(rule["verbs"])
+        for rule in roles[0]["rules"]
+        for g in rule["apiGroups"]
+        for r in rule["resources"]
+    }
+    assert rules == {
+        ("apps", "deployments/scale"): {"get", "patch", "update"},
+        ("", "pods/eviction"): {"create"},
+    }
+    assert bindings[0]["subjects"] == [
+        {
+            "kind": "ServiceAccount",
+            "name": "nexus-operator",
+            "namespace": "nexus-system",
+        }
+    ]
+    assert bindings[0]["roleRef"]["name"] == roles[0]["metadata"]["name"]
+
+
+def test_m3_live_prod_role_equals_the_dev_role():
+    dev = next(
+        d
+        for d in docs()
+        if d["kind"] == "Role" and d["metadata"]["name"] == "nexus-operator-act"
+    )
+    prod = next(d for d in prod_docs() if d["kind"] == "Role")
+    assert prod["rules"] == dev["rules"]
+
+
+def test_m3_live_prod_role_has_no_delete_wildcard_or_nexus_data():
+    for d in prod_docs():
+        assert d["metadata"]["namespace"] != "nexus-data"
+        for rule in d.get("rules", []):
+            assert not {
+                "delete",
+                "deletecollection",
+                "*",
+                "impersonate",
+                "bind",
+                "escalate",
+            } & set(rule["verbs"])
+            assert "*" not in rule["resources"] and "*" not in rule["apiGroups"]
+
+
+def test_m3_live_kustomization_lists_the_prod_grants_and_platform_does_not_list_m3_live():
+    k = yaml.safe_load((M3_LIVE / "kustomization.yaml").read_text())
+    assert "nexus-operator-prod.yaml" in k["resources"]
+    platform = yaml.safe_load((RBAC.parent / "kustomization.yaml").read_text())
+    assert "m3-live" not in platform["resources"]

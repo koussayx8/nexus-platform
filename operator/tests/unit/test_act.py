@@ -176,12 +176,14 @@ def test_l1_still_validates_the_proposal():
     assert ended(rig) == ("Blocked", "bounds_exceeded")
 
 
-def test_l2_stays_escalated_and_sends_nothing():
+def test_l2_waits_for_approval_and_sends_nothing():
     rig = Rig(level="2")
     rig.proposed(proposal_doc(), level=2)
-    rig.run()
-    assert ended(rig) == ("Escalated", "autonomy_denied")
-    assert rig.api.requests == []
+    rig.run(ticks=10)
+    st = rig.status()
+    assert st["phase"] == "AwaitingApproval"
+    assert st["gate"]["verdict"] == "requires_approval"
+    assert rig.api.requests == []  # not even the dry-run: K3 would refuse it unapproved
 
 
 def test_escalate_and_no_action_and_abstain():

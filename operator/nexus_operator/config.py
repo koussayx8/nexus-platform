@@ -9,8 +9,9 @@ The Writer's keys (recorderHost, recorderPort, recorderDatabase, recorderUser,
 recorderPasswordFile; ADR-031) say where the Flight Recorder DB is and which mounted file holds the
 nexus_writer password; the password is never a ConfigMap value. metricsPort is the /metrics port.
 The Reasoner Client reads reasonerEndpoint (empty: off), reasonerMode, reasonerModel and
-reasonerEffort. approvalTTL stays unread until M3. A change takes effect at the
-next operator start.
+reasonerEffort. approvalTTL (default 15m, at most 15m: K5 refuses a longer expiresAt) is how long
+an Incident waits in AwaitingApproval and the longest approval the operator accepts (§7, §9
+stage 8). A change takes effect at the next operator start.
 """
 
 import dataclasses
@@ -47,6 +48,7 @@ class Config:
     reasoner_mode: str = "llm"  # rules | llm | adversarial (the Reasoner's own modes)
     reasoner_model: str = ""
     reasoner_effort: str | None = None
+    approval_ttl_s: int = 900  # approvalTTL; §7 fixes 15 min as the ceiling
 
 
 def _seconds(data: dict, key: str, default: int) -> int:
@@ -72,6 +74,21 @@ def _port(data: dict, key: str, default: int) -> int:
         raise ConfigError(f"{key} is not an integer: {raw!r}") from None
     if not 1 <= value <= 65535:
         raise ConfigError(f"{key} is out of range [1, 65535]: {value}")
+    return value
+
+
+APPROVAL_TTL_MAX_S = 900
+_DURATION = re.compile(r"(\d+)([sm])")
+
+
+def _ttl(data: dict) -> int:
+    raw = str(data.get("approvalTTL") or "15m").strip()
+    m = _DURATION.fullmatch(raw)
+    if not m:
+        raise ConfigError(f"approvalTTL is not a duration like 90s or 15m: {raw!r}")
+    value = int(m.group(1)) * (60 if m.group(2) == "m" else 1)
+    if not 1 <= value <= APPROVAL_TTL_MAX_S:
+        raise ConfigError(f"approvalTTL is out of range [1s, 15m]: {raw!r}")
     return value
 
 
@@ -133,6 +150,7 @@ def parse(configmap: dict | None) -> Config:
         reasoner_mode=mode,
         reasoner_model=model,
         reasoner_effort=effort,
+        approval_ttl_s=_ttl(data),
         recorder_host=host,
         recorder_port=port,
         recorder_database=str(data.get("recorderDatabase") or "nexus_recorder").strip(),
