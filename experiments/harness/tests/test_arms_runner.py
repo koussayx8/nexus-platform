@@ -3,7 +3,10 @@
 import contextlib
 import io
 import json
+import pathlib
+import re
 import unittest
+import urllib.parse
 from unittest import mock
 
 from .. import arms, runner
@@ -391,6 +394,50 @@ class ProdTargetTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             mutating = [c for c in calls if "exec" in c]  # the S1 kubectl exec
             self.assertEqual(bool(mutating), bool(flags))
+
+
+class S2SwarmTest(unittest.TestCase):
+    """S2 swarms the baseline classes and DevCpuUser together, so the baseline users keep running."""
+
+    ROOT = pathlib.Path(__file__).resolve().parents[3]
+
+    def swarm(self, sc, users):
+        r = runner.Runner(
+            "ctx", exec_=lambda argv, cwd=None: (0, "p1"), locust="http://l"
+        )
+        return r.plan_inject(sc, users=users)[0]
+
+    def test_s2_selects_all_three_classes_in_one_swarm(self):
+        step = self.swarm("S2", 560)
+        self.assertEqual(step.argv[:2], ("POST", "http://l/swarm"))
+        self.assertEqual(
+            urllib.parse.parse_qs(step.argv[2]),
+            {
+                "user_count": ["560"],
+                "user_classes": ["DevUser", "ProdUser", "DevCpuUser"],
+            },
+        )
+
+    def test_other_load_scenarios_are_unchanged(self):
+        for sc in ("S4", "S6"):
+            self.assertEqual(
+                self.swarm(sc, 15).argv, ("POST", "http://l/swarm", "user_count=15")
+            )
+
+    def test_the_weights_keep_the_baseline_users_at_80_each_in_the_560_user_swarm(self):
+        src = (self.ROOT / "platform/load/locustfile.py").read_text()
+        master = (self.ROOT / "platform/load/master.yaml").read_text()
+        w = int(
+            re.search(r"class DevCpuUser.*?\n    weight = (\d+)", src, re.DOTALL)[1]
+        )
+        b = (
+            int(re.search(r"- --users=(\d+)", master)[1]) // 2
+        )  # users per baseline class
+        total = 560
+        self.assertEqual(
+            total // (2 + w), b
+        )  # DevUser and ProdUser (weight 1) stay at B
+        self.assertEqual(total - 2 * b, 400)  # the rest drive /work/cpu
 
 
 if __name__ == "__main__":

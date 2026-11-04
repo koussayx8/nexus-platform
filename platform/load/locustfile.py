@@ -76,6 +76,10 @@ class DevCpuUser(HttpUser):
     baseline: master.yaml's autostart names DevUser and ProdUser, and only an S2 swarm that selects
     this class (user_classes=DevCpuUser, through the class picker) spawns it."""
 
+    # Locust splits a swarm's user_count across the selected classes by weight. DevUser and ProdUser
+    # weigh 1, so with weight 5 here an S2 swarm of 560 users runs 80 + 80 baseline users (B = 80 per
+    # namespace, ADR-026) and 400 /work/cpu users (about 400 req/s, ADR-027's UNVERIFIED estimate).
+    weight = 5
     wait_time = constant_throughput(1)
     connection_timeout = TIMEOUT_S
     network_timeout = TIMEOUT_S
