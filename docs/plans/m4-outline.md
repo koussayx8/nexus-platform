@@ -21,7 +21,6 @@ the A1 demo in **early January 2027**.
 | 6 | Reasoner service, eight runbooks (S5 held out), runbook lint, `make index`, 30 labelled queries, retrieval evaluation | §15, §16 | G9 |
 | 7 | Static baseline C4 (`nexus-baseline`) | §20 | G10 |
 | 8 | Containment suite: coverage matrix, fail-closed, Kill Switch, compromised operator | §20 | G11 |
-| 9 | K8sGPT capture (C6) | §20 | G12 |
 | 10 | `reconcile-audit` (full, `audit_links`), `export-results`, `make results` | §14, §25 | G13 |
 | 11 | Detector comparison, Z-score against Isolation Forest, offline | §21 | G14 |
 | 12 | R0 generator; `kyverno` CLI replay with mocked context (Phase B) | §16, §20 | G15 |
