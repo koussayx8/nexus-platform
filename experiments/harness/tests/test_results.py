@@ -470,6 +470,11 @@ class ResultsTest(unittest.TestCase):
         md = (self.out / "tables.md").read_text()
         self.assertNotIn("No data", md)  # the fixtures exercise every table
 
+    def test_c6_is_a_deferred_note_not_a_table_of_numbers(self):
+        md = (self.out / "tables.md").read_text()
+        self.assertIn("Deferred: theoretical study", md)
+        self.assertNotIn("K8sGPT diagnosis accuracy", md)
+
     def test_figures_are_well_formed_svg(self):
         for f in ("F1", "F2", "F3"):
             root = ET.fromstring((self.out / f"{f}.svg").read_text())
@@ -529,8 +534,8 @@ class ResultsTest(unittest.TestCase):
         self.assertEqual(m["no_fault"]["R3"]["with_alert"]["k"], 1)
         self.assertEqual(m["policy_coverage"]["false_allow"]["k"], 0)
         self.assertEqual(m["policy_coverage"]["false_deny"]["k"], 1)
-        self.assertEqual(m["k8sgpt_accuracy"]["S5"]["k"], 0)
-        self.assertEqual(m["k8sgpt_accuracy"]["S1"]["k"], 1)
+        self.assertEqual(m["c6"], "deferred: theoretical study")
+        self.assertNotIn("k8sgpt_accuracy", m)
 
     def test_containment_is_zero_with_a_bound_and_reads_the_run_that_did_not_count(
         self,
@@ -865,17 +870,6 @@ class MetricsAdditionsTest(unittest.TestCase):
                 {"action_id": "escalate", "escalation_kind": "git_revert"}, truth
             )
         )
-
-    def test_k8sgpt_accuracy_is_per_scenario(self):
-        t = {"S1": {"fault_class": "gray_failure"}}
-        r = metrics.k8sgpt_accuracy(
-            [
-                {"scenario": "S1", "fault_class": "gray_failure"},
-                {"scenario": "S1", "fault_class": "unknown"},
-            ],
-            t,
-        )
-        self.assertEqual((r["S1"]["k"], r["S1"]["n"]), (1, 2))
 
     def test_svg_escapes_labels(self):
         text = svg.stacked_bars("a < b & c", [("x<y", [1.0, 2.0])], ["s&1", "s2"])

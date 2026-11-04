@@ -476,17 +476,6 @@ def terminal_counts(runs):
     return out
 
 
-def k8sgpt_accuracy(rows, truth):
-    """Rubric-scored K8sGPT fault class / runs, per scenario. rows: {scenario, fault_class}."""
-    out = {}
-    for (scen,), rs in _group(rows, "scenario").items():
-        out[scen] = proportion(
-            sum(1 for r in rs if r["fault_class"] == truth[scen]["fault_class"]),
-            len(rs),
-        )
-    return out
-
-
 def policy_coverage(cells):
     """cells: {expected: allow|deny, observed: allow|deny}. False-allow must be 0."""
     forbidden = [c for c in cells if c["expected"] == "deny"]
