@@ -8,6 +8,8 @@ import argparse
 import json
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.parse
@@ -723,10 +725,78 @@ class LocustfileTest(unittest.TestCase):
         ):
             self.assertIn(f"- {arg}\n", src)
 
-    def test_mix_is_four_to_one_and_never_work_cpu(self):
-        src = (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
+    ROOT = Path(__file__).parents[2]
+
+    def locust_python(self):
+        """The interpreter that has Locust: NEXUS_LOCUST_PYTHON (set by repo-checks.yml), else this one.
+        In CI a missing Locust is a failure, never a skip."""
+        py = os.environ.get("NEXUS_LOCUST_PYTHON") or sys.executable
+        probe = subprocess.run(
+            [py, "-I", "-c", "import locust"], capture_output=True, check=False
+        )
+        if probe.returncode != 0:
+            if os.environ.get("GITHUB_ACTIONS"):
+                self.fail("Locust is not installed for the class-dispatch test")
+            self.skipTest("Locust is not installed (pip install locust==2.46.7)")
+        return py
+
+    def split(self, selection, *counts):
+        out = subprocess.run(
+            [self.locust_python(), "-I", str(Path(__file__).with_name("dispatch_probe.py")),
+             str(self.ROOT / "platform/load/locustfile.py"), selection, *map(str, counts)],
+            capture_output=True, text=True, check=True,
+        )  # fmt: skip
+        return json.loads(out.stdout)
+
+    def test_mix_is_four_to_one(self):
+        src = (self.ROOT / "platform/load/locustfile.py").read_text()
         self.assertIn('SEQUENCE = ("/", "/", "/", "/", "/items")', src)
-        self.assertNotIn('"/work/cpu"', src.split('"""', 2)[2])
+
+    def test_baseline_swarm_is_exactly_80_dev_80_prod_and_no_cpu_user(self):
+        # Locust's own dispatcher, on the master's autostart (160 users, DevUser and ProdUser) and on an
+        # S2 swarm that also selects DevCpuUser.
+        self.assertEqual(
+            self.split("baseline", 160)["160"], {"DevUser": 80, "ProdUser": 80}
+        )
+        self.assertEqual(
+            self.split("s2", 160)["160"],
+            {"DevUser": 80, "ProdUser": 80, "DevCpuUser": 0},
+        )
+
+    def test_s2_swarm_of_n_is_80_80_and_n_minus_160_cpu_users(self):
+        got = self.split("s2", 200, 400, 560, 1000)
+        for n in (200, 400, 560, 1000):
+            self.assertEqual(
+                got[str(n)], {"DevUser": 80, "ProdUser": 80, "DevCpuUser": n - 160}, n
+            )
+        self.assertEqual(
+            got["560"]["DevCpuUser"], 400
+        )  # ADR-027's estimate, UNVERIFIED
+
+    def test_cpu_class_calls_work_cpu_and_is_outside_the_autostart(self):
+        import ast
+
+        tree = ast.parse((self.ROOT / "platform/load/locustfile.py").read_text())
+        (cpu,) = [
+            n
+            for n in tree.body
+            if isinstance(n, ast.ClassDef) and n.name == "DevCpuUser"
+        ]
+        consts = [c.value for c in ast.walk(cpu) if isinstance(c, ast.Constant)]
+        self.assertIn("/work/cpu", consts)
+        self.assertEqual(
+            sum("/work/cpu" in [c.value for c in ast.walk(n) if isinstance(c, ast.Constant)]
+                for n in tree.body if isinstance(n, ast.ClassDef)),
+            1,
+        )  # only that class  # fmt: skip
+        master = (Path(__file__).parents[2] / "platform/load/master.yaml").read_text()
+        self.assertIn(
+            "- DevUser\n", master
+        )  # the autostart names the baseline classes...
+        self.assertIn("- ProdUser\n", master)
+        self.assertNotIn(
+            "DevCpuUser\n", master.split("args:", 1)[1].split("env:", 1)[0]
+        )  # ...and not this one
 
 
 if __name__ == "__main__":

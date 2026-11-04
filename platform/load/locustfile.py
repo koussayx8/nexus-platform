@@ -8,8 +8,10 @@ so /items is exactly 20 % of the requests. That is the S5 error share in the
 promtool tests (platform/observability/tests/nexus-detection.test.yaml, case
 4): under S5 every /items call fails, so the error ratio is about 20 %. The
 load is not shaped to the detector; S5's first firing then checks promtool's
-+105 s. /work/cpu is never called: it is S2's load generator, not a path a
-scenario breaks (ADR-026).
++105 s. The baseline classes never call /work/cpu: it is S2's load generator, not
+a path a scenario breaks (ADR-026). S2 swarms DevCpuUser (below) through the class
+picker; master.yaml names DevUser and ProdUser, so the autostarted baseline never
+includes it.
 
 Users are spread so the traffic stays smooth:
 - each user starts its cycle at a different position (user index mod 5), so
@@ -32,6 +34,7 @@ from locust import HttpUser, constant_throughput, task
 
 SEQUENCE = ("/", "/", "/", "/", "/items")
 GOLDEN = 0.6180339887498949
+BASELINE_USERS_PER_ENV = 80  # B = 80 per namespace (ADR-026): fixed, whatever a swarm's total user_count
 TIMEOUT_S = 5.0  # above sample-api's /items budget of 2.8 s (ADR-020)
 
 _index = itertools.count()
@@ -57,6 +60,7 @@ class _Mix(HttpUser):
 
 class DevUser(_Mix):
     env = "dev"
+    fixed_count = BASELINE_USERS_PER_ENV
     host = os.environ.get(
         "NEXUS_DEV_HOST", "http://sample-api.nexus-dev.svc.cluster.local"
     )
@@ -64,6 +68,26 @@ class DevUser(_Mix):
 
 class ProdUser(_Mix):
     env = "prod"
+    fixed_count = BASELINE_USERS_PER_ENV
     host = os.environ.get(
         "NEXUS_PROD_HOST", "http://sample-api.nexus-prod.svc.cluster.local"
     )
+
+
+class DevCpuUser(HttpUser):
+    """S2's load generator: one /work/cpu request per second per user, on nexus-dev. Not part of the
+    baseline: master.yaml's autostart names DevUser and ProdUser, and only an S2 swarm that selects
+    this class (user_classes=DevCpuUser, through the class picker) spawns it."""
+
+    # No fixed_count and the default weight: it takes every user of a swarm beyond the baseline
+    # classes' fixed 80 + 80, so an S2 swarm of N runs N - 160 users here.
+    wait_time = constant_throughput(1)
+    connection_timeout = TIMEOUT_S
+    network_timeout = TIMEOUT_S
+    host = os.environ.get(
+        "NEXUS_DEV_HOST", "http://sample-api.nexus-dev.svc.cluster.local"
+    )
+
+    @task
+    def cpu(self):
+        self.client.get("/work/cpu", name="dev:/work/cpu")

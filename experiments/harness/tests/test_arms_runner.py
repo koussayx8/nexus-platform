@@ -3,7 +3,10 @@
 import contextlib
 import io
 import json
+import pathlib
+import re
 import unittest
+import urllib.parse
 from unittest import mock
 
 from .. import arms, runner
@@ -391,6 +394,50 @@ class ProdTargetTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             mutating = [c for c in calls if "exec" in c]  # the S1 kubectl exec
             self.assertEqual(bool(mutating), bool(flags))
+
+
+class S2SwarmTest(unittest.TestCase):
+    """S2 swarms the baseline classes and DevCpuUser together, so the baseline users keep running."""
+
+    ROOT = pathlib.Path(__file__).resolve().parents[3]
+
+    def swarm(self, sc, users):
+        r = runner.Runner(
+            "ctx", exec_=lambda argv, cwd=None: (0, "p1"), locust="http://l"
+        )
+        return r.plan_inject(sc, users=users)[0]
+
+    def test_s2_selects_all_three_classes_in_one_swarm(self):
+        step = self.swarm("S2", 560)
+        self.assertEqual(step.argv[:2], ("POST", "http://l/swarm"))
+        self.assertEqual(
+            urllib.parse.parse_qs(step.argv[2]),
+            {
+                "user_count": ["560"],
+                "user_classes": ["DevUser", "ProdUser", "DevCpuUser"],
+            },
+        )
+
+    def test_other_load_scenarios_are_unchanged(self):
+        for sc in ("S4", "S6"):
+            self.assertEqual(
+                self.swarm(sc, 15).argv, ("POST", "http://l/swarm", "user_count=15")
+            )
+
+    def test_baseline_classes_are_fixed_so_a_swarm_total_never_moves_them(self):
+        # The behaviour (160 -> 80 + 80 + 0, N -> 80 + 80 + N - 160) is asserted against Locust's own
+        # dispatcher in experiments/calibration/test_ramp.py; here, that the runner's total lines up.
+        src = (self.ROOT / "platform/load/locustfile.py").read_text()
+        master = (self.ROOT / "platform/load/master.yaml").read_text()
+        b = int(re.search(r"^BASELINE_USERS_PER_ENV = (\d+)", src, re.MULTILINE)[1])
+        self.assertEqual(
+            src.count("fixed_count = BASELINE_USERS_PER_ENV"), 2
+        )  # DevUser and ProdUser
+        self.assertEqual(
+            int(re.search(r"- --users=(\d+)", master)[1]), 2 * b
+        )  # the autostart total
+        total = 560  # an S2 swarm: 80 + 80 baseline, the rest on /work/cpu
+        self.assertEqual(total - 2 * b, 400)
 
 
 if __name__ == "__main__":

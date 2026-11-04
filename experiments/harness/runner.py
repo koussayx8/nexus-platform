@@ -59,6 +59,11 @@ INJECT_LOGS_PY = (
     "import urllib.request as u;"
     f"u.urlopen(u.Request('http://127.0.0.1:{APP_PORT}/fault/inject-logs',method='POST'),timeout=5)"
 )
+S2_CLASSES = (
+    "DevUser",
+    "ProdUser",
+    "DevCpuUser",
+)  # the baseline classes keep running under S2
 S5_ROLES = {
     "nexus-dev": "app_dev",
     "nexus-prod": "app_prod",
@@ -181,13 +186,14 @@ class Runner:
                 raise ValueError(
                     f"{sc} needs --locust URL and --users (from the calibrated capacity)"
                 )
-            steps = [
-                Step(
-                    ("POST", f"{self.locust}/swarm", f"user_count={users}"),
-                    True,
-                    f"{sc} load",
+            body = f"user_count={users}"
+            if (
+                sc == "S2"
+            ):  # all three classes together, so the baseline users keep running
+                body = urllib.parse.urlencode(
+                    [("user_count", users)] + [("user_classes", c) for c in S2_CLASSES]
                 )
-            ]
+            steps = [Step(("POST", f"{self.locust}/swarm", body), True, f"{sc} load")]
             if sc == "S6":
                 steps += [
                     self.k(
