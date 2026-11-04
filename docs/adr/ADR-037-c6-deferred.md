@@ -1,4 +1,4 @@
-# ADR-036: C6 (K8sGPT comparison) Deferred
+# ADR-037: C6 (K8sGPT comparison) Deferred
 
 **Status:** Accepted (owner decision, 2026-11-04)
 **Date:** 2026-11-04

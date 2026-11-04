@@ -324,7 +324,7 @@ def analyse(
     r["c6"] = "deferred: theoretical study"
     t14 = Table("T14", "C6 (K8sGPT comparison)", ["Configuration", "Status"],
                 [["C6", "Deferred: theoretical study"]],
-                "Not required: no experimental K8sGPT comparison (ADR-036).")  # fmt: skip
+                "Not required: no experimental K8sGPT comparison (ADR-037).")  # fmt: skip
 
     return (
         [t01, t02, t03, t04, t05, t05b, t06, t07, t08, t09, t10, t11, t12, t13, t14],
