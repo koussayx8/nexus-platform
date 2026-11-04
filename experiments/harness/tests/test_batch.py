@@ -977,49 +977,57 @@ class LiveRunTest(Base):
                  idx("rollout restart deployment/nexus-operator"), idx("sync.status"), idx("zscore15m"), idx("/fault/hang")]  # fmt: skip
         self.assertEqual(order, sorted(order))
 
-    # ---- Locust recovery (fake Locust: the master's /swarm POST starts it when `heals`)
-    def recovery_live(self, c, heals=True, **loc):
+    # ---- Locust recovery (fake Locust). The reset swarms Locust to the baseline; `after_reset` is what
+    # Locust looks like afterwards (the fake's way of having it stop or drift), and a recovery swarm
+    # heals it when `heals`.
+    def recovery_live(self, c, heals=True, after_reset=None, **loc):
         cfg = {**PRE, "locust": {**PRE["locust"], "spawn_rate": 4, "classes": ["DevUser", "ProdUser"],
                                  "recovery_wait_s": 30, **loc}}  # fmt: skip
-        posts = []
+        down = after_reset or {"state": "stopped", "user_count": 0}
+        resets, posts, in_recovery = [], [], [False]
 
         def post(url, fields):
-            if url.endswith(
-                "/stop"
-            ):  # the reset's idle step; this fake keeps Locust as the test set it
+            if not url.endswith("/swarm"):
                 return
-            posts.append((url, fields))
-            if heals:
-                c.locust_doc = {"state": "running", "user_count": 160}
+            if in_recovery[0]:
+                posts.append((url, fields))
+                if heals:
+                    c.locust_doc = {"state": "running", "user_count": 160}
+            else:
+                resets.append((url, fields))
+                c.locust_doc = dict(down)
 
         r = runner_for(c, self.ft)
         r.http_post = post
         live = batch.LiveRun(r, cfg, wait_s=50, poll_s=5, sleep=self.ft.sleep, monotonic=self.ft.monotonic,
                              wall=self.ft.wall, stat=audit_fresh(self.ft))  # fmt: skip
+        orig = live._recover_locust
+
+        def recover(rec, why):
+            in_recovery[0] = True
+            try:
+                orig(rec, why)
+            finally:
+                in_recovery[0] = False
+
+        live._recover_locust = recover
+        live.resets = resets
         return live, posts
+
+    BASELINE_SWARM = ("http://l/swarm", {"user_count": ["160"], "spawn_rate": ["4"], "user_classes": ["DevUser", "ProdUser"]})  # fmt: skip
 
     def test_stopped_locust_is_restarted_with_the_exact_baseline_then_the_run_goes_on(
         self,
     ):
         c = FakeCluster(self.ft)
-        c.locust_doc = {"state": "stopped", "user_count": 0}
         live, posts = self.recovery_live(c)
         self.drive(live, max_runs=1)
         r = self.reload().runs[0]
         self.assertEqual(r["status"], "valid")
         self.assertEqual(
-            posts,
-            [
-                (
-                    "http://l/swarm",
-                    {
-                        "user_count": ["160"],
-                        "spawn_rate": ["4"],
-                        "user_classes": ["DevUser", "ProdUser"],
-                    },
-                )
-            ],
-        )
+            live.resets, [self.BASELINE_SWARM]
+        )  # the reset leaves the baseline, no /stop
+        self.assertEqual(posts, [self.BASELINE_SWARM])  # and so does the recovery
         (att,) = r["locust_recovery"]
         self.assertEqual((att["attempt"], att["of"], att["posted"]), (1, 2, True))
         self.assertTrue(att["why"])
@@ -1027,8 +1035,9 @@ class LiveRunTest(Base):
 
     def test_locust_off_baseline_users_is_restarted(self):
         c = FakeCluster(self.ft)
-        c.locust_doc = {"state": "running", "user_count": 40}
-        live, posts = self.recovery_live(c)
+        live, posts = self.recovery_live(
+            c, after_reset={"state": "running", "user_count": 40}
+        )
         self.drive(live, max_runs=1)
         self.assertEqual(len(posts), 1)
         self.assertEqual(self.reload().runs[0]["status"], "valid")
@@ -1036,7 +1045,6 @@ class LiveRunTest(Base):
     def test_recovery_cap_stops_the_batch_with_a_clear_reason(self):
         for cap, want in ((None, 2), (1, 1), (0, 0)):
             c = FakeCluster(self.ft)
-            c.locust_doc = {"state": "stopped", "user_count": 0}
             live, posts = self.recovery_live(
                 c, heals=False, **({} if cap is None else {"recovery_attempts": cap})
             )
@@ -1049,11 +1057,41 @@ class LiveRunTest(Base):
             self.assertEqual(len(q.runs[0]["locust_recovery"]), want)
             self.assertFalse(c.injected)
 
+    def test_the_cap_counts_consecutive_recoveries_and_a_successful_run_resets_it(self):
+        c = FakeCluster(self.ft)
+        live, posts = self.recovery_live(c, recovery_attempts=1)  # a cap of 1 in a row
+        s1_twice = [dict(CELLS[0], cell="C1/S1/L3"), dict(CELLS[0], cell="C2/S1/L3")]
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = pathlib.Path(tmp.name)
+        q = batch.Queue.create(self.dir, REF, s1_twice, precheck_cfg=PRE)
+        self.drive(live, queue=q, max_runs=1)
+        self.assertEqual(live.recoveries, 0)  # cleared by the successful run
+        c.injected = False  # the fake yields one Incident per injection: let the next run have its own
+        self.drive(live, queue=q, max_runs=1)
+        runs = self.reload().runs
+        self.assertEqual([r["status"] for r in runs], ["valid", "valid"])
+        self.assertEqual(
+            len(posts), 2
+        )  # one recovery per run: the count went back to 0 after run 1
+        self.assertEqual(live.recoveries, 0)
+
+    def test_consecutive_recoveries_without_a_successful_run_hit_the_cap(self):
+        c = FakeCluster(self.ft)
+        live, posts = self.recovery_live(c, heals=False, recovery_attempts=2)
+        out = self.drive(live)
+        self.assertEqual(out["stopped"], "halt:locust_recovery_cap_reached")
+        self.assertEqual(len(posts), 2)
+        self.assertEqual(live.recoveries, 2)  # not cleared: no run succeeded
+
     def test_healthy_locust_is_never_touched_and_no_config_means_no_recovery(self):
         c = FakeCluster(self.ft)
-        live, posts = self.recovery_live(c)
+        live, posts = self.recovery_live(
+            c, after_reset={"state": "running", "user_count": 160}
+        )
         self.drive(live, max_runs=1)
         self.assertEqual(posts, [])
+        self.assertEqual(live.resets, [self.BASELINE_SWARM])
         self.assertNotIn("locust_recovery", self.reload().runs[0])
         self.setUp()
         c = FakeCluster(self.ft)
@@ -1064,7 +1102,9 @@ class LiveRunTest(Base):
         live = batch.LiveRun(r, PRE, wait_s=50, poll_s=5, sleep=self.ft.sleep, monotonic=self.ft.monotonic,
                              wall=self.ft.wall, stat=audit_fresh(self.ft))  # fmt: skip
         self.drive(live, max_runs=1)
-        self.assertEqual([u for u in posted if u.endswith("/swarm")], [])
+        self.assertEqual(
+            [u for u in posted if u.endswith("/swarm")], []
+        )  # no baseline in the config: the old /stop
         self.assertEqual(self.reload().runs[0]["discard_reason"], "precheck_timeout")
 
     def test_locust_off_baseline_at_the_end_voids_the_run_and_the_cell_requeues(self):

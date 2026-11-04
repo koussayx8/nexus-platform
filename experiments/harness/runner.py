@@ -228,6 +228,14 @@ class Runner:
             ]  # fmt: skip
         raise ValueError(f"unknown scenario {scenario}")
 
+    def swarm_step(self, b: dict, note: str = "") -> Step:
+        """POST /swarm with b = {users, spawn_rate, classes}: the exact baseline, one user_classes field per class."""
+        body = urllib.parse.urlencode(
+            [("user_count", b["users"]), ("spawn_rate", b["spawn_rate"])]
+            + [("user_classes", c) for c in b["classes"]]
+        )
+        return Step(("POST", f"{self.locust}/swarm", body), True, note)
+
     def plan_refresh(self):
         """ArgoCD hard refresh by annotation: no sync (selfHeal syncs by itself)."""
         return [
@@ -265,9 +273,12 @@ class Runner:
         baseline_ref: str | None = None,
         advisory: str = "on",
         breaker_epoch: int | None = None,
+        locust_baseline: dict | None = None,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
-        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D)."""
+        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D).
+        With locust_baseline (users, spawn_rate, classes), Locust ends at that baseline swarm; without
+        it the old behaviour stands (Locust is stopped)."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -297,9 +308,12 @@ class Runner:
                    S5_RESTORE_SQL, ns=NS_DATA, note="restore role"),
         ]  # fmt: skip
         if self.locust:
-            steps.append(
-                Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
-            )
+            if locust_baseline:
+                steps.append(self.swarm_step(locust_baseline, "Locust to the baseline"))
+            else:
+                steps.append(
+                    Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
+                )
         if breaker_epoch is not None:
             steps += self.plan_operator_config(advisory, breaker_epoch)
         return steps

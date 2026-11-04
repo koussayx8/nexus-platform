@@ -29,7 +29,7 @@ What it adds to runner.py (which plans and executes single operations):
 * Locust recovery: when the pre-check finds Locust stopped or off baseline and precheck.locust has
   spawn_rate and classes, the driver POSTs the exact baseline (users, spawn rate, classes) to the master,
   waits recovery_wait_s (default cap_s), and re-runs every pre-check; at most recovery_attempts (default 2)
-  per batch, each logged and kept on the run record (`locust_recovery`). Past the cap the batch halts
+  in a row (a successful run resets the count), each logged and kept on the run record (`locust_recovery`). Past the cap the batch halts
   (`locust_recovery_cap_reached`).
 * End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
   is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
@@ -512,7 +512,7 @@ class LiveRun:
         self.r, self.cfg = runner, precheck.normalise(precheck_cfg)
         self.wait_s, self.poll_s = wait_s, poll_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
-        self.recoveries = 0  # Locust restarts so far in this batch process
+        self.recoveries = 0  # consecutive Locust restarts; a successful run resets it
 
     def incidents(self) -> list[dict]:
         rc, out = self.r.exec(
@@ -537,6 +537,13 @@ class LiveRun:
             "max": int(loc.get("recovery_attempts", 2)),
             "wait_s": loc.get("recovery_wait_s", self.cfg["cap_s"]),
         }
+
+    def _locust_baseline(self) -> dict | None:
+        """The swarm the reset leaves Locust at (users, spawn_rate, classes), or None without the config."""
+        conf = self._recovery_conf()
+        return (
+            {k: conf[k] for k in ("users", "spawn_rate", "classes")} if conf else None
+        )
 
     @staticmethod
     def _locust_down(failures: list[str]) -> list[str]:
@@ -640,7 +647,13 @@ class LiveRun:
         rec["advisory_checks"], rec["breaker_epoch"] = advisory, epoch
         before = {i["metadata"]["uid"] for i in self.incidents()}
         r.execute(
-            r.plan_reset(int(cell["level"]), cell.get("baseline_ref"), advisory, epoch)
+            r.plan_reset(
+                int(cell["level"]),
+                cell.get("baseline_ref"),
+                advisory,
+                epoch,
+                locust_baseline=self._locust_baseline(),
+            )
         )
         guard.check()
         if not r.wait_synced():
@@ -680,6 +693,7 @@ class LiveRun:
                 rec["locust_end"] = {"ok": not why, "failures": why}
                 if why:
                     raise Voided("locust_end_check")
+                self.recoveries = 0  # the cap counts consecutive recoveries: a successful run clears it
                 st = ended[0]["status"]
                 return Outcome(
                     True,
