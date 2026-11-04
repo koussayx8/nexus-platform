@@ -130,8 +130,8 @@ flag_case "milestone-missing-value" 2 "must be m2 or m3" --milestone
 flag_case "m3-needs-index-hash" 2 "needs NEXUS_VERIFY_REASONER_INDEX_HASH" --milestone m3
 NEXUS_VERIFY_REASONER_INDEX_HASH=short flag_case "m3-bad-index-hash" 2 "needs NEXUS_VERIFY_REASONER_INDEX_HASH" --milestone m3
 
-# The default stays M2: the M3 checks are reachable only behind the flag, and M1-M15 are unchanged.
-if [[ $(grep -cE '^verify M[0-9]+ ' "$root/scripts/verify-state.sh") == 15 ]]; then echo "PASS m2-default-has-15-checks"; else echo "FAIL m2-default-has-15-checks"; failed=1; fi
+# The default stays M2: the M3 checks are reachable only behind the flag, and M1-M15 are unchanged and M19 is the one default addition.
+if [[ $(grep -cE '^verify M[0-9]+ ' "$root/scripts/verify-state.sh") == 16 ]]; then echo "PASS m2-default-has-16-checks"; else echo "FAIL m2-default-has-16-checks"; failed=1; fi
 if grep -E '^[[:space:]]+verify M1[678] ' "$root/scripts/verify-state.sh" | wc -l | grep -q '^3$'; then echo "PASS m3-checks-gated"; else echo "FAIL m3-checks-gated"; failed=1; fi
 
 if [[ -s $work/unexpected.log ]]; then echo "FAIL unexpected kubectl calls:"; cat "$work/unexpected.log"; failed=1; fi
