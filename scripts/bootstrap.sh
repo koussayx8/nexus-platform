@@ -171,7 +171,16 @@ kind: Policy
 omitStages:
   - RequestReceived
 rules:
-  # 1. nexus-operator on the two mutating subresources and the Incident CRD (spec §14 rule 1)
+  # Rules are evaluated in order; the first match wins (ADR-036; spec §14, with v1.1 changes).
+  # 1. nexus-operator reads of Incidents: not audited. Placed before rule 2, or the operator reconcile
+  #    loop would log every Incident at RequestResponse on every list.
+  - level: None
+    users: ["system:serviceaccount:nexus-system:nexus-operator"]
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: nexus.io
+        resources: ["incidents", "incidents/status"]
+  # 2. nexus-operator on the two mutating subresources and the Incident CRD (spec §14 rule 1)
   - level: RequestResponse
     users: ["system:serviceaccount:nexus-system:nexus-operator"]
     resources:
@@ -181,16 +190,27 @@ rules:
         resources: ["pods/eviction"]
       - group: nexus.io
         resources: ["incidents", "incidents/status"]
-  # 2. group nexus-approvers on incidents (spec §14 rule 2)
+  # 3. group nexus-approvers on incidents (spec §14 rule 2)
   - level: RequestResponse
     userGroups: ["nexus-approvers"]
     resources:
       - group: nexus.io
         resources: ["incidents"]
-  # 3. any write by any identity (spec §14 rule 3)
+  # 4. routine noise, by any identity: lease renewals, and permission checks that change nothing
+  - level: None
+    verbs: ["update", "patch"]
+    resources:
+      - group: coordination.k8s.io
+        resources: ["leases"]
+  - level: None
+    verbs: ["create"]
+    resources:
+      - group: authorization.k8s.io
+        resources: ["selfsubjectaccessreviews", "selfsubjectrulesreviews"]
+  # 5. any other write by any identity (spec §14 rule 3)
   - level: Metadata
     verbs: ["create", "update", "patch", "delete", "deletecollection"]
-  # 4. reads, watches, health checks (spec §14 rule 4)
+  # 6. reads, watches, health checks (spec §14 rule 4)
   - level: None
 '
 
@@ -203,7 +223,7 @@ kube-apiserver-arg:
   - audit-policy-file=$AUDIT_POLICY_FILE
   - audit-log-path=$AUDIT_LOG
   - audit-log-maxage=30
-  - audit-log-maxbackup=10
+  - audit-log-maxbackup=30
   - audit-log-maxsize=100
 "
 
