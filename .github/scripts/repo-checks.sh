@@ -28,6 +28,9 @@
 #
 # 15. Every ConfigMap that a rendered Application's workloads reference (volumes, envFrom,
 #     valueFrom) is in that Application's render, or allow-listed by name (configmap-refs.py).
+# 17. Offline tests for verify-state.sh --milestone m3 (G7: K1-K6, N1-N6, Reasoner), stub kubectl.
+# 16. The audit policy and rotation in scripts/bootstrap.sh: rule order, operator and approver
+#     writes at RequestResponse, every other write at Metadata (audit-policy.sh, ADR-036).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
@@ -104,8 +107,16 @@ echo "::group::verify-state /items tests (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-items.sh
 echo "::endgroup::"
 
+echo "::group::audit policy and rotation written by bootstrap.sh (offline, ADR-036)"
+bash scripts/tests/audit-policy.sh
+echo "::endgroup::"
+
 echo "::group::verify-state M2 checks (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-m2.sh
+echo "::endgroup::"
+
+echo "::group::verify-state M3 checks (offline, stub kubectl)"
+KUBECONFIG=/nonexistent bash scripts/tests/verify-m3.sh
 echo "::endgroup::"
 
 echo "::group::detection-inputs.jq fixture tests (M1b-6c)"

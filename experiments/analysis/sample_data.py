@@ -348,27 +348,11 @@ def generate(out: pathlib.Path) -> None:
         runs_dir.mkdir(parents=True, exist_ok=True)
         for r in records:
             n_in = r.get("_in")
-            k8s = None
-            if (
-                n_in and r["attempt"] == 1 and r["cell"].startswith("A/R1/")
-            ):  # K8sGPT runs alongside, once per scenario
-                s = r["cell"].split("/")[2]
-                k8s = tmp / f"k8s{n_in[0]}.json"
-                k8s.write_text(
-                    json.dumps(
-                        {
-                            "fault_class": {
-                                "S5": "unknown",
-                                "S6": "cpu_saturation",
-                            }.get(s, TRUTH[s]["fault_class"])
-                        }
-                    )
-                )
             exporter.export(
                 queue_dir=tmp / "queue", run_id=r["run_id"], injection=n_in[1] if n_in else iso(BASE), ground_truth=gt,
                 git_commit="f" * 40, out_dir=runs_dir, fixture=True,
                 tables=tmp / f"in{n_in[0]}" / "tables.json" if n_in else None,
-                audit=tmp / f"in{n_in[0]}" / "audit.log" if n_in else None, k8sgpt=k8s,
+                audit=tmp / f"in{n_in[0]}" / "audit.log" if n_in else None,
                 metrics=tmp / f"in{n_in[0]}" / "metrics.json" if n_in else None,
             )  # fmt: skip
     suite = {

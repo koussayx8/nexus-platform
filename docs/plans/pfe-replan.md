@@ -77,7 +77,7 @@ cloud credit), still delivered as a PR to `dev` through its gate.
 | G9 | The Reasoner service: Deployment in `nexus-reasoner` with no token, Model Adapter, `/healthz` with the index hash, image (multi-arch); eight runbooks (S5 held out), runbook lint, `make index`, the 30 labelled queries and retrieval evaluation | §15, §16, I1 | 12-20 | new task | T4 |
 | G10 | Static baseline C4: `nexus-baseline` identity and receiver | §20 | 12-20 | new task | T4 |
 | G11 | Containment suite: coverage matrix, fail-closed, Kill Switch, compromised operator (Phase D) | §20 | 12-20 | new task | T3 follow-up |
-| G12 | K8sGPT capture (C6) | §20 | 12-20 | T4 follow-up | T4 |
+| G12 | ~~K8sGPT capture (C6)~~ — moved to the improvements backlog (owner, 2026-11-04; ADR-037) | §20 | — | — | — |
 | G13 | `reconcile-audit`, `export-results`, `make results` | §14, §25 | 12-20 | T4 follow-up | T4 |
 | G14 | Detector comparison: Z-score against Isolation Forest, offline | §21 | evaluation | new task | local, December |
 | G15 | R0 seeded adversarial generator; `kyverno` CLI replay with mocked context for Phase B | §16, §20, §27 | 12-20 | T4 (arm configs) or follow-up | T4 |
@@ -119,6 +119,7 @@ Reported, not resolved here. The owner's decisions govern until spec v1.1.
 | X7 | I16: an approval binds a proposal hash, "enforced by K3, K5, C2"; the §11 K3 row lists `actionId`, replicas and `expiresAt` but not the hash; K5's row has stamping and TTL only | The owner's T3 says "K5 approver stamping and hash binding". The spec is internally inconsistent about which policy checks `proposalHash`. T3 settles it in its PR; spec v1.1 records it |
 | X8 | Carried from GATE M2-0: Z-score 3-min lag and in-flight gauge; Application name `observability`; `experiment/dev-state` sequencing; branch ruleset; unfiltered required check; ADR-030 contradiction 3 (Bedrock) moot | Unchanged; listed in `TASKS.md` |
 | X9 | "Quiet when healthy" is not a stated limitation in v1.0 | O5 makes it one |
+| X10 | C6 (K8sGPT, §20) is a required configuration; K8sGPT CLI is MUST (§22) | Owner 2026-11-04: C6 deferred, no experimental K8sGPT comparison; a theoretical study instead (ADR-037). Spec v1.1 records it |
 
 ## Test policy (O7)
 
@@ -179,3 +180,11 @@ Each accepted as proposed.
 | Q4 | The defense recording: of the A1 demo (labelled demo) or of a WSL2 measured run? | Both, each labelled with its host |
 | Q5 | Does ADR-029 need an addendum for O6? | One sentence at the next ADR PR |
 | Q6 | Which namespace runs L2 for the M3 exit? | `nexus-dev` set to `"2"` for the demo by commit on `experiment/dev-state`, then back to `"3"` |
+
+## Improvements backlog
+
+Not scheduled; none is a gate for M4.
+
+| # | Item | When |
+|---|---|---|
+| I-1 | (was G12) K8sGPT or similar as an extra, redacted evidence source for the Evidence Collector. The experimental C6 comparison is deferred (ADR-037) | After M4 or after the PFE |

@@ -8,8 +8,8 @@ prefix `nexus_operator_`; labels are reason codes and ids from the spec, never f
   nexus_operator_gate_decisions_total{stage,verdict}    Safety Gate stages 1-7, pass or fail
   nexus_operator_actions_total{action_id,result}        executed requests: admitted, denied, error,
                                                         recorder_unavailable
-  nexus_operator_recorder_errors_total                  Flight Recorder calls that failed
-  nexus_operator_recorder_up                            1 while the last recorder call succeeded
+  nexus_operator_recorder_errors_total                  Flight Recorder calls and health probes that failed
+  nexus_operator_recorder_up                            1 while the last recorder call or the 30 s SELECT 1 probe succeeded
   nexus_operator_redactions_total{class}                values scrubbed from evidence bundles
   nexus_operator_reasoner_calls_total{result}           Reasoner calls: ok or the failure reason
   nexus_operator_reasoner_fallbacks_total               diagnoses that used the Rules Engine fallback

@@ -661,6 +661,7 @@ class FakeCluster:
         }
         self.locust_doc = {"state": "running", "user_count": 160}
         self.rps = 80.0
+        self.recorder_up = 1.0  # nexus_operator_recorder_up: a number, a list of series, or None (no answer)
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
 
     def vector(self, value):
@@ -675,6 +676,8 @@ class FakeCluster:
         for key, val in self.prom.items():
             if key in q:
                 return val
+        if q == "nexus_operator_recorder_up":
+            return self.recorder_up
         if ":rate2m" in q:
             return self.rps
         if ":zscore15m" in q:
