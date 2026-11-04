@@ -1,5 +1,7 @@
 # ADR-019: Bootstrap Order, the §14 Audit Policy, and the Audit-Log Access Design
 
+**Update (2026-11-04):** the policy rules and `audit-log-maxbackup` below are changed by ADR-036 (Incident reads and routine noise at None; 30 backups). The rest stands.
+
 ## Status: Accepted
 
 ## Context
