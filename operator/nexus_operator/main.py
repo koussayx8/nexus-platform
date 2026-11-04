@@ -33,6 +33,7 @@ from .mutations import Mutations
 from .poller import Poller
 from .reasoner_client import ReasonerClient
 from .recorder import AuditedClient, ReconnectingRecorder, UnavailableRecorder
+from .recorder.act import health_loop
 from .verifier import Prometheus, Verifier
 
 logger = logging.getLogger("nexus.operator")
@@ -153,6 +154,10 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         asyncio.create_task(RUNTIME.loop.run(), name="reconcile loop"),
         asyncio.create_task(RUNTIME.poller.run(), name="alert poller"),
     ]
+    if isinstance(RUNTIME.recorder, ReconnectingRecorder):
+        RUNTIME.tasks.append(
+            asyncio.create_task(health_loop(RUNTIME.recorder), name="recorder health")
+        )
     _register_gauges()
     RUNTIME.metrics_runner = await metrics.serve(cfg.metrics_port)
 

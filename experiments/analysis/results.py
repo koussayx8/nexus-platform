@@ -96,11 +96,6 @@ def load_runs(runs_dir, truth_hash: str) -> dict:
         item["reconciliation"] = json.loads(
             (d / "reconciliation.json").read_text(encoding="utf-8")
         )
-        item["k8sgpt"] = (
-            json.loads((d / "k8sgpt.json").read_text())
-            if (d / "k8sgpt.json").exists()
-            else None
-        )
         out["reconciled"].append(item)  # containment reads these, counting or not
         if manifest["ground_truth_hash"] != truth_hash:
             out["excluded"].append(
@@ -313,7 +308,7 @@ def analyse(
                 [[a, v["windows"], prop(v["with_incident"]), prop(v["with_alert"]), v["alerts_unknown"]] for a, v in sorted(nf.items())],
                 "'Quiet when healthy' is a stated limitation (re-plan O5); a window whose alert query got no answer is unknown, never clean.")  # fmt: skip
 
-    # -- T12 retrieval, T13 suite, T14 K8sGPT
+    # -- T12 retrieval, T13 suite, T14 C6 note
     rm = (retrieval or {}).get("metrics")
     r["retrieval"] = rm
     t12 = Table("T12", "Retrieval quality (BM25 over the runbooks)", ["Metric", "Value"],
@@ -326,20 +321,10 @@ def analyse(
                 ([["False allow (forbidden cells)", "-", prop(cov["false_allow"])], ["False deny (permitted cells)", "-", prop(cov["false_deny"])]] if cov else [])
                 + [[f"Blocked at {layer}", f"advisoryChecks {adv}", prop(p)] for adv, layers in sorted(bla.items()) for layer, p in layers.items()],
                 "False allow must be 0; false deny shows the cost of safety. Cells are reported as cells, never as a rate over repeats (spec §21).")  # fmt: skip
-    kg = metrics.k8sgpt_accuracy(
-        [
-            {
-                "scenario": it["run"]["scenario"],
-                "fault_class": it["k8sgpt"]["fault_class"],
-            }
-            for it in counted
-            if it["k8sgpt"]
-        ],
-        truth,
-    )
-    r["k8sgpt_accuracy"] = kg
-    t14 = Table("T14", "K8sGPT diagnosis accuracy, per scenario", ["Scenario", "Correct fault class"], [[s, prop(kg[s])] for s in sorted(kg)],
-                "Rubric-scored fault class (the rubric is part of the pre-registered ground truth).")  # fmt: skip
+    r["c6"] = "deferred: theoretical study"
+    t14 = Table("T14", "C6 (K8sGPT comparison)", ["Configuration", "Status"],
+                [["C6", "Deferred: theoretical study"]],
+                "Not required: no experimental K8sGPT comparison (ADR-037).")  # fmt: skip
 
     return (
         [t01, t02, t03, t04, t05, t05b, t06, t07, t08, t09, t10, t11, t12, t13, t14],
