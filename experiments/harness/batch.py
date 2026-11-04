@@ -26,6 +26,9 @@ What it adds to runner.py (which plans and executes single operations):
   check, and no non-terminal Incident, all inside the 20 min cap. The window records the alerts and
   Incidents that fired with nothing injected, in the run record (`no_fault`). Incidents are never
   deleted: one still open at the cap stops the batch (`halt`, reason recorded) until `clear-halt`.
+* End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
+  is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
+  cell requeues it.
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
 * fallbackUsed (spec §17) is on every run record.
@@ -514,6 +517,20 @@ class LiveRun:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
 
+    def locust_end_failures(self, cell: dict) -> list[str]:
+        """precheck.locust_failures at the end of a run. S2/S4/S6 drive their own load, so for them
+        the target is the cell's users (no per-namespace rate: the fault load is not the baseline);
+        every other scenario is held to the pre-registered baseline users and rate."""
+        cfg = self.cfg
+        if cell["scenario"].upper() in ("S2", "S4", "S6"):
+            loc = {
+                **cfg["locust"],
+                "baseline_users": cell.get("users"),
+                "namespaces": [],
+            }
+            cfg = {**cfg, "locust": loc}
+        return precheck.locust_failures(self.r, precheck.Prom(self.r), cfg)
+
     def __call__(self, cell: dict, rec: dict, guard: Guard) -> Outcome:
         r = self.r
         advisory = cell.get("advisory_checks", "on")
@@ -567,6 +584,11 @@ class LiveRun:
                 if (i.get("status") or {}).get("phase") in model.TERMINAL_PHASES
             ]
             if ended:
+                # the end check: Locust must still be running at the load the run was measured at
+                why = self.locust_end_failures(cell)
+                rec["locust_end"] = {"ok": not why, "failures": why}
+                if why:
+                    raise Voided("locust_end_check")
                 st = ended[0]["status"]
                 return Outcome(
                     True,

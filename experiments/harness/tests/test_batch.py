@@ -977,6 +977,45 @@ class LiveRunTest(Base):
                  idx("rollout restart deployment/nexus-operator"), idx("sync.status"), idx("zscore15m"), idx("/fault/hang")]  # fmt: skip
         self.assertEqual(order, sorted(order))
 
+    def test_locust_off_baseline_at_the_end_voids_the_run_and_the_cell_requeues(self):
+        class LocustDies(FakeCluster):
+            def __call__(self, argv, cwd=None):
+                out = super().__call__(argv, cwd)
+                if self.injected:  # the fault is in; Locust stops before the run ends
+                    self.locust_doc = {"state": "stopped", "user_count": 0}
+                return out
+
+        c = LocustDies(self.ft)
+        self.drive(self.live(c), max_runs=1)
+        q = self.reload()
+        r = q.runs[0]
+        self.assertEqual((r["status"], r["void_reason"]), ("void", "locust_end_check"))
+        self.assertFalse(r["locust_end"]["ok"])
+        self.assertIn("locust:state='stopped'", r["locust_end"]["failures"])
+        self.assertEqual(q.cell_state(CELLS[0]["cell"])["valid"], 0)
+        self.assertEqual(
+            q.next_cell()["cell"], CELLS[0]["cell"]
+        )  # open again: requeued
+
+    def test_locust_at_baseline_at_the_end_keeps_the_run_valid(self):
+        c = FakeCluster(self.ft)
+        self.drive(self.live(c), max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual(r["status"], "valid")
+        self.assertEqual(r["locust_end"], {"ok": True, "failures": []})
+
+    def test_end_check_for_a_load_scenario_targets_the_cells_users(self):
+        live = self.live(FakeCluster(self.ft))
+        for doc, want in (
+            ({"state": "running", "user_count": 300}, []),
+            ({"state": "stopped", "user_count": 300}, ["locust:state='stopped'"]),
+            ({"state": "running", "user_count": 160}, ["locust:users=160!~300"]),
+        ):
+            live.r.http_get = lambda url, d=doc: (200, json.dumps(d))
+            self.assertEqual(
+                live.locust_end_failures({"scenario": "S2", "users": 300}), want
+            )
+
     def test_a_masked_baseline_discards_with_precheck_timeout_and_injects_nothing(self):
         c = FakeCluster(self.ft)
         c.z = 5
