@@ -725,15 +725,17 @@ class LocustfileTest(unittest.TestCase):
 
     BASELINE_NAMES = ("SEQUENCE", "GOLDEN", "TIMEOUT_S", "_index")
     BASELINE_CLASSES = ("_Mix", "DevUser", "ProdUser")
-    # sha256 of the AST of the baseline names and classes as merged before DevCpuUser existed
-    BASELINE_SHA256 = "1a6a8705c9cb2d05b16f9f9345ee0221b2b9da0652acf30670b368effca019e1"
+    # sha256 of the source text of those nodes as merged before DevCpuUser existed (text, not ast.dump:
+    # the dump differs between Python versions)
+    BASELINE_SHA256 = "19851ca9e0bc9b163cef78165db53f5050ee11de94c859a03801c230a8f2f4aa"
 
     def locustfile(self):
         import ast
 
-        return ast.parse(
-            (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
-        )
+        self.src = (
+            Path(__file__).parents[2] / "platform/load/locustfile.py"
+        ).read_text()
+        return ast.parse(self.src)
 
     def baseline_nodes(self, tree):
         import ast
@@ -761,7 +763,7 @@ class LocustfileTest(unittest.TestCase):
             len(nodes), len(self.BASELINE_NAMES) + len(self.BASELINE_CLASSES)
         )
         digest = hashlib.sha256(
-            "\n".join(ast.dump(n) for n in nodes).encode()
+            "\n".join(ast.get_source_segment(self.src, n) for n in nodes).encode()
         ).hexdigest()
         self.assertEqual(
             digest, self.BASELINE_SHA256
