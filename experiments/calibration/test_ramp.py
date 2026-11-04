@@ -723,10 +723,77 @@ class LocustfileTest(unittest.TestCase):
         ):
             self.assertIn(f"- {arg}\n", src)
 
-    def test_mix_is_four_to_one_and_never_work_cpu(self):
+    BASELINE_NAMES = ("SEQUENCE", "GOLDEN", "TIMEOUT_S", "_index")
+    BASELINE_CLASSES = ("_Mix", "DevUser", "ProdUser")
+    # sha256 of the AST of the baseline names and classes as merged before DevCpuUser existed
+    BASELINE_SHA256 = "1a6a8705c9cb2d05b16f9f9345ee0221b2b9da0652acf30670b368effca019e1"
+
+    def locustfile(self):
+        import ast
+
+        return ast.parse(
+            (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
+        )
+
+    def baseline_nodes(self, tree):
+        import ast
+
+        return [
+            n
+            for n in tree.body
+            if (
+                isinstance(n, ast.Assign)
+                and getattr(n.targets[0], "id", "") in self.BASELINE_NAMES
+            )
+            or (isinstance(n, ast.ClassDef) and n.name in self.BASELINE_CLASSES)
+        ]
+
+    def test_mix_is_four_to_one(self):
         src = (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
         self.assertIn('SEQUENCE = ("/", "/", "/", "/", "/items")', src)
-        self.assertNotIn('"/work/cpu"', src.split('"""', 2)[2])
+
+    def test_baseline_traffic_is_identical_and_never_calls_work_cpu(self):
+        import ast
+        import hashlib
+
+        nodes = self.baseline_nodes(self.locustfile())
+        self.assertEqual(
+            len(nodes), len(self.BASELINE_NAMES) + len(self.BASELINE_CLASSES)
+        )
+        digest = hashlib.sha256(
+            "\n".join(ast.dump(n) for n in nodes).encode()
+        ).hexdigest()
+        self.assertEqual(
+            digest, self.BASELINE_SHA256
+        )  # same classes, weights, wait times, sequence
+        for n in nodes:
+            consts = [c.value for c in ast.walk(n) if isinstance(c, ast.Constant)]
+            self.assertNotIn("/work/cpu", consts)
+
+    def test_cpu_class_calls_work_cpu_and_is_outside_the_autostart(self):
+        import ast
+
+        tree = self.locustfile()
+        (cpu,) = [
+            n
+            for n in tree.body
+            if isinstance(n, ast.ClassDef) and n.name == "DevCpuUser"
+        ]
+        consts = [c.value for c in ast.walk(cpu) if isinstance(c, ast.Constant)]
+        self.assertIn("/work/cpu", consts)
+        self.assertEqual(
+            sum("/work/cpu" in [c.value for c in ast.walk(n) if isinstance(c, ast.Constant)]
+                for n in tree.body if isinstance(n, ast.ClassDef)),
+            1,
+        )  # only that class  # fmt: skip
+        master = (Path(__file__).parents[2] / "platform/load/master.yaml").read_text()
+        self.assertIn(
+            "- DevUser\n", master
+        )  # the autostart names the baseline classes...
+        self.assertIn("- ProdUser\n", master)
+        self.assertNotIn(
+            "DevCpuUser\n", master.split("args:", 1)[1].split("env:", 1)[0]
+        )  # ...and not this one
 
 
 if __name__ == "__main__":

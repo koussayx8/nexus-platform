@@ -7,7 +7,9 @@
 # enforces it): non-root, no privilege escalation, all capabilities dropped, read-only root
 # filesystem with /tmp as an emptyDir, RuntimeDefault seccomp. No ServiceAccount token.
 #
-# --class-picker lets a ramp select one class (`user_classes` on /swarm).
+# --class-picker lets a ramp select one class (`user_classes` on /swarm). The two baseline classes are
+# named as arguments: without them the autostart would spawn every class in the locustfile, DevCpuUser
+# (S2's /work/cpu load) included.
 #
 # The baseline (L2, ADR-026, ADR-027), frozen here: B = 80 req/s per namespace =
 # floor(min(0.4 x C, S*/2)) with C >= 200 req/s (R1 attempt 2, 2026-10-09: no knee by the top step, a
@@ -63,6 +65,9 @@ spec:
             - --users=160
             - --spawn-rate=4
             - --expect-workers=1
+            # the baseline classes, named so the autostart never includes DevCpuUser (S2's class)
+            - DevUser
+            - ProdUser
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
