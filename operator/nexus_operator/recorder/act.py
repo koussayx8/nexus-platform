@@ -9,6 +9,7 @@ proposal by its hash. Both are added here, inside the package, without touching 
     ActRecorder            the Recorder protocol plus recent_actions and get_proposal
     PostgresActRecorder    PostgresRecorder plus those two reads (one SELECT each)
     ReconnectingRecorder   the Writer the operator holds: connects on demand, fails closed
+    health_loop            SELECT 1 every 30 s on its own connection, so recorder_up stays current
     UnavailableRecorder    every call raises RecorderUnavailable: used until the Writer is wired in
                            (the runtime image has no asyncpg pin yet, ADR-031), so every mutation
                            ends Blocked / recorder_unavailable
@@ -26,6 +27,9 @@ from ..metrics import METRICS, RECORDER_ERRORS
 from .writer import PostgresRecorder, Recorder, RecorderUnavailable, connect
 
 logger = logging.getLogger("nexus.recorder")
+
+HEALTH_PERIOD_S = 30.0
+PROBE_TIMEOUT_S = 5.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -187,3 +191,50 @@ class ReconnectingRecorder:
 
     async def close(self) -> None:
         await self._drop()
+
+    async def probe(self, timeout_s: float = PROBE_TIMEOUT_S) -> bool:
+        """SELECT 1 on a short-lived connection of its own; sets `up` and counts a failure.
+
+        It takes neither the lock nor a pool slot and never drops the pool, so a slow or dead
+        database cannot delay the act path through it; the act path's own calls still decide when
+        to reconnect. The password is read from its file at each probe, like a connection attempt.
+        """
+        try:
+            password = (
+                await asyncio.to_thread(
+                    pathlib.Path(self._password_file).read_text, "utf-8"
+                )
+            ).strip()
+            if not password:
+                raise RecorderUnavailable("password file is empty")
+            await asyncio.wait_for(self._select_one(password, timeout_s), timeout_s)
+        except Exception as e:  # noqa: BLE001 - any failure means the recorder is not up
+            METRICS.inc(RECORDER_ERRORS)
+            self.up = False
+            logger.warning("recorder health check failed: %s", type(e).__name__)
+            return False
+        self.up = True
+        return True
+
+    async def _select_one(self, password: str, timeout_s: float) -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(
+            **self._args,
+            password=password,
+            timeout=timeout_s,
+            command_timeout=timeout_s,
+        )
+        try:
+            await conn.fetchval("SELECT 1")
+        finally:
+            await conn.close()
+
+
+async def health_loop(
+    recorder: ReconnectingRecorder, period_s: float = HEALTH_PERIOD_S
+) -> None:
+    """Probe the recorder every `period_s` until cancelled. A failed probe never ends the loop."""
+    while True:
+        await recorder.probe()
+        await asyncio.sleep(period_s)
