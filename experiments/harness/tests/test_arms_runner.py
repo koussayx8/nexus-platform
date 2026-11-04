@@ -424,20 +424,20 @@ class S2SwarmTest(unittest.TestCase):
                 self.swarm(sc, 15).argv, ("POST", "http://l/swarm", "user_count=15")
             )
 
-    def test_the_weights_keep_the_baseline_users_at_80_each_in_the_560_user_swarm(self):
+    def test_baseline_classes_are_fixed_so_a_swarm_total_never_moves_them(self):
+        # The behaviour (160 -> 80 + 80 + 0, N -> 80 + 80 + N - 160) is asserted against Locust's own
+        # dispatcher in experiments/calibration/test_ramp.py; here, that the runner's total lines up.
         src = (self.ROOT / "platform/load/locustfile.py").read_text()
         master = (self.ROOT / "platform/load/master.yaml").read_text()
-        w = int(
-            re.search(r"class DevCpuUser.*?\n    weight = (\d+)", src, re.DOTALL)[1]
-        )
-        b = (
-            int(re.search(r"- --users=(\d+)", master)[1]) // 2
-        )  # users per baseline class
-        total = 560
+        b = int(re.search(r"^BASELINE_USERS_PER_ENV = (\d+)", src, re.MULTILINE)[1])
         self.assertEqual(
-            total // (2 + w), b
-        )  # DevUser and ProdUser (weight 1) stay at B
-        self.assertEqual(total - 2 * b, 400)  # the rest drive /work/cpu
+            src.count("fixed_count = BASELINE_USERS_PER_ENV"), 2
+        )  # DevUser and ProdUser
+        self.assertEqual(
+            int(re.search(r"- --users=(\d+)", master)[1]), 2 * b
+        )  # the autostart total
+        total = 560  # an S2 swarm: 80 + 80 baseline, the rest on /work/cpu
+        self.assertEqual(total - 2 * b, 400)
 
 
 if __name__ == "__main__":

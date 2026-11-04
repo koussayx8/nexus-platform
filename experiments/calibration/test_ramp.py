@@ -8,6 +8,8 @@ import argparse
 import json
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.parse
@@ -723,59 +725,58 @@ class LocustfileTest(unittest.TestCase):
         ):
             self.assertIn(f"- {arg}\n", src)
 
-    BASELINE_NAMES = ("SEQUENCE", "GOLDEN", "TIMEOUT_S", "_index")
-    BASELINE_CLASSES = ("_Mix", "DevUser", "ProdUser")
-    # sha256 of the source text of those nodes as merged before DevCpuUser existed (text, not ast.dump:
-    # the dump differs between Python versions)
-    BASELINE_SHA256 = "19851ca9e0bc9b163cef78165db53f5050ee11de94c859a03801c230a8f2f4aa"
+    ROOT = Path(__file__).parents[2]
 
-    def locustfile(self):
-        import ast
+    def locust_python(self):
+        """The interpreter that has Locust: NEXUS_LOCUST_PYTHON (set by repo-checks.yml), else this one.
+        In CI a missing Locust is a failure, never a skip."""
+        py = os.environ.get("NEXUS_LOCUST_PYTHON") or sys.executable
+        probe = subprocess.run(
+            [py, "-I", "-c", "import locust"], capture_output=True, check=False
+        )
+        if probe.returncode != 0:
+            if os.environ.get("GITHUB_ACTIONS"):
+                self.fail("Locust is not installed for the class-dispatch test")
+            self.skipTest("Locust is not installed (pip install locust==2.46.7)")
+        return py
 
-        self.src = (
-            Path(__file__).parents[2] / "platform/load/locustfile.py"
-        ).read_text()
-        return ast.parse(self.src)
-
-    def baseline_nodes(self, tree):
-        import ast
-
-        return [
-            n
-            for n in tree.body
-            if (
-                isinstance(n, ast.Assign)
-                and getattr(n.targets[0], "id", "") in self.BASELINE_NAMES
-            )
-            or (isinstance(n, ast.ClassDef) and n.name in self.BASELINE_CLASSES)
-        ]
+    def split(self, selection, *counts):
+        out = subprocess.run(
+            [self.locust_python(), "-I", str(Path(__file__).with_name("dispatch_probe.py")),
+             str(self.ROOT / "platform/load/locustfile.py"), selection, *map(str, counts)],
+            capture_output=True, text=True, check=True,
+        )  # fmt: skip
+        return json.loads(out.stdout)
 
     def test_mix_is_four_to_one(self):
-        src = (Path(__file__).parents[2] / "platform/load/locustfile.py").read_text()
+        src = (self.ROOT / "platform/load/locustfile.py").read_text()
         self.assertIn('SEQUENCE = ("/", "/", "/", "/", "/items")', src)
 
-    def test_baseline_traffic_is_identical_and_never_calls_work_cpu(self):
-        import ast
-        import hashlib
-
-        nodes = self.baseline_nodes(self.locustfile())
+    def test_baseline_swarm_is_exactly_80_dev_80_prod_and_no_cpu_user(self):
+        # Locust's own dispatcher, on the master's autostart (160 users, DevUser and ProdUser) and on an
+        # S2 swarm that also selects DevCpuUser.
         self.assertEqual(
-            len(nodes), len(self.BASELINE_NAMES) + len(self.BASELINE_CLASSES)
+            self.split("baseline", 160)["160"], {"DevUser": 80, "ProdUser": 80}
         )
-        digest = hashlib.sha256(
-            "\n".join(ast.get_source_segment(self.src, n) for n in nodes).encode()
-        ).hexdigest()
         self.assertEqual(
-            digest, self.BASELINE_SHA256
-        )  # same classes, weights, wait times, sequence
-        for n in nodes:
-            consts = [c.value for c in ast.walk(n) if isinstance(c, ast.Constant)]
-            self.assertNotIn("/work/cpu", consts)
+            self.split("s2", 160)["160"],
+            {"DevUser": 80, "ProdUser": 80, "DevCpuUser": 0},
+        )
+
+    def test_s2_swarm_of_n_is_80_80_and_n_minus_160_cpu_users(self):
+        got = self.split("s2", 200, 400, 560, 1000)
+        for n in (200, 400, 560, 1000):
+            self.assertEqual(
+                got[str(n)], {"DevUser": 80, "ProdUser": 80, "DevCpuUser": n - 160}, n
+            )
+        self.assertEqual(
+            got["560"]["DevCpuUser"], 400
+        )  # ADR-027's estimate, UNVERIFIED
 
     def test_cpu_class_calls_work_cpu_and_is_outside_the_autostart(self):
         import ast
 
-        tree = self.locustfile()
+        tree = ast.parse((self.ROOT / "platform/load/locustfile.py").read_text())
         (cpu,) = [
             n
             for n in tree.body

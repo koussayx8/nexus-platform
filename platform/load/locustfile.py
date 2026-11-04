@@ -34,6 +34,7 @@ from locust import HttpUser, constant_throughput, task
 
 SEQUENCE = ("/", "/", "/", "/", "/items")
 GOLDEN = 0.6180339887498949
+BASELINE_USERS_PER_ENV = 80  # B = 80 per namespace (ADR-026): fixed, whatever a swarm's total user_count
 TIMEOUT_S = 5.0  # above sample-api's /items budget of 2.8 s (ADR-020)
 
 _index = itertools.count()
@@ -59,6 +60,7 @@ class _Mix(HttpUser):
 
 class DevUser(_Mix):
     env = "dev"
+    fixed_count = BASELINE_USERS_PER_ENV
     host = os.environ.get(
         "NEXUS_DEV_HOST", "http://sample-api.nexus-dev.svc.cluster.local"
     )
@@ -66,6 +68,7 @@ class DevUser(_Mix):
 
 class ProdUser(_Mix):
     env = "prod"
+    fixed_count = BASELINE_USERS_PER_ENV
     host = os.environ.get(
         "NEXUS_PROD_HOST", "http://sample-api.nexus-prod.svc.cluster.local"
     )
@@ -76,10 +79,8 @@ class DevCpuUser(HttpUser):
     baseline: master.yaml's autostart names DevUser and ProdUser, and only an S2 swarm that selects
     this class (user_classes=DevCpuUser, through the class picker) spawns it."""
 
-    # Locust splits a swarm's user_count across the selected classes by weight. DevUser and ProdUser
-    # weigh 1, so with weight 5 here an S2 swarm of 560 users runs 80 + 80 baseline users (B = 80 per
-    # namespace, ADR-026) and 400 /work/cpu users (about 400 req/s, ADR-027's UNVERIFIED estimate).
-    weight = 5
+    # No fixed_count and the default weight: it takes every user of a swarm beyond the baseline
+    # classes' fixed 80 + 80, so an S2 swarm of N runs N - 160 users here.
     wait_time = constant_throughput(1)
     connection_timeout = TIMEOUT_S
     network_timeout = TIMEOUT_S
