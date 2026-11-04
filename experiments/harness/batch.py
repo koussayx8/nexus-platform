@@ -26,6 +26,11 @@ What it adds to runner.py (which plans and executes single operations):
   check, and no non-terminal Incident, all inside the 20 min cap. The window records the alerts and
   Incidents that fired with nothing injected, in the run record (`no_fault`). Incidents are never
   deleted: one still open at the cap stops the batch (`halt`, reason recorded) until `clear-halt`.
+* Locust recovery: when the pre-check finds Locust stopped or off baseline and precheck.locust has
+  spawn_rate and classes, the driver POSTs the exact baseline (users, spawn rate, classes) to the master,
+  waits recovery_wait_s (default cap_s), and re-runs every pre-check; at most recovery_attempts (default 2)
+  per batch, each logged and kept on the run record (`locust_recovery`). Past the cap the batch halts
+  (`locust_recovery_cap_reached`).
 * End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
   is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
   cell requeues it.
@@ -507,6 +512,7 @@ class LiveRun:
         self.r, self.cfg = runner, precheck.normalise(precheck_cfg)
         self.wait_s, self.poll_s = wait_s, poll_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
+        self.recoveries = 0  # Locust restarts so far in this batch process
 
     def incidents(self) -> list[dict]:
         rc, out = self.r.exec(
@@ -516,6 +522,102 @@ class LiveRun:
         if rc != 0:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
+
+    # ---- Locust recovery: restart the baseline swarm when the pre-check finds Locust stopped or off baseline
+    def _recovery_conf(self) -> dict | None:
+        """The baseline to restart with, from the config (precheck.locust); None when the config does
+        not give spawn_rate and classes (then there is no recovery and a Locust failure discards as before)."""
+        loc = self.cfg["locust"]
+        if "spawn_rate" not in loc or "classes" not in loc:
+            return None
+        return {
+            "users": int(loc["baseline_users"]),
+            "spawn_rate": loc["spawn_rate"],
+            "classes": list(loc["classes"]),
+            "max": int(loc.get("recovery_attempts", 2)),
+            "wait_s": loc.get("recovery_wait_s", self.cfg["cap_s"]),
+        }
+
+    @staticmethod
+    def _locust_down(failures: list[str]) -> list[str]:
+        """Failures that mean Locust is stopped or off baseline (not 'no answer' or 'no url')."""
+        return [
+            f
+            for f in failures
+            if f.startswith(("locust:state=", "locust:users="))
+            or (f.startswith("locust:nexus-") and ":rps=" in f)
+        ]
+
+    def _recover_locust(self, rec: dict, why: list[str]) -> None:
+        """One recovery attempt: POST the baseline to the master, then wait the clean-baseline window.
+        Raises StopBatch when the per-batch cap is reached."""
+        conf = self._recovery_conf()
+        done = rec.setdefault("locust_recovery", [])
+        if conf is None or self.recoveries >= conf["max"]:
+            raise StopBatch(
+                "locust_recovery_cap_reached"
+                if conf
+                else "locust_recovery_unconfigured"
+            )
+        self.recoveries += 1
+        entry = {
+            "attempt": self.recoveries,
+            "of": conf["max"],
+            "why": why,
+            "at": _utc(self.wall()),
+        }
+        try:
+            self.r.http_post(
+                f"{self.r.locust.rstrip('/')}/swarm",
+                {
+                    "user_count": [str(conf["users"])],
+                    "spawn_rate": [str(conf["spawn_rate"])],
+                    "user_classes": conf["classes"],
+                },
+            )
+            entry["posted"] = True
+        except OSError as e:
+            entry["posted"] = False
+            entry["error"] = f"{type(e).__name__}"
+        done.append(entry)
+        print(
+            f"batch: locust recovery {entry['attempt']}/{conf['max']}: {why}; posted={entry['posted']}",
+            file=sys.stderr,
+        )
+        self.sleep(conf["wait_s"])
+
+    def _prechecks(self, rec: dict, before: set, cell: dict, guard: Guard):
+        """run_prechecks, restarting Locust first when it is already down and again when the pre-check
+        fails on it. Every pre-check is re-run after each restart."""
+        force = None
+        while True:
+            down = force or (
+                self._recovery_conf() is not None
+                and self._locust_down(
+                    precheck.locust_failures(self.r, precheck.Prom(self.r), self.cfg)
+                )
+            )
+            if down:
+                self._recover_locust(rec, down)
+                guard.check()
+            force = None
+            pc = precheck.run_prechecks(
+                precheck.Prom(self.r),
+                self.cfg,
+                self.incidents,
+                before,
+                model.TERMINAL_PHASES,
+                int(cell["level"]),
+                monotonic=self.monotonic,
+                wall=self.wall,
+                sleep=self.sleep,
+                stat=self.stat,
+            )
+            if pc.ok or pc.stop_reason or self._recovery_conf() is None:
+                return pc
+            force = self._locust_down(pc.failures) or None
+            if not force:
+                return pc
 
     def locust_end_failures(self, cell: dict) -> list[str]:
         """precheck.locust_failures at the end of a run. S2/S4/S6 drive their own load, so for them
@@ -543,18 +645,7 @@ class LiveRun:
         guard.check()
         if not r.wait_synced():
             return Outcome(False, discard_reason="applications_not_synced")
-        pc = precheck.run_prechecks(
-            precheck.Prom(r),
-            self.cfg,
-            self.incidents,
-            before,
-            model.TERMINAL_PHASES,
-            int(cell["level"]),
-            monotonic=self.monotonic,
-            wall=self.wall,
-            sleep=self.sleep,
-            stat=self.stat,
-        )
+        pc = self._prechecks(rec, before, cell, guard)
         # the no-fault record and the pre-check outcome go on the run record, kept whatever follows
         rec["no_fault"] = pc.window
         rec["precheck"] = {
