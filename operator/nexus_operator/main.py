@@ -134,6 +134,7 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         now,
         EvidenceCollector(RUNTIME.api, RUNTIME.metrics, now),
         RUNTIME.reasoner,
+        approval_ttl_s=cfg.approval_ttl_s,
     )
     logger.info(
         "act path advisoryChecks=%s breakerEpoch=%d prometheus=%s recorder=%s metricsPort=%d reasoner=%s",
