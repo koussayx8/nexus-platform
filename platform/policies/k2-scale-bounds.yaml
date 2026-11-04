@@ -1,0 +1,45 @@
+# K2 nexus-scale-bounds (spec §11). Deny a scale outside [1, 5], or one that differs from the old
+# value by more than 2. Tests: platform/policies/tests/k2.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-scale-bounds
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/spec: "§11 K2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: scale-bounds
+      match:
+        any:
+          - resources:
+              kinds: [Deployment/scale]
+              operations: [UPDATE]
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: AnyIn
+            value:
+              - system:serviceaccount:nexus-system:nexus-operator
+              - system:serviceaccount:nexus-system:nexus-baseline
+      validate:
+        failureAction: Enforce
+        message: >-
+          K2 nexus-scale-bounds: replicas {{ request.oldObject.spec.replicas }} ->
+          {{ request.object.spec.replicas }} is outside [1, 5] or changes the count by more than 2.
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.replicas }}"
+                operator: LessThan
+                value: 1
+              - key: "{{ request.object.spec.replicas }}"
+                operator: GreaterThan
+                value: 5
+              - key: "{{ abs(subtract(request.object.spec.replicas, request.oldObject.spec.replicas)) }}"
+                operator: GreaterThan
+                value: 2

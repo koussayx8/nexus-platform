@@ -1,0 +1,14 @@
+# The six NEXUS Kyverno policies (spec §11), verifyImages in Audit, and the RBAC the approval path
+# needs. Referenced only by platform/m3-live (not deployed until the M3-live PR); tests/ is kyverno test input.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - k1-autonomy-floor.yaml
+  - k2-scale-bounds.yaml
+  - k3-l2-approval.yaml
+  - k4-killswitch.yaml
+  - k5-incident-approval.yaml
+  - k6-incident-source.yaml
+  - verify-images.yaml
+  - approvers-rbac.yaml

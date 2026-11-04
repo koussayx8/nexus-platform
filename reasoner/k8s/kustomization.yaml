@@ -1,0 +1,11 @@
+# The Reasoner's manifests (spec §16, §11; G9). NOT referenced by any ArgoCD Application: merged is
+# not deployed. The `nexus` Application (path operator/k8s) gains `reasoner/k8s` in M4, in its own
+# reviewed change; until then nothing synced contains these objects.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml

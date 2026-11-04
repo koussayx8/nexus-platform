@@ -1,0 +1,56 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-active-y
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-active-y
+  namespace: nexus-dev
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-halted-y
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-halted-y
+  namespace: nexus-dev
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-missing-y
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-missing-y
+  namespace: nexus-dev
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-active-x
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: policy/v1
+kind: Eviction
+metadata:
+  name: evict-active-x
+  namespace: nexus-dev

@@ -6,3 +6,4 @@ metadata:
 
 resources:
   - sample-api-servicemonitor.yaml
+  - nexus-operator-servicemonitor.yaml

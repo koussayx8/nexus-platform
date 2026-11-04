@@ -1,0 +1,278 @@
+name: NEXUS Reasoner
+
+# The Reasoner service's pipeline (spec §16, §19; G9): lint, offline unit tests, and the multi-arch
+# image (linux/amd64 + linux/arm64). Pull requests prove both platforms build, smoke-test /healthz on
+# amd64 and Trivy-scan it; nothing is pushed. On main the image is pushed, scanned by digest and
+# signed with Cosign keyless, and a digest-bump pull request into dev is opened, as operator.yml does
+# (a digest bump is a commit, spec §19). The bump edits reasoner/k8s/deployment.yaml, which no
+# ArgoCD Application references until M4: merged is not deployed.
+# The image carries files from elsewhere in the repository (see reasoner/Dockerfile), so the paths
+# below include them. Every action is pinned by commit SHA, as operator.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'reasoner/**'
+      - '!reasoner/k8s/**'   # deploy manifests build no image; without this a merged digest bump would rebuild and bump again
+      - 'runbooks/**'
+      - 'experiments/harness/bm25.py'
+      - 'experiments/harness/rag.py'
+      - 'experiments/harness/operator_lib.py'
+      - 'operator/nexus_operator/catalogue.py'
+      - 'operator/nexus_operator/proposal.py'
+      - 'operator/nexus_operator/rules.py'
+      - 'operator/nexus_operator/redact.py'
+      - 'operator/nexus_operator/model.py'   # imported by operator_lib (index stage)
+      - '.github/workflows/reasoner.yml'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'reasoner/**'
+      - '!reasoner/k8s/**'   # deploy manifests build no image; without this a merged digest bump would rebuild and bump again
+      - 'runbooks/**'
+      - 'experiments/harness/bm25.py'
+      - 'experiments/harness/rag.py'
+      - 'experiments/harness/operator_lib.py'
+      - 'operator/nexus_operator/catalogue.py'
+      - 'operator/nexus_operator/proposal.py'
+      - 'operator/nexus_operator/rules.py'
+      - 'operator/nexus_operator/redact.py'
+      - 'operator/nexus_operator/model.py'   # imported by operator_lib (index stage)
+      - '.github/workflows/reasoner.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/nexus-reasoner
+  COSIGN_RELEASE: v2.5.2   # as operator.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and test (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: pip install ruff==0.16.9
+      - run: ruff check reasoner
+      - run: ruff format --check reasoner
+      - name: Unit tests (standard library only; no network, no cluster)
+        env:
+          KUBECONFIG: /nonexistent
+        run: python -m unittest discover -s reasoner/tests -t reasoner -v
+
+  build:
+    name: Build, Scan & Push
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU (linux/arm64 builds)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build linux/amd64 (pull request, loaded for the smoke test and the scan)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: reasoner/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: nexus-reasoner:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build linux/amd64 + linux/arm64 (pull request, not pushed)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: reasoner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+
+      - name: Smoke test the image (/healthz, index hash, user, no token)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          img=nexus-reasoner:pr-${{ github.event.pull_request.number }}
+          python3 -m experiments.harness.rag index --out "$RUNNER_TEMP/index" runbooks
+          want=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['corpus_hash'])" "$RUNNER_TEMP/index/manifest.json")
+          cat > "$RUNNER_TEMP/cfg.json" <<'JSON'
+          {"indexPath": "/app/index/index.json", "scoreFloor": 2.9584, "port": 8080, "models": {}}
+          JSON
+          docker run -d --name smoke -v "$RUNNER_TEMP/cfg.json:/etc/nexus-reasoner/reasoner.json:ro" -p 18080:8080 "$img"
+          for i in $(seq 1 30); do curl -fsS localhost:18080/healthz > health.json && break; sleep 1; done
+          cat health.json
+          got=$(python3 -c "import json; print(json.load(open('health.json'))['corpusHash'])")
+          test "$got" = "$want"
+          test "$(docker exec smoke id -u)" = 10001
+          docker rm -f smoke
+
+      - name: Trivy scan (pull request image)
+        if: github.event_name == 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: nexus-reasoner:pr-${{ github.event.pull_request.number }}
+          format: table
+          severity: 'CRITICAL,HIGH'
+
+      - name: Login to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: github.event_name == 'push'
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+
+      - name: Build and push (main, linux/amd64 + linux/arm64)
+        if: github.event_name == 'push'
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: reasoner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan (pushed digest, linux/amd64, table)
+        if: github.event_name == 'push'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: table
+          severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_PLATFORM: linux/amd64
+
+      - name: Trivy scan (pushed digest, linux/arm64, table)
+        if: github.event_name == 'push'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: table
+          severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_PLATFORM: linux/arm64
+
+  sign:
+    name: Sign Image (Cosign)
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+    permissions:
+      packages: write
+      id-token: write
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: ${{ env.COSIGN_RELEASE }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
+
+      - name: Verify the signature just made
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          IDENTITY: https://github.com/${{ github.workflow_ref }}
+        run: |
+          cosign verify \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$IMAGE" > /dev/null
+
+  # Opens a pull request into dev that bumps reasoner/k8s/deployment.yaml to the signed digest (a
+  # digest bump is a commit, spec §19). The first bump replaces the all-zero placeholder digest.
+  # Pull requests made with the default GITHUB_TOKEN do not start workflows, so the required
+  # repo-checks would never run: the job needs the DIGEST_BUMP_TOKEN secret (contents + pull requests
+  # write) and skips with a notice when it is absent.
+  digest-bump:
+    name: Digest-bump pull request
+    runs-on: ubuntu-latest
+    needs: [build, sign]
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN }}
+      HAS_TOKEN: ${{ secrets.DIGEST_BUMP_TOKEN != '' }}
+    steps:
+      - name: Skip when DIGEST_BUMP_TOKEN is absent
+        if: env.HAS_TOKEN != 'true'
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          echo "::notice title=Digest-bump pull request skipped::The DIGEST_BUMP_TOKEN secret is not set, so no pull request was opened (a GITHUB_TOKEN pull request would never run the required repo-checks). Bump by hand to ${DIGEST}."
+          echo "Digest bump skipped: DIGEST_BUMP_TOKEN is not set. Signed digest: \`${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.HAS_TOKEN == 'true'
+        with:
+          ref: dev
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Bump the reasoner manifest and open the pull request
+        if: env.HAS_TOKEN == 'true'
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          SOURCE_SHA: ${{ github.sha }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+          branch="digest-bump/nexus-reasoner-${SOURCE_SHA:0:12}"
+          python3 .github/scripts/bump_digest.py reasoner/k8s/deployment.yaml "$IMAGE" "$DIGEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add reasoner/k8s/deployment.yaml
+          git commit -m "chore(reasoner): bump nexus-reasoner to ${DIGEST:0:19}" \
+            -m "Built from ${SOURCE_SHA} by reasoner.yml, Trivy-scanned and Cosign-signed by digest (signature verified in the sign job)."
+          git push origin "$branch"
+          gh pr create --base dev --head "$branch" \
+            --title "chore(reasoner): bump nexus-reasoner to ${DIGEST:0:19}" \
+            --body "Digest bump for \`${IMAGE}\` from ${SOURCE_SHA}. Verify with \`cosign verify\` before merging."

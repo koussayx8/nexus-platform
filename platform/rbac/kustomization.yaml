@@ -4,3 +4,4 @@ kind: Kustomization
 
 resources:
   - nexus-operator.yaml
+  - nexus-operator-dev.yaml

@@ -10,7 +10,9 @@
 # dependency-db Application and pod, and informational container restart counts; M1-5 adds the
 # sample-api /items check against the Dependency DB. M1b-8 adds the `nexus` Application, the
 # Incident CRD with C1-C4 and its Prune=false,Delete=false annotation (M11), and the operator Ready
-# on its Git-pinned digest (M12). K1-K6, Reasoner readiness and N1-N6 arrive with their milestones.
+# on its Git-pinned digest (M12). M2 (G7) adds the Flight Recorder DB (M13), the staged RBAC (M14)
+# and the live rollout strategy against Git (M15), and reads the nexus-dev level from Git (M5).
+# K1-K6, Reasoner readiness and N1-N6 arrive with their milestones.
 #
 # Usage: scripts/verify-state.sh [--out PATH]
 #   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
@@ -236,11 +238,21 @@ v_metrics_probe() {   # <namespace> — temporary port-forward, stopped after, t
 }
 
 # ---------------------------------------------------------------------------
-# M5. Namespace autonomy levels match ADR-018.
+# M5. Namespace autonomy levels match ADR-018 (nexus-dev: the level committed on experiment/dev-state).
 # ---------------------------------------------------------------------------
 v_namespace_levels() {
-  local rc=0 ns want got
-  for ns_want in "nexus-prod:1" "nexus-data:0" "nexus-dev:0" "nexus-system:" "nexus-reasoner:" "nexus-load:"; do
+  local rc=0 ns want got dev_level
+  # nexus-dev is owned by sample-api-dev and its level is a commit on experiment/dev-state (the
+  # Experiment Runner moves it, spec §3), so the expected value is read from that branch.
+  dev_level=$(git show origin/experiment/dev-state:overlays/dev/namespace.yaml 2>/dev/null \
+    | sed -nE 's/^[[:space:]]*nexus\.io\/autonomy-level:[[:space:]]*"?([0-9]+)"?[[:space:]]*$/\1/p' | head -n1)
+  if [[ -z $dev_level ]]; then
+    echo "nexus-dev: no autonomy-level in origin/experiment/dev-state:overlays/dev/namespace.yaml"
+    dev_level=UNKNOWN; rc=1
+  else
+    echo "nexus-dev: expected level $dev_level from origin/experiment/dev-state:overlays/dev/namespace.yaml"
+  fi
+  for ns_want in "nexus-prod:1" "nexus-data:0" "nexus-dev:$dev_level" "nexus-system:" "nexus-reasoner:" "nexus-load:"; do
     ns=${ns_want%%:*}; want=${ns_want#*:}
     if ! k get ns "$ns" >/dev/null 2>&1; then
       # A namespace that doesn't exist is not the same as one that exists unlabeled — even for
@@ -300,7 +312,7 @@ v_audit_probe() {
   fi
   before_m=$(k get --raw /metrics 2>/dev/null | awk '/^apiserver_audit_event_total/{s+=$NF} END{print s+0}')
   ef=$(mktemp)
-  timeout 15 kubectl --request-timeout=10s create configmap "$probe" -n nexus-system \
+  timeout 15 kubectl --context default --request-timeout=10s create configmap "$probe" -n nexus-system \
     --from-literal=x=1 --dry-run=server -o yaml >/dev/null 2>"$ef"
   create_rc=$?
   if (( create_rc != 0 )); then
@@ -441,6 +453,79 @@ v_items_probe() {   # <namespace> — temporary port-forward, stopped after, tim
 }
 
 # ---------------------------------------------------------------------------
+# M13. The Flight Recorder DB StatefulSet is Ready (M2; ADR-031): every desired replica Ready.
+# ---------------------------------------------------------------------------
+v_fr_db() {
+  local jf want ready
+  jf=$(mktemp)
+  if ! k get statefulset flight-recorder-db -n nexus-system -o json --context default >"$jf" 2>/dev/null; then
+    echo "nexus-system/flight-recorder-db: NOT FOUND"; rm -f "$jf"; return 1
+  fi
+  want=$(jq -r '.spec.replicas // 0' "$jf")
+  ready=$(jq -r '.status.readyReplicas // 0' "$jf")
+  rm -f "$jf"
+  echo "nexus-system/flight-recorder-db: readyReplicas=$ready replicas=$want"
+  [[ $want =~ ^[0-9]+$ && $ready =~ ^[0-9]+$ ]] && (( want > 0 && ready == want ))
+}
+
+# ---------------------------------------------------------------------------
+# M14. Staged RBAC (spec §11; M2): as the operator ServiceAccount, `auth can-i --list` shows scale
+# and eviction in nexus-dev and neither in nexus-prod or nexus-data. In the other two namespaces
+# any scale or eviction row, or a wildcard resource, fails. Verbs are the last bracket group of
+# each row.
+# ---------------------------------------------------------------------------
+OPERATOR_SA=system:serviceaccount:nexus-system:nexus-operator
+v_staged_rbac() {
+  local rc=0 ns list rows scale evict wild
+  for ns in nexus-dev nexus-prod nexus-data; do
+    if ! list=$(k auth can-i --list -n "$ns" --as="$OPERATOR_SA" --context default 2>&1); then
+      echo "$ns: auth can-i --list failed"; rc=1; continue
+    fi
+    rows=$(awk 'NR>1 && NF {
+        v=$0; sub(/[[:space:]]*$/, "", v); sub(/.*\[/, "", v); sub(/\]$/, "", v)
+        print $1 "\t" v }' <<<"$list")
+    scale=$(awk -F'\t' '$1 ~ /(^|\.)?deployments(\.apps)?\/scale$/ {print $2}' <<<"$rows")
+    evict=$(awk -F'\t' '$1 ~ /^pods\/eviction$/ {print $2}' <<<"$rows")
+    wild=$(awk -F'\t' '$1 == "*" || $1 == "*.*" || $1 ~ /\/\*$/ {print $1}' <<<"$rows")
+    echo "$ns: scale verbs=[${scale:--}] eviction verbs=[${evict:--}] wildcard resources=[${wild:--}]"
+    if [[ $ns == nexus-dev ]]; then
+      [[ " $scale " == *" patch "* && " $scale " == *" update "* && " $evict " == *" create "* ]] || rc=1
+    else
+      [[ -z $scale && -z $evict && -z $wild ]] || rc=1
+    fi
+  done
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# M15. The live sample-api rollout strategy equals Git (ADR-022): type, maxSurge, maxUnavailable,
+# from apps/sample-api/k8s/base/deployment.yaml on the branch each namespace tracks. Scaling
+# before this holds could take pods away on a rollout.
+# ---------------------------------------------------------------------------
+git_strategy() {   # <branch> -> "<type> <maxSurge> <maxUnavailable>" from the Deployment's strategy block
+  git show "origin/$1:apps/sample-api/k8s/base/deployment.yaml" 2>/dev/null | awk '
+    /^  strategy:/ {in_s=1; next}
+    in_s && /^  [^ ]/ {in_s=0}
+    in_s && $1 == "type:" {t=$2}
+    in_s && $1 == "maxSurge:" {s=$2}
+    in_s && $1 == "maxUnavailable:" {u=$2}
+    END { if (t != "") print t, (s == "" ? "-" : s), (u == "" ? "-" : u) }'
+}
+
+v_rollout_strategy() {
+  local rc=0 pair ns branch want got
+  for pair in "nexus-dev experiment/dev-state" "nexus-prod main"; do
+    read -r ns branch <<<"$pair"
+    want=$(git_strategy "$branch")
+    got=$(k get deployment sample-api -n "$ns" -o json --context default 2>/dev/null \
+      | jq -r '.spec.strategy | select(. != null) | "\(.type) \(.rollingUpdate.maxSurge // "-") \(.rollingUpdate.maxUnavailable // "-")"')
+    echo "$ns: Git (origin/$branch) = ${want:-NOT FOUND}; live = ${got:-NOT FOUND}"
+    [[ -n $want && $want == "$got" ]] || rc=1
+  done
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
 # I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
 # across a rebuild without turning a transient restart into a failure.
 # ---------------------------------------------------------------------------
@@ -473,6 +558,9 @@ verify M9 "Dependency DB pod Ready"                      v_dependency_db
 verify M10 "sample-api /items reads the Dependency DB"   v_items
 verify M11 "Incident CRD: C1-C4, Prune=false,Delete=false" v_incident_crd
 verify M12 "NEXUS Operator Ready on its pinned digest"   v_operator
+verify M13 "Flight Recorder DB StatefulSet Ready"        v_fr_db
+verify M14 "Staged RBAC: scale and eviction in nexus-dev only" v_staged_rbac
+verify M15 "sample-api rollout strategy equals Git"      v_rollout_strategy
 info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""

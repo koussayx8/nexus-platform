@@ -1,0 +1,16 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-halted
+  namespace: nexus-dev
+spec:
+  replicas: 4
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-active
+  namespace: nexus-dev
+spec:
+  replicas: 4

@@ -1,12 +1,8 @@
 # Development tools for sample-api, installed by CI (not by the image).
 ruff==0.16.9
 
-# Testing, pinned to the versions the 0.3.0 tests ran on (moved out of requirements.txt, D4)
-httpx==0.28.1
+# Testing, pinned to the versions the 0.3.0 tests ran on (moved out of requirements.txt, D4).
+# httpx2 is the client Starlette's TestClient now asks for (it warns when it finds httpx).
+httpx2==2.16.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
-
-# Testing
-httpx>=0.27.0
-pytest>=8.3.0
-pytest-asyncio>=0.24.0

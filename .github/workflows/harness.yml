@@ -1,0 +1,145 @@
+name: harness
+
+# M4 harness (T4): lint and offline tests for experiments/harness/. The tests import the operator's
+# redact/proposal/catalogue/rules modules and scripts/audit-join.py and read the Flight Recorder
+# schema, so changes to those paths run this job too. The runbooks job is the section 15 CI: lint and `make index`. Standard library only: nothing from
+# operator/requirements.txt is installed. Path-filtered; repo-checks (not path-filtered) still runs.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'experiments/harness/**'
+      - 'operator/nexus_operator/redact.py'
+      - 'operator/nexus_operator/proposal.py'
+      - 'operator/nexus_operator/catalogue.py'
+      - 'operator/nexus_operator/rules.py'
+      - 'operator/nexus_operator/model.py'
+      - 'reasoner/nexus_reasoner/**'   # a test pins the pre-check to the real /healthz response
+      - 'experiments/analysis/**'      # make results and its fixture runs
+      - 'experiments/detectors/**'     # the detector comparison (analysis-only requirements)
+      - 'experiments/runs/**'
+      - 'scripts/reconcile-audit.py'
+      - 'scripts/export-results.py'
+      - 'operator/k8s/flight-recorder-db/05-schema.sql'
+      - 'scripts/audit-join.py'
+      - 'runbooks/**'
+      - 'experiments/retrieval/**'
+      - 'Makefile'
+      - '.github/workflows/harness.yml'
+  push:
+    branches: [main, dev]
+    paths:
+      - 'experiments/harness/**'
+      - 'operator/nexus_operator/redact.py'
+      - 'operator/nexus_operator/proposal.py'
+      - 'operator/nexus_operator/catalogue.py'
+      - 'operator/nexus_operator/rules.py'
+      - 'operator/nexus_operator/model.py'
+      - 'reasoner/nexus_reasoner/**'   # a test pins the pre-check to the real /healthz response
+      - 'experiments/analysis/**'      # make results and its fixture runs
+      - 'experiments/detectors/**'     # the detector comparison (analysis-only requirements)
+      - 'experiments/runs/**'
+      - 'scripts/reconcile-audit.py'
+      - 'scripts/export-results.py'
+      - 'operator/k8s/flight-recorder-db/05-schema.sql'
+      - 'scripts/audit-join.py'
+      - 'runbooks/**'
+      - 'experiments/retrieval/**'
+      - 'Makefile'
+      - '.github/workflows/harness.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness:
+    name: harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: pip install ruff==0.16.9
+      - run: ruff check experiments/harness experiments/analysis scripts/reconcile-audit.py scripts/export-results.py
+      - run: ruff format --check experiments/harness experiments/analysis scripts/reconcile-audit.py scripts/export-results.py
+      - name: Unit tests (offline, no cluster, no network)
+        env:
+          KUBECONFIG: /nonexistent
+        run: python -m unittest discover -s experiments/harness/tests -t . -v
+      - name: make results on the committed fixture runs, twice, and compare (spec section 19, 25)
+        run: |
+          set -euo pipefail
+          make results RESULTS="$RUNNER_TEMP/results1"
+          make results RESULTS="$RUNNER_TEMP/results2"
+          diff -r "$RUNNER_TEMP/results1" "$RUNNER_TEMP/results2"
+          ls "$RUNNER_TEMP"/results1/T*.csv | wc -l
+          test -s "$RUNNER_TEMP/results1/F1.svg"
+          cat "$RUNNER_TEMP/results1/INDEX.md"
+
+  runbooks:
+    name: runbooks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Runbook lint (missing field, duplicate id, unchanged version on changed content, action outside the catalogue)
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE" ] && git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+            python -m experiments.harness.rag lint --base "$BASE" runbooks
+          else
+            echo "no usable base revision ($BASE): version-bump rule skipped"
+            python -m experiments.harness.rag lint runbooks
+          fi
+      - name: Build the index (make index) twice and compare
+        run: |
+          set -euo pipefail
+          make index
+          cp -r build/index "$RUNNER_TEMP/index1"
+          make index
+          diff -r build/index "$RUNNER_TEMP/index1"
+          cat build/index/manifest.json
+
+  detectors:
+    name: detectors
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install the analysis-only requirements (scikit-learn), hashes required
+        run: |
+          set -euo pipefail
+          pip install --only-binary=:all: --require-hashes -r experiments/detectors/requirements.txt
+          python -c "import sklearn, numpy, scipy; print('scikit-learn', sklearn.__version__, 'numpy', numpy.__version__, 'scipy', scipy.__version__)"
+      - run: pip install ruff==0.16.9
+      - run: ruff check experiments/detectors
+      - run: ruff format --check experiments/detectors
+      - name: Unit tests (Z-score pinned to the recording rules; the forest on the fixtures)
+        env:
+          KUBECONFIG: /nonexistent
+        run: python -m unittest discover -s experiments/detectors/tests -t . -v
+      - name: make detectors on the committed fixture runs, twice, and compare
+        run: |
+          set -euo pipefail
+          make detectors DETECTORS_OUT="$RUNNER_TEMP/det1"
+          make detectors DETECTORS_OUT="$RUNNER_TEMP/det2"
+          diff -r "$RUNNER_TEMP/det1" "$RUNNER_TEMP/det2"
+          head -3 "$RUNNER_TEMP/det1/D1.csv"
+          cat "$RUNNER_TEMP/det1/detectors.md"

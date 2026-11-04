@@ -1,0 +1,23 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+subresources:
+- subresource:
+    name: deployments/scale
+    kind: Scale
+    group: autoscaling
+    version: v1
+  parentResource:
+    name: deployments
+    kind: Deployment
+    group: apps
+    version: v1
+policies:
+- name: nexus-scale-bounds
+  resources:
+  - name: scale-to-6
+    values:
+      request.oldObject.spec.replicas: 5
+  - name: scale-2-to-4
+    values:
+      request.oldObject.spec.replicas: 2

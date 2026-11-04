@@ -1,0 +1,51 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+subresources:
+- subresource:
+    name: deployments/scale
+    kind: Scale
+    group: autoscaling
+    version: v1
+  parentResource:
+    name: deployments
+    kind: Deployment
+    group: apps
+    version: v1
+policies:
+- name: nexus-l2-approval
+  resources:
+  - name: scale-ok
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-ok
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+  - name: scale-no-incident
+    values:
+      level: '2'
+      incidents: []

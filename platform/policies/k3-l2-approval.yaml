@@ -1,0 +1,112 @@
+# K3 nexus-l2-approval (spec §11). In a level-2 namespace the operator's scale or eviction is
+# admitted only if an Incident pins it: same target (name for a scale, name prefix for an
+# eviction), approval.decision approved, the same actionId, the same replicas for a scale, the
+# proposal hash of the Incident's own status.proposal, and expiresAt in the future. A failed
+# lookup denies. The approval is enforced here, outside the operator (§11). Tests: tests/k3.
+# Level-3 namespaces skip this policy (K1, K2 and K4 still apply); levels 0, 1 and unlabelled
+# are denied by K1 before they get here.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: nexus-l2-approval
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/spec: "§11 K3"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  failurePolicy: Fail
+  background: false
+  rules:
+    - name: scale-needs-approval
+      match:
+        any:
+          - resources:
+              kinds: [Deployment/scale]
+              operations: [UPDATE]
+      context:
+        - name: level
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ request.namespace }}"
+            jmesPath: "metadata.labels.\"nexus.io/autonomy-level\" || 'none'"
+        - name: incidents
+          apiCall:
+            urlPath: /apis/nexus.io/v1alpha1/namespaces/nexus-system/incidents
+            jmesPath: items
+        - name: approvedUntil
+          variable:
+            default: "1970-01-01T00:00:00Z"
+            jmesPath: >-
+              incidents[?spec.target.namespace=='{{ request.namespace }}'
+              && spec.target.name=='{{ request.object.metadata.name }}'
+              && spec.approval.decision=='approved'
+              && spec.approval.actionId=='scale_deployment'
+              && spec.approval.parameters.replicas==`{{ request.object.spec.replicas }}`
+              && spec.approval.proposalHash==status.proposal.hash].spec.approval.expiresAt | max(@)
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: AnyIn
+            value:
+              - system:serviceaccount:nexus-system:nexus-operator
+              - system:serviceaccount:nexus-system:nexus-baseline
+          - key: "{{ level }}"
+            operator: Equals
+            value: "2"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K3 nexus-l2-approval: no approved, unexpired Incident pins this scale of
+          {{ request.namespace }}/{{ request.object.metadata.name }} to
+          {{ request.object.spec.replicas }} replicas.
+        deny:
+          conditions:
+            all:
+              - key: "{{ time_after(time_now_utc(), approvedUntil) }}"
+                operator: Equals
+                value: true
+    - name: eviction-needs-approval
+      match:
+        any:
+          - resources:
+              kinds: [Pod/eviction]
+              operations: [CREATE]
+      context:
+        - name: level
+          apiCall:
+            urlPath: "/api/v1/namespaces/{{ request.namespace }}"
+            jmesPath: "metadata.labels.\"nexus.io/autonomy-level\" || 'none'"
+        - name: incidents
+          apiCall:
+            urlPath: /apis/nexus.io/v1alpha1/namespaces/nexus-system/incidents
+            jmesPath: items
+        - name: approvedUntil
+          variable:
+            default: "1970-01-01T00:00:00Z"
+            jmesPath: >-
+              incidents[?spec.target.namespace=='{{ request.namespace }}'
+              && starts_with('{{ request.object.metadata.name }}', join('', [spec.target.name, '-']))
+              && spec.approval.decision=='approved'
+              && spec.approval.actionId=='restart_workload'
+              && spec.approval.proposalHash==status.proposal.hash].spec.approval.expiresAt | max(@)
+      preconditions:
+        all:
+          - key: "{{ request.userInfo.username }}"
+            operator: AnyIn
+            value:
+              - system:serviceaccount:nexus-system:nexus-operator
+              - system:serviceaccount:nexus-system:nexus-baseline
+          - key: "{{ level }}"
+            operator: Equals
+            value: "2"
+      validate:
+        failureAction: Enforce
+        message: >-
+          K3 nexus-l2-approval: no approved, unexpired Incident pins the eviction of pod
+          {{ request.namespace }}/{{ request.object.metadata.name }}.
+        deny:
+          conditions:
+            all:
+              - key: "{{ time_after(time_now_utc(), approvedUntil) }}"
+                operator: Equals
+                value: true

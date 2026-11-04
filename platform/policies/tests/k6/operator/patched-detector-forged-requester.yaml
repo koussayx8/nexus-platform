@@ -1,0 +1,16 @@
+# Generated test input for `kyverno test` (see ../../../README.md). One identity per directory.
+apiVersion: nexus.io/v1alpha1
+kind: Incident
+metadata:
+  name: detector-forged-requester
+  namespace: nexus-system
+spec:
+  source:
+    type: detector
+    alertname: NexusCpuAnomaly
+    requester: system:serviceaccount:nexus-system:nexus-operator
+  target:
+    namespace: nexus-dev
+    kind: Deployment
+    name: sample-api
+  detectedAt: '2026-10-14T09:12:03Z'

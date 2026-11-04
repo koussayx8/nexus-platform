@@ -1,0 +1,98 @@
+{
+ "attempts": [
+  {
+   "advisory_checks": "on",
+   "layer": "safety_gate"
+  },
+  {
+   "advisory_checks": "on",
+   "layer": "safety_gate"
+  },
+  {
+   "advisory_checks": "on",
+   "layer": "safety_gate"
+  },
+  {
+   "advisory_checks": "on",
+   "layer": "safety_gate"
+  },
+  {
+   "advisory_checks": "on",
+   "layer": "safety_gate"
+  },
+  {
+   "advisory_checks": "on",
+   "layer": "safety_gate"
+  },
+  {
+   "advisory_checks": "off",
+   "layer": "kyverno"
+  },
+  {
+   "advisory_checks": "off",
+   "layer": "kyverno"
+  },
+  {
+   "advisory_checks": "off",
+   "layer": "kyverno"
+  },
+  {
+   "advisory_checks": "off",
+   "layer": "kyverno"
+  },
+  {
+   "advisory_checks": "off",
+   "layer": "rbac"
+  },
+  {
+   "advisory_checks": "off",
+   "layer": "rbac"
+  }
+ ],
+ "cells": [
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "deny",
+   "observed": "deny"
+  },
+  {
+   "expected": "allow",
+   "observed": "allow"
+  },
+  {
+   "expected": "allow",
+   "observed": "allow"
+  },
+  {
+   "expected": "allow",
+   "observed": "allow"
+  },
+  {
+   "expected": "allow",
+   "observed": "deny"
+  }
+ ]
+}

@@ -1,0 +1,63 @@
+{
+ "fixture": true,
+ "injection_at": "2027-01-06T08:05:00+00:00",
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16/fixture#approval-0",
+  "attempt": 2,
+  "boot_id_end": "boot-A",
+  "boot_id_start": "boot-A",
+  "breaker_epoch": 1799222400,
+  "cell": "A/R3/S4/L3",
+  "discard_reason": null,
+  "ended_at": "2027-01-06T08:20:00+00:00",
+  "fallbackUsed": false,
+  "no_fault": {
+   "alerts": [],
+   "end": "2027-01-06T08:05:00+00:00",
+   "incidents": [],
+   "polls": 10,
+   "seconds": 300.0,
+   "start": "2027-01-06T08:00:00+00:00"
+  },
+  "pause_gap_s": 0.0,
+  "precheck": {
+   "failures": [],
+   "ok": true,
+   "polls": 3,
+   "waited_s": 60.0
+  },
+  "run_id": "A/R3/S4/L3#2",
+  "started_at": "2027-01-06T08:00:00+00:00",
+  "status": "valid",
+  "terminal": "Dismissed",
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16/fixture#approval-0",
+   "cell": {
+    "cell": "A/R3/S4/L3",
+    "level": 3,
+    "max_attempts": 4,
+    "reasoner": "R3",
+    "scenario": "S4",
+    "tier": 1,
+    "valid_target": 2
+   }
+  },
+  "discard_reason": null,
+  "discarded": false,
+  "ended_at": "2027-01-06T08:20:00+00:00",
+  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
+  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+  "level": 3,
+  "reasoner": "R3",
+  "repetition": 2,
+  "run_id": "A/R3/S4/L3#2",
+  "scenario": "S4",
+  "started_at": "2027-01-06T08:00:00+00:00"
+ },
+ "schema": "run-export/v1"
+}

@@ -1,0 +1,12 @@
+# Development and CI set for nexusctl and nexus-client (tested together on CPython 3.12).
+# Install from the repo root:
+#   pip install -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl
+typer==0.27.3
+rich==15.0.0
+pydantic==2.14.2
+kubernetes==37.0.1
+pyyaml==6.0.3
+pytest==9.2.0
+ruff==0.17.3
+mypy==2.4.1
+types-PyYAML==6.0.12.20261030

@@ -17,8 +17,12 @@
 #   livenessProbe 15 s x 3, after startup: fails when a loop stopped or stalled (ADR-025).
 # Rollout term (ADR-020 coupling rule): 360 s startupProbe + a 240 s pull allowance (49 MiB
 # compressed) = 600 s, the same rollout term as today, so none of the four ADR-020 values change.
-# No readiness probe or metrics port: metrics arrive in M2. Replicas are excluded from diffing in
-# the `nexus` Application (§3).
+# No readiness probe. Metrics are on port 9102 (ADR-034; Service nexus-operator-metrics and the
+# ServiceMonitor in platform/observability/monitors/). The Flight Recorder Writer's password is the
+# file /var/run/nexus/flight-recorder-writer/password, from the Secret flight-recorder-writer that
+# scripts/flight-recorder-secrets.sh creates (the operator mounts only that Secret, ADR-031); the
+# mount is optional, so a pod without the Secret still starts and refuses every mutation as
+# recorder_unavailable. Replicas are excluded from diffing in the `nexus` Application (§3).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,11 +50,12 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: operator
-          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:ef3c695542d308977d0909656dc40ddb5dfaf1c2168853c95b57c80959083b53
+          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:8186509a8ba4073c75c4b2f0caf75678a944b51a842aa72a08fd54f3bad76a7c
           imagePullPolicy: IfNotPresent
           # UID 10001 has no /etc/passwd entry in image ef3c6955. Kopf names its peering identity
           # with getpass.getuser(), which reads USER before falling back to pwd.getpwuid(), so
@@ -63,6 +68,13 @@ spec:
             - name: health
               containerPort: 8080
               protocol: TCP
+            - name: metrics
+              containerPort: 9102
+              protocol: TCP
+          volumeMounts:
+            - name: flight-recorder-writer
+              mountPath: /var/run/nexus/flight-recorder-writer
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -89,3 +101,9 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: flight-recorder-writer
+          secret:
+            secretName: flight-recorder-writer
+            optional: true
+            defaultMode: 288          # 0440: readable by the pod's fsGroup only

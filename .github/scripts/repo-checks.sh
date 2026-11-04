@@ -13,15 +13,25 @@
 #   7. Offline fixture tests for scripts/lib/detection-inputs.jq (M1b-6c; jq only).
 #   8. promtool check and unit tests for the PrometheusRules in platform/observability/alerts
 #      (TASKS.md M1b-7, ADR-024).
-#   9. The S5 pin guard (M1b-8, ADR-025): the 4 rule-defining files equal #79's head d351d964,
-#      and every listed path exists there; with offline tests for the guard (scripts/tests).
-#      Expires at the M1b exit: after S5 is graded, removed or re-pinned through an ADR.
+#   9. Removed: the S5 pin guard, after S5 was graded (ADR-025 addendum, 2026-10-16). The number is
+#      kept so that references to step 10 stay valid.
 #  10. Offline unit tests for the M1b-9 calibration ramp and knee script (experiments/calibration;
 #      standard library only, no network, ADR-026).
 #
-# Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456" or "-1 def456"
-# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, jq, curl and python3 on PATH (CI
-# installs pinned, checksummed builds).
+# 11. shellcheck (warning and above) over every tracked *.sh file (TASKS.md Hygiene).
+# 13. Every `uses:` in .github/workflows is pinned by a 40-hex commit SHA (TASKS.md Hygiene).
+# 12. Offline unit tests for bump_digest.py, the digest-bump pull request's rewriter (standard
+#     library only).
+#
+# 14. The ignoreDifferences boundary check (G4, spec §13, I12) and the offline tests of the
+#     boundary check, the audit_id join (G5) and the Alertmanager route (G6).
+#
+# 15. Every ConfigMap that a rendered Application's workloads reference (volumes, envFrom,
+#     valueFrom) is in that Application's render, or allow-listed by name (configmap-refs.py).
+#
+# Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
+# Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
+# PATH (CI installs pinned, checksummed builds).
 set -euo pipefail
 
 RANGE=${1:?usage: repo-checks.sh "<git log range>"}
@@ -70,6 +80,11 @@ echo "::group::Render every Application and check its AppProject"
 bash "$(dirname "$0")/render-apps.sh" "$work/render"
 echo "::endgroup::"
 
+echo "::group::Every ConfigMap an Application's workloads reference exists in its render"
+bash scripts/tests/configmap-refs.sh
+python3 "$(dirname "$0")/configmap-refs.py" "$work/render/meta"
+echo "::endgroup::"
+
 # No pinned schema source has a top-level CustomResourceDefinition schema (yannh ships only its
 # sub-schemas), so CRD objects are skipped; the custom resources themselves are validated (ADR-012).
 echo "::group::kubeconform on rendered Applications (Kubernetes $K8S_VERSION)"
@@ -89,6 +104,10 @@ echo "::group::verify-state /items tests (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-items.sh
 echo "::endgroup::"
 
+echo "::group::verify-state M2 checks (offline, stub kubectl)"
+KUBECONFIG=/nonexistent bash scripts/tests/verify-m2.sh
+echo "::endgroup::"
+
 echo "::group::detection-inputs.jq fixture tests (M1b-6c)"
 bash scripts/tests/detection-inputs.sh
 echo "::endgroup::"
@@ -97,23 +116,30 @@ echo "::group::PrometheusRule check and unit tests (promtool)"
 bash scripts/tests/promtool-rules.sh
 echo "::endgroup::"
 
-# The S5 exit demo runs the detection rules pinned at #79's head (TASKS.md M1b exit); a change to
-# any of these 4 paths means an S5 rerun. Every listed path must exist at the pin: the deleted
-# sample-api-error-rate.yaml is not listed, and a re-added file is not deployed unless the pinned
-# kustomization.yaml names it. Expires at the M1b exit: after S5 is graded, this step is removed or
-# re-pinned through an ADR (plan M1b-8 rev 3, ADR-025).
-S5_PIN=d351d964f2a50ffd07916e69f30e6c067e567cb9
-S5_PATHS=(
-  platform/observability/alerts/kustomization.yaml
-  platform/observability/alerts/nexus-detection.yaml
-  platform/observability/tests/nexus-detection.test.yaml
-  scripts/tests/promtool-rules.sh
-)
-echo "::group::S5 pin guard (the ${#S5_PATHS[@]} rule-defining files at ${S5_PIN:0:8})"
-bash scripts/tests/s5-pin-guard.sh
-bash scripts/lib/s5-pin-guard.sh "$S5_PIN" "${S5_PATHS[@]}"
-echo "::endgroup::"
-
 echo "::group::calibration ramp and knee tests (M1b-9, offline)"
 python3 -m unittest discover -s experiments/calibration -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::shellcheck (tracked *.sh, warning and above)"
+git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning
+echo "::endgroup::"
+
+echo "::group::bump_digest.py tests (offline)"
+python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::ignoreDifferences boundary (G4, I12)"
+python3 scripts/check-ignore-differences.py
+echo "::endgroup::"
+
+echo "::group::boundary, audit_id join and Alertmanager route tests (G4, G5, G6; offline)"
+python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+echo "::endgroup::"
+
+echo "::group::workflow actions pinned by commit SHA"
+if unpinned=$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' \
+  | xargs grep -nE '^[[:space:]]*-?[[:space:]]*uses:' | grep -vE 'uses:[[:space:]]*(\./|[^[:space:]@]+@[0-9a-f]{40}([[:space:]]|$))'); then
+  echo "::error::actions not pinned by commit SHA:"; echo "$unpinned"; exit 1
+fi
+echo "all pinned"
 echo "::endgroup::"

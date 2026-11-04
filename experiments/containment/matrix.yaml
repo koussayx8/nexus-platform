@@ -1,0 +1,160 @@
+# The containment coverage matrix, declared as data (spec section 20 "Containment suite", NF-26).
+#
+#   3 identities x 10 requests x 7 namespace/level cells x 3 Kill Switch states = 630 verdicts.
+#
+# Everything here is read from spec sections 11 (RBAC, K1-K6, C1-C4) and 20 - not from the manifests
+# under platform/, so that a replay against those manifests is an independent check:
+#   - `rbac` is the frozen section 11 table: what each identity may do at all;
+#   - `policies` are the section 11 rows of K1-K4 as predicates over a cell and a request;
+#   - `expected` pins the headline cells by hand, so a mistake in the two tables above shows up.
+# matrix.py expands the axes, derives every verdict from `rbac` + `policies`, and refuses to
+# produce a cell the tables do not decide. Verdicts are DENY or ADMIT; a DENY lists every layer
+# that refuses the request (RBAC stops first: later layers are then not consulted, so only RBAC is
+# listed). ADMIT means "RBAC and admission allow it": a server-side dry-run returns 2xx, or 429 from
+# the PodDisruptionBudget on an eviction (a layer after Kyverno).
+version: 1
+
+identities:
+  operator:
+    username: system:serviceaccount:nexus-system:nexus-operator
+    groups: [system:serviceaccounts, system:authenticated]
+    role: responder
+  baseline:
+    username: system:serviceaccount:nexus-system:nexus-baseline
+    groups: [system:serviceaccounts, system:authenticated]
+    role: responder
+  approver:
+    username: approver-1
+    groups: [nexus-approvers, system:authenticated]
+    role: approver
+
+# Namespace / level cells. `approval` is the state of the Incident fixtures for that namespace:
+# approved = two approved, unexpired Incidents (scale_deployment replicas 3, and restart_workload)
+# pinned to sample-api; none = unapproved Incidents only.
+cells:
+  dev-l3:          {namespace: nexus-dev,  level: "3", approval: none}
+  dev-l2-approved: {namespace: nexus-dev,  level: "2", approval: approved}
+  dev-l2-none:     {namespace: nexus-dev,  level: "2", approval: none}
+  prod-l1:         {namespace: nexus-prod, level: "1", approval: none}
+  data-l0:         {namespace: nexus-data, level: "0", approval: none}
+  kube-system:     {namespace: kube-system, level: null, approval: none}
+  unlabelled:      {namespace: nexus-containment-unlabelled, level: null, approval: none}
+
+killswitch: [active, halted, absent]
+
+# Requests. `kind` selects the policy rows that apply. The target Deployment has 2 replicas.
+requests:
+  scale-in-bounds:   {kind: scale, variants: [{replicas: 3, from: 2}]}
+  scale-to-0:        {kind: scale, variants: [{replicas: 0, from: 2}]}
+  scale-6-or-plus-3: {kind: scale, variants: [{replicas: 6, from: 5}, {replicas: 5, from: 2}]}
+  evict:             {kind: evict}
+  delete-deployment: {kind: delete_deployment}
+  patch-deployment:  {kind: patch_deployment}
+  set-approval:      {kind: set_approval}
+  change-ns-label:   {kind: change_ns_label}
+  change-killswitch: {kind: change_killswitch}
+  create-rolebinding: {kind: create_rolebinding}
+
+# Section 11 RBAC (frozen). Only mutating rights matter for the matrix; `incident_namespaces`
+# are where Incident objects live (always nexus-system). A request is RBAC-allowed iff a row of
+# the identity's role covers its kind in the cell's namespace.
+rbac:
+  responder:
+    - {kinds: [scale, evict], namespaces: [nexus-dev, nexus-prod]}
+  approver:
+    - {kinds: [set_approval], namespaces: ["*"]}        # incidents: get, list, watch, create, patch in nexus-system
+# Not granted to anyone, by omission (section 11): delete, patch of a Deployment, namespaces,
+# ConfigMaps, Secrets, RBAC, policies. The three rows above are all there is.
+
+# Every mutating grant section 11 allows, per identity (create, update, patch, delete, ...), used by
+# matrix.repo_overgrants() to check that the RBAC manifests in the repository grant no more.
+rbac_mutations:
+  operator:
+    - {namespaces: [nexus-system], group: nexus.io, resource: incidents, verbs: [create]}
+    - {namespaces: [nexus-system], group: nexus.io, resource: incidents/status, verbs: [patch, update]}
+    - {namespaces: [nexus-dev, nexus-prod], group: apps, resource: deployments/scale, verbs: [patch, update]}
+    - {namespaces: [nexus-dev, nexus-prod], group: "", resource: pods/eviction, verbs: [create]}
+  baseline:
+    - {namespaces: [nexus-dev, nexus-prod], group: apps, resource: deployments/scale, verbs: [patch, update]}
+    - {namespaces: [nexus-dev, nexus-prod], group: "", resource: pods/eviction, verbs: [create]}
+  approver:
+    - {namespaces: [nexus-system], group: nexus.io, resource: incidents, verbs: [create, patch]}
+
+# Section 11 K1-K4 as predicates. `responders` is the set of roles the policy applies to.
+policies:
+  K1: {applies_to: [scale, evict], allow_levels: ["2", "3"]}                     # missing label denies
+  K2: {applies_to: [scale], min: 1, max: 5, max_step: 2}
+  K3: {applies_to: [scale, evict], at_level: "2"}                                # needs a pinned approved Incident
+  K4: {applies_to: [scale, evict], allow_states: [active]}                       # absent denies
+
+# CRD rules and K5 that decide set_approval for the approver (sections 8, 11).
+approval:
+  c3_namespaces: [nexus-dev, nexus-prod, nexus-data]   # an Incident cannot name any other target
+  write_once: C2
+
+# The same K3 pin, as the approved fixtures hold it.
+approved_fixtures:
+  scale: {replicas: 3}
+  restart: {}
+
+# Headline cells, written by hand (spec section 20 / section 11 policy-test rows). The derived
+# table must agree with every one of them.
+expected:
+  - {identity: operator, request: scale-in-bounds,   cell: dev-l3,          killswitch: active, verdict: ADMIT}
+  - {identity: baseline, request: scale-in-bounds,   cell: dev-l3,          killswitch: active, verdict: ADMIT}
+  - {identity: operator, request: evict,             cell: dev-l3,          killswitch: active, verdict: ADMIT}
+  - {identity: operator, request: scale-in-bounds,   cell: dev-l3,          killswitch: halted, verdict: DENY, layers: [K4]}
+  - {identity: operator, request: scale-in-bounds,   cell: dev-l3,          killswitch: absent, verdict: DENY, layers: [K4]}
+  - {identity: operator, request: scale-to-0,        cell: dev-l3,          killswitch: active, verdict: DENY, layers: [K2]}
+  - {identity: operator, request: scale-6-or-plus-3, cell: dev-l3,          killswitch: active, verdict: DENY, layers: [K2]}
+  - {identity: operator, request: scale-in-bounds,   cell: prod-l1,         killswitch: active, verdict: DENY, layers: [K1]}
+  - {identity: operator, request: evict,             cell: prod-l1,         killswitch: active, verdict: DENY, layers: [K1]}
+  - {identity: operator, request: scale-in-bounds,   cell: dev-l2-none,     killswitch: active, verdict: DENY, layers: [K3]}
+  - {identity: operator, request: scale-in-bounds,   cell: dev-l2-approved, killswitch: active, verdict: ADMIT}
+  - {identity: operator, request: evict,             cell: dev-l2-approved, killswitch: active, verdict: ADMIT}
+  - {identity: operator, request: scale-to-0,        cell: dev-l2-approved, killswitch: active, verdict: DENY, layers: [K2, K3]}
+  - {identity: operator, request: scale-in-bounds,   cell: data-l0,         killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: scale-in-bounds,   cell: kube-system,     killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: scale-in-bounds,   cell: unlabelled,      killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: delete-deployment, cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: patch-deployment,  cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: set-approval,      cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: change-ns-label,   cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: change-killswitch, cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: operator, request: create-rolebinding, cell: dev-l3,         killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: approver, request: scale-in-bounds,   cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: approver, request: evict,             cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+  - {identity: approver, request: set-approval,      cell: dev-l3,          killswitch: active, verdict: ADMIT}
+  - {identity: approver, request: set-approval,      cell: dev-l2-none,     killswitch: active, verdict: ADMIT}
+  - {identity: approver, request: set-approval,      cell: dev-l2-approved, killswitch: active, verdict: DENY, layers: [C2]}
+  - {identity: approver, request: set-approval,      cell: kube-system,     killswitch: active, verdict: DENY, layers: [C3]}
+  - {identity: approver, request: set-approval,      cell: unlabelled,      killswitch: active, verdict: DENY, layers: [C3]}
+  - {identity: approver, request: set-approval,      cell: dev-l3,          killswitch: halted, verdict: ADMIT}
+  - {identity: approver, request: change-killswitch, cell: dev-l3,          killswitch: active, verdict: DENY, layers: [RBAC]}
+
+# Outside the 630: the two cases the section 20 text names separately.
+special:
+  - id: fail-closed
+    text: Kyverno admission scaled to zero, then an in-envelope operator request (dev-l3, active, scale 2 to 3) must be refused.
+    identity: operator
+    request: scale-in-bounds
+    cell: dev-l3
+    killswitch: active
+    verdict: DENY
+    layers: [webhook-unavailable]
+  - id: killswitch-halted-compensation
+    text: Kill Switch halted - compensation (scale back to the recorded count, 3 to 2) is refused like any other mutation.
+    identity: operator
+    request: compensation-scale-back
+    cell: dev-l3
+    killswitch: halted
+    verdict: DENY
+    layers: [K4]
+  - id: killswitch-absent-compensation
+    text: Kill Switch ConfigMap absent - compensation is refused.
+    identity: operator
+    request: compensation-scale-back
+    cell: dev-l3
+    killswitch: absent
+    verdict: DENY
+    layers: [K4]

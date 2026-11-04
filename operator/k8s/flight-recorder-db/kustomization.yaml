@@ -1,0 +1,19 @@
+# flight-recorder-db: the PostgreSQL behind the Flight Recorder (spec §14; ADR-031). Deployed in
+# nexus-system by the `nexus` Application, through operator/k8s/kustomization.yaml. The schema and
+# the init script ship as a generated ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - statefulset.yaml
+  - service.yaml
+
+configMapGenerator:
+  - name: flight-recorder-db-init
+    # Same namespace as the StatefulSet: without it kustomize does not rewrite the StatefulSet's
+    # reference to the hashed name, and the pod waits for a ConfigMap that does not exist.
+    namespace: nexus-system
+    files:
+      - 05-schema.sql
+      - 10-roles.sql
+      - 99-ready.sh
