@@ -25,6 +25,11 @@ check is READ-ONLY (get / get --raw / GET / stat); none changes anything:
     {"status": "ready", "corpusHash": "<64 hex>", "promptVersion": ..., "scoreFloor": ...}; the
     check needs `status` "ready" and `corpusHash` equal to the configured hash (a `sha256:` prefix
     on the configured value is ignored).
+  * the Flight Recorder is reachable from the operator: Prometheus `nexus_operator_recorder_up`
+    (1 while the operator's last recorder call or its 30 s SELECT 1 probe succeeded) is exactly 1.
+    The operator blocks every mutation without the recorder (write-ahead intent row, spec §14), so
+    a run started with it down would only record `recorder_unavailable`. Fail closed: no answer,
+    no series, NaN, or any series other than 1 fails the pre-check.
   * the audit log is being written: the file is readable and was modified within `max_age_s`. k3s
     writes every write request to it, lease renewals included (verify-state.sh M7), so a quiet log
     means the audit chain is down. Reading the file is all this does: no probe request is sent.
@@ -400,6 +405,29 @@ def reasoner_failures(runner, cfg: dict) -> list[str]:
     )
 
 
+RECORDER_UP = "nexus_operator_recorder_up"
+
+
+def recorder_failures(prom: Prom) -> list[str]:
+    """nexus_operator_recorder_up must be present and equal 1 on every series. A series that is
+    missing (the operator is down or not scraped) is a failure, never a pass."""
+    res = prom.query(RECORDER_UP)
+    if res is None:
+        return ["recorder:no_answer"]
+    if not res:
+        return ["recorder:no_series"]
+    out = []
+    for sample in res:
+        try:
+            v = float(sample["value"][1])
+        except (KeyError, IndexError, TypeError, ValueError):
+            out.append("recorder:unparsable")
+            continue
+        if v != 1.0:  # also true for NaN
+            out.append(f"recorder:up={v:g}")
+    return out
+
+
 def audit_failures(cfg: dict, stat, wall) -> list[str]:
     c = cfg["audit_log"]
     try:
@@ -459,6 +487,7 @@ def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: 
         failures += backstage_failures(r, cfg)
         failures += locust_failures(r, prom, cfg)
         failures += reasoner_failures(r, cfg)
+        failures += recorder_failures(prom)
         failures += audit_failures(cfg, stat, wall)
         waited = monotonic() - start_m
         if not failures or waited >= cfg["cap_s"]:
