@@ -55,7 +55,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: operator
-          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:ef3c695542d308977d0909656dc40ddb5dfaf1c2168853c95b57c80959083b53
+          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:8186509a8ba4073c75c4b2f0caf75678a944b51a842aa72a08fd54f3bad76a7c
           imagePullPolicy: IfNotPresent
           # UID 10001 has no /etc/passwd entry in image ef3c6955. Kopf names its peering identity
           # with getpass.getuser(), which reads USER before falling back to pwd.getpwuid(), so
