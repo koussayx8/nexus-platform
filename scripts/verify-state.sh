@@ -12,29 +12,45 @@
 # Incident CRD with C1-C4 and its Prune=false,Delete=false annotation (M11), and the operator Ready
 # on its Git-pinned digest (M12). M2 (G7) adds the Flight Recorder DB (M13), the staged RBAC (M14)
 # and the live rollout strategy against Git (M15), and reads the nexus-dev level from Git (M5).
-# K1-K6, Reasoner readiness and N1-N6 arrive with their milestones.
+# M3 (G7; --milestone m3) adds K1-K6 present, Ready and in Enforce (M16), the N1-N6 NetworkPolicies
+# present (M17) and the Reasoner Ready with the expected index hash (M18). The default milestone is
+# m2, which runs M1-M15 and the informational I1 exactly as before.
 #
-# Usage: scripts/verify-state.sh [--out PATH]
-#   --out PATH   where the report is written (default: docs/CURRENT_STATE.md)
+# Usage: scripts/verify-state.sh [--out PATH] [--milestone m2|m3]
+#   --out PATH        where the report is written (default: docs/CURRENT_STATE.md)
+#   --milestone M     m2 (default) runs M1-M15; m3 adds M16-M18 and needs
+#                     NEXUS_VERIFY_REASONER_INDEX_HASH (the 64-hex corpus hash from `make index`)
 # Env: NEXUS_VERIFY_APPS_TIMEOUT (default 1140) bounds the M1 retry window, in seconds.
 #      NEXUS_VERIFY_ITEMS_NAMESPACES (default "nexus-dev nexus-prod") limits the M10 /items check;
 #      any value outside those two is a script error.
+#      NEXUS_VERIFY_REASONER_INDEX_HASH: the expected Reasoner corpus hash, required by --milestone m3.
 #
 # Exit codes: 0 every check passed; 1 at least one check failed; 2 script error.
 
 set -uo pipefail
 
 OUT_PATH=docs/CURRENT_STATE.md
+MILESTONE=m2
+FLAGS=
 args=("$@")
 i=0
 while (( i < ${#args[@]} )); do
   case ${args[$i]} in
     --out) i=$((i+1)); OUT_PATH=${args[$i]:-} ;;
+    --milestone) i=$((i+1)); MILESTONE=${args[$i]:-} ;;
     *) echo "verify-state: unknown argument ${args[$i]}" >&2; exit 2 ;;
   esac
   i=$((i+1))
 done
 [[ -n $OUT_PATH ]] || { echo "verify-state: --out needs a path" >&2; exit 2; }
+case $MILESTONE in
+  m2) ;;
+  m3)
+    FLAGS=" --milestone m3"
+    [[ ${NEXUS_VERIFY_REASONER_INDEX_HASH:-} =~ ^(sha256:)?[0-9a-f]{64}$ ]] \
+      || { echo "verify-state: --milestone m3 needs NEXUS_VERIFY_REASONER_INDEX_HASH (64 lowercase hex digits)" >&2; exit 2; } ;;
+  *) echo "verify-state: --milestone must be m2 or m3, got '$MILESTONE'" >&2; exit 2 ;;
+esac
 
 ITEMS_NAMESPACES=${NEXUS_VERIFY_ITEMS_NAMESPACES:-nexus-dev nexus-prod}
 [[ -n ${ITEMS_NAMESPACES//[[:space:]]/} ]] || { echo "verify-state: NEXUS_VERIFY_ITEMS_NAMESPACES names no namespace" >&2; exit 2; }
@@ -526,6 +542,81 @@ v_rollout_strategy() {
 }
 
 # ---------------------------------------------------------------------------
+# M16 (m3). K1-K6 (spec §11): each ClusterPolicy exists, is Ready, has failurePolicy Fail and every
+# validate rule in Enforce (a policy with no validate rule fails: K1-K6 each have one). Audit-mode
+# verifyImages (nexus-verify-images) is not one of the six and is not judged here.
+# ---------------------------------------------------------------------------
+K_POLICIES=(nexus-autonomy-floor nexus-scale-bounds nexus-l2-approval nexus-killswitch nexus-incident-approval nexus-incident-source)
+v_policies_enforce() {
+  local rc=0 n pol line
+  for n in "${!K_POLICIES[@]}"; do
+    pol=${K_POLICIES[$n]}
+    if ! line=$(k get clusterpolicy "$pol" -o json --context default 2>/dev/null); then
+      echo "K$((n+1)) $pol: NOT FOUND"; rc=1; continue
+    fi
+    line=$(jq -r '
+      ((.spec.validationFailureAction // "Audit")) as $dflt
+      | [.spec.rules[]? | select(.validate != null) | (.validate.failureAction // $dflt)] as $acts
+      | ((.status.ready // false) or ([.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length > 0)) as $ready
+      | "ready=\($ready) failurePolicy=\(.spec.failurePolicy // "-") validateRules=\($acts | length) enforce=\([$acts[] | select(. == "Enforce")] | length) ok=\($ready and (.spec.failurePolicy == "Fail") and ($acts | length > 0) and ($acts | all(. == "Enforce")))"' <<<"$line")
+    echo "K$((n+1)) $pol: $line"
+    [[ $line == *"ok=true" ]] || rc=1
+  done
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# M17 (m3). The NetworkPolicies behind N1-N6 (spec §18; platform/network): default-deny in every
+# NEXUS namespace plus the allows. Presence only: the N1-N6 probes are scripts/tests/network-n1-n6.sh.
+# ---------------------------------------------------------------------------
+NETPOLS=(
+  "nexus-data default-deny" "nexus-data dependency-db-ingress"
+  "nexus-dev default-deny" "nexus-dev sample-api-ingress" "nexus-dev sample-api-egress"
+  "nexus-prod default-deny" "nexus-prod sample-api-ingress" "nexus-prod sample-api-egress"
+  "nexus-load default-deny" "nexus-load locust-internal"
+  "nexus-reasoner default-deny" "nexus-reasoner allow-operator-ingress" "nexus-reasoner allow-dns-and-public-https"
+  "nexus-system default-deny" "nexus-system operator-ingress" "nexus-system operator-egress" "nexus-system flight-recorder-db-ingress"
+)
+v_network_policies() {
+  local rc=0 pair ns name missing=() present=0
+  for pair in "${NETPOLS[@]}"; do
+    read -r ns name <<<"$pair"
+    if k get networkpolicy "$name" -n "$ns" --context default >/dev/null 2>&1; then present=$((present+1)); else missing+=("$ns/$name"); fi
+  done
+  echo "NetworkPolicies present: $present of ${#NETPOLS[@]}"
+  if (( ${#missing[@]} )); then echo "missing: ${missing[*]}"; rc=1; fi
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# M18 (m3). The Reasoner (spec §16; G9): Deployment nexus-reasoner fully Ready, and GET /healthz
+# through the API server's service proxy answers status=ready with corpusHash equal to
+# NEXUS_VERIFY_REASONER_INDEX_HASH (a bare 64-hex digest; an optional sha256: prefix is ignored on
+# both sides). Same probe as experiments/harness/precheck.py.
+# ---------------------------------------------------------------------------
+v_reasoner() {
+  local jf rc=0 want ready doc status got expected
+  jf=$(mktemp)
+  if ! k get deployment nexus-reasoner -n nexus-reasoner -o json --context default >"$jf" 2>/dev/null; then
+    echo "nexus-reasoner/nexus-reasoner: NOT FOUND"; rm -f "$jf"; return 1
+  fi
+  want=$(jq -r '.spec.replicas // 0' "$jf"); ready=$(jq -r '.status.readyReplicas // 0' "$jf")
+  rm -f "$jf"
+  echo "nexus-reasoner/nexus-reasoner: readyReplicas=$ready replicas=$want"
+  [[ $want =~ ^[0-9]+$ && $ready =~ ^[0-9]+$ ]] && (( want > 0 && ready == want )) || rc=1
+  if ! doc=$(k get --raw "/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz" --context default 2>/dev/null); then
+    echo "/healthz: no answer through the service proxy"; return 1
+  fi
+  status=$(jq -r '.status // "-"' <<<"$doc" 2>/dev/null) || { echo "/healthz: unparsable"; return 1; }
+  got=$(jq -r '.corpusHash // "" | sub("^sha256:"; "")' <<<"$doc")
+  expected=${NEXUS_VERIFY_REASONER_INDEX_HASH#sha256:}
+  echo "/healthz: status=$status corpusHash=${got:0:12}... expected=${expected:0:12}..."
+  [[ $status == ready ]] || rc=1
+  [[ $got =~ ^[0-9a-f]{64}$ && $got == "$expected" ]] || { echo "corpusHash differs from the expected index hash"; rc=1; }
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
 # I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
 # across a rebuild without turning a transient restart into a failure.
 # ---------------------------------------------------------------------------
@@ -542,7 +633,7 @@ v_restart_counts() {
 # ---------------------------------------------------------------------------
 log "# NEXUS — Current State"
 log ""
-log "Generated $(date -u +%FT%TZ) by \`scripts/verify-state.sh\`. Never hand-edited (spec §25)."
+log "Generated $(date -u +%FT%TZ) by \`scripts/verify-state.sh${FLAGS}\`. Never hand-edited (spec §25)."
 log ""
 
 echo "verify-state: M1 polls every ${POLL_INTERVAL}s until every Application is stable at the expected commit for ${STABLE_WINDOW}s (bound ${APPS_TIMEOUT}s)"
@@ -561,6 +652,11 @@ verify M12 "NEXUS Operator Ready on its pinned digest"   v_operator
 verify M13 "Flight Recorder DB StatefulSet Ready"        v_fr_db
 verify M14 "Staged RBAC: scale and eviction in nexus-dev only" v_staged_rbac
 verify M15 "sample-api rollout strategy equals Git"      v_rollout_strategy
+if [[ $MILESTONE == m3 ]]; then
+  verify M16 "K1-K6 present, Ready, failurePolicy Fail, Enforce" v_policies_enforce
+  verify M17 "N1-N6 NetworkPolicies present"           v_network_policies
+  verify M18 "Reasoner Ready with the expected index hash" v_reasoner
+fi
 info   I1 "Container restart counts (informational)"   v_restart_counts
 
 log ""
