@@ -57,11 +57,22 @@ INJECT_LOGS_PY = (
     "import urllib.request as u;"
     f"u.urlopen(u.Request('http://127.0.0.1:{APP_PORT}/fault/inject-logs',method='POST'),timeout=5)"
 )
-S5_SQL = (
-    "ALTER ROLE app_dev NOLOGIN; "
-    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='app_dev';"
-)
-S5_RESTORE_SQL = "ALTER ROLE app_dev LOGIN;"
+S5_ROLES = {
+    "nexus-dev": "app_dev",
+    "nexus-prod": "app_prod",
+}  # each namespace's own DB role
+
+
+def s5_sql(namespace: str) -> str:
+    role = S5_ROLES[namespace]
+    return (
+        f"ALTER ROLE {role} NOLOGIN; "
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='{role}';"
+    )
+
+
+# Reset restores both roles, so a prod S5 never outlives the run.
+S5_RESTORE_SQL = " ".join(f"ALTER ROLE {r} LOGIN;" for r in S5_ROLES.values())
 
 
 @dataclass(frozen=True)
@@ -210,7 +221,7 @@ class Runner:
         if sc == "S5":
             pod = self.pods(NS_DATA, "app.kubernetes.io/name=dependency-db")[0]
             return [
-                self.k("exec", pod, "-c", "dependency-db", "--", "psql", "-U", "postgres", "-c", S5_SQL,
+                self.k("exec", pod, "-c", "dependency-db", "--", "psql", "-U", "postgres", "-c", s5_sql(self.namespace),
                        ns=NS_DATA, note="S5 NOLOGIN + terminate sessions")
             ]  # fmt: skip
         raise ValueError(f"unknown scenario {scenario}")

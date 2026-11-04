@@ -345,6 +345,24 @@ class ProdTargetTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             r.plan_inject("S3", s3_patch="p.diff")
 
+    def test_s5_alters_the_namespaces_own_role_only(self):
+        for ns, level, role, other in (
+            ("nexus-prod", "1", "app_prod", "app_dev"),
+            ("nexus-dev", "3", "app_dev", "app_prod"),
+        ):
+            r, _ = self.runner(level, ns=ns)
+            (s,) = r.plan_inject("S5")
+            sql = s.argv[-1]
+            self.assertIn(f"ALTER ROLE {role} NOLOGIN", sql)
+            self.assertIn(f"usename='{role}'", sql)
+            self.assertNotIn(other, sql)
+
+    def test_reset_restores_both_roles(self):
+        r, _ = self.runner("1", ns="nexus-dev")
+        sql = " ".join(a for s in r.plan_reset(3) for a in s.argv if "LOGIN" in a)
+        self.assertIn("ALTER ROLE app_dev LOGIN", sql)
+        self.assertIn("ALTER ROLE app_prod LOGIN", sql)
+
     def test_prod_still_needs_execute(self):
         calls = []
 
