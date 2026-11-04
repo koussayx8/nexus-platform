@@ -44,5 +44,6 @@ resources:
   - m3-live
 ```
 
-Run the live checks above first (K6 gates the Alert Poller's Incident create). Until the
-operator's L2 states exist, an L2 namespace stays `Escalated` and K3 never sees a request.
+Run the live checks above first (K6 gates the Alert Poller's Incident create). The
+operator's L2 states (`AwaitingApproval`, approval validation, `Expired`) are in the operator image
+from G8; the live L2 run is the M3 exit's first check.

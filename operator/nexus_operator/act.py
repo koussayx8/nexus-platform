@@ -4,8 +4,12 @@ One call to ActPath.step() moves one Incident by at most one step, level-trigger
 the next step from the status and the observed cluster, never from an event. Phases it owns:
 
   Proposed      stages 1-3 for every proposal; abstain, escalate, no_action and the levels
-                L1 (Recommended) and L2 (Escalated, approval is M3) end here; at L3 stages 4-7
-                run and a pass moves to Executing
+                L1 (Recommended) end here; at L2 stages 4-6 run and a pass moves to
+                AwaitingApproval; at L3 stages 4-7 run and a pass moves to Executing
+  AwaitingApproval  the Approval Gate (§7, §9 stage 8): no decision waits, up to approvalTTL, then
+                Expired; a rejection ends Rejected; an approval that does not pin the stored
+                proposal ends Blocked; an unexpired one that does is re-validated (stages 1-7,
+                the dry-run included, which K3 only admits now) and moves to Executing
   Executing     one request per call, write-ahead; a restart evicts one pod at a time and waits
                 for the replacement to be Ready; a scale is one request
   Verifying     the catalogue's criteria against the raw baseline (verifier.py)
@@ -33,7 +37,7 @@ import asyncio
 import dataclasses
 import logging
 
-from . import proposal, rules
+from . import approval, proposal, rules
 from .catalogue import CATALOGUE
 from .evidence import CollectionError, EvidenceCollector
 from .executor import Executed, Executor
@@ -63,7 +67,15 @@ from .verifier import Verifier
 logger = logging.getLogger("nexus.act")
 
 ACT_PHASES = frozenset(
-    {"Detected", "Diagnosing", "Proposed", "Executing", "Verifying", "Compensating"}
+    {
+        "Detected",
+        "Diagnosing",
+        "Proposed",
+        "AwaitingApproval",
+        "Executing",
+        "Verifying",
+        "Compensating",
+    }
 )
 DIAGNOSING_TIMEOUT_S = 60
 
@@ -110,6 +122,7 @@ OWNER = {
     "Detected": "Incident Reconciler",
     "Diagnosing": "Evidence Collector",
     "Proposed": "Safety Gate",
+    "AwaitingApproval": "Approval Gate",
     "Executing": "Action Executor",
     "Verifying": "Verifier",
     "Compensating": "Compensator",
@@ -162,7 +175,9 @@ class ActPath:
         clock,
         collector: EvidenceCollector | None = None,
         reasoner: ReasonerClient | None = None,
+        approval_ttl_s: int = 900,
     ) -> None:
+        self.approval_ttl_s = approval_ttl_s
         self.api, self.mutations, self.recorder, self.gate = (
             api,
             mutations,
@@ -261,6 +276,7 @@ class ActPath:
             "Detected": self._detected,
             "Diagnosing": self._diagnosing,
             "Proposed": self._proposed,
+            "AwaitingApproval": self._awaiting,
             "Executing": self._executing,
             "Verifying": self._verifying,
             "Compensating": self._compensating,
@@ -520,7 +536,9 @@ class ActPath:
         if not proposal.validate(doc) and doc["abstain"]:
             await self._move(incident, "Escalated", "abstain")
             return
-        result = await self.gate.run(incident, doc, upto=7 if level == 3 else 3)
+        # L3 acts; L2 runs stages 4-6 and leaves the dry-run (K3 refuses it unapproved) to stage 8
+        upto = {3: 7, 2: 6}.get(level, 3)
+        result = await self.gate.run(incident, doc, upto=upto, level=level)
         await self._record_gate(uid, result)
         gate = result.status()
         if not result.passed:
@@ -554,14 +572,59 @@ class ActPath:
         elif level == 2:
             await self._move(
                 incident,
-                "Escalated",
-                "autonomy_denied",
-                gate=gate | {"detail": "L2 approval is M3"},
+                "AwaitingApproval",
+                gate=gate | {"verdict": "requires_approval", "dryRun": "pending"},
             )
         elif level != 3:
             await self._move(incident, "Blocked", "autonomy_denied", gate=gate)
         else:
             await self._begin(incident, doc, gate)
+
+    async def _awaiting(self, incident: dict) -> None:
+        """Stage 8: wait for spec.approval, judge it, re-validate, then execute (§7, §9)."""
+        status = incident["status"]
+        at = self.clock()
+        if approval.waited_out(incident, at, self.approval_ttl_s):
+            await self._move(
+                incident, "Expired", "approval_expired", gate=self._gate_note(status)
+            )
+            return
+        digest = (status.get("proposal") or {}).get("hash")
+        if not digest or not (incident.get("spec") or {}).get("approval"):
+            return
+        try:
+            await self._open(incident)
+            doc = await self.recorder.get_proposal(digest)
+        except RecorderUnavailable:
+            return  # retried next tick; approvalTTL and the approval's own expiry still bound it
+        if not isinstance(doc, dict) or proposal.validate(doc):
+            await self._move(incident, "Blocked", "schema_invalid")
+            return
+        verdict = approval.check(incident, doc, at, self.approval_ttl_s)
+        if verdict.state == "pending":
+            return
+        if verdict.phase is not None:
+            logger.info("approval %s: %s", verdict.state, verdict.detail)
+            await self._move(
+                incident,
+                verdict.phase,
+                verdict.reason,
+                gate=self._gate_note(status, verdict.detail),
+            )
+            return
+        result = await self.gate.run(incident, doc, upto=7, level=2)
+        await self._record_gate(incident["metadata"]["uid"], result)
+        if not result.passed:
+            await self._move(
+                incident, result.phase, result.reason, gate=result.status()
+            )
+            return
+        await self._begin(incident, doc, result.status() | {"verdict": "approved"})
+
+    @staticmethod
+    def _gate_note(status: dict, detail: str = "") -> dict:
+        gate = dict(status.get("gate") or {})
+        return gate | ({"detail": detail} if detail else {})
 
     async def _open(self, incident: dict) -> None:
         """The `incidents` row every other row refers to; idempotent."""
