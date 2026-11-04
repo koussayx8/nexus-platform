@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import unittest
+import urllib.parse
 from unittest import mock
 
 from .. import arms, runner
@@ -132,6 +133,31 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("pg_terminate_backend", s.argv[-1])
         with self.assertRaises(ValueError):
             r.plan_inject("S9")
+
+    def test_reset_leaves_locust_at_the_baseline_swarm_instead_of_stopping_it(self):
+        b = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
+        r, _ = self.runner(locust="http://l")
+        posts = [s for s in r.plan_reset(3, locust_baseline=b) if s.argv[0] == "POST"]
+        (swarm,) = posts
+        self.assertEqual(swarm.argv[:2], ("POST", "http://l/swarm"))
+        self.assertEqual(
+            urllib.parse.parse_qs(swarm.argv[2]),
+            {
+                "user_count": ["160"],
+                "spawn_rate": ["4"],
+                "user_classes": ["DevUser", "ProdUser"],
+            },
+        )
+        # without a baseline the old step stands
+        (stop,) = [s for s in r.plan_reset(3) if s.argv[0] == "POST"]
+        self.assertEqual(stop.argv, ("POST", "http://l/stop", ""))
+        # executed, the form reaches http_post with one user_classes field per class
+        got = []
+        r2, _ = self.runner(
+            locust="http://l", http_post=lambda u, f: got.append((u, f))
+        )
+        r2.execute([swarm])
+        self.assertEqual(got[0][1]["user_classes"], ["DevUser", "ProdUser"])
 
     def test_reset_order_and_no_force(self):
         r, _ = self.runner(locust="http://l", git_dir="/g")
