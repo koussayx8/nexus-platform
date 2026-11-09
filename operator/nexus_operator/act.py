@@ -459,7 +459,7 @@ class ActPath:
         there was one, and the proposal that is used (or the invalid one that ended it)."""
         bundle = work.bundle
         await self.recorder.record_bundle(
-            bundle["hash"], uid, "evidence/v1", bundle, work.counts, now
+            bundle["hash"], uid, bundle["schema"], bundle, work.counts, now
         )
         result = answer.result
         if result is not None and not result.ok:

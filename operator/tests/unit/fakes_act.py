@@ -434,6 +434,7 @@ class FakeMetrics:
             "latencyP95": 0.0,
             "errorRatio": 0.0,
             "requestRate": 0.0,
+            "inflight": 0.0,
         } | zscores
         self.values = {
             "namespace:nexus_sample_api_latency_p95:2m": p95,
@@ -442,6 +443,7 @@ class FakeMetrics:
             "namespace:nexus_sample_api_latency_p95:zscore15m": z["latencyP95"],
             "namespace:nexus_sample_api_error_ratio:zscore15m": z["errorRatio"],
             "namespace:nexus_sample_api_requests:zscore15m": z["requestRate"],
+            "namespace:nexus_sample_api_inflight:zscore15m": z["inflight"],
             "namespace:nexus_sample_api_error_ratio:rate2m": 0.0,
             "namespace:nexus_sample_api_latency_p95:baseline_avg15m": 0.05,
             "namespace:nexus_sample_api_latency_p95:baseline_stddev15m": 0.01,

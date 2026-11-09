@@ -4,6 +4,7 @@ import threading
 import unittest
 import urllib.request
 
+from nexus_operator import proposal
 from nexus_reasoner import service
 
 from .helpers import FakeOpener, bundle, good_proposal, reasoner
@@ -172,6 +173,23 @@ class ServiceTest(unittest.TestCase):
         with self.assertRaises(service.Rejected) as cm:
             self.call(rs)
         self.assertEqual(cm.exception.error, "invalid_bundle")
+
+    def test_bundle_schemas(self):
+        """evidence/v1.1 (the fixture) and v1 pass; anything else is invalid_bundle (ADR-039)."""
+        self.assertEqual(self.b["schema"], "evidence/v1.1")
+        for schema, ok in (
+            ("evidence/v1", True),
+            ("evidence/v1.1", True),
+            ("evidence/v2", False),
+        ):
+            b = {k: v for k, v in self.b.items() if k != "hash"} | {"schema": schema}
+            b["hash"] = proposal.hash_of(b)
+            if ok:
+                service.check_bundle(b)
+                continue
+            with self.assertRaises(service.Rejected) as cm:
+                service.check_bundle(b)
+            self.assertEqual(cm.exception.error, "invalid_bundle")
 
     def test_model_output_checks(self):
         self.rejected(reasoner(groq("not json")), 422, "unparseable")
