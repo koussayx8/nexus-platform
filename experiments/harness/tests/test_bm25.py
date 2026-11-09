@@ -56,7 +56,7 @@ class IndexTest(unittest.TestCase):
         import json
 
         raw = json.loads(
-            (Path(__file__).parent / "fixtures" / "evidence-v1-raw.json").read_text()
+            (Path(__file__).parent / "fixtures" / "evidence-v1.1-raw.json").read_text()
         )
         q = bm25.build_query(raw)  # lastTermination is a string in evidence/v1
         for tok in ("nexuslatencyanomaly", "oomkilled", "unhealthy", "latencyp95"):

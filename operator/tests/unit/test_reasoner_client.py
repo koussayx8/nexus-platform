@@ -24,7 +24,7 @@ PLANTED = "ghp_" + "Q1w2E3r4T5" * 4
 
 def make_bundle(extra_log: str = "all quiet") -> dict:
     raw = {
-        "schema": "evidence/v1",
+        "schema": "evidence/v1.1",
         "incident": {"uid": "u1", "target": TARGET},
         "workload": {
             "desired": 2,
@@ -337,9 +337,10 @@ def wrong_schema() -> dict:
         (forged("peer 10.42.7.19"), "unredacted content found: ip"),
         (tampered(), "hash does not match"),
         (no_counts(), "redaction.counts missing"),
-        (wrong_schema(), "not an evidence/v1 bundle"),
+        (wrong_schema(), "not an evidence/v1 or evidence/v1.1 bundle"),
         ({"schema": "evidence/v1"}, "redaction.counts missing"),
-        ("a string", "not an evidence/v1 bundle"),
+        ({"schema": "evidence/v1.1"}, "redaction.counts missing"),
+        ("a string", "not an evidence/v1 or evidence/v1.1 bundle"),
     ],
 )
 def test_an_unredacted_bundle_is_refused_and_nothing_is_sent(bundle, why):
@@ -364,3 +365,11 @@ def test_the_operators_own_redacted_bundle_passes_the_check():
     )
     b = make_bundle()
     assert check_redacted(copy.deepcopy(b)) is None
+
+
+def test_a_v1_bundle_still_passes_the_check():
+    """evidence/v1.1 only adds metrics.zscores.inflight (ADR-039); a stored v1 bundle stays valid."""
+    raw = make_bundle()
+    raw = {k: v for k, v in raw.items() if k != "hash"} | {"schema": "evidence/v1"}
+    raw["hash"] = proposal.hash_of(raw)
+    assert check_redacted(raw) is None

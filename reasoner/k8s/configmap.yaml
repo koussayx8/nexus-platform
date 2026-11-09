@@ -2,9 +2,10 @@
 # in code. API keys are NOT here: `apiKeyEnv` names an environment variable that the Secret
 # `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git).
 #
-# scoreFloor 2.9584 is the value PROPOSED by experiments/retrieval/results.json (PR #147); it is
-# frozen only at G16. The Ollama demo fallback has no baseUrl here: the host IP changes on WSL2 and
-# is set at bootstrap (spec §18), so `demo` is unavailable (503) until then.
+# scoreFloor 3.0675 is the value PROPOSED by experiments/retrieval/results.json (2.9584 in PR #147;
+# 3.0675 after rb-gray-failure v2, ADR-039); it is frozen only at G16. The Ollama demo fallback
+# has no baseUrl here: the host IP changes on WSL2 and is set at bootstrap (spec §18), so `demo`
+# is unavailable (503) until then.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,7 +18,7 @@ data:
   reasoner.json: |
     {
       "indexPath": "/app/index/index.json",
-      "scoreFloor": 2.9584,
+      "scoreFloor": 3.0675,
       "timeoutSeconds": 30,
       "maxOutputTokens": 1024,
       "seed": 0,

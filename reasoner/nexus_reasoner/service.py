@@ -25,6 +25,7 @@ from .retrieval import Retriever
 
 MAX_BODY = 1_048_576
 LEVELS = ("L0", "L1", "L2", "L3")
+EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
 
 
 class Rejected(Exception):
@@ -34,9 +35,12 @@ class Rejected(Exception):
 
 
 def check_bundle(bundle) -> None:
-    """evidence/v1 that the operator redacted: counts present and hash equal to the canonical hash."""
-    if not isinstance(bundle, dict) or bundle.get("schema") != "evidence/v1":
-        raise Rejected(422, "invalid_bundle", "not an evidence/v1 bundle")
+    """evidence/v1.1 (or v1) that the operator redacted: counts present and hash equal to the
+    canonical hash. v1.1 only adds metrics.zscores.inflight (ADR-039)."""
+    if not isinstance(bundle, dict) or bundle.get("schema") not in EVIDENCE_SCHEMAS:
+        raise Rejected(
+            422, "invalid_bundle", "not an evidence/v1 or evidence/v1.1 bundle"
+        )
     if not isinstance((bundle.get("redaction") or {}).get("counts"), dict):
         raise Rejected(422, "invalid_bundle", "redaction.counts missing")
     body = {k: v for k, v in bundle.items() if k != "hash"}

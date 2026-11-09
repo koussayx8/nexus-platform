@@ -270,7 +270,7 @@ class PostgresRecorder:
             args += [request_id, reject_reason]
         return await self._insert(
             f"INSERT INTO proposals ({columns}) VALUES ({values})"
-            " ON CONFLICT (proposal_hash) DO NOTHING",
+            " ON CONFLICT (incident_uid, proposal_hash) DO NOTHING",
             *args,
         )
 
