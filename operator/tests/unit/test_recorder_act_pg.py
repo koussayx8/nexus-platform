@@ -75,9 +75,40 @@ def test_get_proposal_by_hash(pg):
         await rec.record_proposal(
             "h-bad", "u-act2", "llm", False, raw_output="not json"
         )
-        assert await rec.get_proposal("h-ok") == doc
-        assert await rec.get_proposal("h-bad") == "not json"
-        assert await rec.get_proposal("h-none") is None
+        assert await rec.get_proposal("u-act2", "h-ok") == doc
+        assert await rec.get_proposal("u-act2", "h-bad") == "not json"
+        assert await rec.get_proposal("u-act2", "h-none") is None
+
+    run(pg, go)
+
+
+def test_two_incidents_with_one_proposal_hash_keep_two_rows(pg):
+    """ADR-039: the hash is of the content only; each Incident keeps and reads its own row."""
+
+    async def go(rec):
+        for uid in ("u-same1", "u-same2"):
+            await rec.open_incident(uid, "nexus-prod/act-api", "detector", T0)
+        one = {"schema": "proposal/v1", "abstain": False, "n": 1}
+        two = {"schema": "proposal/v1", "abstain": False, "n": 2}
+        assert await rec.record_proposal(
+            "h-same", "u-same1", "rules", True, parsed_proposal=one
+        )
+        assert await rec.record_proposal(
+            "h-same", "u-same2", "rules", True, parsed_proposal=two
+        )
+        assert not await rec.record_proposal(
+            "h-same", "u-same1", "rules", True, parsed_proposal=two
+        )  # a retry of the same row is still a no-op
+        rows = await rec._pool.fetch(
+            "SELECT incident_uid FROM proposals WHERE proposal_hash = 'h-same'"
+            " ORDER BY incident_uid"
+        )
+        assert [r["incident_uid"] for r in rows] == ["u-same1", "u-same2"]
+        assert await rec.get_proposal("u-same1", "h-same") == one
+        assert await rec.get_proposal("u-same2", "h-same") == two
+        assert (
+            await rec.get_proposal("u-other", "h-same") is None
+        )  # never another's row
 
     run(pg, go)
 

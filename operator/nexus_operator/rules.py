@@ -4,16 +4,22 @@ Derived only from the Decision sections of the four in-corpus runbooks; first ma
 reads log text, so injected text in a log cannot steer it (S6). The output is proposal/v1 and is
 still validated by Safety Gate stage 1 like any other proposal.
 
-Reading of the six rules against the evidence/v1 bundle (each is checked by a test):
+Reading of the six rules against the evidence/v1.1 bundle (each is checked by a test):
   1  workload.rolloutInProgress, or fewer Ready than desired replicas while some are updated
   2  a container waiting with reason ImagePullBackOff or ErrImagePull
   3  CPU and p95 latency Z > 3, all replicas Ready                      -> scale to desired + 1
-  4  p95 latency Z > 3, CPU Z <= 1, all Ready, no rollout               -> restart
+  4  (p95 latency Z > 3, or in-flight Z > 3 with request-rate Z < -3),
+     CPU Z <= 1, all Ready, no rollout                                   -> restart
+     The in-flight branch (ADR-039, an owner-approved deviation from spec v1.0 §16) covers a full
+     hang: requests stop completing, so in-flight requests pile up, the completed rate drops and
+     the p95 of the completed requests can stay flat. In-flight Z is bounded by client
+     concurrency: fewer than 4 waiting clients cannot reach in-flight Z > 3 (stddev floor 1).
   5  request-rate Z > 3, latency Z <= 3, error ratio below 1 %          -> no_action
      The bundle carries Z-scores only, so the 1 % reads the absolute `metrics.errorRatio` when the
      bundle has it; without it rule 5 cannot be established and the engine falls to rule 6.
   6  anything else                                                       -> escalate, unknown
-A missing Z-score never satisfies a condition.
+A missing Z-score never satisfies a condition: an evidence/v1 bundle (no in-flight Z) or a missing
+request-rate Z never takes the in-flight branch.
 """
 
 IMAGE_PULL = {"ImagePullBackOff", "ErrImagePull"}
@@ -30,6 +36,10 @@ def _above(v: float | None, limit: float) -> bool:
 
 def _at_most(v: float | None, limit: float) -> bool:
     return v is not None and v <= limit
+
+
+def _below(v: float | None, limit: float) -> bool:
+    return v is not None and v < limit
 
 
 def _proposal(bundle, fault, summary, refs, action_id, params=None, escalation=None):
@@ -70,7 +80,7 @@ def propose(bundle: dict) -> dict:
     rollout = bool(wl.get("rolloutInProgress"))
     all_ready = isinstance(desired, int) and desired >= 1 and ready == desired
     cpu, lat = _z(bundle, "cpu"), _z(bundle, "latencyP95")
-    rate = _z(bundle, "requestRate")
+    rate, inflight = _z(bundle, "requestRate"), _z(bundle, "inflight")
 
     if rollout or (
         isinstance(desired, int)
@@ -107,14 +117,28 @@ def propose(bundle: dict) -> dict:
             "scale_deployment",
             {"replicas": desired + 1},
         )
-    if all_ready and not rollout and _above(lat, 3) and _at_most(cpu, 1):
-        return _proposal(
-            bundle,
-            "gray_failure",
-            "p95 latency is anomalous, CPU is flat and every pod is Ready",
-            ["metrics.zscores.latencyP95", "metrics.zscores.cpu"],
-            "restart_workload",
-        )
+    if all_ready and not rollout and _at_most(cpu, 1):
+        if _above(lat, 3):
+            return _proposal(
+                bundle,
+                "gray_failure",
+                "p95 latency is anomalous, CPU is flat and every pod is Ready",
+                ["metrics.zscores.latencyP95", "metrics.zscores.cpu"],
+                "restart_workload",
+            )
+        if _above(inflight, 3) and _below(rate, -3):
+            return _proposal(
+                bundle,
+                "gray_failure",
+                "Requests pile up in flight while the completed rate drops; CPU is flat and"
+                " every pod is Ready",
+                [
+                    "metrics.zscores.inflight",
+                    "metrics.zscores.requestRate",
+                    "metrics.zscores.cpu",
+                ],
+                "restart_workload",
+            )
     err = (bundle.get("metrics") or {}).get("errorRatio")
     if (
         _above(rate, 3)

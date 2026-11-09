@@ -1,4 +1,8 @@
-"""The Evidence Collector (spec §4, §16): build the evidence/v1 bundle for one Incident.
+"""The Evidence Collector (spec §4, §16): build the evidence/v1.1 bundle for one Incident.
+
+evidence/v1.1 (ADR-039) is evidence/v1 plus one Z-score, `metrics.zscores.inflight`, the in-flight
+request count against its 15 min baseline: under a hang requests stop completing, so the p95 of the
+completed ones can stay flat while in-flight requests pile up. Nothing else changes.
 
 Read-only: pods, Deployment, ReplicaSets, events, logs, the Argo CD Application and Prometheus.
 The collector returns the RAW bundle and the raw pre-fault baseline; the caller redacts before
@@ -27,7 +31,9 @@ ZSCORES = {
     "latencyP95": "namespace:nexus_sample_api_latency_p95:zscore15m",
     "errorRatio": "namespace:nexus_sample_api_error_ratio:zscore15m",
     "requestRate": "namespace:nexus_sample_api_requests:zscore15m",
+    "inflight": "namespace:nexus_sample_api_inflight:zscore15m",  # evidence/v1.1 (ADR-039)
 }
+SCHEMA = "evidence/v1.1"
 ERROR_RATIO = "namespace:nexus_sample_api_error_ratio:rate2m"
 P95_MEAN = "namespace:nexus_sample_api_latency_p95:baseline_avg15m"
 P95_STDDEV = "namespace:nexus_sample_api_latency_p95:baseline_stddev15m"
@@ -73,7 +79,7 @@ class EvidenceCollector:
             return None
 
     async def collect(self, incident: dict) -> tuple[dict, dict]:
-        """(the raw evidence/v1 bundle without its hash, the baseline for status.evidence)."""
+        """(the raw evidence/v1.1 bundle without its hash, the baseline for status.evidence)."""
         spec = incident["spec"]
         target = spec["target"]
         ns, name = target["namespace"], target["name"]
@@ -135,7 +141,7 @@ class EvidenceCollector:
         pod_rows.sort(key=lambda r: r["name"])
         return (
             {
-                "schema": "evidence/v1",
+                "schema": SCHEMA,
                 "incident": {
                     "uid": incident["metadata"]["uid"],
                     "target": {"namespace": ns, "kind": target["kind"], "name": name},

@@ -14,6 +14,7 @@ def bundle(
     cpu=0.0,
     lat=0.0,
     rate=0.0,
+    inflight=None,
     desired=2,
     ready=2,
     updated=2,
@@ -21,7 +22,7 @@ def bundle(
     pods=None,
 ):
     return {
-        "schema": "evidence/v1",
+        "schema": "evidence/v1.1",
         "incident": {"uid": "u", "target": TARGET},
         "workload": {
             "desired": desired,
@@ -39,6 +40,7 @@ def bundle(
                 "errorRatio": 0.0,
                 "requestRate": rate,
             }
+            | ({} if inflight is None else {"inflight": inflight})
         },
     }
 
@@ -86,6 +88,72 @@ def test_rule4_latency_with_flat_cpu_restarts():
 
 def test_rule4_does_not_fire_when_cpu_is_between_one_and_three():
     assert pick(bundle(cpu=2, lat=4))[0] == "escalate"
+
+
+# Rule 4's in-flight branch (ADR-039): in-flight Z > 3 AND request-rate Z < -3, same guards.
+HANG = {
+    "cpu": -6.7659,
+    "lat": -0.0200,
+    "rate": -62.1239,
+    "inflight": 80.0,
+}  # prod S1, 2026-11-07
+
+
+def test_rule4_a_hang_restarts_on_in_flight_and_a_dropped_rate():
+    doc = rules.propose(bundle(**HANG))
+    assert pick(bundle(**HANG)) == ("restart_workload", "gray_failure", {})
+    assert doc["evidenceRefs"] == [
+        "metrics.zscores.inflight",
+        "metrics.zscores.requestRate",
+        "metrics.zscores.cpu",
+    ]
+    b = bundle(**HANG)
+    b["metrics"]["zscores"]["latencyP95"] = None  # later in a hang no request completes
+    assert pick(b)[:2] == ("restart_workload", "gray_failure")
+
+
+def test_rule4_in_flight_branch_needs_both_signals_strictly():
+    assert pick(bundle(**HANG | {"inflight": 3.0}))[0] == "escalate"
+    assert pick(bundle(**HANG | {"rate": -3.0}))[0] == "escalate"
+    assert pick(bundle(**HANG | {"inflight": 3.01, "rate": -3.01}))[0] == (
+        "restart_workload"
+    )
+
+
+def test_rule4_a_no_fault_in_flight_burst_is_unchanged():
+    # nexus-dev 2026-11-07T07:50:12Z: one scrape with in-flight Z 4.87, rate steady
+    b = bundle(cpu=0.0896, lat=0.0892, rate=-0.0661, inflight=4.8667)
+    assert pick(b) == ("escalate", "unknown", {})
+
+
+def test_rule4_a_missing_in_flight_or_rate_never_takes_the_branch():
+    assert pick(bundle(**HANG | {"inflight": None}))[:2] == ("escalate", "unknown")
+    b = bundle(**HANG)
+    del b["metrics"]["zscores"]["requestRate"]
+    assert pick(b)[:2] == ("escalate", "unknown")
+    b = bundle(**HANG)
+    b["metrics"]["zscores"]["inflight"] = None
+    assert pick(b)[:2] == ("escalate", "unknown")
+
+
+def test_rule4_a_dropped_rate_without_in_flight_is_unchanged():
+    assert pick(bundle(cpu=0.0, lat=0.0, rate=-10.0, inflight=0.0))[:2] == (
+        "escalate",
+        "unknown",
+    )
+
+
+def test_rule4_in_flight_branch_keeps_the_cpu_ready_and_rollout_guards():
+    assert pick(bundle(**HANG | {"cpu": 1.2}))[0] == "escalate"
+    assert pick(bundle(**HANG, ready=1, updated=0))[0] == "escalate"
+    assert pick(bundle(**HANG, rollout=True))[1] == "bad_rollout"
+
+
+def test_rule4_s4_with_in_flight_up_stays_a_traffic_spike():
+    for cpu in (0.5, 1.0):
+        b = bundle(cpu=cpu, lat=0.3, rate=4.2, inflight=10.0)
+        b["metrics"]["errorRatio"] = 0.0
+        assert pick(b) == ("no_action", "traffic_spike", {})
 
 
 def test_rule5_traffic_spike_needs_the_error_ratio_and_normal_latency():
