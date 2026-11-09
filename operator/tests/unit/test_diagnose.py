@@ -40,7 +40,7 @@ def test_a_detected_incident_reaches_proposed_through_r1():
     assert s["reasoner"] == {"mode": "rules", "fallbackUsed": False}
     assert s["evidence"]["baseline"]["latencyP95"] == {"mean": 0.05, "stddev": 0.01}
     # the proposal and the bundle are in the recorder, under the hashes the status carries
-    doc = rig.rec.proposals[s["proposal"]["hash"]]
+    doc = rig.rec.proposals[("uid-inc", s["proposal"]["hash"])]
     assert proposal.validate(doc) == [] and doc["action"]["id"] == "restart_workload"
     assert s["evidence"]["bundleHash"] in rig.rec.bundles
     assert rig.rec.incidents["uid-inc"]["target"] == f"{NS}/{DEP}"
@@ -250,7 +250,7 @@ def everything_stored(rig) -> str:
     """Every value that reached the recorder, and every status the operator wrote."""
     stored = [
         rig.rec.bundles,
-        rig.rec.proposals,
+        {"/".join(k): v for k, v in rig.rec.proposals.items()},  # keyed (uid, hash)
         rig.rec.transitions,
         rig.rec.gates,
         rig.rec.incidents,

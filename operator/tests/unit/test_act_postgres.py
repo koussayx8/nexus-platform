@@ -278,14 +278,14 @@ def test_the_password_file_is_required_and_read_at_connect(tmp_path):
             password_file=str(tmp_path / "missing"),
         )
         with pytest.raises(RecorderUnavailable, match="password file"):
-            await rec.get_proposal("h")
+            await rec.get_proposal("u", "h")
         empty = tmp_path / "empty"
         empty.write_text("\n")
         rec2 = ReconnectingRecorder(
             host="127.0.0.1", port=1, database="d", user="u", password_file=str(empty)
         )
         with pytest.raises(RecorderUnavailable, match="empty"):
-            await rec2.get_proposal("h")
+            await rec2.get_proposal("u", "h")
 
     asyncio.run(go())
 

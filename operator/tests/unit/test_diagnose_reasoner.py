@@ -88,7 +88,8 @@ def make(reasoner, **kw):
 
 
 def rows(rig):
-    return rig.rec.proposal_rows
+    """{proposal_hash: row} of the one Incident these tests drive."""
+    return {h: r for (_, h), r in rig.rec.proposal_rows.items()}
 
 
 def test_success_sends_the_redacted_bundle_once_and_records_every_field():

@@ -199,9 +199,9 @@ class FakeRecorder:
         self.transitions: list[tuple] = []
         self.gates: list[tuple] = []
         self.verifications: dict[tuple, tuple] = {}
-        self.proposals: dict[str, object] = {}
+        self.proposals: dict[tuple[str, str], object] = {}  # (incident_uid, hash)
         self.bundles: dict[str, tuple] = {}
-        self.proposal_rows: dict[str, dict] = {}
+        self.proposal_rows: dict[tuple[str, str], dict] = {}
         self.fail_intent = False
         self.fail_complete = False
         self.fail_all = False
@@ -284,9 +284,10 @@ class FakeRecorder:
     ):
         self._up()
         self._fk(incident_uid)
-        if proposal_hash in self.proposal_rows:
+        key = (incident_uid, proposal_hash)  # the table's key (ADR-039)
+        if key in self.proposal_rows:
             return False
-        self.proposal_rows[proposal_hash] = {
+        self.proposal_rows[key] = {
             "incident_uid": incident_uid,
             "mode": reasoner_mode,
             "valid": schema_valid,
@@ -301,7 +302,7 @@ class FakeRecorder:
             "request_id": request_id,
             "reject_reason": reject_reason,
         }
-        self.proposals[proposal_hash] = (
+        self.proposals[key] = (
             parsed_proposal if parsed_proposal is not None else (raw_output or "")
         )
         return True
@@ -376,9 +377,9 @@ class FakeRecorder:
         self._up()
         return self._records(since)
 
-    async def get_proposal(self, proposal_hash):
+    async def get_proposal(self, incident_uid, proposal_hash):
         self._up()
-        return self.proposals.get(proposal_hash)
+        return self.proposals.get((incident_uid, proposal_hash))
 
     def _records(self, since):
         out = []
