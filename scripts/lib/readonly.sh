@@ -7,7 +7,8 @@
 #
 # Guarantees carried by these wrappers (spec §25, ADR-010/ADR-012):
 #   - kubectl (k) is limited to get, describe, logs, version, api-resources, auth can-i;
-#     Secrets are never read directly, only listed by name via secret_names.
+#     Secrets are never read directly, only listed by name via secret_names. Both name the
+#     cluster themselves, `--context default`, so no call follows the kubeconfig's current context.
 #   - helm (h) is limited to list, status, get values. git (g) is limited to read-only
 #     subcommands and never fetches. gh (gh_ro) is limited to `run list` and GET `api` calls.
 #   - Every check's output passes through redact() before it is written to disk.
@@ -86,7 +87,7 @@ k() {
     a=${a,,}
     if [[ $a =~ $re || $a == */secrets* ]]; then guard_fail "kubectl $* (Secrets are listed only through secret_names)"; fi
   done
-  timeout 45 kubectl --request-timeout=20s "$@"
+  timeout 45 kubectl --context default --request-timeout=20s "$@"
 }
 
 secret_names() {   # default columns only: namespace, name, type, data count, age
@@ -94,7 +95,7 @@ secret_names() {   # default columns only: namespace, name, type, data count, ag
   for a in "$@"; do
     case $a in -o*|--output*|--show-labels|-w|--watch) guard_fail "secret_names $*" ;; esac
   done
-  timeout 45 kubectl --request-timeout=20s get secrets "$@"
+  timeout 45 kubectl --context default --request-timeout=20s get secrets "$@"
 }
 
 h() {
@@ -172,8 +173,8 @@ show() { printf '\n$ %s\n' "$*"; }
 run() {
   local disp=("$@") rc
   case ${disp[0]} in
-    k) disp[0]=kubectl ;; h) disp[0]=helm ;; g) disp[0]=git ;; gh_ro) disp[0]=gh ;;
-    secret_names) disp=(kubectl get secrets "${disp[@]:1}") ;;
+    k) disp=(kubectl --context default "${disp[@]:1}") ;; h) disp[0]=helm ;; g) disp[0]=git ;; gh_ro) disp[0]=gh ;;
+    secret_names) disp=(kubectl --context default get secrets "${disp[@]:1}") ;;
   esac
   show "${disp[*]}"
   "$@"

@@ -21,8 +21,10 @@ export KUBECONFIG=/nonexistent
 mkdir -p "$work/bin"
 cat > "$work/bin/kubectl" <<EOF
 #!/usr/bin/env bash
-# Stub: every call is logged; only the two calls v_items makes are answered.
+# Stub: every call is logged; only the two calls v_items makes are answered, and both must name
+# the cluster (the read through k(), the port-forward directly).
 printf '%s\n' "\$*" >> "$work/kubectl.log"
+case " \$* " in *" --context default "*) ;; *) echo "stub kubectl: no --context default: \$*" >> "$work/unexpected.log"; exit 1 ;; esac
 ns= lport=
 for ((i = 1; i <= \$#; i++)); do
   a=\${!i}
