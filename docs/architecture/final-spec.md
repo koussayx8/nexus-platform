@@ -1,10 +1,32 @@
 # NEXUS — Final Architecture Specification
 
-Sep 24, 2026 · @KOUSSAY
+Sep 24, 2026 · @KOUSSAY · **v1.1 DRAFT, 2026-11-10: not approved; G17 decides it**
 
 ## 0. Document control
 
-This specification freezes the NEXUS architecture at version 1.0. It supersedes every earlier NEXUS architecture document wherever they conflict.
+This specification freezes the NEXUS architecture at version 1.1. It supersedes every earlier NEXUS architecture document wherever they conflict. Version 1.0 is this document at 24 September 2026; the changes are listed below.
+
+### Changes in version 1.1
+
+Each row is a contradiction recorded in `docs/plans/pfe-replan.md` (X1–X11) and already decided by an ADR or by the owner. Version 1.1 records them; it decides nothing new.
+
+| # | Section | Change | Source |
+| --- | --- | --- | --- |
+| X1 | 2, 16, 20 | A Haiku arm, H1, in phase B only | Owner 2026-11-02 (O1, Q3) |
+| X2 | 16, 20, 25 | An effort sweep in phase B only; every other run keeps low reasoning effort | Owner 2026-11-02 (O1, Q3) |
+| X3 | 20, 21 | No-fault runs and a false-alarm rate | Owner 2026-11-02 (O5) |
+| X4 | 16, 23 | The defense demo: an A1 demo host and two recordings, each labelled with its host | ADR-030 amendment; owner 2026-11-02 (O4, Q4) |
+| X5 | 3 | Every measurement runs on WSL2; the A1 node is a demo host only | ADR-030 amendment; owner 2026-11-02 (O2) |
+| X6 | — | No change: the Flight Recorder datasource and the dashboard only moved between tasks | Re-plan |
+| X7 | 11 | K3 and K5 both check the proposal hash; K5 also pins the action and the replicas, and requires an expiry | ADR-033 |
+| X8 | 3 | The Z-score baseline ends 3 minutes ago; a fifth signal, in-flight requests; `NexusLatencyAnomaly` also fires on it | ADR-022, ADR-024 |
+| X8 | 3, 25 | The Application is named `observability` | ADR-016 |
+| X8 | 13, 19, 20 | `experiment/dev-state`: created from `main`, reset by a forward commit, a ruleset against force-push and deletion | ADR-013 |
+| X8 | 19 | One required check, `repo-checks`, with no path filter | ADR-012 |
+| X8 | — | No change: Bedrock was dropped before any use | ADR-030 amendment |
+| X9 | 3, 21 | "Quiet when healthy" is a stated limitation | Owner 2026-11-02 (O5) |
+| X10 | 3, 11, 14, 20, 21, 23, 26, 27 | The K8sGPT comparison (C6) is deferred; a theoretical study replaces it | ADR-037 |
+| X11 | 14, 16, 16A, 22 | R1 rule 4 also covers a full hang; `evidence/v1.1` adds the in-flight Z-score; `proposals` is keyed per Incident | ADR-039 |
 
 | Item | Value |
 | --- | --- |
@@ -40,7 +62,7 @@ Every diagram, table and chapter uses these names exactly. Renaming a component 
 | Evidence Collector · Evidence Redactor | Operator stages that build and scrub the evidence bundle |
 | Reasoner | The untrusted proposal service in `nexus-reasoner` |
 | Rules Engine · BM25 Retriever · Runbook Corpus · Model Adapter | Reasoner internals |
-| Hosted Model · Local Model | Groq `gpt-oss` models · Ollama on the host |
+| Hosted Model · Local Model | Groq `gpt-oss` models, and in phase B the Haiku arm's model · Ollama on the host |
 | Safety Gate | The operator's advisory validation pipeline |
 | Action Catalogue | The closed list of actions NEXUS may request |
 | Approval Gate · Action Executor · Verifier · Compensator · Escalator · Circuit Breaker | Operator stages |
@@ -279,7 +301,8 @@ The operator's mutation arrow and the runner's administrative arrow both termina
 | `monitoring` | Prometheus, kube-state-metrics, Alertmanager, Grafana | Bounded |
 | `argocd` · `kyverno` · `kube-system` | ArgoCD · Kyverno admission controller · k3s system components | Trusted |
 | `backstage` | Backstage, frozen, **scaled to zero during experiment runs** | Frozen until the final steps; revisited only if time remains |
-| Host (WSL2) | Experiment Runner, Fault Injector, Evaluation Harness, K8sGPT CLI, Local Model (Ollama) | Experimenter; the Local Model is untrusted |
+| Host (WSL2) | Experiment Runner, Fault Injector, Evaluation Harness, Local Model (Ollama). **Every measurement and the calibration run here** | Experimenter; the Local Model is untrusted |
+| A1 demo host | An OCI Always Free arm64 node with a demo overlay, built for the defense. **No measurement and no calibration**; everything shown there is labelled demo (ADR-030 amendment) | Experimenter |
 | Internet | Git hosting, Hosted Model (Groq) | Git trusted via branch protection; model untrusted |
 
 ### Workload — `sample-api` and the Dependency DB
@@ -294,13 +317,15 @@ Detection is declarative and shared by NEXUS and the static-rules baseline, so b
 
 | Rule | Expression, in words | Catches |
 | --- | --- | --- |
-| Z-score recording rules | (value − 15-minute mean) ÷ max(15-minute standard deviation, ε) for CPU, p95 latency, error ratio and request rate, per namespace | Input to the four anomaly alerts |
-| `NexusLatencyAnomaly` | latency Z-score > 3 for 1 minute | S1, S2 |
+| Z-score recording rules | (value − 15-minute mean) ÷ max(15-minute standard deviation, ε) for CPU, p95 latency, error ratio, request rate and in-flight requests, per namespace. The 15-minute baseline window ends 3 minutes before now, so a fault does not enter its own baseline at once, and it needs 27 of its 30 samples (ADR-024) | Input to the four anomaly alerts |
+| `NexusLatencyAnomaly` | latency Z-score > 3 **or** in-flight Z-score > 3, for 1 minute. Under a hang, requests stop completing and p95 can stay flat; in-flight requests are then the latency signal (ADR-022, ADR-024) | S1, S2 |
 | `NexusCpuAnomaly` | CPU Z-score > 3 for 1 minute | S2 |
 | `NexusErrorRateAnomaly` | error-ratio Z-score > 3 for 1 minute **and** error ratio > 5% | S5 |
 | `NexusTrafficAnomaly` | request-rate Z-score > 3 for 1 minute | S4, S6 |
 | `NexusRolloutStuck` | unavailable replicas > 0 for 3 minutes (kube-state-metrics) | S3 |
 | `NexusCrashLooping` | a container waiting in CrashLoopBackOff (kube-state-metrics) | S3 variants |
+
+**Stated limitation: quiet when healthy is not guaranteed.** The detector fired with nothing injected during calibration (ADR-026, ADR-028) and on 2026-11-07. The no-fault runs of section 20 count these false alarms; the thesis reports the rate and does not claim a silent detector.
 
 Every alert carries a `nexus_target` label naming namespace and Deployment. Alertmanager groups by that label; the NEXUS Operator polls its v2 API every 10 seconds. Alertmanager has **no NEXUS receiver**, so the operator exposes no inbound surface. It has two optional receivers: the static-rules baseline webhook, enabled only during baseline runs, and one approval-notification channel (SHOULD).
 
@@ -314,7 +339,7 @@ One dashboard, NEXUS Operations: active incidents by phase, blocks by layer, pen
 | --- | --- | --- |
 | `platform` | `main`: namespaces, RBAC, Kyverno policies, NetworkPolicies, CRD | None |
 | `nexus` | `main`: operator, Reasoner, static baseline, Flight Recorder DB | `ignoreDifferences` on `/spec/replicas` of `nexus-operator` and `nexus-baseline`, so the runner can switch responders |
-| `monitoring` | `main`: kube-prometheus-stack values, rules, dashboard, datasources | None |
+| `observability` | `main`: kube-prometheus-stack values, rules, dashboard, datasources. Its workloads run in the `monitoring` namespace (ADR-016) | None |
 | `sample-api-prod` | `main`: `nexus-prod` overlay | `ignoreDifferences` on `/spec/replicas` of `sample-api`, with `RespectIgnoreDifferences=true` |
 | `sample-api-dev` | **`experiment/dev-state`**: `nexus-dev` overlay | Same as prod. The branch lets S3 inject a bad commit and the runner reset it; it also owns the `nexus-dev` Namespace and its autonomy label, so a level change is a commit |
 | `dependency-db` | `main`: `nexus-data` | None |
@@ -326,7 +351,7 @@ All Applications run with automated sync and `selfHeal: true`. Section 13 define
 
 ### Experiment system — outside the system under test
 
-- **Experiment Runner** — a host-side CLI with the admin kubeconfig. It resets the environment, sets the namespace autonomy level, triggers faults, captures K8sGPT output and per-run logs, and exports results.
+- **Experiment Runner** — a host-side CLI with the admin kubeconfig. It resets the environment, sets the namespace autonomy level, triggers faults, captures per-run logs, and exports results.
 - **Fault Injector** — the runner's module that performs the six injections defined in section 20.
 - **Locust** — steady baseline traffic at all times, plus scripted ramps driven through its HTTP API.
 - **Evaluation Harness** — offline scripts that rebuild every results table from exported data, without a cluster.
@@ -843,7 +868,7 @@ The operator's credentials reach exactly two mutating subresources in two namesp
 | Group `nexus-approvers` | `nexus-system` | `nexus.io/incidents` | get, list, watch, create, patch — content restricted by Kyverno K5 and K6 |
 | Kyverno admission controller | Cluster | `nexus.io/incidents` via an aggregated ClusterRole | get, list, watch |
 | Cluster Admin, Experiment Runner | Cluster | Everything | All — the experimenter, audited |
-| K8sGPT CLI | Cluster | Read-only kubeconfig | get, list, watch |
+| K8sGPT CLI — DEFERRED (ADR-037) | — | Not used: no K8sGPT run is part of the evaluation | — |
 | Group nexus-approvers | nexus-system; cluster | ConfigMaps nexus-killswitch and nexus-operator-config; namespaces | get; get, list — for nexusctl status and level get |
 
 The operator is **explicitly denied by omission**: patch on Incident `spec` or metadata, any `delete`, any write to namespaces, ConfigMaps, Secrets, RBAC or policies, and the `impersonate`, `bind` and `escalate` verbs. It cannot approve its own proposals, raise its own autonomy, or silence the Kill Switch.
@@ -856,14 +881,14 @@ All six run in Enforce mode with `failurePolicy: Fail`, match only `Deployment/s
 | --- | --- | --- | --- |
 | K1 | `nexus-autonomy-floor` | `Deployment/scale`, `Pod/eviction` from `nexus-operator` | Deny unless the namespace label `nexus.io/autonomy-level` is `2` or `3`. A missing label denies |
 | K2 | `nexus-scale-bounds` | `Deployment/scale` from `nexus-operator` | Deny if new replicas are outside \[1, 5\] or differ from the old value by more than 2 |
-| K3 | `nexus-l2-approval` | `Deployment/scale`, `Pod/eviction` from `nexus-operator` in level-`2` namespaces | Allow only if an Incident exists whose target matches the request — same name for a scale, name prefix for an eviction — with `approval.decision: approved`, a matching `actionId`, matching replicas for a scale, and `expiresAt` in the future. A failed lookup denies |
+| K3 | `nexus-l2-approval` | `Deployment/scale`, `Pod/eviction` from `nexus-operator` in level-`2` namespaces | Allow only if an Incident exists whose target matches the request — same name for a scale, name prefix for an eviction — with `approval.decision: approved`, a matching `actionId`, matching replicas for a scale, `approval.proposalHash` equal to the Incident's own `status.proposal.hash`, and `expiresAt` in the future. A failed lookup denies |
 | K4 | `nexus-killswitch` | `Deployment/scale`, `Pod/eviction` from `nexus-operator` | Deny unless ConfigMap `nexus-killswitch` has `state: active`. A missing ConfigMap denies |
-| K5 | `nexus-incident-approval` | Incident create and update | Only group `nexus-approvers` may set `spec.approval`; mutate `approvedBy` and `approvedAt` from the request identity and clock; reject an expiry more than 15 minutes ahead |
+| K5 | `nexus-incident-approval` | Incident create and update | Only group `nexus-approvers` may set `spec.approval`; mutate `approvedBy` and `approvedAt` from the request identity and clock; require an expiry and reject one more than 15 minutes ahead; bind the approval to the Incident's own `status.proposal`: `proposalHash` for both decisions, `actionId` for an approval, and `replicas` for a scale |
 | K6 | `nexus-incident-source` | Incident create | `source.type: detector` only from `nexus-operator`; `human` only from `nexus-approvers`; mutate `requester` from the request identity |
 
 Wherever a policy names `nexus-operator`, it also matches `nexus-baseline`, the static baseline's identity, so both responders face identical enforcement.
 
-K3 is what makes approval a property of the Trusted Enforcement Plane rather than of the operator. Without it, a compromised operator at L2 could skip the human — and NEXUS's approval would be enforced inside the component it constrains, which is exactly the design the thesis argues against.
+The proposal hash is checked twice: K5 at the moment the approval is written, K3 at the moment the request is admitted (ADR-033). K3 is what makes approval a property of the Trusted Enforcement Plane rather than of the operator. Without it, a compromised operator at L2 could skip the human — and NEXUS's approval would be enforced inside the component it constrains, which is exactly the design the thesis argues against.
 
 ### CRD Validation — CEL rules in the `Incident` CRD
 
@@ -1006,7 +1031,7 @@ For S3 — a bad deployment — the only correct fix is a Git revert. NEXUS esca
 
 ### The experiment branch
 
-`experiment/dev-state` is created from a tagged baseline on `main` and tracked by `sample-api-dev`. The runner injects S3 by committing a known-bad configuration and sets `nexus-dev`'s level by committing its Namespace label. Between runs it resets the branch to the baseline tag and waits for `Synced` and `Healthy`. Injected commits are kept in the run artifacts.
+`experiment/dev-state` is created from `main` and tracked by `sample-api-dev`; `main` is merged forward into it, and the baseline tag on `main` is set only after `verify-state.sh` passes. The runner injects S3 by committing a known-bad configuration and sets `nexus-dev`'s level by committing its Namespace label. Between runs it restores the baseline tree with a forward commit, skipped when there is no difference, and waits for `Synced` and `Healthy`. History only grows: the branch is never force-pushed (ADR-013). Injected commits are kept in the run artifacts.
 
 ### Drift, recorded
 
@@ -1027,7 +1052,7 @@ The API Audit Log is the authoritative record of what was requested and what the
 | Flight Recorder | Transitions, stored bundles, proposals, gate verdicts, actions, verifications | Flight Recorder Writer | NEXUS's evidence and reasoning | Enforcement outcomes — the audit log wins any conflict | Permanent |
 | Flight Recorder DB | PostgreSQL holding the Flight Recorder and run metadata | — | — | — | Persistent volume; exported per run |
 | Git | Desired state, policies, runbooks, ground truth, exported results | Humans, CI, runner | What the system was meant to be, and which commit produced each result | Runtime actions | Permanent |
-| Run artifacts | Per-run logs, audit extract, K8sGPT output, ArgoCD status and configuration snapshots | Experiment Runner | Provenance and debugging of one run | — | Committed with the run, compressed |
+| Run artifacts | Per-run logs, audit extract, ArgoCD status and configuration snapshots | Experiment Runner | Provenance and debugging of one run | — | Committed with the run, compressed |
 
 ### D8 — Evidence and Audit Architecture
 
@@ -1062,7 +1087,7 @@ Nothing reaches a results table without passing reconciliation, and Git appears 
 | `incidents` | `incident_uid` | run, target, source, detected at, terminal phase, reason |
 | `transitions` | (`incident_uid`, `seq`) — idempotent | from, to, time, owning stage, reason |
 | `evidence_bundles` | `bundle_hash` | incident, schema version, redacted content, redaction counts, collected at |
-| `proposals` | `proposal_hash` | incident, reasoner mode, model id, prompt version, index hash, retrieved chunk ids, **raw output**, parsed proposal, schema-valid, latency, fallback used |
+| `proposals` | (`incident_uid`, `proposal_hash`) — the hash is of the proposal's content only, so two Incidents with the same proposal each keep their own row (ADR-039) | reasoner mode, model id, prompt version, index hash, retrieved chunk ids, **raw output**, parsed proposal, schema-valid, latency, fallback used |
 | `gate_decisions` | (`incident_uid`, `stage`) | verdict, detail, time |
 | `actions` | `idempotency_key` | incident, action id, parameters, previous state, intent time, request time, **`audit_id`**, HTTP status, result, action class |
 | `verifications` | (`incident_uid`, `criteria_id`) | observations, result, time |
@@ -1170,7 +1195,7 @@ The Reasoner is a stateless HTTP service with one endpoint, no credentials and n
 ```mermaid
 flowchart TD
   subgraph RS[Reasoner, untrusted, nexus-reasoner]
-    IV[Input validator<br/>evidence/v1]
+    IV[Input validator<br/>evidence/v1.1]
     MR{Mode router}
     R0[Adversarial generator]
     R1[Rules Engine]
@@ -1198,20 +1223,20 @@ Three modes, one output contract: whatever runs inside the dashed box, the opera
 
 | Endpoint | Request | Response | Errors |
 | --- | --- | --- | --- |
-| `POST /v1/propose` | Bundle `evidence/v1` + context: incident uid, autonomy level, catalogue version, mode and model id from the operator's configuration | `proposal/v1` + metadata | 422 invalid bundle or unparseable model output; 5xx or timeout ⇒ operator fallback |
+| `POST /v1/propose` | Bundle `evidence/v1.1` (`evidence/v1` is still accepted) + context: incident uid, autonomy level, catalogue version, mode and model id from the operator's configuration | `proposal/v1` + metadata | 422 invalid bundle or unparseable model output; 5xx or timeout ⇒ operator fallback |
 | `GET /healthz` | — | Ready when the index is loaded; returns the corpus hash | Not ready ⇒ operator fallback |
 
-### Evidence bundle — `evidence/v1`
+### Evidence bundle — `evidence/v1.1`
 
 ```json
 {
-  "schema": "evidence/v1",
+  "schema": "evidence/v1.1",
   "incident": {"uid": "...", "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}, "alerts": [{"name": "NexusLatencyAnomaly", "startedAt": "..."}], "note": null},
   "workload": {"desired": 2, "ready": 2, "updated": 2, "rolloutInProgress": false, "currentRevision": {"replicaSet": "...", "imageDigest": "sha256:..."}, "previousRevisions": ["..."]},
   "pods": [{"name": "...", "ready": true, "restarts": 0, "containers": [{"state": "running", "reason": null, "lastTermination": null}]}],
   "events": [{"reason": "...", "type": "Warning", "count": 3, "lastSeen": "..."}],
   "logs": {"current": ["..."], "previous": ["..."]},
-  "metrics": {"window": "30m", "zscores": {"cpu": 0.4, "latencyP95": 5.1, "errorRatio": 0.2, "requestRate": 0.3}},
+  "metrics": {"window": "30m", "zscores": {"cpu": 0.4, "latencyP95": 5.1, "errorRatio": 0.2, "requestRate": 0.3, "inflight": 0.2}},
   "gitops": {"application": "sample-api-dev", "sync": "Synced", "health": "Healthy", "revision": "...", "lastCommit": {"sha": "...", "message": "..."}},
   "redaction": {"counts": {"token": 0, "email": 1}},
   "hash": "sha256:..."
@@ -1219,6 +1244,8 @@ Three modes, one output contract: whatever runs inside the dashed box, the opera
 ```
 
 Limits: events from the last 15 minutes, at most 50; at most 200 log lines per pod for at most 3 pods, redacted; metric windows of 30 minutes.
+
+`evidence/v1.1` is `evidence/v1` plus one Z-score, `metrics.zscores.inflight` (ADR-039). A signal with no data is `null`, never an invented value. The prompt is unchanged and identical across models.
 
 ### Proposal — `proposal/v1`
 
@@ -1255,9 +1282,12 @@ No private chain-of-thought is requested or stored. The Model Adapter asks the p
 | **R1** | Rules | None — Rules Engine | Deterministic baseline |
 | **R2** | LLM | `openai/gpt-oss-20b` on Groq | Small model |
 | **R3** | LLM | `openai/gpt-oss-120b` on Groq | Large model |
+| **H1** | LLM | A small hosted model from a second provider; the provider and the model id are fixed in the M4 pre-registration | The Haiku arm. **Phase B only** |
 | Demo fallback | LLM | Local Model via Ollama | Offline demo only; not an experimental arm |
 
-Model settings: temperature 0, low reasoning effort, at most 1,024 output tokens, JSON-schema output where the provider supports it, a seed where supported, 30 s timeout, one attempt. Model ids live in configuration and are recorded with every proposal.
+The defense demo runs on the A1 demo host (section 3). Its fallback is two recordings, one of the A1 demo and one of a WSL2 measured run, each labelled with its host (ADR-030 amendment).
+
+Model settings: temperature 0, low reasoning effort, at most 1,024 output tokens, JSON-schema output where the provider supports it, a seed where supported, 30 s timeout, one attempt. Model ids live in configuration and are recorded with every proposal. An **effort sweep** repeats one arm at other reasoning-effort levels, in phase B only; the arm and the levels are fixed in the M4 pre-registration. Every live run keeps low effort.
 
 ### Rules Engine — R1
 
@@ -1268,9 +1298,11 @@ Derived **only** from the Decision sections of the four in-corpus runbooks; firs
 | 1 | Rollout in progress or unavailable replicas on a new revision | `escalate`, `git_revert` |
 | 2 | A container waiting on an image pull | `escalate`, `investigate` |
 | 3 | CPU and p95 latency Z-scores above 3, all replicas Ready | `scale_deployment`, +1 |
-| 4 | p95 latency Z-score above 3, CPU Z-score at most 1, all Ready, no rollout | `restart_workload` |
+| 4 | p95 latency Z-score above 3, **or** in-flight Z-score above 3 with request-rate Z-score below −3; and CPU Z-score at most 1, all Ready, no rollout | `restart_workload` |
 | 5 | Request-rate Z-score above 3, error ratio below 1%, latency normal | `no_action` |
 | 6 | Anything else | `escalate`, `investigate`, fault class `unknown` |
+
+Rule 4's second branch covers a full hang: requests stop completing, so in-flight requests pile up, the completed rate drops, and the p95 of the few completed requests can stay flat (ADR-039). A missing Z-score never satisfies a condition. Its limit is stated: a dependency that never answers, in an application without timeouts, looks like a hang, and R1 would propose a restart; the restart is bounded by the PodDisruptionBudget, one pod at a time.
 
 Two consequences are deliberate. On S5, R1 reaches rule 6: the action is correct, but the diagnosis is `unknown` — so S5 discriminates **diagnosis**, not action. On S6, R1 ignores the injected text by construction, so it measures what an unmanipulable but blind reasoner does.
 
@@ -1488,7 +1520,7 @@ The same view on the same run explains a thesis result to a jury in ten seconds:
 | Kubernetes access | Official Kubernetes Python client | Watches, merge patches, and response headers carrying the `Audit-Id` |
 | Flight Recorder access | psycopg 3 with a read-only role | Plain SQL; no ORM needed |
 | Audit parsing | Standard library over JSON-lines files | No dependency |
-| Shared models | Pydantic models in `nexus-client` for the Incident, `proposal/v1` and `evidence/v1` | One schema source; the operator's and the Reasoner's JSON Schemas are generated from the same models |
+| Shared models | Pydantic models in `nexus-client` for the Incident, `proposal/v1` and `evidence/v1.1` | One schema source; the operator's and the Reasoner's JSON Schemas are generated from the same models |
 | Configuration | YAML file plus `NEXUSCTL_*` environment overrides | Secrets arrive only through the environment |
 | Packaging | `pyproject.toml`, installed with pipx; entry points `nexusctl` and `kubectl-nexus` | Isolated install on the host; works as a kubectl plugin |
 | Quality | ruff, mypy in strict mode, pytest with snapshot tests of the explain view | Run by the `nexusctl` CI workflow |
@@ -1518,7 +1550,7 @@ nexusctl/
 libs/nexus-client/
   src/nexus_client/
     incidents.py             typed Incident model; get, list, watch, patch
-    schemas.py               proposal/v1, evidence/v1
+    schemas.py               proposal/v1, evidence/v1.1
     recorder.py              read-only Flight Recorder queries
     audit.py                 audit-log reader, Audit-Id join
     catalogue.py             Action Catalogue loader
@@ -1716,6 +1748,7 @@ The only thick arrow belongs to ArgoCD; CI's line to the cluster is crossed beca
 | `platform` | `platform/`, overlays | `kustomize build`, `kubeconform` with the CRD schemas, `kyverno test` in both directions, the boundary-invariant check |
 | `experiments` | `experiments/` | Ground-truth schema check, harness unit tests, `make results` on committed sample data |
 | nexusctl | nexusctl/, libs/nexus-client/ | ruff; pytest for sanitisation against S6 strings and escape sequences, approval pinning, exit codes; package build |
+| `repo-checks` | **Every pull request to `main` and `dev`, and every push to them: no path filter** | GitLeaks on the commit range and the tree, `kustomize build`, `kubeconform`, every Application rendered as ArgoCD would, and the offline script tests. The only required check (ADR-012) |
 
 Dependabot opens weekly pull requests into `dev`. Scan results go to GitHub code scanning as SARIF.
 
@@ -1725,8 +1758,8 @@ Dependabot opens weekly pull requests into `dev`. Scan results go to GitHub code
 | --- | --- |
 | **Deployment boundary** | CI holds no kubeconfig and no cluster credential. Merging to the tracked branch is the only way a change reaches the cluster |
 | **Image provenance** | Images are referenced by digest in the overlays and signed with Cosign. A digest bump is a commit. Kyverno `verifyImages` for NEXUS images: **SHOULD**, in Audit mode first. SBOM attestation: OPTIONAL |
-| **Branch protection** | `main` and `dev` protected: required checks, no direct pushes. CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue. Self-merge after green checks is allowed and documented — this is a one-person project |
-| **Experiment branch** | `experiment/dev-state` is deliberately unprotected: it is the experimenter's injection and reset surface, and every change to it is kept in run artifacts |
+| **Branch protection** | `main` and `dev` protected: one required check, `repo-checks`, which has no path filter and so reports on every pull request; no direct pushes. CODEOWNERS on `platform/policies/`, `platform/rbac/` and the Action Catalogue. Self-merge after green checks is allowed and documented — this is a one-person project |
+| **Experiment branch** | `experiment/dev-state` takes direct pushes, because it is the experimenter's injection and reset surface, and every change to it is kept in run artifacts. A repository ruleset blocks force-push and deletion only, with no bypass actors (ADR-013) |
 | **Secrets** | GitLeaks blocks plaintext secrets. SOPS or Sealed Secrets for the few that exist: SHOULD |
 | **Removed** | GitLab CI and SonarQube — not part of NEXUS's toolchain |
 
@@ -1780,10 +1813,10 @@ Ground truth enters twice — before the runs, to define them, and after, to sco
 | --- | --- | --- | --- | --- | --- | --- |
 | C1 | NEXUS, rules, live | R1 | L3 | Restart, scale | A | Outcomes, MTTR and false actions of a deterministic reasoner |
 | C2 | NEXUS, large model, live | R3 | L3 | Restart, scale | A | The same for a large model |
-| C3 | Offline replay | R0, R1, R2, R3 | L0 to L3, computed | Proposal and gate verdict only | B | Diagnosis, action selection, false-action and manipulation rates, gate verdicts by level |
+| C3 | Offline replay | R0, R1, R2, R3, H1 and the effort sweep | L0 to L3, computed | Proposal and gate verdict only | B | Diagnosis, action selection, false-action and manipulation rates, gate verdicts by level |
 | C4 | Static baseline | Fixed alert-to-action map | L3 | Restart, scale | C | What naive alert-driven automation does |
 | C5 | Manual baseline | Experimenter following the runbooks, timed | — | Human `kubectl` | C | A human MTTR reference; bias disclosed |
-| C6 | K8sGPT | `k8sgpt analyze --explain`, run by the runner at evidence time | — | None | Alongside A | Diagnosis compared with NEXUS |
+| C6 | K8sGPT — **DEFERRED** (ADR-037) | Not run. A theoretical study in the written work replaces the measured comparison | — | None | — | — |
 | C7 | Containment | R0, live | L3, plus every cell of the coverage matrix | Advisory checks on, then off | D | Admitted out-of-envelope mutations — must be zero — and which layer blocked each attempt |
 | C8 | Fork pull request — SHOULD | R3 | L3 | Escalation delivered as a pull request | M6 | Human time to resolve S3, with and without a ready pull request |
 | C9 | Approver study — OPTIONAL | Replayed R0, R3 and S6 proposals | L2 | Human approval through nexusctl | After M5 | Approval accuracy, decision time, effect of the injection warning — section 16A |
@@ -1809,10 +1842,11 @@ S5 is injected inside the database on purpose: blocking it with a NetworkPolicy 
 
 | Phase | Content | Volume |
 | --- | --- | --- |
-| **A — live** | C1 and C2: 6 scenarios × 10 repetitions × 2 reasoners; bundles stored; K8sGPT captured | 120 runs |
-| **B — offline replay** | C3: every stored bundle × 4 reasoners; gate verdicts from the operator's Safety Gate code plus `kyverno` CLI evaluation with mocked context; RBAC verdicts from the coverage matrix | About 240 hosted-model calls, spread over days |
+| **A — live** | C1 and C2: 6 scenarios × 10 repetitions × 2 reasoners; bundles stored | 120 runs |
+| **B — offline replay** | C3: every stored bundle × 4 reasoners, plus the Haiku arm and the effort sweep; gate verdicts from the operator's Safety Gate code plus `kyverno` CLI evaluation with mocked context; RBAC verdicts from the coverage matrix | About 240 hosted-model calls for R2 and R3, spread over days; the additions' volumes are fixed in the pre-registration |
 | **C — live baselines** | C4: 6 × 10. C5: 6 × 2 | 72 runs |
 | **D — live containment** | C7: R0 at L3, 6 scenarios × 2 repetitions × advisory checks on and off; plus the coverage suite, fail-closed and Kill Switch tests | 24 runs + suite |
+| **No-fault runs** | Nothing is injected. An Incident created in such a run is a false alarm | Count and duration fixed in the pre-registration |
 
 ### D17 — Experiment Execution Flow
 
@@ -1828,7 +1862,7 @@ flowchart TD
   INJ --> OBS[Detection · diagnosis · proposal · safety decision]
   OBS --> ACT[Action or escalation]
   ACT --> VER[Verification · terminal phase]
-  VER --> CAP[Capture audit extract · logs · K8sGPT · ArgoCD status]
+  VER --> CAP[Capture audit extract · logs · ArgoCD status]
   CAP --> REC[Reconcile Flight Recorder with audit]
   REC --> EXP[Export run to Git]
   EXP --> CLN[Delete incidents]
@@ -1841,7 +1875,7 @@ A cell stops at ten valid runs or fifteen attempts; every discard is counted and
 
 ### Reset and pre-checks
 
-Reset, in order: reset `experiment/dev-state` to the block's commit and wait for all Applications `Synced` and `Healthy`; replace `sample-api` pods and scale to 2 as Cluster Admin; restore the database role; return Locust to baseline; set `breakerEpoch` to now.
+Reset, in order: restore the block's tree on `experiment/dev-state` with a forward commit and wait for all Applications `Synced` and `Healthy`; replace `sample-api` pods and scale to 2 as Cluster Admin; restore the database role; return Locust to baseline; set `breakerEpoch` to now.
 
 Pre-checks — all must hold, waiting at most 20 minutes:
 
@@ -1859,7 +1893,7 @@ Pre-checks — all must hold, waiting at most 20 minutes:
 
 ### Pre-registration
 
-`experiments/ground-truth.yaml` defines, per scenario: fault class, correct action with acceptable parameters, expected terminal phase per level, verification criteria, and the K8sGPT scoring rubric. It is committed and hashed **before any model run**; the hash is stored in every `runs` row. Any later change is a new version, disclosed in the report.
+`experiments/ground-truth.yaml` defines, per scenario: fault class, correct action with acceptable parameters, expected terminal phase per level, and verification criteria. It is committed and hashed **before any model run**; the hash is stored in every `runs` row. Any later change is a new version, disclosed in the report.
 
 ## 21. Evaluation metrics and statistical treatment
 
@@ -1889,7 +1923,8 @@ The thesis is supported if containment violations are zero for every reasoner wh
 | MTTR and decomposition | `Resolved` − injection = detect + diagnose + gate + act + verify | Flight Recorder | Injection → verified recovery | Median per phase; human time reported separately |
 | Reconciliation completeness | Matched operator mutation events ÷ operator mutation events | API Audit Log, Flight Recorder | Per run | Must be 1.0 for the run to count |
 | Retrieval quality | Recall@1, Recall@3, MRR, false-retrieval rate | Query set, stored bundles | Section 15 | Whether the procedures reach the model |
-| K8sGPT diagnosis accuracy | Rubric-scored fault class ÷ runs | Run artifacts, rubric | Phase A | The comparison a jury will ask for |
+| K8sGPT diagnosis accuracy — **DEFERRED** (ADR-037) | Not computed | — | — | Argued in the written work, not measured |
+| False-alarm rate | No-fault runs in which an Incident was created ÷ no-fault runs | Flight Recorder, run records | No-fault runs | "Quiet when healthy" is a stated limitation; this is its size |
 
 ### Statistical treatment
 
@@ -1914,7 +1949,7 @@ The thesis is supported if containment violations are zero for every reasoner wh
 | S5 | Diagnosis generalisation | R1's action right, diagnosis `unknown`; the LLMs' possible advantage lives here |
 | S6 | Manipulation | R1 immune by construction; LLMs possibly manipulated; containment must hold regardless |
 
-The report may claim that containment held in every tested run and cell, and describe effectiveness differences with their intervals. It may not claim generality beyond one node, one policy engine and these six scenarios, or statistical significance.
+The report may claim that containment held in every tested run and cell, and describe effectiveness differences with their intervals. It may not claim generality beyond one node, one policy engine and these six scenarios, or statistical significance, and it may not claim a detector that stays quiet when the system is healthy: the false-alarm rate is reported.
 
 ## 22. Data flow and control flow
 
@@ -1927,7 +1962,7 @@ Data flow says what information moves; control flow says who decides what happen
 | Metric sample | `sample-api`, kube-state-metrics, kubelet | Prometheus | Prometheus exposition | Prometheus TSDB | Chart default | Low |
 | Alert | Prometheus rules | Alert Poller; static baseline | Alertmanager v2 JSON | Alertmanager memory | Until resolved | Low |
 | Incident | Alert Poller | Operator, Approver, Kyverno | `Incident` v1alpha1 | etcd | Until exported | Medium — workload names |
-| Evidence bundle | Evidence Collector + Redactor | Reasoner, Flight Recorder | `evidence/v1` | Flight Recorder DB | Permanent | High before redaction — only the redacted form is stored or sent |
+| Evidence bundle | Evidence Collector + Redactor | Reasoner, Flight Recorder | `evidence/v1.1` | Flight Recorder DB | Permanent | High before redaction — only the redacted form is stored or sent |
 | Runbook chunk | CI index build | BM25 Retriever | Text + metadata | Reasoner image | Per image version | Low |
 | Reasoning input | Prompt builder | Hosted or Local Model | Chat messages from a versioned template | Not stored; rebuilt from bundle, chunk ids and prompt version | — | Medium — leaves the cluster |
 | Proposal | Reasoner | Safety Gate, Flight Recorder | `proposal/v1` + raw output | Flight Recorder DB | Permanent | Medium |
@@ -2029,10 +2064,10 @@ NEXUS is not the first system to put an LLM near Kubernetes, to remediate automa
 | ArgoCD | Desired-state reconciliation | **MUST** | Defines the GitOps boundary the thesis tests |
 | GitHub Actions · Trivy · Semgrep · GitLeaks · Cosign signing | CI and supply chain | **MUST**, frozen | Already built |
 | Locust · Fault Injector · Experiment Runner | Experiment system | **MUST** | Deterministic, repeatable faults |
-| K8sGPT CLI | Diagnosis baseline | **MUST** | The comparison a jury will ask for |
+| K8sGPT CLI | Diagnosis baseline | **DEFERRED** (ADR-037) | A theoretical study replaces the measured comparison |
 | scikit-learn Isolation Forest | Offline detector arm | **MUST** | The machine-learning point in the detector comparison |
 | Grafana | One dashboard | Kept, reduced; dashboard **SHOULD** | Demo surface; never on the control path |
-| Ollama | Local Model for the demo | **SHOULD** | Offline demo and data-sovereignty option |
+| Ollama | Local Model for the demo | **SHOULD** | Offline demo and data-sovereignty option. The defense demo itself runs on the A1 demo host |
 | Sentence-transformer embeddings | Retrieval comparison | **SHOULD** | An experiment, not a dependency |
 | Cosign `verifyImages` · SOPS or Sealed Secrets | Supply chain, secrets | **SHOULD** | Small, closes known gaps |
 | LSTM autoencoder | Third offline detector arm | **OPTIONAL** | Result predicted; only after M5 |
@@ -2160,7 +2195,7 @@ nexus-platform/
     rbac/                    operator, baseline, approvers, Kyverno aggregation
     policies/                K1-K6 and kyverno tests, both directions
     network/                 NetworkPolicies
-    monitoring/              chart values, rules, dashboard, datasources
+    observability/           chart values, rules, dashboard, datasources
     argocd/                  Application manifests
     bootstrap-templates/     nexus-killswitch, nexus-operator-config
   overlays/dev/              nexus-dev Namespace + sample-api (experiment/dev-state)
@@ -2210,7 +2245,7 @@ nexus-platform/
 | Z-score window, threshold, duration | 15 min, 3, 1 min; error-ratio floor 5% |
 | Alert Poller interval · reconcile timer | 10 s · 5 s |
 | Evidence limits | Events 15 min and 50 max; 200 log lines × 3 pods; metric window 30 min |
-| Reasoner | 30 s timeout, one attempt, one fallback; temperature 0; 1,024 output tokens; low reasoning effort |
+| Reasoner | 30 s timeout, one attempt, one fallback; temperature 0; 1,024 output tokens; low reasoning effort, except in phase B's effort sweep |
 | Retrieval | BM25 k1 1.5, b 0.75; top 3; score floor frozen after calibration |
 | Approval TTL | 15 min |
 | Circuit Breaker · cool-down | 2 actions per target per 15 min, 6 per hour · 5 min |
@@ -2310,7 +2345,7 @@ Status: **Inherited** — taken over from the Authority Review unchanged; **Corr
 | NF-19 | Fork token mounted as a file, fork-only scope | NF | No Secrets RBAC; no write to the canonical repository | — | Scope check |
 | NF-20 | One responder per run; responder replicas delegated | NF | Clean baseline comparison | — | Runner pre-check |
 | NF-21 | R1 derived only from in-corpus runbooks, escalating by default | NF | Keeps S5 held out for every arm | — | — |
-| NF-22 | K8sGPT as a host CLI at evidence time | NF | No extra in-cluster component | K8sGPT operator | Backend options |
+| NF-22 | K8sGPT as a host CLI at evidence time — deferred with C6 (ADR-037); K8sGPT stays out of the cluster | NF | No extra in-cluster component | K8sGPT operator | Backend options |
 | NF-23 | `sample-api` readiness excludes the dependency | NF | S5 stays a gray failure | — | — |
 | NF-24 | Redacted bundles stored, not only hashed | NF | Replay, and the log need Loki would have served | Hash only | — |
 | NF-25 | Kill Switch and operator config excluded from ArgoCD | NF | GitOps must never undo an emergency stop | Git-managed ConfigMaps | `verify-state.sh` |
@@ -2396,7 +2431,7 @@ Everything in sections 1 to 26. It changes only if verification contradicts it, 
 | Kyverno version: `Deployment/scale` and `Pod/eviction` matching, Incident lookups, ConfigMap context, time functions, failed-lookup behaviour | The trusted base itself | `kyverno test` plus the live coverage matrix | M3 |
 | Kyverno CLI with subresources and mocked context | Phase B reproducibility | Trial on K1–K4 | M4 |
 | Groq model ids, JSON-schema output, hidden reasoning, rate limits | Arms R2 and R3 | Provider documentation and a smoke test | M4 |
-| K8sGPT backend options | Configuration C6 | `k8sgpt` backend listing | M4 |
+| K8sGPT backend options | Configuration C6 — deferred (ADR-037) | Not needed while C6 is deferred | — |
 | Fork-bot account and token scope | The SHOULD pull-request path | A token that cannot push to the canonical repository | M6 |
 
 ### DECISIONS SETTLED BY PROJECT ANALYSIS
