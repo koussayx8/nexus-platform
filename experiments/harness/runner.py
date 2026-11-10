@@ -11,6 +11,7 @@ named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
 
   runner.py plan inject S1 --context C           print the steps
   runner.py run  inject S1 --context C --execute
+  runner.py run  inject S2 --context C --locust URL --users N --spawn-rate R --execute
   runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
@@ -150,9 +151,16 @@ class Runner:
 
     # ---------------------------------------------------------------- plans
     def plan_inject(
-        self, scenario: str, s3_patch: str | None = None, users: int | None = None
+        self,
+        scenario: str,
+        s3_patch: str | None = None,
+        users: int | None = None,
+        spawn_rate: float | None = None,
     ):
-        """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST."""
+        """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST.
+        A load scenario (S2, S4, S6) needs both the user count and the spawn rate: Locust 2.46.7
+        answers a /swarm without spawn_rate with HTTP 200 and {"success": false, "message": "Missing
+        or invalid user_count or spawn_rate from /swarm request"} (locust/web.py), and starts nothing."""
         sc = scenario.upper()
         if self.namespace == NS_PROD:
             if sc == "S3":
@@ -177,17 +185,20 @@ class Runner:
                 for p in self.pods(self.namespace, sample)
             ]
         if sc in ("S2", "S4", "S6"):
-            if not self.locust or users is None:
+            if not self.locust or users is None or spawn_rate is None:
                 raise ValueError(
-                    f"{sc} needs --locust URL and --users (from the calibrated capacity)"
+                    f"{sc} needs --locust URL, --users and --spawn-rate (from the calibrated capacity)"
                 )
-            steps = [
-                Step(
-                    ("POST", f"{self.locust}/swarm", f"user_count={users}"),
-                    True,
-                    f"{sc} load",
-                )
-            ]
+            if (
+                isinstance(spawn_rate, bool)
+                or not isinstance(spawn_rate, int | float)
+                or not spawn_rate > 0
+            ):
+                raise ValueError(f"{sc}: spawn rate must be a positive number")
+            body = urllib.parse.urlencode(
+                [("user_count", users), ("spawn_rate", spawn_rate)]
+            )
+            steps = [Step(("POST", f"{self.locust}/swarm", body), True, f"{sc} load")]
             if sc == "S6":
                 steps += [
                     self.k(
@@ -395,12 +406,21 @@ def set_level(git_dir, level: int) -> int:
     return 0
 
 
-def _post_form(url, fields):
+def _post_form(url, fields, opener=urllib.request.urlopen):
+    """POST a form to Locust's web API. Locust answers a refused /swarm with HTTP 200 and
+    {"success": false, "message": ...}: that is a failure here, so a fault that was not injected
+    stops the run instead of being waited for. An HTTP error status raises by itself (urlopen)."""
     data = urllib.parse.urlencode(fields, doseq=True).encode()
-    with urllib.request.urlopen(
-        urllib.request.Request(url, data=data, method="POST"), timeout=30
-    ) as r:
-        r.read()
+    with opener(urllib.request.Request(url, data=data, method="POST"), timeout=30) as r:
+        body = r.read().decode("utf-8", "replace")
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return
+    if isinstance(doc, dict) and doc.get("success") is False:
+        raise RuntimeError(
+            f"POST {url} was refused: {str(doc.get('message') or '')[:200]}"
+        )
 
 
 def main(argv=None):
@@ -423,6 +443,9 @@ def main(argv=None):
     ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
     ap.add_argument("--locust")
     ap.add_argument("--users", type=int)
+    ap.add_argument(
+        "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
+    )
     ap.add_argument("--git-dir")
     ap.add_argument("--s3-patch")
     ap.add_argument("--baseline-ref")
@@ -435,7 +458,7 @@ def main(argv=None):
         if not a.scenario:
             ap.error("inject needs a scenario")
         try:
-            steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+            steps = r.plan_inject(a.scenario, a.s3_patch, a.users, a.spawn_rate)
         except ValueError as e:
             ap.error(str(e))
     elif a.op == "reset":
