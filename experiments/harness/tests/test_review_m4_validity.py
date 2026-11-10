@@ -34,6 +34,18 @@ class RunnerTest(unittest.TestCase):
         self.assertTrue(application_names())  # the manifests were found
         self.assertLessEqual(set(runner.APPS), application_names())
 
+    # V19
+    @unittest.expectedFailure
+    def test_the_reset_stops_locust_with_a_get(self):
+        # Locust 2.46.7 serves /stop for GET only (locust/web.py: route("/stop"), no methods).
+        r = runner.Runner(
+            "ctx", exec_=lambda argv, cwd=None: (0, ""), locust="http://l"
+        )
+        stops = [
+            s.argv[0] for s in r.plan_reset(3) if s.argv[1:2] == ("http://l/stop",)
+        ]
+        self.assertEqual(stops, ["GET"])
+
 
 class Live(tb.Base):
     """One live run on test_batch's fake cluster."""
