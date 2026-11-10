@@ -257,7 +257,9 @@ def build_query(bundle: dict) -> list[str]:
     )
     q += [t for t, _ in sorted(errs.items(), key=lambda x: (-x[1], x[0]))[:10]]
     for name, z in bundle.get("metrics", {}).get("zscores", {}).items():
-        if abs(z) > 3:
+        # A signal with no data is null in a real bundle (evidence.py: "null, never invented"),
+        # e.g. p95 once a hang lets no request complete. No value, no token.
+        if isinstance(z, int | float) and not isinstance(z, bool) and abs(z) > 3:
             q += tokenize(name)
     if bundle.get("workload", {}).get("rolloutInProgress"):
         q += ["rollout"]
