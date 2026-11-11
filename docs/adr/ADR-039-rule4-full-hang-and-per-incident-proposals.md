@@ -151,3 +151,21 @@ The floor is unfrozen until G16. The Reasoner ConfigMap follows it.
 - **The BM25 query:** a Z-score above 3 adds its name as a query token. `inflight` matches no runbook term, so it
   adds nothing to any score.
 - **Spec v1.1 (G17):** record decisions 1, 3 and 4 against §16 and §14 (re-plan X11).
+
+## Addendum (2026-11-11): what `restart_v1` verifies
+
+"The limit" above says the Verifier escalates when the restart does not bring "the signal" back to its baseline. That
+overstates it. `restart_v1` reads every replica Ready, no new container restart for 60 s, and **p95 latency** within the
+raw pre-fault baseline (`operator/nexus_operator/verifier.py`). It reads neither the in-flight count nor the request
+rate, which are the two signals the new branch acts on.
+
+| Case | What the Verifier sees | Verdict |
+|---|---|---|
+| **Full hang, restart fixes it** (S1; the M2 exit, `docs/plans/m2-exit-record.md`) | No request completes during the hang, so the p95 series goes missing; a missing value never verifies. After the evictions the new pods serve, p95 returns within baseline, and 60 s later it verifies | Correct: `Resolved` 13:53:14Z on 2026-11-11 |
+| **Full hang, restart does not fix it** | p95 stays missing | Correct: times out, `Escalated / verification_failed` |
+| **Partial hang, restart does not fix it** (some requests still complete) | The p95 of the requests that complete can sit within baseline while requests still pile up in flight | **Can verify early:** `Resolved` with the fault still present (authority-boundary review, #197 finding A2) |
+
+The third case is not one of S1–S6, where every hang is total. It stays open: the fix is to make `restart_v1` also
+require in-flight requests and the request rate back near baseline when the proposal came from the in-flight branch.
+That change belongs to G16's review of verification criteria, and needs its own ADR because the catalogue's criteria are
+frozen (spec §9).
