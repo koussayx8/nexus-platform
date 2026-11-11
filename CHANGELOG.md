@@ -6,6 +6,57 @@ uses milestone tags (`v0.N.0`, one per milestone exit).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-11
+
+M2 — the operator acts (spec §4, §9, §14, §16; [`docs/plans/m2-exit-record.md`](docs/plans/m2-exit-record.md)). The act path
+through the Scale and Eviction subresources, Safety Gate stages 1–7, the Flight Recorder with the write-ahead intent row
+and the `Audit-Id` join, and `nexus-dev` at autonomy level 3. Exit run on WSL2, 2026-11-11, under B = 80: S1 on
+`nexus-dev` ended `Resolved / remediation_verified` through two evictions one at a time (2 min 34 s from detection), both
+requests matched to their intent rows in the audit log (2/2); the same fault in `nexus-prod` (L1) ended `Recommended`
+with no operator mutation.
+
+### Added
+- The Flight Recorder: `flight-recorder-db` (PostgreSQL 17, §14 schema, roles `nexus_writer`, `nexus_runner`,
+  `nexus_reader`), the Writer with the write-ahead intent row, the `Audit-Id` client wrapper, the Grafana datasource
+  and the "NEXUS Flight Recorder" dashboard ([#140](https://github.com/koussayx8/nexus-platform/pull/140),
+  [#173](https://github.com/koussayx8/nexus-platform/pull/173), ADR-031); `nexus_operator_recorder_up` and its health
+  probe ([#177](https://github.com/koussayx8/nexus-platform/pull/177)).
+- The operator's act path for L0, L1 and L3 (L2 stays `Escalated` until M3): the Action Catalogue, Safety Gate
+  stages 1–7 (advisory), the Executor (one request, write-ahead, idempotency key), the Circuit Breaker and cool-down,
+  the Verifier against the raw pre-fault baseline, the Compensator, and the Rules Engine R1
+  ([#139](https://github.com/koussayx8/nexus-platform/pull/139)); the Evidence Collector, the Redactor, Diagnosing and
+  the operator metrics ([#144](https://github.com/koussayx8/nexus-platform/pull/144),
+  [#145](https://github.com/koussayx8/nexus-platform/pull/145), ADR-034); the Reasoner Client, not deployed in M2
+  ([#152](https://github.com/koussayx8/nexus-platform/pull/152), ADR-035).
+- The staged RBAC: `deployments/scale` and `pods/eviction` in `nexus-dev` only, and the §11 read rights cluster-wide;
+  `nexus-prod` gets its grants in M3 with Kyverno ([#139](https://github.com/koussayx8/nexus-platform/pull/139), ADR-032).
+- M2 checks: the `ignoreDifferences` boundary check (G4), the minimal `audit_id` join `scripts/audit-join.py` (G5), the
+  KSM alerts ([#143](https://github.com/koussayx8/nexus-platform/pull/143)); `verify-state.sh` M13–M15 and M19 (G7)
+  ([#156](https://github.com/koussayx8/nexus-platform/pull/156), [#185](https://github.com/koussayx8/nexus-platform/pull/185)).
+- ADR-039, option A2 ([#192](https://github.com/koussayx8/nexus-platform/pull/192)): R1 rule 4 also restarts a full hang
+  (in-flight Z > 3 and request-rate Z < −3, CPU Z ≤ 1, all Ready, no rollout); `evidence/v1.1` adds
+  `metrics.zscores.inflight`; `proposals` keyed by `(incident_uid, proposal_hash)`, with the idempotent migration
+  `operator/k8s/flight-recorder-db/migrations/039-proposals-incident-key.sql`; `rb-gray-failure` v2; the R1
+  regression tool and its result.
+
+### Changed
+- `nexus-dev` autonomy level `"0"` → `"3"` ([#205](https://github.com/koussayx8/nexus-platform/pull/205)); `nexus-prod`
+  stays at `"1"`.
+- Audit policy (ADR-036, [#176](https://github.com/koussayx8/nexus-platform/pull/176)): the operator's Incident reads and
+  routine lease and self-review writes at `None`; 30 backups.
+- C6, the K8sGPT comparison, deferred: a theoretical study replaces it (ADR-037,
+  [#178](https://github.com/koussayx8/nexus-platform/pull/178)).
+- The operator image is multi-arch (amd64, arm64) and runs as UID 10001 with a passwd entry
+  ([#141](https://github.com/koussayx8/nexus-platform/pull/141), [#177](https://github.com/koussayx8/nexus-platform/pull/177)).
+
+### Known limitations
+- Until M3 the level, the bounds and the Kill Switch are enforced only by the operator's own gate: no Kyverno
+  ClusterPolicy is deployed. RBAC and the PodDisruptionBudget are the authoritative layers.
+- `restart_v1` verifies on p95 only: a partial hang that a restart did not fix could verify early (ADR-039 addendum).
+- Recovery from a long hang fires `NexusTrafficAnomaly` and `NexusCpuAnomaly` while the 15-minute baseline still holds
+  it: recorded no-fault Incidents (`m2-exit-record.md`, deviation 3).
+- The WSL2 VM stops or pauses when no session holds it; unattended M4 runs need it kept up.
+
 ## [0.3.0] - 2026-10-14
 
 M1b — detection and the operator skeleton (spec §3, §11, §25, §27): Z-score detection against a
@@ -193,6 +244,8 @@ checked by `scripts/verify-state.sh`.
   size-triggered log rotation preserved `640 root:adm`, with non-sudo read access confirmed on every
   resulting file.
 
-[Unreleased]: https://github.com/koussayx8/nexus-platform/compare/v0.2.0...main
+[Unreleased]: https://github.com/koussayx8/nexus-platform/compare/v0.4.0...main
+[0.4.0]: https://github.com/koussayx8/nexus-platform/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/koussayx8/nexus-platform/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/koussayx8/nexus-platform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/koussayx8/nexus-platform/releases/tag/v0.1.0
