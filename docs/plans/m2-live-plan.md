@@ -79,7 +79,7 @@ M2 (Q16).
 
 | # | Step | Owner | Check | Rollback |
 |---|---|---|---|---|
-| C1 | PR `dev` → `main`; merge | agent, after typed approval | PR head equals the approved SHA | Revert PR, promote. `nexus` prunes the StatefulSet; its PVC stays (deletion: owner) |
+| C1 | PR `dev` → `main`; merge | agent, after typed approval | PR head equals the approved SHA | Revert PR, promote. `nexus` prunes the StatefulSet; its PVC stays (deletion: owner). **Corrected 2026-11-11:** a rollback keeps the data, so a later re-deploy comes back on the old volume with its old rows and old schema (see "Corrections after the runs") |
 | C2 | Sync | agent (read) | 8 Applications `Synced`/`Healthy` at the merge SHA, stable ≥ 60 s; FR DB 1/1 Ready; Grafana and operator pods Ready (operator still `ef3c6955`). Transient Incidents after the `observability` restart are expected: recorded, not counted as a failed check | C1 rollback |
 | C3 | RBAC reads (#144) and `pods/log` (A6): `auth can-i --list --as=…nexus-operator` in `nexus-dev`, `nexus-prod`, `nexus-data`, `kube-system` | agent (read) | Scale and eviction only in `nexus-dev`; §11 reads cluster-wide | C1 rollback |
 | C4 | Alertmanager and Prometheus (#143): `get --raw` service-proxy GETs of `/api/v2/status` and `/api/v1/rules` | agent (read) | Route `nexus_target =~ ".+"`, `group_by: [nexus_target]`, receiver `null`; both rules loaded | Revert #143's files |
@@ -104,7 +104,7 @@ code is identical to D1's image: close it unmerged.
 
 | # | Step | Owner | Check | Rollback |
 |---|---|---|---|---|
-| E1 | First live use of the runner: `runner.py plan inject S1 --context default`, then `run … --execute`. The runner's S1 targets `nexus-dev` only (`experiments/harness/runner.py:121-133`); the same hang in `nexus-prod` is a manual `kubectl exec` | owner | `nexus-dev` ends `Recorded`/`level_observe`; `nexus-prod` passes `Diagnosing` → `Proposed` → `Recommended` (#144); no operator scale or eviction in the audit log other than dry-runs | Pods recover on their own; else Kill Switch `halted` (owner) |
+| E1 | First live use of the runner: `runner.py plan inject S1 --context default`, then `run … --execute`. The runner's S1 targets `nexus-dev` only (`experiments/harness/runner.py:121-133`); the same hang in `nexus-prod` is a manual `kubectl exec` | owner | `nexus-dev` ends `Recorded`/`level_observe`; `nexus-prod` passes `Diagnosing` → `Proposed` → `Recommended` (#144); no operator scale or eviction in the audit log other than dry-runs | **Corrected 2026-11-11:** S1 has no reset, so the pods do not recover on their own; only pod replacement heals them (owner, one pod at a time). The Kill Switch stops the operator, not the fault |
 | E2 | Optional (Q15): S3 on `nexus-dev` at L0 for the G6 alerts (#143) | owner | `NexusRolloutStuck` fires, grouped by `nexus_target`; Incident `Recorded` | Revert the S3 commit on `experiment/dev-state` |
 
 ### F — Level 3 and the exit (U7)
@@ -116,6 +116,17 @@ code is identical to D1's image: close it unmerged.
 | F3 | Exit demo under B = 80 (Q12): S1 on `nexus-dev` at L3, then the same fault in `nexus-prod`. Afterwards: FR `actions` export; copy the audit files at once (rotation); `scripts/audit-join.py` (G5); `auth can-i --list` in `nexus-prod`; the FR dashboard | owner runs; agent reads | Outline exit criteria 1–5: `Resolved`/`remediation_verified` through `restart_v1`, one eviction at a time within the PDB; intent row before the request and its `audit_id` matched; `nexus-prod` `Recommended`; no operator mutation in `nexus-prod`; the Incident on the dashboard | Kill Switch `halted`; level back to `"0"` (F1) |
 | F4 | Exit docs PR: `CURRENT_STATE.md` (`verify-state.sh --out`), `CHANGELOG` `[0.4.0]`, `TASKS.md` M2 boxes (G1–G5, G7), README M2 row; promotion 5; forward-merge | agent; merges after typed approval | CI green; tree check holds | Revert |
 | F5 | Tag `v0.4.0` on promotion 5's merge SHA: `git tag -a v0.4.0 <SHA>`, `git push origin v0.4.0` | agent, after typed approval naming the tag and SHA | Tag on `origin` points to the SHA | — (a published tag is not moved) |
+
+## Corrections after the runs (2026-11-11)
+
+Found while running E1 and F1–F3 ([`m2-exit-record.md`](m2-exit-record.md)). The rows above carry a pointer to each.
+
+| # | Where | Was | Corrected |
+|---|---|---|---|
+| 1 | E1 rollback | "Pods recover on their own; else Kill Switch `halted`" | S1 (`/fault/hang`) has no reset: only a new process heals it (`apps/sample-api/main.py`, "There is no reset"). After every S1 the owner replaces the pods, one at a time, waiting for each to be Ready (`kubectl delete pod`; the agent cannot, it is on the deny list). The Kill Switch stops the operator only |
+| 2 | C1 rollback | "`nexus` prunes the StatefulSet; its PVC stays" | That keeps the data, so a rollback is not a reset: a later re-deploy reattaches the old PVC, and the init scripts (`05-schema.sql`, `10-roles.sql`) run only on an empty data directory. A schema change on a live volume needs a migration (e.g. `migrations/039-proposals-incident-key.sql`); a clean start needs the owner to delete the PVC |
+| 3 | Run order (E1, F3) | Inject `nexus-dev`, then "the same fault in `nexus-prod`" | Clear one namespace and wait before gating the next: let the first Incident end, the pods recover, and its alerts clear; then re-check every Nexus alert in every namespace, every Z-score and the open Incidents before injecting the next. Recovery from a long hang fires `NexusTrafficAnomaly` and `NexusCpuAnomaly` while the 15-minute baseline still holds the hang (exit record, deviation 3) |
+| 4 | Promotions for operator changes | One promotion per operator change | Images are built, pushed and signed only on a push to `main` (`operator.yml`, `reasoner.yml`). An operator code change therefore needs two promotions: one carries the code and triggers the build; the digest-bump PR into `dev` and a second promotion deploy the image (ADR-039: promotions 4a and 4b). A schema file in the same work reaches the cluster with the first promotion, while the old image still runs: order the migration against the second promotion (ADR-039, "Rollout order") |
 
 ## Live-check items from the task PRs
 
