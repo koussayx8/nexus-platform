@@ -1249,9 +1249,10 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
 - [→ T4] **The manual-run gate's alert check spans every namespace:** `experiments/harness/gate.py` `run_gate` calls
   `precheck.fired_alerts` with no namespace filter, so an alert in `nexus-prod` fails a `nexus-dev` gate (and the
   reverse). Filter by the gated namespace, or say in the docstring that it is cluster-wide on purpose.
-- [→ M4 pre-registration] **Locust stop/start Incidents** (owner): 2026-11-09 16:53:09Z `nexus-prod`
-  `NexusCpuAnomaly` (`Escalated`) and 16:55:09Z `nexus-dev` `NexusCpuAnomaly` (`Recorded`). A load change against the
-  15-minute baseline reads as an anomaly; the batch's reset stops Locust before every run, and the held #189 restarts it.
+- [→ M4 pre-registration] **Locust stop/start Incidents:** a load change against the 15-minute baseline reads as an
+  anomaly, and the batch's reset stops Locust before every run (the held #189 restarts it). Two Incidents may be of this
+  kind: 2026-11-09 16:53:09Z `nexus-prod` `NexusCpuAnomaly` (`Escalated`) and 16:55:09Z `nexus-dev` `NexusCpuAnomaly`
+  (`Recorded`). Their cause is UNVERIFIED: nothing read shows that Locust stopped or started then.
 - [→ M4 pre-registration] **The 2026-11-07 no-fault clusters** are the "quiet when healthy" item above; add the
   2026-11-11 recovery Incidents (09:31:09Z, 09:32:09Z, 14:15:39Z ×2 `nexus-prod`; 09:34:09Z `nexus-dev`), from
   baseline carry-over after a long hang.
