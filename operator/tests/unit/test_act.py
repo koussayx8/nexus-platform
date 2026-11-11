@@ -152,10 +152,25 @@ def test_dry_run_transport_error_fails_closed():
     assert rig.api.mutations() == []
 
 
+def test_the_gate_reads_only_this_incidents_proposal_row():
+    """ADR-039: an Incident whose hash matches only another Incident's row waits, then times out;
+    before, the Gate read the other Incident's row (2026-11-07, six nexus-prod Incidents)."""
+    rig = Rig()
+    rig.proposed(proposal_doc(), name="first")
+    rig.proposed(proposal_doc(), name="inc")
+    rig.inc()["status"]["proposal"]["hash"] = "sha256:first"  # same content, same hash
+    del rig.rec.proposals[("uid-inc", "sha256:inc")]  # its own row was never written
+    rig.tick()
+    assert rig.status()["phase"] == "Proposed"
+    rig.tick(seconds=31)
+    assert ended(rig) == ("Escalated", "gate_timeout")
+    assert ("uid-first", "sha256:first") in rig.rec.proposals
+
+
 def test_the_gate_times_out_into_escalated():
     rig = Rig()
     rig.proposed(proposal_doc())
-    del rig.rec.proposals["sha256:inc"]  # the proposal never arrives
+    del rig.rec.proposals[("uid-inc", "sha256:inc")]  # the proposal never arrives
     rig.tick(seconds=31)
     assert ended(rig) == ("Escalated", "gate_timeout")
 

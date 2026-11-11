@@ -14,11 +14,11 @@
 # and the live rollout strategy against Git (M15), and reads the nexus-dev level from Git (M5).
 # M3 (G7; --milestone m3) adds K1-K6 present, Ready and in Enforce (M16), the N1-N6 NetworkPolicies
 # present (M17) and the Reasoner Ready with the expected index hash (M18). The default milestone is
-# m2, which runs M1-M15 and the informational I1 exactly as before.
+# m2, which runs M1-M15, M19 (nexus_operator_recorder_up = 1) and the informational I1.
 #
 # Usage: scripts/verify-state.sh [--out PATH] [--milestone m2|m3]
 #   --out PATH        where the report is written (default: docs/CURRENT_STATE.md)
-#   --milestone M     m2 (default) runs M1-M15; m3 adds M16-M18 and needs
+#   --milestone M     m2 (default) runs M1-M15 and M19; m3 adds M16-M18 and needs
 #                     NEXUS_VERIFY_REASONER_INDEX_HASH (the 64-hex corpus hash from `make index`)
 # Env: NEXUS_VERIFY_APPS_TIMEOUT (default 1140) bounds the M1 retry window, in seconds.
 #      NEXUS_VERIFY_ITEMS_NAMESPACES (default "nexus-dev nexus-prod") limits the M10 /items check;
@@ -617,6 +617,25 @@ v_reasoner() {
 }
 
 # ---------------------------------------------------------------------------
+# M19. The operator's Flight Recorder link (ADR-034): Prometheus nexus_operator_recorder_up,
+# queried through the API server's service proxy, must be exactly one series equal to 1. A missing
+# series, NaN, 0, an unparsable answer or more than one series fails. Same probe as
+# experiments/harness/precheck.py.
+# ---------------------------------------------------------------------------
+v_recorder_up() {
+  local doc n v
+  if ! doc=$(k get --raw "/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up" --context default 2>/dev/null); then
+    echo "nexus_operator_recorder_up: no answer through the Prometheus service proxy"; return 1
+  fi
+  n=$(jq -r 'if .status == "success" then (.data.result | length) else "-" end' <<<"$doc" 2>/dev/null) \
+    || { echo "nexus_operator_recorder_up: unparsable answer"; return 1; }
+  [[ $n == 1 ]] || { echo "nexus_operator_recorder_up: $n series (want exactly 1)"; return 1; }
+  v=$(jq -r '.data.result[0].value[1] // "-"' <<<"$doc")
+  echo "nexus_operator_recorder_up: value=$v"
+  [[ $v == 1 ]]
+}
+
+# ---------------------------------------------------------------------------
 # I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
 # across a rebuild without turning a transient restart into a failure.
 # ---------------------------------------------------------------------------
@@ -652,6 +671,7 @@ verify M12 "NEXUS Operator Ready on its pinned digest"   v_operator
 verify M13 "Flight Recorder DB StatefulSet Ready"        v_fr_db
 verify M14 "Staged RBAC: scale and eviction in nexus-dev only" v_staged_rbac
 verify M15 "sample-api rollout strategy equals Git"      v_rollout_strategy
+verify M19 "Operator Flight Recorder link up (recorder_up = 1)" v_recorder_up
 if [[ $MILESTONE == m3 ]]; then
   verify M16 "K1-K6 present, Ready, failurePolicy Fail, Enforce" v_policies_enforce
   verify M17 "N1-N6 NetworkPolicies present"           v_network_policies

@@ -11,8 +11,11 @@ named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
 
   runner.py plan inject S1 --context C           print the steps
   runner.py run  inject S1 --context C --execute
+  runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
+  runner.py gate --context C --namespace nexus-dev --locust URL --locust-users 160 \\
+      --locust-rate R --window 20m --config batch.json    read-only; exits 1 on any FAIL
 
 Git is never force-pushed (ADR-013): reset is a forward commit on experiment/dev-state.
 Live behaviour is "live check pending": no cluster was available when this was written;
@@ -35,6 +38,9 @@ from dataclasses import asdict, dataclass
 
 CLI = "kubectl"
 NS_DEV = "nexus-dev"
+NS_PROD = "nexus-prod"
+INJECT_NAMESPACES = (NS_DEV, NS_PROD)
+PROD_MAX_LEVEL = 1  # nexus-prod takes a fault only at autonomy level 1 or lower
 NS_DATA = "nexus-data"
 NS_SYSTEM = "nexus-system"
 APPS = ("sample-api-dev", "dependency-db-dev")
@@ -53,11 +59,22 @@ INJECT_LOGS_PY = (
     "import urllib.request as u;"
     f"u.urlopen(u.Request('http://127.0.0.1:{APP_PORT}/fault/inject-logs',method='POST'),timeout=5)"
 )
-S5_SQL = (
-    "ALTER ROLE app_dev NOLOGIN; "
-    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='app_dev';"
-)
-S5_RESTORE_SQL = "ALTER ROLE app_dev LOGIN;"
+S5_ROLES = {
+    "nexus-dev": "app_dev",
+    "nexus-prod": "app_prod",
+}  # each namespace's own DB role
+
+
+def s5_sql(namespace: str) -> str:
+    role = S5_ROLES[namespace]
+    return (
+        f"ALTER ROLE {role} NOLOGIN; "
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='{role}';"
+    )
+
+
+# Reset restores both roles, so a prod S5 never outlives the run.
+S5_RESTORE_SQL = " ".join(f"ALTER ROLE {r} LOGIN;" for r in S5_ROLES.values())
 
 
 @dataclass(frozen=True)
@@ -78,9 +95,15 @@ class Runner:
         git_dir=None,
         http_post=None,
         http_get=None,
+        namespace=NS_DEV,
     ):
         if not context:
             raise ValueError("a cluster context is required")
+        if namespace not in INJECT_NAMESPACES:
+            raise ValueError(
+                f"namespace must be one of {INJECT_NAMESPACES}, not {namespace!r}"
+            )
+        self.namespace = namespace
         self.context = context
         self.exec = exec_ or _subprocess_exec
         self.sleep = sleep
@@ -111,12 +134,32 @@ class Runner:
             raise RuntimeError(f"cannot list pods ({label}) in {ns}")
         return out.split()
 
+    def require_prod_level(self) -> None:
+        """Refuse a fault in nexus-prod unless its autonomy level label is an integer <= 1.
+        Fail closed: an unreadable, missing or non-integer level refuses too."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "get", "namespace", NS_PROD, "-o",
+             "jsonpath={.metadata.labels.nexus\\.io/autonomy-level}"]
+        )  # fmt: skip
+        level = out.strip()
+        if rc != 0 or not re.fullmatch(r"[0-9]+", level) or int(level) > PROD_MAX_LEVEL:
+            raise ValueError(
+                f"refusing to inject in {NS_PROD}: autonomy level {level or 'unreadable'!r}"
+                f" (needs {PROD_MAX_LEVEL} or lower)"
+            )
+
     # ---------------------------------------------------------------- plans
     def plan_inject(
         self, scenario: str, s3_patch: str | None = None, users: int | None = None
     ):
         """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST."""
         sc = scenario.upper()
+        if self.namespace == NS_PROD:
+            if sc == "S3":
+                raise ValueError(
+                    "S3 is a Git change to nexus-dev (experiment/dev-state); not for nexus-prod"
+                )
+            self.require_prod_level()
         sample = "app.kubernetes.io/name=sample-api"
         if sc == "S1":
             return [
@@ -127,11 +170,11 @@ class Runner:
                     "python",
                     "-c",
                     HANG_PY,
-                    ns=NS_DEV,
+                    ns=self.namespace,
                     note=f"S1 hang on {p}",
                     ignore_failure=True,
                 )
-                for p in self.pods(NS_DEV, sample)
+                for p in self.pods(self.namespace, sample)
             ]
         if sc in ("S2", "S4", "S6"):
             if not self.locust or users is None:
@@ -154,10 +197,10 @@ class Runner:
                         "python",
                         "-c",
                         INJECT_LOGS_PY,
-                        ns=NS_DEV,
+                        ns=self.namespace,
                         note=f"S6 injected text on {p}",
                     )
-                    for p in self.pods(NS_DEV, sample)
+                    for p in self.pods(self.namespace, sample)
                 ]
             return steps
         if sc == "S3":
@@ -180,7 +223,7 @@ class Runner:
         if sc == "S5":
             pod = self.pods(NS_DATA, "app.kubernetes.io/name=dependency-db")[0]
             return [
-                self.k("exec", pod, "-c", "dependency-db", "--", "psql", "-U", "postgres", "-c", S5_SQL,
+                self.k("exec", pod, "-c", "dependency-db", "--", "psql", "-U", "postgres", "-c", s5_sql(self.namespace),
                        ns=NS_DATA, note="S5 NOLOGIN + terminate sessions")
             ]  # fmt: skip
         raise ValueError(f"unknown scenario {scenario}")
@@ -361,11 +404,22 @@ def _post_form(url, fields):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["gate"]:  # read-only manual-run gate (gate.py)
+        from . import gate
+
+        return gate.main(argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("mode", choices=("plan", "run"))
     ap.add_argument("op", choices=("inject", "reset", "refresh"))
     ap.add_argument("scenario", nargs="?")
     ap.add_argument("--context", required=True)
+    ap.add_argument(
+        "--namespace",
+        choices=INJECT_NAMESPACES,
+        default=NS_DEV,
+        help="fault target for inject (default nexus-dev); nexus-prod needs level <= 1",
+    )
     ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
     ap.add_argument("--locust")
     ap.add_argument("--users", type=int)
@@ -376,11 +430,14 @@ def main(argv=None):
         "--execute", action="store_true", help="actually run the steps (mode run only)"
     )
     a = ap.parse_args(argv)
-    r = Runner(a.context, locust=a.locust, git_dir=a.git_dir)
+    r = Runner(a.context, locust=a.locust, git_dir=a.git_dir, namespace=a.namespace)
     if a.op == "inject":
         if not a.scenario:
             ap.error("inject needs a scenario")
-        steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+        try:
+            steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+        except ValueError as e:
+            ap.error(str(e))
     elif a.op == "reset":
         steps = r.plan_reset(a.level, a.baseline_ref)
     else:

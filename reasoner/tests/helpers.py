@@ -10,7 +10,7 @@ from nexus_reasoner.service import Reasoner
 from experiments.harness import bm25
 
 REPO = Path(__file__).resolve().parents[2]
-RAW = REPO / "experiments/harness/tests/fixtures/evidence-v1-raw.json"
+RAW = REPO / "experiments/harness/tests/fixtures/evidence-v1.1-raw.json"
 
 CFG = config.parse(
     {

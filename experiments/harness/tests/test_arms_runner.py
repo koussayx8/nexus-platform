@@ -1,7 +1,10 @@
 """Offline tests for arms.py and runner.py (fake exec: no cluster, no network)."""
 
+import contextlib
+import io
 import json
 import unittest
+from unittest import mock
 
 from .. import arms, runner
 
@@ -280,6 +283,114 @@ class RunnerTest(unittest.TestCase):
             rc = runner.main(["plan", "refresh", "--context", "ctx"])
         self.assertEqual(rc, 0)
         self.assertIn("refresh=hard", buf.getvalue())
+
+
+class ProdTargetTest(unittest.TestCase):
+    """--namespace nexus-prod: the fault is refused unless nexus-prod's autonomy level is 0 or 1."""
+
+    def runner(self, level, ns="nexus-prod", rc=0):
+        calls = []
+
+        def ex(argv, cwd=None):
+            calls.append(list(argv))
+            if "namespace" in argv:
+                return rc, level
+            if "jsonpath={.items[*].metadata.name}" in argv:
+                return 0, "p1"
+            return 0, ""
+
+        return runner.Runner("ctx", exec_=ex, sleep=lambda s: None, namespace=ns), calls
+
+    def test_default_is_nexus_dev_and_reads_no_level(self):
+        r, calls = self.runner("3", ns="nexus-dev")
+        (s,) = r.plan_inject("S1")
+        self.assertEqual(s.argv[3:5], ("-n", "nexus-dev"))
+        self.assertFalse(any("namespace" in c for c in calls))
+        self.assertEqual(runner.Runner("ctx").namespace, "nexus-dev")
+
+    def test_unknown_namespace_is_rejected(self):
+        with self.assertRaises(ValueError):
+            runner.Runner("ctx", namespace="nexus-data")
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            runner.main(
+                ["plan", "inject", "S1", "--context", "c", "--namespace", "kube-system"]
+            )
+
+    def test_prod_at_level_0_or_1_targets_prod_pods(self):
+        for level in ("0", "1"):
+            r, _ = self.runner(level)
+            (s,) = r.plan_inject("S1")
+            self.assertEqual(s.argv[3:5], ("-n", "nexus-prod"))
+
+    def test_prod_above_level_1_or_unreadable_is_refused(self):
+        for level, rc in (
+            ("2", 0),
+            ("3", 0),
+            ("10", 0),
+            ("", 0),
+            ("abc", 0),
+            ("-1", 0),
+            ("0", 1),
+        ):
+            r, _ = self.runner(level, rc=rc)
+            with self.assertRaises(ValueError, msg=f"{level!r} rc={rc}"):
+                r.plan_inject("S1")
+
+    def test_prod_refusal_covers_every_scenario_and_s3_never_targets_prod(self):
+        r, _ = self.runner("3")
+        for sc in ("S1", "S2", "S4", "S5", "S6"):
+            with self.assertRaises(ValueError):
+                r.plan_inject(sc, users=5)
+        r, _ = self.runner("0")
+        with self.assertRaises(ValueError):
+            r.plan_inject("S3", s3_patch="p.diff")
+
+    def test_s5_alters_the_namespaces_own_role_only(self):
+        for ns, level, role, other in (
+            ("nexus-prod", "1", "app_prod", "app_dev"),
+            ("nexus-dev", "3", "app_dev", "app_prod"),
+        ):
+            r, _ = self.runner(level, ns=ns)
+            (s,) = r.plan_inject("S5")
+            sql = s.argv[-1]
+            self.assertIn(f"ALTER ROLE {role} NOLOGIN", sql)
+            self.assertIn(f"usename='{role}'", sql)
+            self.assertNotIn(other, sql)
+
+    def test_reset_restores_both_roles(self):
+        r, _ = self.runner("1", ns="nexus-dev")
+        sql = " ".join(a for s in r.plan_reset(3) for a in s.argv if "LOGIN" in a)
+        self.assertIn("ALTER ROLE app_dev LOGIN", sql)
+        self.assertIn("ALTER ROLE app_prod LOGIN", sql)
+
+    def test_prod_still_needs_execute(self):
+        calls = []
+
+        def ex(argv, cwd=None):
+            calls.append(list(argv))
+            return 0, "1" if "namespace" in argv else "p1"
+
+        for flags in ([], ["--execute"]):
+            calls.clear()
+            with (
+                mock.patch.object(runner, "_subprocess_exec", ex),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                rc = runner.main(
+                    [
+                        "run",
+                        "inject",
+                        "S1",
+                        "--context",
+                        "c",
+                        "--namespace",
+                        "nexus-prod",
+                    ]
+                    + flags
+                )
+            self.assertEqual(rc, 0)
+            mutating = [c for c in calls if "exec" in c]  # the S1 kubectl exec
+            self.assertEqual(bool(mutating), bool(flags))
 
 
 if __name__ == "__main__":

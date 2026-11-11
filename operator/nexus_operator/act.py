@@ -13,7 +13,7 @@ the next step from the status and the observed cluster, never from an event. Pha
 
 Detected and Diagnosing belong to the Evidence Collector and the Reasoner path, which are not part
 of this change: the act path starts at a Proposed Incident whose proposal/v1 document the
-recorder holds, found by status.proposal.hash (ActRecorder.get_proposal).
+recorder holds, found by its uid and status.proposal.hash (ActRecorder.get_proposal; ADR-039).
 
 A completion write that failed while the Incident was still in an act phase is retried from
 status.execution.completion on the next steps. One that fails on the step that ends the Incident
@@ -459,7 +459,7 @@ class ActPath:
         there was one, and the proposal that is used (or the invalid one that ended it)."""
         bundle = work.bundle
         await self.recorder.record_bundle(
-            bundle["hash"], uid, "evidence/v1", bundle, work.counts, now
+            bundle["hash"], uid, bundle["schema"], bundle, work.counts, now
         )
         result = answer.result
         if result is not None and not result.ok:
@@ -511,7 +511,7 @@ class ActPath:
             return  # no proposal recorded yet; the 30 s timeout bounds the wait
         try:
             await self._open(incident)
-            doc = await self.recorder.get_proposal(digest)
+            doc = await self.recorder.get_proposal(uid, digest)
         except RecorderUnavailable:
             return  # retried next tick, until the 30 s timeout
         if doc is None:

@@ -33,6 +33,8 @@ from .redact import unredacted
 TIMEOUT_S = 30
 MAX_RESPONSE_BYTES = 1_048_576
 CATALOGUE_VERSION = "1"
+# evidence/v1.1 (ADR-039) adds metrics.zscores.inflight; v1 bundles stay valid input.
+EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
 _META_KEYS = (
     "mode",
     "model",
@@ -62,11 +64,12 @@ class Result:
 
 
 def check_redacted(bundle: Any) -> str | None:
-    """None when the bundle is the operator's redacted evidence/v1 bundle, else why not.
+    """None when the bundle is the operator's redacted evidence/v1.1 bundle, else why not.
 
+    evidence/v1 is still accepted: v1.1 only adds `metrics.zscores.inflight` (ADR-039).
     The reason never repeats a value from the bundle, only a class name."""
-    if not isinstance(bundle, dict) or bundle.get("schema") != "evidence/v1":
-        return "not an evidence/v1 bundle"
+    if not isinstance(bundle, dict) or bundle.get("schema") not in EVIDENCE_SCHEMAS:
+        return "not an evidence/v1 or evidence/v1.1 bundle"
     if not isinstance((bundle.get("redaction") or {}).get("counts"), dict):
         return "redaction.counts missing"
     body = {k: v for k, v in bundle.items() if k != "hash"}
