@@ -72,6 +72,13 @@ jobs:
           rm -f pkg.txz
           echo "$bin" >> "$GITHUB_PATH"
 
+      - name: Locust, for the class-dispatch test (experiments/calibration)
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/locust-venv"
+          "$RUNNER_TEMP/locust-venv/bin/pip" install --quiet locust==2.46.7
+          echo "NEXUS_LOCUST_PYTHON=$RUNNER_TEMP/locust-venv/bin/python" >> "$GITHUB_ENV"
+
       - name: Commit range
         id: range
         env:
