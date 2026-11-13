@@ -37,18 +37,13 @@ case_() {   # <name> <want rc> <must match> <merge sha>
 mk() { git checkout -q -B t "$MAIN"; "$@"; snap t; }
 
 case_ identical 0 'trees are identical' "$(mk true)"
-case_ level-0-to-3 0 'only difference is the autonomy level' "$(mk bash -c 'sed -i "s/\"0\"/\"3\"/" overlays/dev/namespace.yaml')"
-case_ level-unquoted 0 'only difference is the autonomy level' "$(mk bash -c 'sed -i "s/\"0\"/2/" overlays/dev/namespace.yaml')"
-case_ level-and-other-file 1 'M.apps/x.yaml' "$(mk bash -c 'sed -i "s/\"0\"/\"3\"/" overlays/dev/namespace.yaml; echo b: 2 > apps/x.yaml')"
+case_ level-0-to-3 1 'M.overlays/dev/namespace.yaml' "$(mk bash -c 'sed -i "s/\"0\"/\"3\"/" overlays/dev/namespace.yaml')"
 case_ other-file-only 1 'M.apps/x.yaml' "$(mk bash -c 'echo b: 2 > apps/x.yaml')"
+case_ level-and-other-file 1 'M.apps/x.yaml' "$(mk bash -c 'sed -i "s/\"0\"/\"3\"/" overlays/dev/namespace.yaml; echo b: 2 > apps/x.yaml')"
 case_ added-file 1 '[AD].new.yaml' "$(mk bash -c 'echo n: 1 > new.yaml')"
 case_ deleted-file 1 '[AD].apps/x.yaml' "$(mk git rm -q apps/x.yaml)"
-case_ namespace-other-line 1 'differs in more than the autonomy level' "$(mk bash -c 'sed -i "s/restricted/baseline/" overlays/dev/namespace.yaml')"
-case_ level-plus-label 1 'differs in more than the autonomy level' "$(mk bash -c 'sed -i "s/\"0\"/\"3\"/; s/^  name: nexus-dev/  name: nexus-dev\n  annotations: {a: b}/" overlays/dev/namespace.yaml')"
-case_ level-line-removed 1 'exactly one autonomy-level line' "$(mk bash -c 'sed -i "/autonomy-level/d" overlays/dev/namespace.yaml')"
-case_ level-line-duplicated 1 'exactly one autonomy-level line' "$(mk bash -c 'sed -i "s/^\(.*autonomy-level.*\)$/\1\n\1/" overlays/dev/namespace.yaml')"
-case_ namespace-deleted 1 '[AD].overlays/dev/namespace.yaml' "$(mk git rm -q overlays/dev/namespace.yaml)"
-case_ mode-change 1 'changed mode' "$(mk bash -c 'chmod 755 overlays/dev/namespace.yaml; git update-index --chmod=+x overlays/dev/namespace.yaml 2>/dev/null; true')"
+case_ mode-change 1 'M.overlays/dev/namespace.yaml' "$(mk bash -c 'chmod 755 overlays/dev/namespace.yaml; git update-index --chmod=+x overlays/dev/namespace.yaml 2>/dev/null; true')"
+case_ tree-ids 0 'trees are identical' "$(git rev-parse "$MAIN^{tree}")"
 case_ bad-ref 2 'cannot read' deadbeefdeadbeef
 if bash "$script" 2>/dev/null; then echo "FAIL usage: no arguments passed"; failed=1; else echo "PASS usage: rc=$?"; fi
 
