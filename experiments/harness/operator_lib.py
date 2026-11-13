@@ -9,7 +9,7 @@
 All five import only the standard library, and `nexus_operator/__init__.py` imports nothing, so
 putting `operator/` on sys.path is enough: no operator requirement (kopf, aiohttp) is installed
 for the harness tests. evidence.py is NOT imported (it pulls aiohttp through kube.py); the harness
-consumes its evidence/v1 *format*, which the tests pin with a fixture shaped like its output.
+consumes its evidence/v1.1 *format*, which the tests pin with a fixture shaped like its output.
 If one of these modules ever imports a third-party package, extract the shared part into a small
 stdlib-only module instead of copying it.
 """

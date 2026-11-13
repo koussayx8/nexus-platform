@@ -22,17 +22,19 @@ from dataclasses import dataclass, field
 from .operator_lib import catalogue, proposal, rules
 
 TIMEOUT_S = 30
+# evidence/v1.1 (ADR-039) adds metrics.zscores.inflight; v1 bundles stay valid input.
+EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
 
 
 def check_redacted(bundle: dict) -> str | None:
-    """None when the bundle is the operator's redacted evidence/v1 bundle, else why not.
+    """None when the bundle is the operator's redacted evidence/v1.1 (or v1) bundle, else why not.
 
     The operator redacts before it stores or sends anything (Q1); this client never scrubs a
     bundle itself, it refuses one the operator did not redact: counts present, hash equal to the
     canonical hash of the bundle without it. (A second Redactor pass is not a usable check: the
     operator's `password` pattern matches its own `password=[REDACTED:password]` marker.)"""
-    if not isinstance(bundle, dict) or bundle.get("schema") != "evidence/v1":
-        return "not an evidence/v1 bundle"
+    if not isinstance(bundle, dict) or bundle.get("schema") not in EVIDENCE_SCHEMAS:
+        return "not an evidence/v1 or evidence/v1.1 bundle"
     if not isinstance((bundle.get("redaction") or {}).get("counts"), dict):
         return "redaction.counts missing"
     body = {k: v for k, v in bundle.items() if k != "hash"}

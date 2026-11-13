@@ -120,6 +120,7 @@ Reported, not resolved here. The owner's decisions govern until spec v1.1.
 | X8 | Carried from GATE M2-0: Z-score 3-min lag and in-flight gauge; Application name `observability`; `experiment/dev-state` sequencing; branch ruleset; unfiltered required check; ADR-030 contradiction 3 (Bedrock) moot | Unchanged; listed in `TASKS.md` |
 | X9 | "Quiet when healthy" is not a stated limitation in v1.0 | O5 makes it one |
 | X10 | C6 (K8sGPT, §20) is a required configuration; K8sGPT CLI is MUST (§22) | Owner 2026-11-04: C6 deferred, no experimental K8sGPT comparison; a theoretical study instead (ADR-037). Spec v1.1 records it |
+| X11 | §16 R1 rule 4: p95 latency Z > 3, CPU Z ≤ 1, all Ready, no rollout. §16 `evidence/v1` carries four Z-scores. §14 `proposals` is keyed by `proposal_hash` | Owner 2026-11-09, option A2 (ADR-039): rule 4 also fires on in-flight Z > 3 AND request-rate Z < −3, same guards; `evidence/v1.1` adds `metrics.zscores.inflight`; `proposals` is keyed by (`incident_uid`, `proposal_hash`); `rb-gray-failure` v2. Spec v1.1 records all three; `final-spec.md` changes at G17 |
 
 ## Test policy (O7)
 

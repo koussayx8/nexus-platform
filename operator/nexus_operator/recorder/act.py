@@ -4,7 +4,7 @@ The Writer's `count_actions` counts rows per target, and the breaker counts exec
 a restart that evicts three pods is three rows and one action, a denied request changed nothing,
 a compensation must stay possible, and the 6-per-hour limit spans every target. So the act path
 reads the recent rows once and counts them itself (breaker.py). The Gate also reads the stored
-proposal by its hash. Both are added here, inside the package, without touching the Writer:
+proposal by the Incident's uid and its hash (ADR-039). Both are added here, inside the package, without touching the Writer:
 
     ActRecorder            the Recorder protocol plus recent_actions and get_proposal
     PostgresActRecorder    PostgresRecorder plus those two reads (one SELECT each)
@@ -47,8 +47,9 @@ class ActionRecord:
 class ActRecorder(Recorder, Protocol):
     async def recent_actions(self, since: datetime.datetime) -> list[ActionRecord]: ...
 
-    async def get_proposal(self, proposal_hash: str) -> Any | None:
-        """The stored parsed proposal; the raw output when it did not parse; None if no row."""
+    async def get_proposal(self, incident_uid: str, proposal_hash: str) -> Any | None:
+        """This Incident's stored parsed proposal; the raw output when it did not parse; None if
+        this Incident has no row with that hash (ADR-039: never another Incident's row)."""
         ...
 
 
@@ -74,10 +75,12 @@ class PostgresActRecorder(PostgresRecorder):
             for r in rows
         ]
 
-    async def get_proposal(self, proposal_hash: str) -> Any | None:
+    async def get_proposal(self, incident_uid: str, proposal_hash: str) -> Any | None:
         row = await self._run(
             self._pool.fetchrow(
-                "SELECT parsed_proposal, raw_output FROM proposals WHERE proposal_hash = $1",
+                "SELECT parsed_proposal, raw_output FROM proposals"
+                " WHERE incident_uid = $1 AND proposal_hash = $2",
+                incident_uid,
                 proposal_hash,
             )
         )

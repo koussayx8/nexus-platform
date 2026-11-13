@@ -24,6 +24,7 @@ on:
       - 'scripts/audit-join.py'
       - 'runbooks/**'
       - 'experiments/retrieval/**'
+      - 'experiments/regression/**'   # the committed R1 regression (ADR-039)
       - 'Makefile'
       - '.github/workflows/harness.yml'
   push:
@@ -45,6 +46,7 @@ on:
       - 'scripts/audit-join.py'
       - 'runbooks/**'
       - 'experiments/retrieval/**'
+      - 'experiments/regression/**'   # the committed R1 regression (ADR-039)
       - 'Makefile'
       - '.github/workflows/harness.yml'
 

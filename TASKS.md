@@ -848,7 +848,7 @@ to the recorded values means a rerun;
 ## PFE re-plan (owner decisions, 2026-11-02)
 
 - **Plan:** [`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md): decisions O1–O7, tasks T0–T5, the unassigned scope
-  G1–G18, contradictions X1–X9 for spec v1.1, owner decisions Q1–Q6 (2026-11-02). Outlines:
+  G1–G18, contradictions X1–X11 for spec v1.1, owner decisions Q1–Q6 (2026-11-02). Outlines:
   [`m2-outline.md`](docs/plans/m2-outline.md), [`m3-outline.md`](docs/plans/m3-outline.md),
   [`m4-outline.md`](docs/plans/m4-outline.md).
 - **Hosts:** every measurement runs on WSL2, on the M1b calibration. A1 is the defense demo host only, built in
@@ -887,8 +887,23 @@ local in December (G17 before G16); G18 local in January.
 
 - [ ] T1 merged; FR DB live on WSL2; one `Audit-Id` dry-run (live check pending).
 - [ ] T2 merged; the operator deployed with `nexus-dev` at L0; dev RBAC widened (live check pending).
-- [ ] G1–G5 and G7's M2 part resolved.
+- [x] G1–G5 and G7's M2 part resolved. Record: [`docs/plans/m2-exit-record.md`](docs/plans/m2-exit-record.md).
+  - [x] G1, the Evidence Collector and the Redactor before storage (#144, #145, #155; `evidence/v1.1`, #192). Live:
+    E1 attempt 3 and F3 bundles (`~/nexus-evidence/e1-attempt3-2026-11-11/`, `~/nexus-evidence/f3-2026-11-11/`).
+  - [x] G2, the Compensator; `Verifying` leads only to `Resolved` or `Compensating` (#139). Closed on the offline
+    evidence (m2-live-plan Q13, A5); no live step forces a failed verification.
+  - [x] G3, operator metrics, ServiceMonitor and the config keys (#144); `nexus_operator_recorder_up` (#177, #185).
+  - [x] G4, the `ignoreDifferences` boundary check in CI (#143).
+  - [x] G5, `scripts/audit-join.py` (#143). Live in F3: 2/2 matched, completeness 1.0
+    (`~/nexus-evidence/f3-2026-11-11/audit-join-dev.txt`).
+  - [x] G7's M2 part, `verify-state.sh` M13–M15 and M19 (#156, #185). F2 and after F3: 16/16
+    (`~/nexus-evidence/f3-2026-11-11/CURRENT_STATE-after-f3.md`).
+  - E1 runs: attempt 2, 2026-11-07 (`~/nexus-evidence/adr-039-fr-20261107/`, `~/nexus-evidence/adr-039-prom-20261107/`);
+    attempt 3, 2026-11-11 (`~/nexus-evidence/e1-attempt3-2026-11-11/`).
 - [ ] `nexus-dev` → `"3"`; the M2 exit on WSL2; `CURRENT_STATE.md`; the tag (separate approval). **GATE M2 exit.**
+  - `nexus-dev` at `"3"` since 2026-11-11 13:28Z (#205, promotion 4c, `experiment/dev-state` `80d0181`). F3 passed all
+    five exit criteria (`docs/plans/m2-exit-record.md`). Open: this PR (`CURRENT_STATE.md`, `CHANGELOG` `[0.4.0]`),
+    promotion 5, the forward-merge, the tag `v0.4.0`.
 
 ### M3 — by 2026-12-06 ([`m3-outline.md`](docs/plans/m3-outline.md))
 
@@ -1044,6 +1059,10 @@ are in `docs/adr/` on `dev`.
   3. **Bedrock** is not in the spec. ADR-030 (c) allows one pre-registered evaluation, outside the arms R2 and R3.
 - [M2-4 → G17] Spec v1.1 (ADR plus version bump): the `experiment/dev-state` sequencing and forward-commit reset (§13, ADR-013), the branch ruleset (§19, ADR-013), and the unfiltered required check (§19, ADR-012).
   - **GATE M2-0:** these four Spec v1.1 items go into one Spec v1.1 PR (ADR plus version bump) at M2-4, after the ADR-030 topology addendum.
+- [ADR-039 → G17] Spec v1.1 also records ADR-039 (owner, 2026-11-09, option A2; re-plan X11): R1 rule 4 is
+  (p95 Z > 3) OR (in-flight Z > 3 AND request-rate Z < −3), with CPU Z ≤ 1, all Ready and no rollout (§16);
+  `evidence/v1.1` adds `metrics.zscores.inflight` (§16); `proposals` is keyed by (`incident_uid`, `proposal_hash`)
+  (§14). `final-spec.md` changes in the G17 PR, not before.
 - [M2-7 → T2] M2: an alert that clears is not a recovery; repair verification compares the raw signal with
   its pre-fault baseline (M1b-7 gate; ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`).
 - [M2-7 → T2] The envtest harness PKI (7-day certificates) in `~/nexus-envtest` expires 2026-10-05T21:12Z.
@@ -1198,6 +1217,66 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   15 + 3 + 2 = 20 min after a fault ends, the whole §25 budget (ADR-024 on `feat/m1b-7-detection` (#79), not yet on `dev`). Measure it in M4.
 - [→ T1] The Flight Recorder datasource and the NEXUS Operations dashboard (§3) (owner, plan review, 2026-10-16).
 - [→ G13] Full reconciliation against the API Audit Log (`reconcile-audit`, `audit_links`, §14). The M2 exit uses a minimal `audit_id` join (owner, plan review, 2026-10-16).
+- [→ T4] **The Reasoner's BM25 query fails on a null Z-score** (ADR-039 round, 2026-11-09):
+  `experiments/harness/bm25.build_query` calls `abs(z)` on every `metrics.zscores` value, and a real bundle carries
+  nulls (2026-11-07T07:19:39Z: `latencyP95` null; later in a hang, p95 and error ratio are null). It raises
+  `TypeError` (checked offline), so R2/R3 would fail on exactly those bundles and the operator would fall back to
+  R1. Fix before any R2/R3 run.
+- [→ T4] **Rebuild the Reasoner image before any R2/R3 run** (ADR-039): the current image accepts `evidence/v1`
+  only and answers a v1.1 bundle with 422 `invalid_bundle` (a silent R1 fallback). The new index changes
+  `expected_index_hash` (G16).
+- [→ M4 pre-registration] **"Quiet when healthy" cases from 2026-11-07** (ADR-039 round, no fault injected,
+  nexus-prod after 09:57Z): R1 recommended `scale_deployment` on three clusters (10:19:39Z, 10:20:09Z, 11:49:39Z ×2).
+  At 11:36:09Z (`49fe844f`, p95 Z 4.53, CPU Z 1.22) rule 4's existing p95 branch was 0.22 CPU Z from a restart.
+  At each step sample-api CPU and p95 rose in both namespaces at once, at a steady 80 rps each. Node CPU went
+  0.10 → 0.22 at 10:19, 0.23 → 0.26 at 11:35 and 0.25 → 0.53 at 11:49; `nexus-data` and `nexus-load` rose too.
+  Node CPU steal reads 0 and no frequency series exists, so the cause is UNVERIFIED (a host-side slowdown fits).
+  Locust's state then is unknown: its log starts at the 2026-11-09 restart and it exports no metrics. Evidence:
+  `~/nexus-evidence/adr-039-prom-20261107/clusters/`.
+- [→ G17 or Not planned] **L0 Incidents never reach the Flight Recorder:** the ten nexus-dev Incidents of
+  2026-11-07 (`Recorded / level_observe`) have no `incidents` row, because the L0 path in `reconcile.py` writes no
+  recorder row. Spec §14 lists `incidents` for every Incident; decide whether v1.1 says "L1 and above".
+- [→ Hygiene] `rb-gray-failure` Diagnosis still says "Check that latency is anomalous". A full hang (v2 Symptoms)
+  can keep p95 flat. Align it at the next runbook edit (the owner scoped v2 to Symptoms and Decision).
+
+**From the M2 exit (2026-11-11; `docs/plans/m2-exit-record.md`).**
+- [→ T4, closed by #201 when merged] **`verify-state.sh` named no context on most kubectl calls:** `k()` in
+  `scripts/lib/readonly.sh`, the two port-forwards and the audit probe's counter reads followed the kubeconfig's
+  current context. #201 adds `--context default` in `k()` and the port-forwards (verified live 16/16).
+- [→ M4 pre-registration] **In-flight scrape noise:** with nothing injected, `nexus-dev` in-flight Z reached 4.87 at
+  2026-11-07T07:50:12Z (rate Z −0.07) and fired `NexusLatencyAnomaly`. The stddev floor of 1 lets a few concurrent
+  requests at scrape time cross Z 3. R1 did not act (rate condition); the detector's false-alarm rate counts it.
+- [→ T4] **The manual-run gate's alert check spans every namespace:** `experiments/harness/gate.py` `run_gate` calls
+  `precheck.fired_alerts` with no namespace filter, so an alert in `nexus-prod` fails a `nexus-dev` gate (and the
+  reverse). Filter by the gated namespace, or say in the docstring that it is cluster-wide on purpose.
+- [→ M4 pre-registration] **Locust stop/start Incidents:** a load change against the 15-minute baseline reads as an
+  anomaly, and the batch's reset stops Locust before every run (the held #189 restarts it). Two Incidents may be of this
+  kind: 2026-11-09 16:53:09Z `nexus-prod` `NexusCpuAnomaly` (`Escalated`) and 16:55:09Z `nexus-dev` `NexusCpuAnomaly`
+  (`Recorded`). Their cause is UNVERIFIED: nothing read shows that Locust stopped or started then.
+- [→ M4 pre-registration] **The 2026-11-07 no-fault clusters** are the "quiet when healthy" item above; add the
+  2026-11-11 recovery Incidents (09:31:09Z, 09:32:09Z, 14:15:39Z ×2 `nexus-prod`; 09:34:09Z `nexus-dev`), from
+  baseline carry-over after a long hang.
+- [→ owner setup, before 2026-12-21] **The WSL2 VM stops or pauses when no session holds it** (`journalctl
+  --list-boots`): off 2026-11-09 19:23 → 11-10 00:08Z and 04:56 → 05:04Z, paused about 4 h 45 min after that, off
+  2026-11-11 10:34 → 12:59Z. Every pod restarts, Z-score baselines need 18 min, `/tmp` is lost. The outline's
+  "WSL started at logon; sleep off overnight" must be proven with a 6-hour idle test.
+- [→ G17 or Not planned] **L0 Incidents not in the Flight Recorder** is the item above; unchanged by M2.
+- [→ Hygiene] The `rb-gray-failure` Diagnosis sentence is the item above.
+- [→ T4, #199] **`build_query` nulls:** the BM25 item above; #199 skips a null Z-score instead of raising.
+- [→ T4, #200; conflicts with the held #190] **The S2/S4/S6 swarm sends no `spawn_rate`:** Locust 2.46.7 answers
+  HTTP 200 `success: false` and starts nothing, and `_post_form` dropped the answer. #200 sends it and fails on a
+  refusal.
+- [→ T4] **Rebuild the Reasoner image before any R2/R3 run** is the item above; also after #199 (the image carries
+  `bm25.py`).
+- [→ T4, blocker] **Every runner reset fails, twice:** `experiments/harness/runner.py:46` names the Argo CD
+  Application `dependency-db-dev` (it is `dependency-db`), and the reset sends `POST /stop`, which Locust 2.46.7 serves
+  for GET only (#198 V1, V19).
+- [→ T4, before G16] **The M4 validity review's other blockers** (#198): a run ends at the first new terminal Incident
+  of any namespace (V2); the end-of-run Locust check voids an S1 run whose hang was not fixed (V3); a cell's reasoner arm
+  is never written to the operator (V4); no injection time is recorded (V5). The High and Medium findings and a G16 fix
+  list are in `docs/reviews/2026-11-10-m4-validity.md` on #198.
+- [→ G16, ADR] **`restart_v1` verifies on p95 only** (ADR-039 addendum, #197 A2): a partial hang that a restart did
+  not fix can verify early.
 
 ### Hygiene — one pull request that gates nothing
 

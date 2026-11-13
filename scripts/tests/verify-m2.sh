@@ -35,6 +35,7 @@ case " \$* " in
   *)
     case " \$* " in *" --context default "*) ;; *) echo "stub kubectl: no --context default: \$*" >> "$work/unexpected.log"; exit 1 ;; esac
     case " \$* " in
+      *" get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up "*) [[ -e \$fx/recorder.json ]] && cat "\$fx/recorder.json" || exit 1 ;;
       *" get statefulset flight-recorder-db "*) cat "\$fx/sts.json" ;;
       *" get deployment sample-api "*) cat "\$fx/deploy-\$ns.json" ;;
       *" auth can-i --list "*)
@@ -47,9 +48,9 @@ STUB
 chmod +x "$work/bin/kubectl"
 export PATH=$work/bin:$PATH
 
-sed -n '/^v_namespace_levels() {/,/^}/p; /^v_fr_db() {/,/^}/p; /^OPERATOR_SA=/p; /^v_staged_rbac() {/,/^}/p; /^git_strategy() {/,/^}/p; /^v_rollout_strategy() {/,/^}/p' \
+sed -n '/^v_namespace_levels() {/,/^}/p; /^v_fr_db() {/,/^}/p; /^OPERATOR_SA=/p; /^v_staged_rbac() {/,/^}/p; /^git_strategy() {/,/^}/p; /^v_rollout_strategy() {/,/^}/p; /^v_recorder_up() {/,/^}/p' \
   "$root/scripts/verify-state.sh" > "$work/funcs.sh"
-for f in v_namespace_levels v_fr_db v_staged_rbac git_strategy v_rollout_strategy; do
+for f in v_namespace_levels v_fr_db v_staged_rbac git_strategy v_rollout_strategy v_recorder_up; do
   grep -q "^$f() {" "$work/funcs.sh" || { echo "FAIL could not extract $f"; exit 1; }
 done
 
@@ -141,6 +142,16 @@ printf '{"spec":{"strategy":{"type":"Recreate"}}}' > "$work/fx/deploy-nexus-dev.
 run_case "strategy-recreate" 1 'nexus-dev: .*live = Recreate - -' '' v_rollout_strategy
 fixture_deploy nexus-dev 0; rm "$work/fx/deploy-nexus-prod.json"
 run_case "strategy-live-missing" 1 'nexus-prod: .*live = NOT FOUND' '' v_rollout_strategy
+
+# M19
+rec() { printf '{"status":"success","data":{"result":[%s]}}' "$1" > "$work/fx/recorder.json"; }
+rec '{"metric":{},"value":[1,"1"]}'; run_case "recorder-up" 0 'value=1' '' v_recorder_up
+rec '{"metric":{},"value":[1,"0"]}'; run_case "recorder-zero" 1 'value=0' '' v_recorder_up
+rec '{"metric":{},"value":[1,"NaN"]}'; run_case "recorder-nan" 1 'value=NaN' '' v_recorder_up
+rec ''; run_case "recorder-no-series" 1 '0 series' '' v_recorder_up
+rec '{"value":[1,"1"]},{"value":[1,"1"]}'; run_case "recorder-two-series" 1 '2 series' '' v_recorder_up
+printf '{"status":"error"}' > "$work/fx/recorder.json"; run_case "recorder-error-status" 1 ': - series' '' v_recorder_up
+rm "$work/fx/recorder.json"; run_case "recorder-no-answer" 1 'no answer' '' v_recorder_up
 
 # M5: the nexus-dev level comes from Git, not a constant.
 levels 1 0 3 "" "" ""; run_case "level-from-git-3" 0 'nexus-dev: expected level 3 from origin/experiment/dev-state' 'FAIL|UNKNOWN' v_namespace_levels
