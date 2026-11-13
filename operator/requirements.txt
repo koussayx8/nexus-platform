@@ -189,8 +189,9 @@ iso8601==2.1.0 \
     --hash=sha256:aac4145c4dcb66ad8b648a02830f5e2ff6c24af20f4f482689be402db2429242
 jsonpatch==1.33 \
     --hash=sha256:0ae28c0cd062bbd8b8ecc26d7d164fbbea9652a1a3693f3b956c1eae5145dade
-jsonpointer==3.1.1 \
-    --hash=sha256:8ff8b95779d071ba472cf5bc913028df06031797532f08a7d5b602d8b2a488ca
+jsonpointer==3.6 \
+    --hash=sha256:82e839a3ba3a9e2b54394fda8b3d276c2459d80408d06ef9a6fbc369d7544ffc \
+    --hash=sha256:a45c858f8a9e171f6b3790ed9446c9382782f6c4cb4589176813c5a553f4cfcd
 kopf==1.44.6 \
     --hash=sha256:793b6a403be5fe389365172b117a8e1385a5d18eb80fdb1dfe0f50e9c7d7862d
 multidict==6.9.1 \
