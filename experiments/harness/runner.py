@@ -161,7 +161,7 @@ class Runner:
         users: int | None = None,
         spawn_rate: float | None = None,
     ):
-        """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST.
+        """Steps that start a fault. HTTP calls to Locust are Steps whose argv[0] is POST or GET.
         A load scenario (S2, S4, S6) needs both the user count and the spawn rate: Locust 2.46.7
         answers a /swarm without spawn_rate with HTTP 200 and {"success": false, "message": "Missing
         or invalid user_count or spawn_rate from /swarm request"} (locust/web.py), and starts nothing."""
@@ -312,9 +312,8 @@ class Runner:
                    S5_RESTORE_SQL, ns=NS_DATA, note="restore role"),
         ]  # fmt: skip
         if self.locust:
-            steps.append(
-                Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
-            )
+            # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
+            steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
         if breaker_epoch is not None:
             steps += self.plan_operator_config(advisory, breaker_epoch)
         return steps
@@ -330,6 +329,11 @@ class Runner:
                     urllib.parse.parse_qs(body, keep_blank_values=True) if body else {},
                 )
                 rc = 0
+            elif (
+                s.argv[0] == "GET"
+            ):  # Locust's web API; anything but 200 fails the step
+                code, _ = self.http_get(s.argv[1])
+                rc = 0 if code == 200 else 1
             elif s.argv[0] == "SETLEVEL":
                 rc = set_level(self.git_dir, int(s.argv[1]))
             elif s.argv[0] == "git":

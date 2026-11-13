@@ -53,7 +53,6 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(set(asked), set(runner.APPS))
 
     # V19
-    @unittest.expectedFailure
     def test_the_reset_stops_locust_with_a_get(self):
         # Locust 2.46.7 serves /stop for GET only (locust/web.py: route("/stop"), no methods).
         r = runner.Runner(
@@ -63,6 +62,33 @@ class RunnerTest(unittest.TestCase):
             s.argv[0] for s in r.plan_reset(3) if s.argv[1:2] == ("http://l/stop",)
         ]
         self.assertEqual(stops, ["GET"])
+
+    # V19, executed: the stop goes out through the GET helper and never as a POST. A stop that is
+    # refused (405 is what Locust answers to the wrong method) or gets no answer stops the reset at
+    # that step, before the operator's configuration is written; it is never passed over.
+    def test_a_refused_stop_stops_the_reset_before_the_operator_configuration(self):
+        for code in (200, 405, 0):
+            calls, gets = [], []
+
+            def get(url, code=code, gets=gets):
+                gets.append(url)
+                return code, ""
+
+            r = runner.Runner(
+                "ctx",
+                exec_=lambda argv, cwd=None, calls=calls: calls.append(argv) or (0, ""),
+                sleep=lambda s: None,
+                locust="http://l",
+                http_post=lambda u, f: self.fail(f"POST {u}"),
+                http_get=get,
+            )
+            if code == 200:
+                r.execute(r.plan_reset(3, breaker_epoch=5))
+            else:
+                with self.assertRaises(RuntimeError):
+                    r.execute(r.plan_reset(3, breaker_epoch=5))
+            self.assertEqual(gets, ["http://l/stop"])
+            self.assertEqual(any("configmap" in a for a in calls), code == 200, code)
 
 
 class Live(tb.Base):
