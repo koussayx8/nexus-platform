@@ -143,6 +143,45 @@ class OtherIncident(tb.FakeCluster):
         return rc, out
 
 
+def _dev_incident(uid, detected_at, phase, labels=None):
+    return {
+        "metadata": {"uid": uid, "name": f"inc-{uid}", "creationTimestamp": detected_at, "labels": labels or {}},
+        "spec": {"target": {"namespace": "nexus-dev", "name": "sample-api"}, "detectedAt": detected_at},
+        "status": {"phase": phase},
+    }  # fmt: skip
+
+
+class NotTheRuns(tb.FakeCluster):
+    """After the injection two more Incidents on nexus-dev are terminal at once: one whose alert
+    started 30 s before the injection (created only after the snapshot), and a smoke Incident."""
+
+    def __call__(self, argv, cwd=None):
+        rc, out = super().__call__(argv, cwd)
+        if "incidents" in argv and self.injected:
+            doc = json.loads(out)
+            start = batch.model.parse_time(self.detected_at).timestamp()
+            doc["items"][:0] = [
+                _dev_incident("stale-alarm", batch._utc(start - 30), "Dismissed"),
+                _dev_incident("smoke", self.detected_at, "Recommended", {"nexus.io/smoke": "true"}),
+            ]  # fmt: skip
+            out = json.dumps(doc)
+        return rc, out
+
+
+class SecondIncident(tb.FakeCluster):
+    """Once the run's Incident is terminal, the next alert on the target gets its own Incident."""
+
+    def __call__(self, argv, cwd=None):
+        rc, out = super().__call__(argv, cwd)
+        if "incidents" in argv and self.injected:
+            doc = json.loads(out)
+            if doc["items"][-1]["status"]["phase"] == "Dismissed":
+                later = batch.model.parse_time(self.detected_at).timestamp() + 60
+                doc["items"].insert(0, _dev_incident("second", batch._utc(later), "Executing"))  # fmt: skip
+            out = json.dumps(doc)
+        return rc, out
+
+
 class HangStays(tb.FakeCluster):
     """S1 that is not remediated: Locust is up with all its users, the hung service answers nothing."""
 
@@ -155,10 +194,37 @@ class HangStays(tb.FakeCluster):
 
 class RunIdentityTest(Live):
     # V2
-    @unittest.expectedFailure
     def test_an_incident_of_another_namespace_does_not_end_the_run(self):
         r = self.run_one(OtherIncident(self.ft, phases=("Executing", "Resolved")))
         self.assertEqual((r["status"], r["terminal"]), ("valid", "Resolved"))
+        self.assertEqual(r["incident"]["uid"], "new")
+        self.assertEqual(
+            [(i["uid"], i["namespace"], i["phase"]) for i in r["other_incidents"]],
+            [("prod-noise", "nexus-prod", "Recommended")],
+        )
+
+    # V2, the other half of what the review wants ("detected after the injection"): an Incident of
+    # the injected namespace is still not the run's when its alert started before the injection
+    # (it was only created after the snapshot), or when it is a smoke Incident.
+    def test_an_incident_detected_before_the_injection_or_a_smoke_one_is_not_the_runs(
+        self,
+    ):
+        r = self.run_one(NotTheRuns(self.ft, phases=("Executing", "Resolved")))
+        self.assertEqual((r["status"], r["terminal"]), ("valid", "Resolved"))
+        self.assertEqual(r["incident"]["uid"], "new")
+        self.assertEqual(
+            [(i["uid"], i["phase"]) for i in r["other_incidents"]],
+            [("smoke", "Recommended"), ("stale-alarm", "Dismissed")],
+        )
+
+    def test_the_first_created_incident_is_the_runs_and_stays_it(self):
+        # S2 as the review describes it: the first alert's Incident ends Dismissed. That is the
+        # system's answer to the fault and the run records it; a later Incident on the same
+        # target does not replace it.
+        r = self.run_one(SecondIncident(self.ft, phases=("Diagnosing", "Dismissed")))
+        self.assertEqual((r["status"], r["terminal"]), ("valid", "Dismissed"))
+        self.assertEqual(r["incident"]["uid"], "new")
+        self.assertEqual([i["uid"] for i in r["other_incidents"]], ["second"])
 
     # V3
     @unittest.expectedFailure

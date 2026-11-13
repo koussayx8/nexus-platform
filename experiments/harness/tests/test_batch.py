@@ -663,6 +663,7 @@ class FakeCluster:
         self.rps = 80.0
         self.recorder_up = 1.0  # nexus_operator_recorder_up: a number, a list of series, or None (no answer)
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
+        self.detected_at = None  # spec.detectedAt of the injected fault's Incident, set when it appears
 
     def vector(self, value):
         return json.dumps(
@@ -759,7 +760,12 @@ class FakeCluster:
                         }
                     )
                 phase = self.phases.pop(0) if len(self.phases) > 1 else self.phases[0]
-                items.append({"metadata": {"uid": "new"}, "status": {"phase": phase, "reasoner": {"fallbackUsed": self.fallback}}})  # fmt: skip
+                if self.detected_at is None:  # the alert starts once the fault is in
+                    self.detected_at = batch._utc(self.ft.wall())
+                items.append({"metadata": {"uid": "new", "name": "inc-new", "creationTimestamp": self.detected_at},
+                              "spec": {"source": {"alertname": "NexusLatencyAnomaly"}, "detectedAt": self.detected_at,
+                                       "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}},
+                              "status": {"phase": phase, "reasoner": {"fallbackUsed": self.fallback}}})  # fmt: skip
             return 0, json.dumps({"items": items})
         if any("sync.status" in a for a in argv):
             return 0, self.synced
@@ -1135,14 +1141,46 @@ class LiveRunTest(Base):
         )
         self.assertFalse(c.injected)
 
-    def test_incident_that_never_ends_is_discarded(self):
+    def test_an_incident_still_open_at_the_end_of_the_wait_is_a_failed_run_not_a_discard(
+        self,
+    ):
         c = FakeCluster(self.ft, phases=("Executing",))
         live = self.live(c)
-        live.wait_s = 0
+        live.wait_s = 20
         self.drive(live, max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual((r["status"], r["terminal"]), ("valid", None))
+        self.assertTrue(r["timed_out"])
         self.assertEqual(
-            self.reload().runs[0]["discard_reason"], "no_terminal_incident"
+            (r["incident"]["uid"], r["incident"]["phase"]), ("new", "Executing")
         )
+
+    def test_a_run_whose_incident_ended_is_not_marked_timed_out(self):
+        self.drive(self.live(FakeCluster(self.ft)), max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual((r["terminal"], r["timed_out"]), ("Resolved", False))
+
+    def test_no_incident_of_the_runs_own_by_the_end_of_the_wait_is_discarded(self):
+        class Undetected(FakeCluster):
+            """The fault goes in and no Incident ever appears."""
+
+            def __call__(self, argv, cwd=None):
+                if "incidents" not in argv:
+                    return super().__call__(argv, cwd)
+                was, self.injected = self.injected, False
+                try:
+                    return super().__call__(argv, cwd)
+                finally:
+                    self.injected = was
+
+        c = Undetected(self.ft)
+        live = self.live(c)
+        live.wait_s = 20
+        self.drive(live, max_runs=1)
+        r = self.reload().runs[0]
+        self.assertTrue(c.injected)
+        self.assertEqual((r["status"], r["discard_reason"]), ("discarded", "no_incident"))  # fmt: skip
+        self.assertNotIn("incident", r)
 
 
 class ExampleConfigTest(unittest.TestCase):

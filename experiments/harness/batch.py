@@ -34,6 +34,18 @@ What it adds to runner.py (which plans and executes single operations):
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
 * fallbackUsed (spec §17) is on every run record.
+* The run's Incident (run_incident): of the Incidents created after the snapshot taken just before
+  the injection, the first created whose target is the injected namespace, that is not a smoke
+  Incident, and whose alert started (spec.detectedAt) at or after the injection. Only that Incident
+  ends the run. Every other Incident created during the run, in any namespace, is kept on the run
+  record (`other_incidents`) and decides nothing. The alert's name is not part of the match: one
+  open Incident absorbs every alert on its target (poller.py), so the name is the first alert's.
+* When a run ends, and what it counts as. The run's Incident reached a terminal phase: a valid
+  run with that phase, whatever it is. The wait (wait_s after the injection) ran out with the
+  run's Incident still open: a valid run with `terminal` null and `timed_out` true, a remediation
+  that did not finish, never a discard. The wait ran out with no Incident of the run's own:
+  discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
+  not go in.
 * The injection time is on every run record that injected (`injection_at`, null before that): the
   wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
   push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
@@ -493,6 +505,51 @@ def drive(
 # ---------------------------------------------------------------- the live run
 
 
+def incident_brief(incident: dict) -> dict:
+    """What a run record keeps of an Incident."""
+    meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
+    status = incident.get("status") or {}
+    return {
+        "uid": meta.get("uid"),
+        "name": meta.get("name"),
+        "namespace": (spec.get("target") or {}).get("namespace"),
+        "alertname": (spec.get("source") or {}).get("alertname"),
+        "detected_at": spec.get("detectedAt"),
+        "phase": status.get("phase"),
+        "reason": status.get("reason"),
+    }
+
+
+def caused_by_injection(incident: dict, namespace: str, injected_at) -> bool:
+    """Can the injected fault have caused this Incident? Its target is the injected namespace, it
+    is not a smoke Incident, and its alert started at or after the injection (spec.detectedAt is
+    the alert's startsAt, poller.py). An Incident that does not say is not the run's."""
+    meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
+    if (meta.get("labels") or {}).get(model.SMOKE_LABEL) == "true":
+        return False
+    if (spec.get("target") or {}).get("namespace") != namespace:
+        return False
+    try:
+        return model.parse_time(spec.get("detectedAt") or "") >= injected_at
+    except ValueError:
+        return False
+
+
+def run_incident(new: list[dict], namespace: str, injected_at) -> dict | None:
+    """The run's Incident among those created since the injection snapshot: the first created
+    that the injection can have caused (ties: the earlier alert, then the name). None yet, maybe."""
+    own = [i for i in new if caused_by_injection(i, namespace, injected_at)]
+    return min(
+        own,
+        key=lambda i: (
+            i["metadata"].get("creationTimestamp") or "",
+            (i.get("spec") or {}).get("detectedAt") or "",
+            i["metadata"].get("name") or i["metadata"]["uid"],
+        ),
+        default=None,
+    )
+
+
 class LiveRun:
     """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks
     and breakerEpoch), wait for Applications, pre-checks, inject, wait for the Incident to end, read
@@ -612,30 +669,49 @@ class LiveRun:
         }  # false alarms are not this run's
         if not self.inject(cell, rec, guard):
             return Outcome(False, discard_reason="injection_not_applied")
+        injected_at = model.parse_time(rec["injection_at"])
         deadline = self.monotonic() + self.wait_s
-        while self.monotonic() < deadline:
+        uid, own, ended = None, None, False
+        while True:
             guard.check()
             new = [i for i in self.incidents() if i["metadata"]["uid"] not in before]
-            ended = [
-                i
-                for i in new
-                if (i.get("status") or {}).get("phase") in model.TERMINAL_PHASES
-            ]
-            if ended:
-                # the end check: Locust must still be running at the load the run was measured at
-                why = self.locust_end_failures(cell)
-                rec["locust_end"] = {"ok": not why, "failures": why}
-                if why:
-                    raise Voided("locust_end_check")
-                st = ended[0]["status"]
-                return Outcome(
-                    True,
-                    st["phase"],
-                    bool((st.get("reasoner") or {}).get("fallbackUsed")),
-                    notes={"incident": ended[0]["metadata"]["uid"]},
-                )
+            if uid is None:  # once chosen, the run's Incident does not change
+                own = run_incident(new, r.namespace, injected_at)
+                uid = own["metadata"]["uid"] if own else None
+            else:
+                own = next((i for i in new if i["metadata"]["uid"] == uid), None)
+            if own is not None:
+                rec["incident"] = incident_brief(own)
+            rec["other_incidents"] = sorted(
+                (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
+                key=lambda b: b["uid"],
+            )
+            ended = (
+                own is not None
+                and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
+            )
+            if ended or self.monotonic() >= deadline:
+                break
             self.sleep(self.poll_s)
-        return Outcome(False, discard_reason="no_terminal_incident")
+        if own is None:
+            # nothing of the run's own to score (or it was deleted under the run: never by the runner)
+            return Outcome(
+                False, discard_reason="incident_gone" if uid else "no_incident"
+            )
+        # the end check: Locust must still be running at the load the run was measured at
+        why = self.locust_end_failures(cell)
+        rec["locust_end"] = {"ok": not why, "failures": why}
+        if why:
+            raise Voided("locust_end_check")
+        st = own.get("status") or {}
+        # An Incident still open at the end of the wait is a remediation that did not finish: the
+        # run counts, with no terminal phase.
+        rec["timed_out"] = not ended
+        return Outcome(
+            True,
+            st.get("phase") if ended else None,
+            bool((st.get("reasoner") or {}).get("fallbackUsed")),
+        )
 
 
 # ---------------------------------------------------------------- command line
