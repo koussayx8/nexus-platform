@@ -594,7 +594,7 @@ class ActPath:
             return
         try:
             await self._open(incident)
-            doc = await self.recorder.get_proposal(digest)
+            doc = await self.recorder.get_proposal(incident["metadata"]["uid"], digest)
         except RecorderUnavailable:
             return  # retried next tick; approvalTTL and the approval's own expiry still bound it
         if not isinstance(doc, dict) or proposal.validate(doc):
