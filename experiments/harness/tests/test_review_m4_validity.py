@@ -12,6 +12,7 @@ import pathlib
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 from .. import arms, batch, metrics, runner
 from . import test_batch as tb
@@ -91,6 +92,15 @@ class RunnerTest(unittest.TestCase):
                     r.execute(r.plan_reset(3, breaker_epoch=5))
             self.assertEqual(gets, ["http://l/stop"])
             self.assertEqual(any("configmap" in a for a in calls), code == 200, code)
+
+    # V19: /stop answers only once the master counts no user, and waits up to 60 s for its workers
+    # (locust/runners.py, MasterRunner.stop). The stop gets that long; a status read keeps 10 s.
+    def test_the_stop_waits_as_long_as_locust_may_take_to_answer_it(self):
+        self.assertGreater(runner.LOCUST_STOP_TIMEOUT_S, 60)
+        r = runner.Runner("ctx", exec_=lambda argv, cwd=None: (0, ""), locust="http://l")  # fmt: skip
+        with mock.patch.object(runner, "_get_text", return_value=(200, "")) as get:
+            r.execute([s for s in r.plan_reset(3) if s.argv[0] == "GET"])
+        get.assert_called_once_with("http://l/stop", timeout=runner.LOCUST_STOP_TIMEOUT_S)  # fmt: skip
 
 
 class Live(tb.Base):

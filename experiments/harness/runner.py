@@ -56,6 +56,9 @@ LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
 APP_PORT = 8000
+# Locust's master answers /stop only when its user count is 0, and waits for its workers up to
+# stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
+LOCUST_STOP_TIMEOUT_S = 75
 # The nexus-operator-config keys that select the reasoner arm (operator/nexus_operator/config.py).
 REASONER_KEYS = ("reasonerEndpoint", "reasonerMode", "reasonerModel", "reasonerEffort")
 
@@ -119,6 +122,10 @@ class Runner:
         self.git_dir = git_dir
         self.http_post = http_post or _post_form
         self.http_get = http_get or _get_text
+        # A GET that is a step: /stop answers only once the master counts no user (see below).
+        self.http_step_get = http_get or (
+            lambda url: _get_text(url, timeout=LOCUST_STOP_TIMEOUT_S)
+        )
 
     # ---------------------------------------------------------------- helpers
     def k(
@@ -377,7 +384,7 @@ class Runner:
             elif (
                 s.argv[0] == "GET"
             ):  # Locust's web API; anything but 200 fails the step
-                code, _ = self.http_get(s.argv[1])
+                code, _ = self.http_step_get(s.argv[1])
                 rc = 0 if code == 200 else 1
             elif s.argv[0] == "SETLEVEL":
                 rc = set_level(self.git_dir, int(s.argv[1]))
