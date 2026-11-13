@@ -227,10 +227,37 @@ class RunIdentityTest(Live):
         self.assertEqual([i["uid"] for i in r["other_incidents"]], ["second"])
 
     # V3
-    @unittest.expectedFailure
     def test_a_hang_that_was_not_remediated_is_a_valid_run(self):
         r = self.run_one(HangStays(self.ft, phases=("Diagnosing", "Escalated")))
         self.assertEqual((r["status"], r["terminal"]), ("valid", "Escalated"))
+        self.assertEqual(r["locust_end"], {"ok": True, "failures": []})
+        # what the service was doing is on the record, as data
+        self.assertEqual(r["rate_end"]["rps"], {"nexus-dev": 0.0, "nexus-prod": 0.0})
+        self.assertEqual(r["rate_end"]["baseline_rps"], 80)
+
+    # V3, the same end state under a Resolved Incident (a restart that verified while the hang went
+    # on, #197 A2): still a remediation that failed, so still a run that counts. Voiding it would
+    # requeue the cell until a clean Resolved came.
+    def test_a_resolved_incident_over_a_service_that_still_does_not_answer_is_not_voided(
+        self,
+    ):
+        r = self.run_one(HangStays(self.ft, phases=("Executing", "Resolved")))
+        self.assertEqual((r["status"], r["terminal"]), ("valid", "Resolved"))
+        self.assertEqual(r["rate_end"]["rps"]["nexus-dev"], 0.0)
+
+    def test_an_unreadable_rate_at_the_end_is_recorded_as_null_and_voids_nothing(self):
+        class NoRate(tb.FakeCluster):
+            def __call__(self, argv, cwd=None):
+                out = super().__call__(argv, cwd)
+                if self.injected:
+                    self.prom = {
+                        ":rate2m": None
+                    }  # Prometheus stops answering that query
+                return out
+
+        r = self.run_one(NoRate(self.ft))
+        self.assertEqual(r["status"], "valid")
+        self.assertEqual(r["rate_end"]["rps"], {"nexus-dev": None, "nexus-prod": None})
 
     def test_a_dead_locust_still_voids_that_run(self):
         # What a fix must keep: the check exists to catch a Locust that stopped.
@@ -243,6 +270,27 @@ class RunIdentityTest(Live):
 
         r = self.run_one(LocustDies(self.ft, phases=("Diagnosing", "Escalated")))
         self.assertEqual((r["status"], r["void_reason"]), ("void", "locust_end_check"))
+        self.assertIn("rate_end", r)  # kept for a voided run too
+
+    def test_a_locust_that_does_not_answer_at_the_end_voids_the_run(self):
+        # No answer is not "running": the run cannot show the load it was measured under.
+        live_cluster = HangStays(self.ft, phases=("Diagnosing", "Escalated"))
+        live = batch.LiveRun(
+            tb.runner_for(live_cluster, self.ft),
+            tb.PRE,
+            wait_s=50,
+            poll_s=5,
+            sleep=self.ft.sleep,
+            monotonic=self.ft.monotonic,
+            wall=self.ft.wall,
+            stat=tb.audit_fresh(self.ft),
+        )
+        answer = live.r.http_get
+        live.r.http_get = lambda url: (0, "") if live_cluster.injected else answer(url)
+        self.drive(live, max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual((r["status"], r["void_reason"]), ("void", "locust_end_check"))
+        self.assertEqual(r["locust_end"]["failures"], ["locust:no_answer"])
 
     # V5
     def test_the_run_record_carries_the_injection_time(self):

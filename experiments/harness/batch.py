@@ -26,9 +26,13 @@ What it adds to runner.py (which plans and executes single operations):
   check, and no non-terminal Incident, all inside the 20 min cap. The window records the alerts and
   Incidents that fired with nothing injected, in the run record (`no_fault`). Incidents are never
   deleted: one still open at the cap stops the batch (`halt`, reason recorded) until `clear-halt`.
-* End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
-  is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
-  cell requeues it.
+* End-of-run Locust check: before a run counts, Locust's own state and user count are read again; a
+  Locust that is not `running` with the baseline users (S2/S4/S6: the cell's users), or that does not
+  answer, voids the run (`locust_end_check`) and the cell requeues it. The server-side request rate
+  is NOT part of this check: a service that still does not answer after a remediation that failed
+  (or that verified wrongly) has a rate near zero, and voiding on it would keep only the runs whose
+  remediation worked. The rate of every configured namespace is read at the same moment and kept on
+  the run record (`rate_end`), for the analysis; it decides nothing.
 * A load cell (S2, S4, S6) carries `users` and `spawn_rate`; both go to Locust's /swarm, and a
   refused swarm (success false) is a runner error, not a run to wait for.
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
@@ -583,18 +587,26 @@ class LiveRun:
         return json.loads(out).get("items", [])
 
     def locust_end_failures(self, cell: dict) -> list[str]:
-        """precheck.locust_failures at the end of a run. S2/S4/S6 drive their own load, so for them
-        the target is the cell's users (no per-namespace rate: the fault load is not the baseline);
-        every other scenario is held to the pre-registered baseline users and rate."""
-        cfg = self.cfg
+        """Why Locust voids a run at its end: Locust's own state and user count (the baseline users;
+        for S2/S4/S6, which drive their own load, the cell's users). No server-side rate: it cannot
+        tell a Locust that stopped from a service that does not answer, and the second is what a
+        remediation that failed looks like."""
+        loc = {**self.cfg["locust"], "namespaces": []}
         if cell["scenario"].upper() in ("S2", "S4", "S6"):
-            loc = {
-                **cfg["locust"],
-                "baseline_users": cell.get("users"),
-                "namespaces": [],
-            }
-            cfg = {**cfg, "locust": loc}
-        return precheck.locust_failures(self.r, precheck.Prom(self.r), cfg)
+            loc["baseline_users"] = cell.get("users")
+        return precheck.locust_failures(
+            self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
+        )
+
+    def rate_end(self) -> dict:
+        """The server-side request rate per configured namespace at the end of a run (None: no
+        answer), with the baseline it would be held to in a pre-check. Recorded, never judged."""
+        loc, prom = self.cfg["locust"], precheck.Prom(self.r)
+        return {
+            "baseline_rps": loc["baseline_rps_per_namespace"],
+            "tolerance": loc["tolerance"],
+            "rps": {ns: precheck.request_rate(prom, ns) for ns in loc["namespaces"]},
+        }
 
     def inject(self, cell: dict, rec: dict, guard: Guard) -> bool:
         """Run the cell's injection and stamp when the fault started on the run record (spec §21,
@@ -701,6 +713,7 @@ class LiveRun:
         # the end check: Locust must still be running at the load the run was measured at
         why = self.locust_end_failures(cell)
         rec["locust_end"] = {"ok": not why, "failures": why}
+        rec["rate_end"] = self.rate_end()
         if why:
             raise Voided("locust_end_check")
         st = own.get("status") or {}
