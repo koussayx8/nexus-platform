@@ -38,6 +38,7 @@ case " \$* " in
     case " \$* " in
       *" get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up "*) [[ -e \$fx/recorder.json ]] && cat "\$fx/recorder.json" || exit 1 ;;
       *" get statefulset flight-recorder-db "*) cat "\$fx/sts.json" ;;
+      *" get clusterpolicy nexus-autonomy-floor "*) [[ -e \$fx/k1.json ]] && cat "\$fx/k1.json" || exit 1 ;;
       *" get deployment sample-api "*) cat "\$fx/deploy-\$ns.json" ;;
       *" auth can-i --list "*)
         case " \$* " in *" --as=system:serviceaccount:nexus-system:nexus-operator "*) ;; *) echo "stub kubectl: wrong identity: \$*" >> "$work/unexpected.log"; exit 1 ;; esac
@@ -133,6 +134,32 @@ rbac_ok; canilist nexus-dev "${BASE_ROWS[@]}" 'deployments.apps/scale   []   [] 
 run_case "rbac-dev-read-only-scale" 1 'nexus-dev: scale verbs=\[get\]' '' v_staged_rbac
 rbac_ok; rm "$work/fx/canilist-nexus-data.txt"
 run_case "rbac-list-fails" 1 'nexus-data: auth can-i --list failed' '' v_staged_rbac
+
+# M14 at --milestone m3: the operator's nexus-prod grants are expected, guarded by K1.
+PROD_ROWS=("${DEV_ROWS[@]}")
+k1_fixture() {   # <ready true|false> <failurePolicy> <failureAction>
+  printf '{"spec":{"failurePolicy":"%s","rules":[{"validate":{"failureAction":"%s"}}]},"status":{"conditions":[{"type":"Ready","status":"%s"}]}}' \
+    "$2" "$3" "$([[ $1 == true ]] && echo True || echo False)" > "$work/fx/k1.json"
+}
+rbac_m3_ok() { rbac_ok; canilist nexus-prod "${BASE_ROWS[@]}" "${PROD_ROWS[@]}"; k1_fixture true Fail Enforce; }
+rbac_m3_ok; MILESTONE=m3 run_case "m3-rbac-both" 0 'nexus-prod: scale verbs=\[get patch update\] eviction verbs=\[create\]' 'NOT FOUND' v_staged_rbac
+rbac_m3_ok; MILESTONE=m3 run_case "m3-rbac-k1-shown" 0 'K1 nexus-autonomy-floor \(guards the nexus-prod grants\): ready=true failurePolicy=Fail ok=true' '' v_staged_rbac
+rbac_ok; k1_fixture true Fail Enforce
+MILESTONE=m3 run_case "m3-rbac-prod-missing" 1 'nexus-prod: scale verbs=\[-\]' '' v_staged_rbac
+rbac_m3_ok; rm "$work/fx/k1.json"
+MILESTONE=m3 run_case "m3-rbac-k1-missing" 1 'K1 nexus-autonomy-floor: NOT FOUND' '' v_staged_rbac
+rbac_m3_ok; k1_fixture true Fail Audit
+MILESTONE=m3 run_case "m3-rbac-k1-audit" 1 'ok=false' '' v_staged_rbac
+rbac_m3_ok; k1_fixture false Fail Enforce
+MILESTONE=m3 run_case "m3-rbac-k1-not-ready" 1 'ready=false' '' v_staged_rbac
+rbac_m3_ok; k1_fixture true Ignore Enforce
+MILESTONE=m3 run_case "m3-rbac-k1-ignore" 1 'failurePolicy=Ignore' '' v_staged_rbac
+rbac_m3_ok; canilist nexus-prod "${BASE_ROWS[@]}" "${PROD_ROWS[@]}" '*.*   []   []   [*]'
+MILESTONE=m3 run_case "m3-rbac-prod-wildcard" 1 'nexus-prod: .*wildcard resources=\[\*\.\*\]' '' v_staged_rbac
+rbac_m3_ok; canilist nexus-data "${BASE_ROWS[@]}" 'pods/eviction   []   []   [create]'
+MILESTONE=m3 run_case "m3-rbac-data-eviction" 1 'nexus-data: .*eviction verbs=\[create\]' '' v_staged_rbac
+# The m2 default is unchanged: the nexus-prod grants fail it, and K1 is not read.
+rbac_m3_ok; run_case "m2-rbac-prod-grants-fail" 1 'nexus-prod: scale verbs=\[get patch update\]' 'K1 nexus-autonomy-floor' v_staged_rbac
 
 # M15
 fixture_deploy nexus-dev 0; fixture_deploy nexus-prod 0
