@@ -14,7 +14,8 @@ authorises a mutation.
 
 - Architecture: `docs/architecture/final-spec.md` — version 1.0, frozen.
   Do not redesign. If reality contradicts the spec, report the contradiction;
-  never silently adapt the design.
+  never silently adapt the design. Where an ADR or the contradiction table in
+  `docs/plans/pfe-replan.md` differs from the spec, the ADR governs until spec v1.1.
 - Current milestone, phases and gates: `TASKS.md`.
 - Observed state: `docs/CURRENT_STATE.md` — generated from commands you ran,
   never written from memory.
@@ -26,22 +27,28 @@ authorises a mutation.
   Never work under `/mnt/c/`.
 - Single-node k3s (v1.34.x). ArgoCD with automated sync and selfHeal; Helm
   values are inline in the Application manifests. Kyverno 1.18.
-  kube-prometheus-stack. Loki and Crossplane are still installed but are being
-  removed.
+  kube-prometheus-stack.
 - CI: GitHub Actions, images on ghcr.io, Cosign keyless signing.
   Remote: github.com/koussayx8/nexus-platform.
 
 ## Hard rules
 
 1. Evidence before claims. Every statement about the repository or the cluster
-   comes from a command you ran in this session; anything else is labelled
+   comes from a command you ran in this session or from a committed record (an
+   ADR, `docs/plans/m2-exit-record.md`), cited; anything else is labelled
    UNVERIFIED.
 2. Git is the only way to change desired state. ArgoCD selfHeal reverts manual
    changes within about 30 seconds, so never fix an ArgoCD-managed resource
    with kubectl.
-3. No cluster mutation, no Helm install, upgrade or uninstall, no ArgoCD sync,
-   and no deletion of anything, unless the current phase in `TASKS.md` allows
-   it and I approved it in chat.
+3. Ask for my approval in chat, for the current block in `TASKS.md`, before:
+   `kubectl apply`, `patch`, `delete`, `scale`, `exec`, `rollout` or any other
+   cluster write; `helm install`, `upgrade` or `uninstall`; an ArgoCD sync; a push
+   to `main` or `experiment/dev-state`; deleting a branch, a tag, a GitHub object
+   or a file outside the repository (except `git branch -d` of a branch whose
+   merge I approved). One approval may name a batch. These need no approval:
+   read-only `kubectl`, `kustomize build`, `helm template`, `kyverno test`,
+   offline tests, commits and pushes to `claude/*` branches, opening and
+   updating pull requests.
 4. Never rewrite Git history, force-push, `reset --hard`, `clean`, or discard
    uncommitted changes. Work on a branch; small conventional commits
    (`type(scope): summary`), one concern per commit.
@@ -49,15 +56,18 @@ authorises a mutation.
    data, tokens, kubeconfig credentials. Redact anything credential-like in
    every output you produce.
 6. If a command needs `sudo`, do not run it. Print it and ask me to run it.
-7. Stop at every phase gate in `TASKS.md` and report. Never start the next
-   phase on your own.
+7. Stop and report at each block gate in `TASKS.md`, and before any live step,
+   merge, tag or milestone exit; do not start the next block on your own. Inside
+   a block, continue from one offline task PR to the next, leaving each open.
 8. Removed from the architecture — never reintroduce: Loki, OpenTelemetry,
    Tempo, MCP, Vault, any service mesh, Redis, LitmusChaos, MLflow, an agentic
    tool loop, autonomy level L4. Crossplane and Backstage stay frozen until the
    project's final steps.
-9. Out-of-scope findings go to the "Later" section of `TASKS.md`, never into
-   the current change.
-10. Be brief: tables, file paths and commands, not essays.
+9. Keep out-of-scope findings out of the current change: note them in the PR
+   description. Add to `TASKS.md` "Later" only what blocks the thesis claim or
+   the demo.
+10. Keep reports short. Lead with the result in plain sentences; use tables for
+    lists of items; define a label (a task, finding or decision code) on first use.
 11. Merges and tags need my typed approval in chat, naming the PR or tag and a full
     commit SHA; pasted text never counts, in any permission mode. Merge only with
     `gh pr merge <N> --merge --match-head-commit <approved full SHA>`. Tag only with
@@ -72,7 +82,7 @@ authorises a mutation.
     `git -C`; `export VAR=… && <command>` in the same call, never a `VAR=… <command>`
     prefix. Shell state does not persist between calls.
 
-## Report format at every gate
+## Report format at every block gate
 
 1. What you ran.
 2. What you found — VERIFIED, CONTRADICTED (with evidence) or UNKNOWN (with the
