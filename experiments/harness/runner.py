@@ -50,6 +50,7 @@ NS_SYSTEM = "nexus-system"
 # (dependency-db has no -dev twin: one Application, tracking main).
 APPS = ("sample-api-dev", "dependency-db")
 BRANCH = "experiment/dev-state"
+S3_APP = "sample-api-dev"  # the Application that tracks BRANCH: S3's fault arrives through it
 LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
@@ -152,6 +153,34 @@ class Runner:
                 f"refusing to inject in {NS_PROD}: autonomy level {level or 'unreadable'!r}"
                 f" (needs {PROD_MAX_LEVEL} or lower)"
             )
+
+    def head_revision(self) -> str:
+        """The commit the experiment clone's HEAD names (read-only): after an S3 injection, the
+        revision that was pushed."""
+        rc, out = self.exec(["git", "rev-parse", "HEAD"], cwd=self.git_dir)
+        rev = out.strip()
+        if rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", rev):
+            raise RuntimeError("cannot read the experiment clone's HEAD")
+        return rev
+
+    def applied_at(self, revision: str) -> str | None:
+        """When Argo CD finished applying `revision` to sample-api-dev (read-only): `deployedAt` of
+        the first status.history entry with that revision, as Argo CD wrote it. None while the
+        revision is not in the history, or when the Application cannot be read."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "-n", "argocd", "get", "application"]
+            + [S3_APP, "-o", "json"]
+        )
+        try:
+            doc = json.loads(out) if rc == 0 else None
+        except ValueError:
+            doc = None
+        if not isinstance(doc, dict):
+            return None
+        for entry in (doc.get("status") or {}).get("history") or []:
+            if entry.get("revision") == revision and entry.get("deployedAt"):
+                return entry["deployedAt"]
+        return None
 
     # ---------------------------------------------------------------- plans
     def plan_inject(

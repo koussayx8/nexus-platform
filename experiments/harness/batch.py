@@ -34,6 +34,11 @@ What it adds to runner.py (which plans and executes single operations):
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
 * fallbackUsed (spec §17) is on every run record.
+* The injection time is on every run record that injected (`injection_at`, null before that): the
+  wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
+  push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
+  Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
+  that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
 
 Mutations: nothing mutates without --execute AND an approval reference. The reference is the one
 the pre-registration (G16) names for the whole batch; `init` stores it, `run` must be given the same
@@ -338,6 +343,7 @@ class Queue:
             "discard_reason": None,
             "fallbackUsed": False,
             "terminal": None,
+            "injection_at": None,
         }
         self.runs.append(rec)
         self.save()
@@ -533,6 +539,37 @@ class LiveRun:
             cfg = {**cfg, "locust": loc}
         return precheck.locust_failures(self.r, precheck.Prom(self.r), cfg)
 
+    def inject(self, cell: dict, rec: dict, guard: Guard) -> bool:
+        """Run the cell's injection and stamp when the fault started on the run record (spec §21,
+        "injection start"). False when an S3 revision was pushed and Argo CD did not apply it
+        within wait_s: no fault went in."""
+        r = self.r
+        steps = r.plan_inject(
+            cell["scenario"],
+            cell.get("s3_patch"),
+            cell.get("users"),
+            cell.get("spawn_rate"),
+        )
+        started = self.wall()
+        r.execute(steps)
+        done = _utc(self.wall())
+        if cell["scenario"].upper() != "S3":
+            rec["injection_at"], rec["injection_done_at"] = _utc(started), done
+            return True
+        # S3 is a push to experiment/dev-state: nothing is faulty until Argo CD applies it.
+        rec["injection_pushed_at"] = done
+        rec["injection_revision"] = revision = r.head_revision()
+        deadline = self.monotonic() + self.wait_s
+        while True:
+            guard.check()
+            applied = r.applied_at(revision)
+            if applied:
+                rec["injection_at"] = _utc(model.parse_time(applied).timestamp())
+                return True
+            if self.monotonic() >= deadline:
+                return False
+            self.sleep(self.poll_s)
+
     def __call__(self, cell: dict, rec: dict, guard: Guard) -> Outcome:
         r = self.r
         advisory = cell.get("advisory_checks", "on")
@@ -573,14 +610,8 @@ class LiveRun:
         before = {
             i["metadata"]["uid"] for i in self.incidents()
         }  # false alarms are not this run's
-        r.execute(
-            r.plan_inject(
-                cell["scenario"],
-                cell.get("s3_patch"),
-                cell.get("users"),
-                cell.get("spawn_rate"),
-            )
-        )
+        if not self.inject(cell, rec, guard):
+            return Outcome(False, discard_reason="injection_not_applied")
         deadline = self.monotonic() + self.wait_s
         while self.monotonic() < deadline:
             guard.check()

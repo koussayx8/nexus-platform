@@ -179,11 +179,120 @@ class RunIdentityTest(Live):
         self.assertEqual((r["status"], r["void_reason"]), ("void", "locust_end_check"))
 
     # V5
-    @unittest.expectedFailure
     def test_the_run_record_carries_the_injection_time(self):
-        r = self.run_one(tb.FakeCluster(self.ft))
+        class Timed(tb.FakeCluster):
+            """Remembers the clock when the first hang request went out."""
+
+            hung_at = None
+
+            def __call__(self, argv, cwd=None):
+                if self.hung_at is None and any("/fault/" in a for a in argv):
+                    self.hung_at = self.ft.wall()
+                return super().__call__(argv, cwd)
+
+        c = Timed(self.ft)
+        r = self.run_one(c)
         self.assertEqual(r["status"], "valid")
         self.assertIn("injection_at", r)
+        self.assertEqual(r["injection_at"], batch._utc(c.hung_at))
+
+    def test_a_run_that_never_injected_has_no_injection_time(self):
+        c = tb.FakeCluster(self.ft)
+        c.z = 5  # the baseline never clears: the pre-check times out
+        r = self.run_one(c)
+        self.assertEqual(r["discard_reason"], "precheck_timeout")
+        self.assertIsNone(r["injection_at"])
+
+
+S3_CELL = [
+    {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": "bad.diff",
+     "tier": 1, "valid_target": 1, "max_attempts": 2},
+]  # fmt: skip
+REVISION = "c0ffee" * 6 + "c0ff"
+OLD_REVISION = "0" * 40
+
+
+class ArgoApplies(tb.FakeCluster):
+    """S3 on the fake cluster. The bad commit is pushed; `applies_after` reads of the Application
+    later Argo CD has applied it (never, when None), and only then is the fault in."""
+
+    def __init__(self, ft, applies_after=2, **kw):
+        super().__init__(ft, **kw)
+        self.applies_after, self.app_reads = applies_after, 0
+        self.committed, self.pushed_at, self.deployed_at = False, None, None
+
+    def __call__(self, argv, cwd=None):
+        if argv[:3] == ["git", "rev-parse", "HEAD"]:
+            self.calls.append(argv)
+            return 0, REVISION + "\n"
+        if argv[:2] == ["git", "commit"] and "inject S3" in argv[-1]:
+            self.committed = True
+        if argv[:2] == ["git", "push"] and self.committed and self.pushed_at is None:
+            self.pushed_at = self.ft.wall()
+        if argv[-4:] == ["application", runner.S3_APP, "-o", "json"]:
+            self.calls.append(argv)
+            history = [{"revision": OLD_REVISION, "deployedAt": "2026-11-01T00:00:00Z"}]
+            if self.pushed_at is not None and self.applies_after is not None:
+                self.app_reads += 1
+                if self.app_reads > self.applies_after:
+                    if self.deployed_at is None:  # applied 2 s before this read saw it
+                        self.deployed_at = self.ft.wall() - 2
+                        self.injected = True
+                    history.append(
+                        {
+                            "revision": REVISION,
+                            "deployedAt": batch._utc(self.deployed_at).replace(
+                                "+00:00", "Z"
+                            ),
+                        }
+                    )
+            return 0, json.dumps({"status": {"history": history}})
+        return super().__call__(argv, cwd)
+
+
+class S3InjectionTimeTest(Live):
+    """V5, the edge the review names: for S3 the injection is when Argo CD applied the revision."""
+
+    cells = S3_CELL
+
+    def run_s3(self, cluster) -> dict:
+        clone = pathlib.Path(self.dir) / "clone"
+        (clone / "overlays/dev").mkdir(parents=True)
+        (clone / runner.LEVEL_FILE).write_text(
+            f'metadata:\n  labels:\n    {runner.LEVEL_LABEL}: "3"\n'
+        )
+        live = batch.LiveRun(
+            tb.runner_for(cluster, self.ft, git_dir=str(clone)),
+            tb.PRE,
+            wait_s=50,
+            poll_s=5,
+            sleep=self.ft.sleep,
+            monotonic=self.ft.monotonic,
+            wall=self.ft.wall,
+            stat=tb.audit_fresh(self.ft),
+        )
+        self.drive(live, max_runs=1)
+        return self.reload().runs[0]
+
+    def test_for_s3_the_injection_time_is_when_argo_cd_applied_the_pushed_revision(
+        self,
+    ):
+        c = ArgoApplies(self.ft)
+        r = self.run_s3(c)
+        self.assertEqual(r["status"], "valid")
+        self.assertEqual(r["injection_revision"], REVISION)
+        self.assertEqual(r["injection_at"], batch._utc(c.deployed_at))
+        self.assertEqual(r["injection_pushed_at"], batch._utc(c.pushed_at))
+        self.assertGreater(c.deployed_at, c.pushed_at)  # the push is not the injection
+
+    def test_an_s3_revision_that_argo_cd_never_applies_discards_the_run(self):
+        c = ArgoApplies(self.ft, applies_after=None)
+        r = self.run_s3(c)
+        self.assertEqual(
+            (r["status"], r["discard_reason"]), ("discarded", "injection_not_applied")
+        )
+        self.assertIsNone(r["injection_at"])
+        self.assertEqual(r["injection_pushed_at"], batch._utc(c.pushed_at))
 
 
 R3_CELL = [
