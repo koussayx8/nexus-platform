@@ -15,8 +15,10 @@ named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
   runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
-  runner.py gate --context C --namespace nexus-dev --locust URL --locust-users 160 \\
-      --locust-rate R --window 20m --config batch.json    read-only; exits 1 on any FAIL
+  python -m experiments.harness.runner gate --context C --namespace nexus-dev --locust URL \\
+      --locust-users 160 --locust-rate R --window 20m --config batch.json
+                                                 read-only; exits 1 on any FAIL. From the repository
+                                                 root, as a module: `runner.py gate` cannot import it
 
 Git is never force-pushed (ADR-013): reset is a forward commit on experiment/dev-state.
 Live behaviour is "live check pending": no cluster was available when this was written;
