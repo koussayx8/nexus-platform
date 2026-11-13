@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
-**Milestones (re-plan, owner, 2026-11-02):** M2 live by 2026-11-20, M3 by 2026-12-06, code complete 2026-12-20, evaluation until ~2027-01-10, the A1 demo in early January 2027 ([`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md)). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
-**Current phase:** the re-plan (task T0) at its gate; tasks T1–T5 open in parallel (section "PFE re-plan" below). The GATE M2-0 record and the M1 and M1b phase records are in their sections below.
+**Deadline (owner, 2026-11-12):** everything (code, runs, demo, thesis) done before 2027-01-01; target 2026-12-24. The plan is section "Plan to the defense" below; it replaces the dates of the 2026-11-02 re-plan. M2 complete: `v0.4.0` on `1dfd119` (2026-11-11). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
+**Current phase:** Block 0 of the plan to the defense (2026-11-13). The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -845,6 +845,123 @@ to the recorded values means a rerun;
   - [ ] Closing PR: ADR-026 results, ADR-020 and ADR-025 addenda, `CURRENT_STATE.md`, these boxes.
     **GATE M1b-9.**
 
+## Plan to the defense (owner decisions, 2026-11-12 and 2026-11-13)
+
+Source: `~/nexus-reports/fable-review-plan-2026-11-12.md` (Parts 1–3), corrected by the owner's decisions below,
+which win where they differ. This section replaces the dates and the scope of the 2026-11-02 re-plan; that section and
+its outlines stay as the record.
+
+### Decisions
+
+| # | Decision (owner) |
+|---|---|
+| D1 | Deadline: code, runs, demo and thesis done before 2027-01-01. Work every day. Target 2026-12-24; 12-25 → 12-31 is buffer and rehearsal |
+| D2 | A PFE thesis and a live demo, not a product. Cut proofs and tests nobody sees. Never cut the visible loop: detect → analyse → propose → approve (L2) or act (L3) → verify → escalate |
+| D3 | The Haiku arm is removed. Arms R0–R3 only; no new LLM provider |
+| D4 | G6 kept: `NexusRolloutStuck`, `NexusCrashLooping` and `group_by: [nexus_target]` are on `main` since #184. S3 kept. Left: the F5 SIGKILL decision and the S3 runs |
+| D5 | G13: only the audit reconciliation shrinks, to `scripts/audit-join.py` after every run. `export-results` and `make results` stay |
+| D6 | M3 is switched on with the single `- m3-live` line. Live-test only the Reasoner's isolation. One S1 run after switch-on is the smoke test |
+| D7 | From #197 and #198, fix the harness blockers (D19) and #197 A1 (quadratic redaction). The other findings go to the thesis Limitations |
+| D8 | C8 in: when an Incident ends `Escalated` with `git_revert`, NEXUS opens a ready revert PR against the branch the target's Argo CD app tracks (`experiment/dev-state` for `nexus-dev`, `main` for `nexus-prod`). The admin approves by merging; NEXUS never merges |
+| D9 | A chat bot (Telegram): pushes `AwaitingApproval`, `Escalated`, `Resolved`, `Blocked` and the NEXUS alerts, with buttons Approve, Reject, Explain, Note. Note is the admin's free-text order: it becomes a human-supplied note, NEXUS re-diagnoses, and the new proposal comes back with buttons. Nothing outside the four-entry catalogue runs; every change passes the Safety Gate and Kyverno |
+| D10 | Cuts: the effort sweep; C5 (manual baseline); G14 (detector comparison); the A1 demo host (demo on the laptop, plus the backup video); S2 and S4 not measured live; 5 valid runs per cell; R2 offline only. The Note flow stays, hard stop 12-02, first to cut |
+| D11 | S5 joins the core matrix: R1 and R3, live at L3, 5 valid runs each |
+| D12 | The harness blockers are six: V1, V2, V3, V4, V5 and V19 (#198). Block 4 fixes all six |
+| D13 | #189 goes in Block 4: its reset and fallback move to `GET /stop` (V19), then it merges. #190 stays held (S2 not measured live) |
+| D14 | #169 and #194 are closed: superseded by the Reasoner rebuild after #199 (Block 3) |
+| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only |
+| D16 | Replay: real bundles exist only for S1. The R0 replay starts 11-19; the R1–R3 replay runs on S1 first, then on S3, S5 and S6 as the trial runs produce real bundles; synthetic bundles are labelled as such |
+| D17 | One promotion per block. The operator bump that follows #179 rides with Block 1's `m3-live` promotion |
+| D18 | Block 1's gate adds: a dry-run scale in `nexus-prod` is refused by K1 (`m3-live` also binds the operator's `nexus-prod` grants from #179) |
+| D19 | WSL idle setting: done by the owner on 2026-11-12. Block 9 keeps the 6-hour idle test |
+| D20 | Thesis framing: "bounded harm". The wrong-action rate per arm goes into the export. All six light improvements are in: backup video, architecture figure, one command per demo scenario, wrong-action rate, the "denied" demo beat, and the Grafana Incident-timeline panel last |
+| D21 | The bot (Block 7) also gets read-only commands: `/status` (open Incidents, levels, Kill Switch), `/pods <ns>` (ready count, restarts), `/incident <name>` (same as Explain) |
+| D22 | `/ask`: the bot collects one fixed read-only snapshot, makes ONE LLM call, and shows plain-text advice marked "advice only"; it never acts on it. Built after the Note flow; cut first if late. Not on run days (Groq tokens). CLAUDE.md rule 8 stays: no agent loop |
+| D23 | Runbooks: no new ones. Before the Block 9 freeze, polish `rb-bad-rollout` (own words, source cited: runbooks.prometheus-operator.dev, KubePodCrashLooping) and the `rb-gray-failure` Diagnosis line, then re-check retrieval once |
+| D24 | ITBench: no runs. One desk table in the thesis mapping ITBench fault types to what NEXUS would do (fix, escalate, not seen) |
+
+### Blocks
+
+Each block ends at its gate: report, then wait. Inside a block, offline task PRs follow one another without a stop.
+"Owner" lists what only the owner can do: typed approvals naming a full SHA, pushes and deletes the agent is denied,
+secrets, `sudo`.
+
+- [ ] **Block 0 — 11-13. Merge batch and docs.** Merge #199, #200, #201, #202, #197, #198. #191 with the level-line
+  exception removed. #179 with `origin/dev` merged in (no rebase). This docs PR. Close #169 and #194. No promotion.
+  **Gate:** `dev` green. Owner: the typed merge approvals. Cut first: #191.
+- [ ] **Block 1 — 11-14 → 11-15. M3 switch-on.** Merge #179; the operator digest bump; the `- m3-live` line; one
+  promotion and sync. One S1 run on `nexus-dev` as the smoke test. **Gate:** K1–K6 report Enforce; S1 ends `Resolved`;
+  a dry-run scale to 40 is refused; a dry-run scale in `nexus-prod` is refused by K1 (D18). Owner: approvals, the
+  promotion. Cut first: `verifyImages`.
+- [ ] **Block 2 — 11-16 → 11-17. L2 live with `nexusctl`.** `nexus-dev` to `"2"` by a commit on `experiment/dev-state`;
+  S1; approve; `Resolved`. Refused: no approval, an altered hash, a non-approver. Back to `"3"`. Tag `v0.5.0`.
+  **Gate:** the visible loop at L2, end to end. Owner: the approver identity, the level commits, the tag. Cut first:
+  the expired-approval case live (the policy test covers it).
+- [ ] **Block 3 — 11-18 → 11-20. The Reasoner live.** Rebuild the image after #199 (the bm25 null-Z fix and the
+  `evidence/v1.1` acceptance, Later items), bump, deploy. Isolation only: no token, empty `auth can-i --list`, no route
+  to the API server. One S1 run with R3; measure tokens per call. The R0 replay starts 11-19; the R1–R3 replay on S1
+  (D16). **Gate:** R3 returns a valid proposal on a live bundle; isolation checks pass. Owner: the Groq key as a
+  Secret; approvals. Cut first: nothing (R2 is already offline only).
+- [ ] **Block 4 — 11-21 → 11-22. Harness blockers.** V1–V5 and V19 (D12); #189 moved to `GET /stop`, then merged
+  (D13); the Haiku arm and the effort sweep removed from `experiments/harness/arms.py` and its tests. **Gate:** the
+  expected-failure tests from #198 pass. Cut first: nothing (mandatory).
+- [ ] **Block 5 — 11-23 → 11-24. Redaction, F5, trial runs.** #197 A1; the F5 decision; `audit-join.py` after every
+  run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
+  kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
+  (each trial run feeds the replay).
+- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15). Then the PR opener, the commit
+  validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
+  PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
+  token; merging the revert PR. Cut first: the `main` mapping (unused at L1).
+- [ ] **Block 7 — 11-28 → 11-30. Bot core.** Pushes; Approve, Reject, Explain; `/status`, `/pods`, `/incident`
+  (D21); the Alertmanager Telegram route. **Gate:** an L2 approval from the owner's phone; the Incident and the audit
+  log name the owner. Owner: BotFather, the bot token, the Telegram user ID. Cut first: Explain polish; never Approve.
+- [ ] **Block 8 — 12-01 → 12-02. Note flow, then `/ask`.** Hard stop 12-02. **Gate:** a note produces a new proposal
+  with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
+- [ ] **Block 9 — 12-03 → 12-04. Freeze.** Runbook polish and one retrieval re-check (D23), then the final Reasoner
+  image (the index hash changes); `experiments/ground-truth.yaml`; a one-page run protocol; spec v1.1 (#203, amended
+  for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19). Tag `v0.6.0`. Code freeze.
+  **Gate:** the protocol is merged before the first measured run. Owner: approvals, the tag. Cut first: shrink the
+  protocol to half a page.
+- [ ] **Block 10 — 12-05 → 12-07. Runs 1.** The live adversarial runs and the containment suite (attended); the live
+  scenario runs start (unattended). **Gate:** suite complete; first cells valid. Owner: the protocol's approval of the
+  batch of runner mutations; Kill Switch steps. A containment violation is a result: stop and report.
+- [ ] **Block 11 — 12-08 → 12-10. Runs 2.** The remaining live scenario runs; one overnight no-fault window.
+  **Gate:** every cell has its valid runs. Owner: pod replacements; the laptop awake. Cut first: the no-fault window
+  to 4 hours.
+- [ ] **Block 12 — 12-11 → 12-12. Runs 3.** The L2 and C8 cells (attended); re-runs of voided cells. **Gate:** the
+  matrix is complete. Cut first: the C8 "without PR" comparison.
+- [ ] **Block 13 — 12-13 → 12-15. Results.** `export-results`, `make results`, figures, the wrong-action rate per
+  arm (D20), the Limitations list from #197 and #198. **Gate:** every number in the thesis comes from the export.
+- [ ] **Block 14 — 12-16 → 12-18. Demo.** One command per scenario; the architecture figure; the "denied" beat; the
+  backup video; the Grafana Incident-timeline panel last (D20). **Gate:** a full rehearsal from a cold start; the
+  video exists. Cut first: the Grafana panel.
+- [ ] **Block 15 — 12-19 → 12-24. Thesis.** Complete draft by 12-21, final by 12-24; slides; the ITBench desk table
+  (D24). Chapters are written in parallel from Block 0 on.
+- 12-25 → 12-31: buffer and rehearsal.
+
+**Cut order if the plan slips:** `/ask`; the Note flow; the Grafana panel; the C8 comparison cells (the C8 demo
+stays); the no-fault window. **Never cut:** the visible loop (D2), the offline adversarial replay, the live
+adversarial runs, the backup video.
+
+### Run matrix
+
+| Cell | Reasoner | Scenarios and level | Mode | Runs | Supports |
+|---|---|---|---|---|---|
+| Replay, adversarial | R0, seeded | ~300 proposals × L0–L3 | Offline: Safety Gate code, `kyverno` CLI, RBAC matrix | ~1,200 verdicts | Safety: zero violations bound the rate near 1 % (rule of three) |
+| Replay, real reasoners | R1, R2, R3 | S1 real bundles first; S3, S5, S6 as trial runs produce them; synthetic ones labelled (D16) | Offline | per bundle × L0–L3 | Safety on realistic output; correct-action rate per arm, R2 included |
+| Live adversarial | R0 | L3, advisory checks off | Live | 10 | Safety without the operator's own checks (I13) |
+| Containment suite | — | Coverage matrix, Kyverno down, Kill Switch, compromised operator | Live, attended | once each | Fail-closed; Kill Switch |
+| Live, rules | R1 | S1, S3, S5, S6 at L3 | Live | 5 valid each = 20 | Effectiveness baseline; S3 the GitOps boundary; S5 held out; S6 injection |
+| Live, large model | R3 | S1, S3, S5, S6 at L3 | Live | 5 valid each = 20 | Effectiveness; S5 is where R3 can beat R1; S6 a manipulated model stays bounded |
+| L2 | R1 or R3 | S1 at L2 | Live, attended | 3 approved, 3 refused | The approval path (demonstration) |
+| C8 | R3 | S3 with the ready PR | Live, attended | 3 | Human time to resolve S3 (spec §20 C8) |
+| No fault | — | both namespaces | Live, overnight | one 8-hour window | The "quiet when healthy" limitation, as a false-alarm count |
+
+About 59 live runs. Groq (published, both `gpt-oss` models, tier UNVERIFIED): 30 requests/min, 1,000/day, 8,000
+tokens/min, 200,000 tokens/day. Tokens bind: space replay calls ≥ 35 s apart, save every response, treat HTTP 429 as a
+pause, not an R1 fallback (#198 V10). Check the organisation's own limits before Block 3.
+
 ## PFE re-plan (owner decisions, 2026-11-02)
 
 - **Plan:** [`docs/plans/pfe-replan.md`](docs/plans/pfe-replan.md): decisions O1–O7, tasks T0–T5, the unassigned scope
@@ -858,7 +975,7 @@ to the recorded values means a rerun;
 - **Tests:** automated tests for the safety invariants (RBAC boundaries, K1–K6, K5 binding, write-ahead plus
   `Audit-Id`, Kill Switch, verification, I1/I2); normal unit tests elsewhere; no custom harnesses or calibration
   campaigns.
-- **Live checks:** no cluster in the agent sessions; each live check is marked "live check pending" until the owner
+- **Live checks:** no cluster in the cloud agent sessions; each live check is marked "live check pending" until the owner
   runs or approves it on WSL2.
 
 **Tasks** (one branch `claude/task-<n>-<short-name>` and one PR to `dev` each; only T0 edits `TASKS.md` and
@@ -873,8 +990,8 @@ to the recorded values means a rerun;
   `verifyImages` in Audit; NetworkPolicies N1–N6; CODEOWNERS; `nexusctl`; the approval schema and `approvalTTL`.
   The operator's L2 states and the `nexus-prod` grants follow after T2 merges. [M3]
 - [ ] **T4 — M4 harness:** the runner (inject, reset, ArgoCD refresh); §21 metrics and statistics on fixtures; the
-  reasoner client (`proposal/v1`, redaction, timeout); BM25 over the runbooks; arm configs, incl. the Haiku arm and
-  the effort sweep. [M4]
+  reasoner client (`proposal/v1`, redaction, timeout); BM25 over the runbooks; arm configs R0–R3 (the Haiku arm and
+  the effort sweep are removed from the plan, owner 2026-11-12; the `arms.py` change is Block 4). [M4]
 - [ ] **T5 — Hygiene, supply chain, multi-arch** (the items tagged → T5 below). [M3; before the A1 demo]
 - [ ] **T6 — G4, G5, G6:** the `ignoreDifferences` boundary check, the minimal `audit_id` join script, the KSM
   alerts with `group_by` and F5. [G4, G5 by the M2 exit; G6 by 2026-12-20]
@@ -900,10 +1017,10 @@ local in December (G17 before G16); G18 local in January.
     (`~/nexus-evidence/f3-2026-11-11/CURRENT_STATE-after-f3.md`).
   - E1 runs: attempt 2, 2026-11-07 (`~/nexus-evidence/adr-039-fr-20261107/`, `~/nexus-evidence/adr-039-prom-20261107/`);
     attempt 3, 2026-11-11 (`~/nexus-evidence/e1-attempt3-2026-11-11/`).
-- [ ] `nexus-dev` → `"3"`; the M2 exit on WSL2; `CURRENT_STATE.md`; the tag (separate approval). **GATE M2 exit.**
+- [x] `nexus-dev` → `"3"`; the M2 exit on WSL2; `CURRENT_STATE.md`; the tag (separate approval). **GATE M2 exit.**
   - `nexus-dev` at `"3"` since 2026-11-11 13:28Z (#205, promotion 4c, `experiment/dev-state` `80d0181`). F3 passed all
-    five exit criteria (`docs/plans/m2-exit-record.md`). Open: this PR (`CURRENT_STATE.md`, `CHANGELOG` `[0.4.0]`),
-    promotion 5, the forward-merge, the tag `v0.4.0`.
+    five exit criteria (`docs/plans/m2-exit-record.md`). `CURRENT_STATE.md` and `CHANGELOG` `[0.4.0]` (#207);
+    tag `v0.4.0` on `1dfd119` (2026-11-11).
 
 ### M3 — by 2026-12-06 ([`m3-outline.md`](docs/plans/m3-outline.md))
 
@@ -1277,6 +1394,10 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   list are in `docs/reviews/2026-11-10-m4-validity.md` on #198.
 - [→ G16, ADR] **`restart_v1` verifies on p95 only** (ADR-039 addendum, #197 A2): a partial hang that a restart did
   not fix can verify early.
+- [→ spec v1.1, #203] **The spec's scenario table disagrees with the operator at L1** (2026-11-13): §20 says S3 and S5
+  end `Recommended` at L1, but a live L1 proposal of `escalate` ends `Escalated / proposed_escalation` (E1 attempt 2,
+  2026-11-07, `inc-a676334b7210ccba-1794045159`; `docs/plans/m2-exit-record.md`). Decide which is right and record it
+  in spec v1.1.
 
 ### Hygiene — one pull request that gates nothing
 

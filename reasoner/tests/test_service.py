@@ -76,6 +76,22 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(m["retrievedChunks"])
         self.assertFalse(m["noRunbook"])
 
+    def test_a_bundle_with_null_zscores_is_answered(self):
+        # A real bundle carries null for a signal with no data (p95 once a hang lets no request
+        # complete). The BM25 query used to raise on it, which the operator saw as a failed arm.
+        z = self.b["metrics"]["zscores"]
+        z["latencyP95"], z["errorRatio"] = None, None
+        self.b.pop("hash")
+        self.b["hash"] = proposal.hash_of(self.b)
+        out = self.call(
+            reasoner(groq(good_proposal(self.b, refs=("metrics.zscores.cpu",))))
+        )
+        self.assertEqual(out["proposal"]["action"]["id"], "restart_workload")
+        self.assertEqual(
+            self.call(reasoner(), mode="rules", model=None)["proposal"]["schema"],
+            "proposal/v1",
+        )
+
     def test_no_runbook_when_floor_is_high(self):
         rs = reasoner(groq(good_proposal(self.b)), floor=1e9)
         out = self.call(rs)

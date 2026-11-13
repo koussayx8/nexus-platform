@@ -19,7 +19,15 @@ from nexus_operator.gate import Gate
 from nexus_operator.model import iso
 from nexus_operator.verifier import Verifier
 
-TERMINAL = {"Resolved", "Escalated", "Blocked", "Recommended", "Dismissed"}
+TERMINAL = {
+    "Resolved",
+    "Escalated",
+    "Blocked",
+    "Recommended",
+    "Dismissed",
+    "Rejected",
+    "Expired",
+}
 
 
 class Rig:

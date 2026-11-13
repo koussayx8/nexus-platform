@@ -40,6 +40,8 @@
       "scenario": "S4",
       "reasoner": "R1",
       "level": 3,
+      "users": 240,
+      "spawn_rate": 4,
       "tier": 1,
       "valid_target": 5,
       "max_attempts": 8

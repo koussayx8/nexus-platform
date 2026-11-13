@@ -29,6 +29,8 @@ What it adds to runner.py (which plans and executes single operations):
 * End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
   is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
   cell requeues it.
+* A load cell (S2, S4, S6) carries `users` and `spawn_rate`; both go to Locust's /swarm, and a
+  refused swarm (success false) is a runner error, not a run to wait for.
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
 * fallbackUsed (spec §17) is on every run record.
@@ -572,7 +574,12 @@ class LiveRun:
             i["metadata"]["uid"] for i in self.incidents()
         }  # false alarms are not this run's
         r.execute(
-            r.plan_inject(cell["scenario"], cell.get("s3_patch"), cell.get("users"))
+            r.plan_inject(
+                cell["scenario"],
+                cell.get("s3_patch"),
+                cell.get("users"),
+                cell.get("spawn_rate"),
+            )
         )
         deadline = self.monotonic() + self.wait_s
         while self.monotonic() < deadline:

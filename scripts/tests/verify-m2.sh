@@ -28,12 +28,13 @@ for ((i = 1; i <= \$#; i++)); do
   a=\${!i}
   [[ \$a == -n ]] && { j=\$((i + 1)); ns=\${!j}; }
 done
+# Every call names the cluster: k() adds --context default itself (lib/readonly.sh).
+case " \$* " in *" --context default "*) ;; *) echo "stub kubectl: no --context default: \$*" >> "$work/unexpected.log"; exit 1 ;; esac
 case " \$* " in
-  *" get ns "*)   # M5's existing calls carry no --context; only the new checks are held to it
+  *" get ns "*)
     all="\$*"; name=\${all#*get ns }; name=\${name%% *}
     case " \$* " in *" -o "*) cat "\$fx/level-\$name.txt" ;; *) [[ -e \$fx/level-\$name.txt ]] ;; esac ;;
   *)
-    case " \$* " in *" --context default "*) ;; *) echo "stub kubectl: no --context default: \$*" >> "$work/unexpected.log"; exit 1 ;; esac
     case " \$* " in
       *" get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up "*) [[ -e \$fx/recorder.json ]] && cat "\$fx/recorder.json" || exit 1 ;;
       *" get statefulset flight-recorder-db "*) cat "\$fx/sts.json" ;;
@@ -167,6 +168,49 @@ if grep -qE '^[[:space:]]*timeout 15 kubectl --context default .*create configma
   echo "PASS audit-probe-context"
 else
   echo "FAIL audit-probe-context: the probe's kubectl call has no --context default"; failed=1
+fi
+
+# Every kubectl call of verify-state.sh and of the shared library names the cluster. Static, because
+# the port-forwards and the probe need a cluster: every line that invokes kubectl (comments and the
+# guard's messages aside) must read `kubectl --context default`.
+for f in scripts/verify-state.sh scripts/lib/readonly.sh; do
+  bare=$(grep -nE '(^|[[:space:];&|(])kubectl[[:space:]]' "$root/$f" \
+    | grep -vE '^[0-9]+:[[:space:]]*#|guard_fail|disp' | grep -v 'kubectl --context default ' || true)
+  if [[ -z $bare ]]; then
+    echo "PASS every-kubectl-call-names-the-context: $f"
+  else
+    echo "FAIL every-kubectl-call-names-the-context: $f"; while IFS= read -r line; do echo "  | $line"; done <<<"$bare"; failed=1
+  fi
+done
+calls=$(grep -cE 'kubectl --context default ' "$root/scripts/verify-state.sh")
+if [[ $calls == 3 ]]; then echo "PASS verify-state-direct-calls: the two port-forwards and the audit probe"
+else echo "FAIL verify-state-direct-calls: $calls direct kubectl calls, expected 3"; failed=1; fi
+
+# k() is the one place that names it: a call site that passes --context again is a second copy.
+if grep -nE '(^|[[:space:](])k (get|describe|logs|auth|version|api-resources)[^#]*--context' "$root/scripts/verify-state.sh" "$root/scripts/capture-state.sh"; then
+  echo "FAIL k-names-the-context-once: a k() call passes --context itself"; failed=1
+else
+  echo "PASS k-names-the-context-once"
+fi
+
+# Behind the real wrappers, the stub sees the context first, on reads and on the Secret listing.
+: > "$work/kubectl.log"
+(
+  OUT=$work/out; mkdir -p "$OUT"
+  # shellcheck source=../lib/readonly.sh
+  source "$root/scripts/lib/readonly.sh"
+  k get ns nexus-prod >/dev/null 2>&1 || true
+  k get --raw /metrics >/dev/null 2>&1 || true
+  secret_names -n nexus-system >/dev/null 2>&1 || true
+)
+sed -i '/unexpected call/d' "$work/unexpected.log" 2>/dev/null || true   # these three are not fixture calls
+want='--context default --request-timeout=20s get ns nexus-prod
+--context default --request-timeout=20s get --raw /metrics
+--context default --request-timeout=20s get secrets -n nexus-system'
+if [[ $(cat "$work/kubectl.log") == "$want" ]]; then
+  echo "PASS wrappers-put-the-context-first"
+else
+  echo "FAIL wrappers-put-the-context-first:"; sed 's/^/  | /' "$work/kubectl.log"; failed=1
 fi
 
 if [[ -s $work/unexpected.log ]]; then echo "FAIL unexpected kubectl calls:"; cat "$work/unexpected.log"; failed=1; fi

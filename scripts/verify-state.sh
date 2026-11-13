@@ -16,6 +16,9 @@
 # present (M17) and the Reasoner Ready with the expected index hash (M18). The default milestone is
 # m2, which runs M1-M15, M19 (nexus_operator_recorder_up = 1) and the informational I1.
 #
+# Every kubectl call names the cluster, `--context default`: the reads through k() (lib/readonly.sh),
+# the two port-forwards (M4, M10) and the audit probe (M7). None follows the kubeconfig's current context.
+#
 # Usage: scripts/verify-state.sh [--out PATH] [--milestone m2|m3]
 #   --out PATH        where the report is written (default: docs/CURRENT_STATE.md)
 #   --milestone M     m2 (default) runs M1-M15 and M19; m3 adds M16-M18 and needs
@@ -237,7 +240,7 @@ v_metrics_probe() {   # <namespace> — temporary port-forward, stopped after, t
   [[ -n $port ]] || { echo "$ns: no sample-api Service"; return 1; }
   lport=$(( 20000 + RANDOM % 20000 ))
   body=$(mktemp)
-  timeout 30 kubectl --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
+  timeout 30 kubectl --context default --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
   pid=$!
   trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' RETURN
   for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; curl -s -o /dev/null "http://127.0.0.1:$lport/metrics" && break; sleep 0.2; done
@@ -450,7 +453,7 @@ v_items_probe() {   # <namespace> — temporary port-forward, stopped after, tim
   [[ -n $port ]] || { echo "$ns: no sample-api Service"; return 1; }
   lport=$(( 20000 + RANDOM % 20000 ))
   body=$(mktemp)
-  timeout 30 kubectl --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
+  timeout 30 kubectl --context default --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
   pid=$!
   trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' RETURN
   for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; curl -s -o /dev/null "http://127.0.0.1:$lport/health" && break; sleep 0.2; done
@@ -474,7 +477,7 @@ v_items_probe() {   # <namespace> — temporary port-forward, stopped after, tim
 v_fr_db() {
   local jf want ready
   jf=$(mktemp)
-  if ! k get statefulset flight-recorder-db -n nexus-system -o json --context default >"$jf" 2>/dev/null; then
+  if ! k get statefulset flight-recorder-db -n nexus-system -o json >"$jf" 2>/dev/null; then
     echo "nexus-system/flight-recorder-db: NOT FOUND"; rm -f "$jf"; return 1
   fi
   want=$(jq -r '.spec.replicas // 0' "$jf")
@@ -494,7 +497,7 @@ OPERATOR_SA=system:serviceaccount:nexus-system:nexus-operator
 v_staged_rbac() {
   local rc=0 ns list rows scale evict wild
   for ns in nexus-dev nexus-prod nexus-data; do
-    if ! list=$(k auth can-i --list -n "$ns" --as="$OPERATOR_SA" --context default 2>&1); then
+    if ! list=$(k auth can-i --list -n "$ns" --as="$OPERATOR_SA" 2>&1); then
       echo "$ns: auth can-i --list failed"; rc=1; continue
     fi
     rows=$(awk 'NR>1 && NF {
@@ -533,7 +536,7 @@ v_rollout_strategy() {
   for pair in "nexus-dev experiment/dev-state" "nexus-prod main"; do
     read -r ns branch <<<"$pair"
     want=$(git_strategy "$branch")
-    got=$(k get deployment sample-api -n "$ns" -o json --context default 2>/dev/null \
+    got=$(k get deployment sample-api -n "$ns" -o json 2>/dev/null \
       | jq -r '.spec.strategy | select(. != null) | "\(.type) \(.rollingUpdate.maxSurge // "-") \(.rollingUpdate.maxUnavailable // "-")"')
     echo "$ns: Git (origin/$branch) = ${want:-NOT FOUND}; live = ${got:-NOT FOUND}"
     [[ -n $want && $want == "$got" ]] || rc=1
@@ -551,7 +554,7 @@ v_policies_enforce() {
   local rc=0 n pol line
   for n in "${!K_POLICIES[@]}"; do
     pol=${K_POLICIES[$n]}
-    if ! line=$(k get clusterpolicy "$pol" -o json --context default 2>/dev/null); then
+    if ! line=$(k get clusterpolicy "$pol" -o json 2>/dev/null); then
       echo "K$((n+1)) $pol: NOT FOUND"; rc=1; continue
     fi
     line=$(jq -r '
@@ -581,7 +584,7 @@ v_network_policies() {
   local rc=0 pair ns name missing=() present=0
   for pair in "${NETPOLS[@]}"; do
     read -r ns name <<<"$pair"
-    if k get networkpolicy "$name" -n "$ns" --context default >/dev/null 2>&1; then present=$((present+1)); else missing+=("$ns/$name"); fi
+    if k get networkpolicy "$name" -n "$ns" >/dev/null 2>&1; then present=$((present+1)); else missing+=("$ns/$name"); fi
   done
   echo "NetworkPolicies present: $present of ${#NETPOLS[@]}"
   if (( ${#missing[@]} )); then echo "missing: ${missing[*]}"; rc=1; fi
@@ -597,14 +600,14 @@ v_network_policies() {
 v_reasoner() {
   local jf rc=0 want ready doc status got expected
   jf=$(mktemp)
-  if ! k get deployment nexus-reasoner -n nexus-reasoner -o json --context default >"$jf" 2>/dev/null; then
+  if ! k get deployment nexus-reasoner -n nexus-reasoner -o json >"$jf" 2>/dev/null; then
     echo "nexus-reasoner/nexus-reasoner: NOT FOUND"; rm -f "$jf"; return 1
   fi
   want=$(jq -r '.spec.replicas // 0' "$jf"); ready=$(jq -r '.status.readyReplicas // 0' "$jf")
   rm -f "$jf"
   echo "nexus-reasoner/nexus-reasoner: readyReplicas=$ready replicas=$want"
   [[ $want =~ ^[0-9]+$ && $ready =~ ^[0-9]+$ ]] && (( want > 0 && ready == want )) || rc=1
-  if ! doc=$(k get --raw "/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz" --context default 2>/dev/null); then
+  if ! doc=$(k get --raw "/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz" 2>/dev/null); then
     echo "/healthz: no answer through the service proxy"; return 1
   fi
   status=$(jq -r '.status // "-"' <<<"$doc" 2>/dev/null) || { echo "/healthz: unparsable"; return 1; }
@@ -624,7 +627,7 @@ v_reasoner() {
 # ---------------------------------------------------------------------------
 v_recorder_up() {
   local doc n v
-  if ! doc=$(k get --raw "/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up" --context default 2>/dev/null); then
+  if ! doc=$(k get --raw "/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up" 2>/dev/null); then
     echo "nexus_operator_recorder_up: no answer through the Prometheus service proxy"; return 1
   fi
   n=$(jq -r 'if .status == "success" then (.data.result | length) else "-" end' <<<"$doc" 2>/dev/null) \
