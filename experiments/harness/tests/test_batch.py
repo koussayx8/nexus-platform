@@ -664,6 +664,18 @@ class FakeCluster:
         self.recorder_up = 1.0  # nexus_operator_recorder_up: a number, a list of series, or None (no answer)
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
         self.detected_at = None  # spec.detectedAt of the injected fault's Incident, set when it appears
+        self.operator_config = {}  # nexus-operator-config data, as the reset's patches leave it
+
+    def reasoner_status(self):
+        """status.reasoner as the operator writes it (act.py) for the arm in its ConfigMap: R1 only
+        when no endpoint is set, R1 with fallbackUsed when the Reasoner call failed, else the
+        Reasoner's own mode and model."""
+        cfg = self.operator_config
+        if not cfg.get("reasonerEndpoint"):
+            return {"mode": "rules", "fallbackUsed": False}
+        if self.fallback:
+            return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
+        return {"mode": cfg["reasonerMode"], "modelId": cfg["reasonerModel"] or None, "fallbackUsed": False}  # fmt: skip
 
     def vector(self, value):
         return json.dumps(
@@ -697,6 +709,8 @@ class FakeCluster:
     def __call__(self, argv, cwd=None):
         self.calls.append(argv)
         line = " ".join(argv)
+        if "nexus-operator-config" in argv and "patch" in argv:
+            self.operator_config.update(json.loads(argv[argv.index("-p") + 1])["data"])
         if "--raw" in argv and "/proxy/healthz" in argv[-1]:
             return (
                 (0, json.dumps(self.reasoner)) if self.reasoner is not None else (1, "")
@@ -765,7 +779,7 @@ class FakeCluster:
                 items.append({"metadata": {"uid": "new", "name": "inc-new", "creationTimestamp": self.detected_at},
                               "spec": {"source": {"alertname": "NexusLatencyAnomaly"}, "detectedAt": self.detected_at,
                                        "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}},
-                              "status": {"phase": phase, "reasoner": {"fallbackUsed": self.fallback}}})  # fmt: skip
+                              "status": {"phase": phase, "reasoner": self.reasoner_status()}})  # fmt: skip
             return 0, json.dumps({"items": items})
         if any("sync.status" in a for a in argv):
             return 0, self.synced
@@ -962,8 +976,12 @@ class LiveRunTest(Base):
     def test_happy_path_reads_terminal_phase_fallback_and_the_no_fault_record(self):
         c = FakeCluster(self.ft, phases=("Diagnosing", "Resolved"), fallback=True)
         c.alerts = [firing("NexusTrafficAnomaly")]
+        # only an arm that calls the Reasoner can fall back to R1
+        self.q = batch.Queue.create(
+            self.dir / "r3", REF, [dict(CELLS[0], reasoner="R3")], precheck_cfg=PRE
+        )
         out = self.drive(self.live(c), max_runs=1)
-        r = self.reload().runs[0]
+        r = self.q.runs[0]
         self.assertEqual(
             (r["status"], r["terminal"], r["fallbackUsed"]), ("valid", "Resolved", True)
         )

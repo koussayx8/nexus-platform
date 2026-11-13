@@ -1,8 +1,10 @@
-"""Expected-failure tests for docs/reviews/2026-11-10-m4-validity.md.
+"""Tests for docs/reviews/2026-11-10-m4-validity.md. The finding's id is in each test's comment.
 
-Each test states the behaviour the review argues for and fails today; the finding's id is in its
-name's comment. unittest reports an unexpected success as a failure, so the decorator is removed in
-the PR that fixes the finding. Offline: the fakes of test_batch.py, no cluster.
+The six blockers (V1-V5, V19) are fixed: their tests are normal tests, each followed by the edge
+cases of the same finding. A test still marked expectedFailure (V11, the escalation metric) states
+behaviour the review argues for and fails today; unittest reports an unexpected success as a
+failure, so the decorator is removed in the PR that fixes the finding. Offline: the fakes of
+test_batch.py, no cluster.
 """
 
 import json
@@ -11,7 +13,7 @@ import re
 import tempfile
 import unittest
 
-from .. import batch, metrics, runner
+from .. import arms, batch, metrics, runner
 from . import test_batch as tb
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -104,7 +106,7 @@ class Live(tb.Base):
             self.addCleanup(self._own.cleanup)
             self.dir = pathlib.Path(self._own.name)
             self.q = batch.Queue.create(
-                self.dir, tb.REF, self.cells, precheck_cfg=tb.PRE
+                self.dir, tb.REF, [dict(c) for c in self.cells], precheck_cfg=tb.PRE
             )
 
     def run_one(self, cluster) -> dict:
@@ -415,19 +417,46 @@ R3_CELL = [
 ]  # fmt: skip
 
 
+ENDPOINT = (
+    "http://nexus-reasoner.nexus-reasoner.svc:8080"  # precheck's reasoner defaults
+)
+R3_KEYS = {"reasonerEndpoint": ENDPOINT, "reasonerMode": "llm",
+           "reasonerModel": "openai/gpt-oss-120b", "reasonerEffort": "low"}  # fmt: skip
+R1_KEYS = {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
+
+
+def answers(status):
+    """A fake cluster whose Incident carries this status.reasoner, whatever was configured."""
+
+    class Answers(tb.FakeCluster):
+        def reasoner_status(self):
+            return status
+
+    return Answers
+
+
 class ArmTest(Live):
     cells = R3_CELL
 
     # V4
-    @unittest.expectedFailure
     def test_the_cells_arm_is_written_to_the_operator_before_the_run(self):
         c = tb.FakeCluster(self.ft)
-        self.run_one(c)
+        r = self.run_one(c)
         patches = [" ".join(a) for a in c.calls if "nexus-operator-config" in a]
         self.assertTrue(any("reasonerMode" in p for p in patches))
+        self.assertEqual(c.operator_config, c.operator_config | R3_KEYS)
+        self.assertEqual(r["status"], "valid")
+        self.assertEqual(
+            r["arm"],
+            {
+                "name": "R3",
+                "written": R3_KEYS,
+                "observed": {"mode": "llm", "modelId": "openai/gpt-oss-120b", "fallbackUsed": False},
+                "mismatch": None,
+            },
+        )  # fmt: skip
 
     # V4
-    @unittest.expectedFailure
     def test_a_run_diagnosed_by_another_arm_than_its_cell_is_not_valid(self):
         class RulesAnswered(tb.FakeCluster):
             """The operator ran R1 only (no Reasoner configured): mode rules, no fallback."""
@@ -446,6 +475,96 @@ class ArmTest(Live):
 
         r = self.run_one(RulesAnswered(self.ft))
         self.assertNotEqual(r["status"], "valid")
+        self.assertEqual((r["status"], r["discard_reason"]), ("discarded", "arm_mismatch"))  # fmt: skip
+        self.assertEqual(r["arm"]["mismatch"], "mode 'rules', the arm's is 'llm'")
+        # the next run would be wrong the same way: the batch stops until the owner clears it
+        self.assertEqual(self.reload().doc["halt"]["reason"], "arm_mismatch")
+
+    # V4, "a fallback aside": R1 answering for a Reasoner call that failed is the arm's own run.
+    def test_a_fallback_to_r1_is_the_arms_own_run_and_stays_valid(self):
+        r = self.run_one(tb.FakeCluster(self.ft, fallback=True))
+        self.assertEqual((r["status"], r["fallbackUsed"]), ("valid", True))
+        self.assertEqual(
+            r["arm"]["observed"],
+            {"mode": "rules", "modelId": None, "fallbackUsed": True},
+        )
+        self.assertIsNone(r["arm"]["mismatch"])
+
+    def test_the_arms_mode_with_another_model_is_a_mismatch(self):
+        small = {"mode": "llm", "modelId": "openai/gpt-oss-20b", "fallbackUsed": False}
+        r = self.run_one(answers(small)(self.ft))
+        self.assertEqual(r["discard_reason"], "arm_mismatch")
+        self.assertIn("openai/gpt-oss-20b", r["arm"]["mismatch"])
+
+    def test_an_incident_that_ended_before_any_proposal_contradicts_no_arm(self):
+        # e.g. Escalated / evidence_error from Detected: a failed run, and still a run.
+        r = self.run_one(answers(None)(self.ft, phases=("Detected", "Escalated")))
+        self.assertEqual((r["status"], r["terminal"]), ("valid", "Escalated"))
+        self.assertEqual((r["arm"]["observed"], r["arm"]["mismatch"]), (None, None))
+
+
+class ArmAcrossCellsTest(Live):
+    cells = (
+        dict(R3_CELL[0]),
+        dict(R3_CELL[0], cell="C1/S1/L3", reasoner="R1"),
+    )
+
+    def test_an_r1_cell_after_an_r3_cell_turns_the_reasoner_client_off(self):
+        c = tb.FakeCluster(self.ft)
+        self.run_one(c)
+        c.injected, c.detected_at = (
+            False,
+            None,
+        )  # the fake yields one Incident per injection
+        self.run_one(c)
+        written = [
+            {k: v for k, v in json.loads(a[a.index("-p") + 1])["data"].items() if k.startswith("reasoner")}
+            for a in c.calls
+            if "nexus-operator-config" in a and "patch" in a
+        ]  # fmt: skip
+        self.assertEqual(written, [R3_KEYS, R1_KEYS])
+        runs = self.reload().runs
+        self.assertEqual([r["status"] for r in runs], ["valid", "valid"])
+        self.assertEqual([r["arm"]["observed"]["mode"] for r in runs], ["llm", "rules"])
+
+    def test_a_fallback_on_a_cell_that_calls_no_reasoner_is_a_mismatch(self):
+        self.q.doc["cells"].reverse()  # the R1 cell first
+        self.q.save()
+        fell_back = {"mode": "rules", "fallbackUsed": True}
+        r = self.run_one(answers(fell_back)(self.ft))
+        self.assertEqual((r["cell"], r["discard_reason"]), ("C1/S1/L3", "arm_mismatch"))  # fmt: skip
+
+
+class ArmKeysTest(unittest.TestCase):
+    def test_the_operator_reads_every_arm_the_harness_writes(self):
+        # the operator's own parser (operator/nexus_operator/config.py), on the harness's keys
+        from nexus_operator import config as operator_config
+
+        for name, arm in arms.ARMS.items():
+            keys = batch.operator_reasoner(name, ENDPOINT)
+            self.assertEqual(set(keys), set(runner.REASONER_KEYS), name)
+            got = operator_config.parse({"data": {"alertmanagerURL": "http://am:9093", **keys}})  # fmt: skip
+            self.assertEqual(got.reasoner_mode, arm["mode"], name)
+            self.assertEqual(got.reasoner_model, arm["model"] or "", name)
+            # R1 is the embedded Rules Engine: no endpoint, so the Reasoner Client stays off
+            self.assertEqual(got.reasoner_endpoint, "" if name == "R1" else ENDPOINT, name)  # fmt: skip
+        self.assertEqual(batch.operator_reasoner("R1", ENDPOINT), R1_KEYS)
+        self.assertEqual(batch.operator_reasoner("R3", ENDPOINT), R3_KEYS)
+        self.assertEqual(batch.operator_reasoner("R0", ENDPOINT)["reasonerMode"], "adversarial")  # fmt: skip
+
+    def test_a_cell_whose_reasoner_is_not_an_arm_is_refused_at_init(self):
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(batch.Refused):
+            batch.Queue.create(d, tb.REF, [dict(R3_CELL[0], reasoner="R9")], precheck_cfg=tb.PRE)  # fmt: skip
+
+    def test_the_arm_is_written_whole_or_not_at_all(self):
+        r = runner.Runner("ctx", exec_=lambda argv, cwd=None: (0, ""))
+        with self.assertRaises(ValueError):
+            r.plan_operator_config("on", 5, {"reasonerMode": "llm"})
+        patch = r.plan_operator_config("on", 5)[0].argv
+        self.assertEqual(
+            json.loads(patch[patch.index("-p") + 1])["data"],
+            {"advisoryChecks": "on", "breakerEpoch": "5"},
+        )  # no arm given: the reasoner keys are left as they are
 
 
 TRUTH = {

@@ -56,6 +56,8 @@ LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
 APP_PORT = 8000
+# The nexus-operator-config keys that select the reasoner arm (operator/nexus_operator/config.py).
+REASONER_KEYS = ("reasonerEndpoint", "reasonerMode", "reasonerModel", "reasonerEffort")
 
 HANG_PY = (
     "import urllib.request as u;"
@@ -280,24 +282,36 @@ class Runner:
             for app in APPS
         ]  # fmt: skip
 
-    def plan_operator_config(self, advisory: str, breaker_epoch: int):
+    def plan_operator_config(
+        self, advisory: str, breaker_epoch: int, reasoner: dict | None = None
+    ):
         """Write advisoryChecks and breakerEpoch into the admin-owned ConfigMap, then restart the
         operator, which reads its configuration at startup (ADR-025). The ConfigMap is created by
         bootstrap, never by ArgoCD (template header), so this is not an ArgoCD-managed resource.
         advisoryChecks is "off" only in phase D (spec line 394); the caller decides, the batch driver
-        refuses "off" for any other cell."""
+        refuses "off" for any other cell.
+        `reasoner` is the run's arm as the operator reads it (ADR-035): all four of REASONER_KEYS,
+        as strings, in the same patch, so the operator restarts into that arm and nothing of the
+        previous run's arm stays. Without it the keys are left as they are."""
         if advisory not in ("on", "off"):
             raise ValueError(f"advisoryChecks must be on or off, not {advisory!r}")
         if not isinstance(breaker_epoch, int) or breaker_epoch < 0:
             raise ValueError(
                 "breakerEpoch must be a non-negative integer (Unix seconds)"
             )
-        patch = json.dumps(
-            {"data": {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}}
-        )
+        data = {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}
+        note = f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"
+        if reasoner is not None:
+            if set(reasoner) != set(REASONER_KEYS) or not all(
+                isinstance(v, str) for v in reasoner.values()
+            ):
+                raise ValueError(f"the arm needs exactly {REASONER_KEYS}, as strings")
+            data.update(reasoner)
+            note += f", reasonerMode={reasoner['reasonerMode']}, reasonerModel={reasoner['reasonerModel'] or '-'}"
+        patch = json.dumps({"data": data})
         return [
             self.k("patch", "configmap", "nexus-operator-config", "--type", "merge", "-p", patch,
-                   ns=NS_SYSTEM, note=f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"),
+                   ns=NS_SYSTEM, note=note),
             self.k("rollout", "restart", "deployment/nexus-operator", ns=NS_SYSTEM,
                    note="the operator reads its configuration at startup"),
             self.k("rollout", "status", "deployment/nexus-operator", "--timeout=180s", ns=NS_SYSTEM),
@@ -309,9 +323,11 @@ class Runner:
         baseline_ref: str | None = None,
         advisory: str = "on",
         breaker_epoch: int | None = None,
+        reasoner: dict | None = None,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
-        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D)."""
+        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D),
+        and, with `reasoner`, the run's arm (plan_operator_config)."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -344,7 +360,7 @@ class Runner:
             # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
             steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
         if breaker_epoch is not None:
-            steps += self.plan_operator_config(advisory, breaker_epoch)
+            steps += self.plan_operator_config(advisory, breaker_epoch, reasoner)
         return steps
 
     # ---------------------------------------------------------------- execution

@@ -37,6 +37,12 @@ What it adds to runner.py (which plans and executes single operations):
   refused swarm (success false) is a runner error, not a run to wait for.
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
+* The cell's reasoner arm is written with them (operator_reasoner): reasonerEndpoint, reasonerMode,
+  reasonerModel and reasonerEffort, all four at every reset, so the operator restarts into the cell's
+  arm. R1 is the operator's own Rules Engine: the endpoint is written empty. A cell whose `reasoner`
+  is not an arm of arms.py is refused at `init`. At the end of the run the Incident's
+  status.reasoner is compared with the arm (arm_mismatch); a contradiction discards the run
+  (`arm_mismatch`) and halts the batch, because the next run would be wrong the same way.
 * fallbackUsed (spec §17) is on every run record.
 * The run's Incident (run_incident): of the Incidents created after the snapshot taken just before
   the injection, the first created whose target is the injected namespace, that is not a smoke
@@ -78,7 +84,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import precheck
+from . import arms, precheck
 from . import runner as runner_mod
 from .operator_lib import model
 
@@ -181,6 +187,10 @@ def validate_cells(cells) -> list[dict]:
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        if c["reasoner"] not in arms.ARMS:
+            raise Refused(
+                f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
+            )
         for k in ("tier", "valid_target", "max_attempts"):
             if not isinstance(c[k], int) or isinstance(c[k], bool) or c[k] < 1:
                 raise Refused(f"cell {c['cell']!r}: {k} must be an integer >= 1")
@@ -509,6 +519,46 @@ def drive(
 # ---------------------------------------------------------------- the live run
 
 
+def operator_reasoner(arm: str, endpoint: str) -> dict[str, str]:
+    """The four nexus-operator-config keys (ADR-035) that make the operator run an arm of arms.py.
+    R1 is the operator's embedded Rules Engine: the endpoint is empty, so the Reasoner Client is
+    off. Every other arm calls the Reasoner at `endpoint`, in the arm's mode, with its model and
+    effort. Every key is always present, so a merge patch leaves nothing of another arm."""
+    a = arms.ARMS[arm]
+    if a["mode"] == "rules":
+        return {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
+    return {
+        "reasonerEndpoint": endpoint,
+        "reasonerMode": a["mode"],
+        "reasonerModel": a.get("model") or "",
+        "reasonerEffort": a.get("reasoning_effort") or "",
+    }
+
+
+def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
+    """Why an Incident's status.reasoner contradicts the cell's arm; None when it does not.
+
+    * No status.reasoner: the Incident never had a proposal (L0, or it ended before Proposed).
+      There is nothing to compare, and nothing contradicts the arm the reset wrote.
+    * fallbackUsed: R1 answered once for a Reasoner call that failed (spec §17). That is the arm's
+      own run, counted against it, so it is no contradiction, except on an arm that calls no
+      Reasoner: R1 cannot fall back, so the operator was running something else.
+    * Otherwise the mode is the arm's, and so is the model id when the arm has one."""
+    a = arms.ARMS[arm]
+    if not reasoner_status:
+        return None
+    if reasoner_status.get("fallbackUsed"):
+        if a["mode"] == "rules":
+            return "fallbackUsed on an arm that calls no Reasoner"
+        return None
+    mode, model_id = reasoner_status.get("mode"), reasoner_status.get("modelId")
+    if mode != a["mode"]:
+        return f"mode {mode!r}, the arm's is {a['mode']!r}"
+    if a.get("model") is not None and model_id != a["model"]:
+        return f"model {model_id!r}, the arm's is {a['model']!r}"
+    return None
+
+
 def incident_brief(incident: dict) -> dict:
     """What a run record keeps of an Incident."""
     meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
@@ -555,10 +605,11 @@ def run_incident(new: list[dict], namespace: str, injected_at) -> dict | None:
 
 
 class LiveRun:
-    """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks
-    and breakerEpoch), wait for Applications, pre-checks, inject, wait for the Incident to end, read
-    fallbackUsed. Every mutation is one the pre-registration approves (S1-S6 injection, the §20
-    reset, the advisoryChecks toggle), and `drive` runs nothing without the approval reference.
+    """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks,
+    breakerEpoch and the cell's reasoner arm), wait for Applications, pre-checks, inject, wait for
+    the run's Incident to end, check the arm, read fallbackUsed. Every mutation is one the
+    pre-registration approves (S1-S6 injection, the §20 reset, the advisoryChecks toggle, the
+    arm), and `drive` runs nothing without the approval reference.
     Incidents are NEVER deleted. Live check pending; the tests run it against a fake exec."""
 
     def __init__(
@@ -585,6 +636,12 @@ class LiveRun:
         if rc != 0:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
+
+    def reasoner_endpoint(self) -> str:
+        """The Reasoner Service the pre-check holds to the expected index hash (precheck.reasoner):
+        the one the operator is pointed at for an arm that calls a Reasoner."""
+        c = self.cfg["reasoner"]
+        return f"http://{c['service']}.{c['namespace']}.svc:{int(c['port'])}"
 
     def locust_end_failures(self, cell: dict) -> list[str]:
         """Why Locust voids a run at its end: Locust's own state and user count (the baseline users;
@@ -644,9 +701,13 @@ class LiveRun:
         advisory = cell.get("advisory_checks", "on")
         epoch = int(self.wall())
         rec["advisory_checks"], rec["breaker_epoch"] = advisory, epoch
+        arm = operator_reasoner(cell["reasoner"], self.reasoner_endpoint())
+        rec["arm"] = {"name": cell["reasoner"], "written": arm}
         before = {i["metadata"]["uid"] for i in self.incidents()}
         r.execute(
-            r.plan_reset(int(cell["level"]), cell.get("baseline_ref"), advisory, epoch)
+            r.plan_reset(
+                int(cell["level"]), cell.get("baseline_ref"), advisory, epoch, arm
+            )
         )
         guard.check()
         if not r.wait_synced():
@@ -717,6 +778,16 @@ class LiveRun:
         if why:
             raise Voided("locust_end_check")
         st = own.get("status") or {}
+        # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
+        seen = st.get("reasoner")
+        rec["arm"]["observed"] = (
+            {k: seen.get(k) for k in ("mode", "modelId", "fallbackUsed")}
+            if isinstance(seen, dict)
+            else None
+        )
+        rec["arm"]["mismatch"] = arm_mismatch(cell["reasoner"], seen)
+        if rec["arm"]["mismatch"]:
+            raise StopBatch("arm_mismatch")
         # An Incident still open at the end of the wait is a remediation that did not finish: the
         # run counts, with no terminal phase.
         rec["timed_out"] = not ended
