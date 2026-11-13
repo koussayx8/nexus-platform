@@ -1,0 +1,37 @@
+# NOT DEPLOYED (platform/m3-live, ADR-033). The operator's act-path grants in nexus-prod, the same
+# two rights platform/rbac/nexus-operator-dev.yaml gives it in nexus-dev (spec §11 rows
+# "nexus-dev, nexus-prod only"): deployments/scale (get, patch, update) and pods/eviction (create).
+# They are bound only when K1-K6 are in Enforce (the M3-live PR), because from that moment RBAC is
+# no longer the only thing between the operator and nexus-prod: K1 refuses any scale or eviction
+# below L2 and nexus-prod is labelled "1", so these rights stay unused until an Administrator
+# raises the level by a Git commit (ADR-018), and K3 then admits a request only with an unexpired
+# approval that pins it. Nothing else is granted: no delete, no wildcard, no write to Secrets,
+# ConfigMaps, RBAC or Incident spec (§11). nexus-data gets nothing (spec §11).
+# Tested offline by operator/tests/unit/test_rbac_manifest.py; the live half (a request the API
+# server refuses or admits) is a live check pending, with the M3-live PR.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-operator-act
+  namespace: nexus-prod
+rules:
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, patch, update]
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-operator-act
+  namespace: nexus-prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-operator-act
+subjects:
+  - kind: ServiceAccount
+    name: nexus-operator
+    namespace: nexus-system
