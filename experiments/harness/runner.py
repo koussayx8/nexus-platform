@@ -46,7 +46,9 @@ INJECT_NAMESPACES = (NS_DEV, NS_PROD)
 PROD_MAX_LEVEL = 1  # nexus-prod takes a fault only at autonomy level 1 or lower
 NS_DATA = "nexus-data"
 NS_SYSTEM = "nexus-system"
-APPS = ("sample-api-dev", "dependency-db-dev")
+# The Applications a reset refreshes and waits for, by metadata.name in platform/argocd/applications/
+# (dependency-db has no -dev twin: one Application, tracking main).
+APPS = ("sample-api-dev", "dependency-db")
 BRANCH = "experiment/dev-state"
 LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (

@@ -29,10 +29,28 @@ def application_names() -> set[str]:
 
 class RunnerTest(unittest.TestCase):
     # V1
-    @unittest.expectedFailure
     def test_the_runner_waits_for_applications_that_exist(self):
         self.assertTrue(application_names())  # the manifests were found
         self.assertLessEqual(set(runner.APPS), application_names())
+
+    # V1, the effect the review names: a name the API server does not know fails the refresh step
+    # and keeps wait_synced False until its timeout.
+    def test_refresh_and_the_sync_wait_pass_on_a_cluster_that_has_only_the_real_applications(
+        self,
+    ):
+        known, asked = application_names(), []
+
+        def cluster(argv, cwd=None):
+            if "application" not in argv:
+                return 0, ""
+            name = argv[argv.index("application") + 1]
+            asked.append(name)
+            return (0, "Synced/Healthy") if name in known else (1, "")  # NotFound
+
+        r = runner.Runner("ctx", exec_=cluster, sleep=lambda s: None)
+        r.execute(r.plan_refresh())  # raises on a step that fails
+        self.assertTrue(r.wait_synced(timeout_s=0))
+        self.assertEqual(set(asked), set(runner.APPS))
 
     # V19
     @unittest.expectedFailure
