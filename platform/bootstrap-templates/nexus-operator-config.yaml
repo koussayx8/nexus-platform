@@ -8,7 +8,7 @@
 #   detectedTimeoutSeconds  Detected -> Escalated/evidence_error (§7, frozen at 20)
 #   alertmanagerURL         Alertmanager v2 API base URL (the kube-prometheus-stack Service)
 #   advisoryChecks          Safety Gate advisory checks (M2; "on" by default, spec line 394)
-#   approvalTTL             L2 approval TTL (M3; 15 min, spec line 538)
+#   approvalTTL             L2 approval TTL, read by the operator (max 15m, spec §7)
 #   breakerEpoch            Circuit Breaker epoch (M2; set by each run reset, spec line 1844)
 #   reasonerEndpoint        the Reasoner's URL; empty (the default) turns the Reasoner Client off and
 #                           Diagnosing is the Rules Engine only (ADR-035)
