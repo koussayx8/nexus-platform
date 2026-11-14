@@ -28,3 +28,10 @@ once more (a changed hash aborts with exit 4), then patches `spec.approval` with
 and the Incident's `resourceVersion`. Kyverno K5 stamps `approvedBy`/`approvedAt`; the Audit-Id of
 the write is printed. The expiry is `now + ttl - 15 s`, inside K5's 15-minute bound, to absorb
 clock skew with the API server.
+
+Identity: nexusctl acts as your kubeconfig user. To act as the approver without a new credential,
+impersonate it, as with kubectl: `nexusctl --as koussay-approver --as-group nexus-approvers approve
+<incident>` (the admin user may impersonate; RBAC and K5 then judge `koussay-approver`, and K5 stamps
+it as `approvedBy`). The official Python client ignores a kubeconfig user's `as:` / `as-groups:`
+fields, so a kubeconfig context that impersonates works for kubectl but not for nexusctl: use the
+flags. `--as-group` takes one group and needs `--as`.

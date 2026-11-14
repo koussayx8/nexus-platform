@@ -24,6 +24,8 @@ app = typer.Typer(no_args_is_help=True,
 class State:
     context: str | None = None
     kubeconfig: str | None = None
+    as_user: str | None = None
+    as_group: str | None = None
     output: str = "table"
     config_path: Path | None = None
     no_color: bool = False
@@ -34,7 +36,8 @@ state = State()
 
 def _api_factory(c: cfg.Config) -> IncidentApi:
     return KubeIncidentApi(namespace=c.incident_namespace, context=state.context,
-                           kubeconfig=state.kubeconfig)
+                           kubeconfig=state.kubeconfig, as_user=state.as_user,
+                           as_group=state.as_group)
 
 
 def _prompt(text: str) -> str:
@@ -56,13 +59,20 @@ def _out() -> Callable[[str], None]:
 def main_options(
     context: Annotated[str | None, typer.Option("--context", help="kubeconfig context")] = None,
     kubeconfig: Annotated[str | None, typer.Option("--kubeconfig")] = None,
+    as_user: Annotated[str | None, typer.Option(
+        "--as", help="username to impersonate (as kubectl --as); RBAC and K5 judge that identity")] = None,
+    as_group: Annotated[str | None, typer.Option(
+        "--as-group", help="one group to impersonate; needs --as")] = None,
     output: Annotated[str, typer.Option("-o", "--output", help="table, json or yaml")] = "table",
     config: Annotated[Path | None, typer.Option("--config")] = None,
     no_color: Annotated[bool, typer.Option("--no-color")] = False,
 ) -> None:
     if output not in ("table", "json", "yaml"):
         raise typer.BadParameter("output must be table, json or yaml")
+    if as_group and not as_user:
+        raise typer.BadParameter("--as-group needs --as")
     state.context, state.kubeconfig, state.output = context, kubeconfig, output
+    state.as_user, state.as_group = as_user, as_group
     state.config_path, state.no_color = config, no_color
 
 

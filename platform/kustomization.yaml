@@ -11,3 +11,4 @@ resources:
   - crds/incidents.nexus.io.yaml
   - rbac
   - load
+  - m3-live

@@ -41,13 +41,39 @@ def _message(body: str | None, fallback: str) -> str:
         return fallback
 
 
+def impersonation_headers(as_user: str | None, as_group: str | None) -> dict[str, str]:
+    """The Impersonate-* headers for `--as` / `--as-group` (what kubectl sends for the same flags).
+
+    The official client ignores a kubeconfig user's `as:` / `as-groups:` fields, so nexusctl takes
+    the identity as flags. One group only: the client merges headers into a dict, so a repeated
+    Impersonate-Group cannot be sent. The API server checks that the caller may impersonate.
+    """
+    if as_group and not as_user:
+        raise ValueError("--as-group needs --as (the API server requires a user to impersonate)")
+    headers: dict[str, str] = {}
+    if as_user:
+        headers["Impersonate-User"] = as_user
+    if as_group:
+        headers["Impersonate-Group"] = as_group
+    return headers
+
+
+def _admission_denial(message: str) -> bool:
+    return "admission webhook" in message and "denied the request" in message
+
+
 class KubeIncidentApi:
     def __init__(self, namespace: str = NAMESPACE, context: str | None = None,
-                 kubeconfig: str | None = None) -> None:
+                 kubeconfig: str | None = None, as_user: str | None = None,
+                 as_group: str | None = None) -> None:
         from kubernetes import client, config
 
+        headers = impersonation_headers(as_user, as_group)
         config.load_kube_config(config_file=kubeconfig, context=context)  # type: ignore[no-untyped-call]
-        self._api = client.CustomObjectsApi()
+        api_client = client.ApiClient()
+        for name, value in headers.items():
+            api_client.set_default_header(name, value)  # type: ignore[no-untyped-call]
+        self._api = client.CustomObjectsApi(api_client)
         self._ns = namespace
 
     def _call(self, fn: Any, *args: Any, **kw: Any) -> tuple[dict[str, Any], str | None]:
@@ -55,32 +81,37 @@ class KubeIncidentApi:
         from urllib3.exceptions import HTTPError
 
         try:
-            data, _status, headers = fn(*args, _return_http_data_only=False, **kw)
+            # *_with_http_info returns (data, status, headers); since kubernetes 37 the plain
+            # methods ignore _return_http_data_only and return the body alone
+            data, _status, headers = fn(*args, **kw)
         except ApiException as e:
             audit = (e.headers or {}).get("Audit-Id") if e.headers else None
             if e.status == 404:
                 raise NotFound(_message(e.body, "not found")) from e
             if e.status == 409:
                 raise Conflict(_message(e.body, "conflict")) from e
-            if e.status in (401, 403, 422):
-                raise Denied(_message(e.body, e.reason or "denied"), audit) from e
-            raise NexusClientError(f"{e.status} {e.reason}") from e
+            message = _message(e.body, e.reason or "denied")
+            # Kyverno answers a webhook denial with 400 ("admission webhook ... denied the
+            # request"); any other 400 is a malformed request and stays an error, with its message
+            if e.status in (401, 403, 422) or (e.status == 400 and _admission_denial(message)):
+                raise Denied(message, audit) from e
+            raise NexusClientError(f"{e.status} {e.reason}: {message}") from e
         except (HTTPError, OSError) as e:
             raise Unreachable(str(e)) from e
         return data, headers.get("Audit-Id")
 
     def get(self, name: str) -> Reply:
-        data, audit = self._call(self._api.get_namespaced_custom_object,
+        data, audit = self._call(self._api.get_namespaced_custom_object_with_http_info,
                                  GROUP, VERSION, self._ns, PLURAL, name)
         return Reply(Incident.model_validate(data), audit)
 
     def list(self) -> list[Incident]:
-        data, _ = self._call(self._api.list_namespaced_custom_object,
+        data, _ = self._call(self._api.list_namespaced_custom_object_with_http_info,
                              GROUP, VERSION, self._ns, PLURAL)
         return [Incident.model_validate(i) for i in data.get("items", [])]
 
     def patch_approval(self, name: str, approval: dict[str, Any], resource_version: str) -> Reply:
         body = {"metadata": {"resourceVersion": resource_version}, "spec": {"approval": approval}}
-        data, audit = self._call(self._api.patch_namespaced_custom_object,
+        data, audit = self._call(self._api.patch_namespaced_custom_object_with_http_info,
                                  GROUP, VERSION, self._ns, PLURAL, name, body)
         return Reply(Incident.model_validate(data), audit)

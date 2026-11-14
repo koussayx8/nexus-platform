@@ -55,7 +55,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: operator
-          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:b7edff2a9f0b2997e3372a723daa3807ee3134c80807478dfed6f9d7b048ca87
+          image: ghcr.io/koussayx8/nexus-platform/nexus-operator@sha256:8b30d38479edbd84a86222b65873c0b905c908dcbdcab5d8e2282ff3429be958
           imagePullPolicy: IfNotPresent
           ports:
             - name: health
