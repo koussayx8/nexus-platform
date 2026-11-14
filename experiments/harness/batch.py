@@ -26,14 +26,41 @@ What it adds to runner.py (which plans and executes single operations):
   check, and no non-terminal Incident, all inside the 20 min cap. The window records the alerts and
   Incidents that fired with nothing injected, in the run record (`no_fault`). Incidents are never
   deleted: one still open at the cap stops the batch (`halt`, reason recorded) until `clear-halt`.
-* End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
-  is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
-  cell requeues it.
+* End-of-run Locust check: before a run counts, Locust's own state and user count are read again; a
+  Locust that is not `running` with the baseline users (S2/S4/S6: the cell's users), or that does not
+  answer, voids the run (`locust_end_check`) and the cell requeues it. The server-side request rate
+  is NOT part of this check: a service that still does not answer after a remediation that failed
+  (or that verified wrongly) has a rate near zero, and voiding on it would keep only the runs whose
+  remediation worked. The rate of every configured namespace is read at the same moment and kept on
+  the run record (`rate_end`), for the analysis; it decides nothing.
 * A load cell (S2, S4, S6) carries `users` and `spawn_rate`; both go to Locust's /swarm, and a
   refused swarm (success false) is a runner error, not a run to wait for.
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
+* The cell's reasoner arm is written with them (operator_reasoner): reasonerEndpoint, reasonerMode,
+  reasonerModel and reasonerEffort, all four at every reset, so the operator restarts into the cell's
+  arm. R1 is the operator's own Rules Engine: the endpoint is written empty. A cell whose `reasoner`
+  is not an arm of arms.py is refused at `init`. At the end of the run the Incident's
+  status.reasoner is compared with the arm (arm_mismatch); a contradiction discards the run
+  (`arm_mismatch`) and halts the batch, because the next run would be wrong the same way.
 * fallbackUsed (spec §17) is on every run record.
+* The run's Incident (run_incident): of the Incidents created after the snapshot taken just before
+  the injection, the first created whose target is the injected namespace, that is not a smoke
+  Incident, and whose alert started (spec.detectedAt) at or after the injection. Only that Incident
+  ends the run. Every other Incident created during the run, in any namespace, is kept on the run
+  record (`other_incidents`) and decides nothing. The alert's name is not part of the match: one
+  open Incident absorbs every alert on its target (poller.py), so the name is the first alert's.
+* When a run ends, and what it counts as. The run's Incident reached a terminal phase: a valid
+  run with that phase, whatever it is. The wait (wait_s after the injection) ran out with the
+  run's Incident still open: a valid run with `terminal` null and `timed_out` true, a remediation
+  that did not finish, never a discard. The wait ran out with no Incident of the run's own:
+  discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
+  not go in.
+* The injection time is on every run record that injected (`injection_at`, null before that): the
+  wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
+  push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
+  Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
+  that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
 
 Mutations: nothing mutates without --execute AND an approval reference. The reference is the one
 the pre-registration (G16) names for the whole batch; `init` stores it, `run` must be given the same
@@ -57,7 +84,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import precheck
+from . import arms, precheck
 from . import runner as runner_mod
 from .operator_lib import model
 
@@ -160,6 +187,10 @@ def validate_cells(cells) -> list[dict]:
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        if c["reasoner"] not in arms.ARMS:
+            raise Refused(
+                f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
+            )
         for k in ("tier", "valid_target", "max_attempts"):
             if not isinstance(c[k], int) or isinstance(c[k], bool) or c[k] < 1:
                 raise Refused(f"cell {c['cell']!r}: {k} must be an integer >= 1")
@@ -338,6 +369,7 @@ class Queue:
             "discard_reason": None,
             "fallbackUsed": False,
             "terminal": None,
+            "injection_at": None,
         }
         self.runs.append(rec)
         self.save()
@@ -487,11 +519,97 @@ def drive(
 # ---------------------------------------------------------------- the live run
 
 
+def operator_reasoner(arm: str, endpoint: str) -> dict[str, str]:
+    """The four nexus-operator-config keys (ADR-035) that make the operator run an arm of arms.py.
+    R1 is the operator's embedded Rules Engine: the endpoint is empty, so the Reasoner Client is
+    off. Every other arm calls the Reasoner at `endpoint`, in the arm's mode, with its model and
+    effort. Every key is always present, so a merge patch leaves nothing of another arm."""
+    a = arms.ARMS[arm]
+    if a["mode"] == "rules":
+        return {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
+    return {
+        "reasonerEndpoint": endpoint,
+        "reasonerMode": a["mode"],
+        "reasonerModel": a.get("model") or "",
+        "reasonerEffort": a.get("reasoning_effort") or "",
+    }
+
+
+def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
+    """Why an Incident's status.reasoner contradicts the cell's arm; None when it does not.
+
+    * No status.reasoner: the Incident never had a proposal (L0, or it ended before Proposed).
+      There is nothing to compare, and nothing contradicts the arm the reset wrote.
+    * fallbackUsed: R1 answered once for a Reasoner call that failed (spec §17). That is the arm's
+      own run, counted against it, so it is no contradiction, except on an arm that calls no
+      Reasoner: R1 cannot fall back, so the operator was running something else.
+    * Otherwise the mode is the arm's, and so is the model id when the arm has one."""
+    a = arms.ARMS[arm]
+    if not reasoner_status:
+        return None
+    if reasoner_status.get("fallbackUsed"):
+        if a["mode"] == "rules":
+            return "fallbackUsed on an arm that calls no Reasoner"
+        return None
+    mode, model_id = reasoner_status.get("mode"), reasoner_status.get("modelId")
+    if mode != a["mode"]:
+        return f"mode {mode!r}, the arm's is {a['mode']!r}"
+    if a.get("model") is not None and model_id != a["model"]:
+        return f"model {model_id!r}, the arm's is {a['model']!r}"
+    return None
+
+
+def incident_brief(incident: dict) -> dict:
+    """What a run record keeps of an Incident."""
+    meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
+    status = incident.get("status") or {}
+    return {
+        "uid": meta.get("uid"),
+        "name": meta.get("name"),
+        "namespace": (spec.get("target") or {}).get("namespace"),
+        "alertname": (spec.get("source") or {}).get("alertname"),
+        "detected_at": spec.get("detectedAt"),
+        "phase": status.get("phase"),
+        "reason": status.get("reason"),
+    }
+
+
+def caused_by_injection(incident: dict, namespace: str, injected_at) -> bool:
+    """Can the injected fault have caused this Incident? Its target is the injected namespace, it
+    is not a smoke Incident, and its alert started at or after the injection (spec.detectedAt is
+    the alert's startsAt, poller.py). An Incident that does not say is not the run's."""
+    meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
+    if (meta.get("labels") or {}).get(model.SMOKE_LABEL) == "true":
+        return False
+    if (spec.get("target") or {}).get("namespace") != namespace:
+        return False
+    try:
+        return model.parse_time(spec.get("detectedAt") or "") >= injected_at
+    except ValueError:
+        return False
+
+
+def run_incident(new: list[dict], namespace: str, injected_at) -> dict | None:
+    """The run's Incident among those created since the injection snapshot: the first created
+    that the injection can have caused (ties: the earlier alert, then the name). None yet, maybe."""
+    own = [i for i in new if caused_by_injection(i, namespace, injected_at)]
+    return min(
+        own,
+        key=lambda i: (
+            i["metadata"].get("creationTimestamp") or "",
+            (i.get("spec") or {}).get("detectedAt") or "",
+            i["metadata"].get("name") or i["metadata"]["uid"],
+        ),
+        default=None,
+    )
+
+
 class LiveRun:
-    """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks
-    and breakerEpoch), wait for Applications, pre-checks, inject, wait for the Incident to end, read
-    fallbackUsed. Every mutation is one the pre-registration approves (S1-S6 injection, the §20
-    reset, the advisoryChecks toggle), and `drive` runs nothing without the approval reference.
+    """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks,
+    breakerEpoch and the cell's reasoner arm), wait for Applications, pre-checks, inject, wait for
+    the run's Incident to end, check the arm, read fallbackUsed. Every mutation is one the
+    pre-registration approves (S1-S6 injection, the §20 reset, the advisoryChecks toggle, the
+    arm), and `drive` runs nothing without the approval reference.
     Incidents are NEVER deleted. Live check pending; the tests run it against a fake exec."""
 
     def __init__(
@@ -519,28 +637,77 @@ class LiveRun:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
 
+    def reasoner_endpoint(self) -> str:
+        """The Reasoner Service the pre-check holds to the expected index hash (precheck.reasoner):
+        the one the operator is pointed at for an arm that calls a Reasoner."""
+        c = self.cfg["reasoner"]
+        return f"http://{c['service']}.{c['namespace']}.svc:{int(c['port'])}"
+
     def locust_end_failures(self, cell: dict) -> list[str]:
-        """precheck.locust_failures at the end of a run. S2/S4/S6 drive their own load, so for them
-        the target is the cell's users (no per-namespace rate: the fault load is not the baseline);
-        every other scenario is held to the pre-registered baseline users and rate."""
-        cfg = self.cfg
+        """Why Locust voids a run at its end: Locust's own state and user count (the baseline users;
+        for S2/S4/S6, which drive their own load, the cell's users). No server-side rate: it cannot
+        tell a Locust that stopped from a service that does not answer, and the second is what a
+        remediation that failed looks like."""
+        loc = {**self.cfg["locust"], "namespaces": []}
         if cell["scenario"].upper() in ("S2", "S4", "S6"):
-            loc = {
-                **cfg["locust"],
-                "baseline_users": cell.get("users"),
-                "namespaces": [],
-            }
-            cfg = {**cfg, "locust": loc}
-        return precheck.locust_failures(self.r, precheck.Prom(self.r), cfg)
+            loc["baseline_users"] = cell.get("users")
+        return precheck.locust_failures(
+            self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
+        )
+
+    def rate_end(self) -> dict:
+        """The server-side request rate per configured namespace at the end of a run (None: no
+        answer), with the baseline it would be held to in a pre-check. Recorded, never judged."""
+        loc, prom = self.cfg["locust"], precheck.Prom(self.r)
+        return {
+            "baseline_rps": loc["baseline_rps_per_namespace"],
+            "tolerance": loc["tolerance"],
+            "rps": {ns: precheck.request_rate(prom, ns) for ns in loc["namespaces"]},
+        }
+
+    def inject(self, cell: dict, rec: dict, guard: Guard) -> bool:
+        """Run the cell's injection and stamp when the fault started on the run record (spec §21,
+        "injection start"). False when an S3 revision was pushed and Argo CD did not apply it
+        within wait_s: no fault went in."""
+        r = self.r
+        steps = r.plan_inject(
+            cell["scenario"],
+            cell.get("s3_patch"),
+            cell.get("users"),
+            cell.get("spawn_rate"),
+        )
+        started = self.wall()
+        r.execute(steps)
+        done = _utc(self.wall())
+        if cell["scenario"].upper() != "S3":
+            rec["injection_at"], rec["injection_done_at"] = _utc(started), done
+            return True
+        # S3 is a push to experiment/dev-state: nothing is faulty until Argo CD applies it.
+        rec["injection_pushed_at"] = done
+        rec["injection_revision"] = revision = r.head_revision()
+        deadline = self.monotonic() + self.wait_s
+        while True:
+            guard.check()
+            applied = r.applied_at(revision)
+            if applied:
+                rec["injection_at"] = _utc(model.parse_time(applied).timestamp())
+                return True
+            if self.monotonic() >= deadline:
+                return False
+            self.sleep(self.poll_s)
 
     def __call__(self, cell: dict, rec: dict, guard: Guard) -> Outcome:
         r = self.r
         advisory = cell.get("advisory_checks", "on")
         epoch = int(self.wall())
         rec["advisory_checks"], rec["breaker_epoch"] = advisory, epoch
+        arm = operator_reasoner(cell["reasoner"], self.reasoner_endpoint())
+        rec["arm"] = {"name": cell["reasoner"], "written": arm}
         before = {i["metadata"]["uid"] for i in self.incidents()}
         r.execute(
-            r.plan_reset(int(cell["level"]), cell.get("baseline_ref"), advisory, epoch)
+            r.plan_reset(
+                int(cell["level"]), cell.get("baseline_ref"), advisory, epoch, arm
+            )
         )
         guard.check()
         if not r.wait_synced():
@@ -573,38 +740,62 @@ class LiveRun:
         before = {
             i["metadata"]["uid"] for i in self.incidents()
         }  # false alarms are not this run's
-        r.execute(
-            r.plan_inject(
-                cell["scenario"],
-                cell.get("s3_patch"),
-                cell.get("users"),
-                cell.get("spawn_rate"),
-            )
-        )
+        if not self.inject(cell, rec, guard):
+            return Outcome(False, discard_reason="injection_not_applied")
+        injected_at = model.parse_time(rec["injection_at"])
         deadline = self.monotonic() + self.wait_s
-        while self.monotonic() < deadline:
+        uid, own, ended = None, None, False
+        while True:
             guard.check()
             new = [i for i in self.incidents() if i["metadata"]["uid"] not in before]
-            ended = [
-                i
-                for i in new
-                if (i.get("status") or {}).get("phase") in model.TERMINAL_PHASES
-            ]
-            if ended:
-                # the end check: Locust must still be running at the load the run was measured at
-                why = self.locust_end_failures(cell)
-                rec["locust_end"] = {"ok": not why, "failures": why}
-                if why:
-                    raise Voided("locust_end_check")
-                st = ended[0]["status"]
-                return Outcome(
-                    True,
-                    st["phase"],
-                    bool((st.get("reasoner") or {}).get("fallbackUsed")),
-                    notes={"incident": ended[0]["metadata"]["uid"]},
-                )
+            if uid is None:  # once chosen, the run's Incident does not change
+                own = run_incident(new, r.namespace, injected_at)
+                uid = own["metadata"]["uid"] if own else None
+            else:
+                own = next((i for i in new if i["metadata"]["uid"] == uid), None)
+            if own is not None:
+                rec["incident"] = incident_brief(own)
+            rec["other_incidents"] = sorted(
+                (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
+                key=lambda b: b["uid"],
+            )
+            ended = (
+                own is not None
+                and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
+            )
+            if ended or self.monotonic() >= deadline:
+                break
             self.sleep(self.poll_s)
-        return Outcome(False, discard_reason="no_terminal_incident")
+        if own is None:
+            # nothing of the run's own to score (or it was deleted under the run: never by the runner)
+            return Outcome(
+                False, discard_reason="incident_gone" if uid else "no_incident"
+            )
+        # the end check: Locust must still be running at the load the run was measured at
+        why = self.locust_end_failures(cell)
+        rec["locust_end"] = {"ok": not why, "failures": why}
+        rec["rate_end"] = self.rate_end()
+        if why:
+            raise Voided("locust_end_check")
+        st = own.get("status") or {}
+        # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
+        seen = st.get("reasoner")
+        rec["arm"]["observed"] = (
+            {k: seen.get(k) for k in ("mode", "modelId", "fallbackUsed")}
+            if isinstance(seen, dict)
+            else None
+        )
+        rec["arm"]["mismatch"] = arm_mismatch(cell["reasoner"], seen)
+        if rec["arm"]["mismatch"]:
+            raise StopBatch("arm_mismatch")
+        # An Incident still open at the end of the wait is a remediation that did not finish: the
+        # run counts, with no terminal phase.
+        rec["timed_out"] = not ended
+        return Outcome(
+            True,
+            st.get("phase") if ended else None,
+            bool((st.get("reasoner") or {}).get("fallbackUsed")),
+        )
 
 
 # ---------------------------------------------------------------- command line

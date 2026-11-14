@@ -46,13 +46,21 @@ INJECT_NAMESPACES = (NS_DEV, NS_PROD)
 PROD_MAX_LEVEL = 1  # nexus-prod takes a fault only at autonomy level 1 or lower
 NS_DATA = "nexus-data"
 NS_SYSTEM = "nexus-system"
-APPS = ("sample-api-dev", "dependency-db-dev")
+# The Applications a reset refreshes and waits for, by metadata.name in platform/argocd/applications/
+# (dependency-db has no -dev twin: one Application, tracking main).
+APPS = ("sample-api-dev", "dependency-db")
 BRANCH = "experiment/dev-state"
+S3_APP = "sample-api-dev"  # the Application that tracks BRANCH: S3's fault arrives through it
 LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
 APP_PORT = 8000
+# Locust's master answers /stop only when its user count is 0, and waits for its workers up to
+# stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
+LOCUST_STOP_TIMEOUT_S = 75
+# The nexus-operator-config keys that select the reasoner arm (operator/nexus_operator/config.py).
+REASONER_KEYS = ("reasonerEndpoint", "reasonerMode", "reasonerModel", "reasonerEffort")
 
 HANG_PY = (
     "import urllib.request as u;"
@@ -114,6 +122,10 @@ class Runner:
         self.git_dir = git_dir
         self.http_post = http_post or _post_form
         self.http_get = http_get or _get_text
+        # A GET that is a step: /stop answers only once the master counts no user (see below).
+        self.http_step_get = http_get or (
+            lambda url: _get_text(url, timeout=LOCUST_STOP_TIMEOUT_S)
+        )
 
     # ---------------------------------------------------------------- helpers
     def k(
@@ -151,6 +163,34 @@ class Runner:
                 f" (needs {PROD_MAX_LEVEL} or lower)"
             )
 
+    def head_revision(self) -> str:
+        """The commit the experiment clone's HEAD names (read-only): after an S3 injection, the
+        revision that was pushed."""
+        rc, out = self.exec(["git", "rev-parse", "HEAD"], cwd=self.git_dir)
+        rev = out.strip()
+        if rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", rev):
+            raise RuntimeError("cannot read the experiment clone's HEAD")
+        return rev
+
+    def applied_at(self, revision: str) -> str | None:
+        """When Argo CD finished applying `revision` to sample-api-dev (read-only): `deployedAt` of
+        the first status.history entry with that revision, as Argo CD wrote it. None while the
+        revision is not in the history, or when the Application cannot be read."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "-n", "argocd", "get", "application"]
+            + [S3_APP, "-o", "json"]
+        )
+        try:
+            doc = json.loads(out) if rc == 0 else None
+        except ValueError:
+            doc = None
+        if not isinstance(doc, dict):
+            return None
+        for entry in (doc.get("status") or {}).get("history") or []:
+            if entry.get("revision") == revision and entry.get("deployedAt"):
+                return entry["deployedAt"]
+        return None
+
     # ---------------------------------------------------------------- plans
     def plan_inject(
         self,
@@ -159,7 +199,7 @@ class Runner:
         users: int | None = None,
         spawn_rate: float | None = None,
     ):
-        """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST.
+        """Steps that start a fault. HTTP calls to Locust are Steps whose argv[0] is POST or GET.
         A load scenario (S2, S4, S6) needs both the user count and the spawn rate: Locust 2.46.7
         answers a /swarm without spawn_rate with HTTP 200 and {"success": false, "message": "Missing
         or invalid user_count or spawn_rate from /swarm request"} (locust/web.py), and starts nothing."""
@@ -249,24 +289,36 @@ class Runner:
             for app in APPS
         ]  # fmt: skip
 
-    def plan_operator_config(self, advisory: str, breaker_epoch: int):
+    def plan_operator_config(
+        self, advisory: str, breaker_epoch: int, reasoner: dict | None = None
+    ):
         """Write advisoryChecks and breakerEpoch into the admin-owned ConfigMap, then restart the
         operator, which reads its configuration at startup (ADR-025). The ConfigMap is created by
         bootstrap, never by ArgoCD (template header), so this is not an ArgoCD-managed resource.
         advisoryChecks is "off" only in phase D (spec line 394); the caller decides, the batch driver
-        refuses "off" for any other cell."""
+        refuses "off" for any other cell.
+        `reasoner` is the run's arm as the operator reads it (ADR-035): all four of REASONER_KEYS,
+        as strings, in the same patch, so the operator restarts into that arm and nothing of the
+        previous run's arm stays. Without it the keys are left as they are."""
         if advisory not in ("on", "off"):
             raise ValueError(f"advisoryChecks must be on or off, not {advisory!r}")
         if not isinstance(breaker_epoch, int) or breaker_epoch < 0:
             raise ValueError(
                 "breakerEpoch must be a non-negative integer (Unix seconds)"
             )
-        patch = json.dumps(
-            {"data": {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}}
-        )
+        data = {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}
+        note = f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"
+        if reasoner is not None:
+            if set(reasoner) != set(REASONER_KEYS) or not all(
+                isinstance(v, str) for v in reasoner.values()
+            ):
+                raise ValueError(f"the arm needs exactly {REASONER_KEYS}, as strings")
+            data.update(reasoner)
+            note += f", reasonerMode={reasoner['reasonerMode']}, reasonerModel={reasoner['reasonerModel'] or '-'}"
+        patch = json.dumps({"data": data})
         return [
             self.k("patch", "configmap", "nexus-operator-config", "--type", "merge", "-p", patch,
-                   ns=NS_SYSTEM, note=f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"),
+                   ns=NS_SYSTEM, note=note),
             self.k("rollout", "restart", "deployment/nexus-operator", ns=NS_SYSTEM,
                    note="the operator reads its configuration at startup"),
             self.k("rollout", "status", "deployment/nexus-operator", "--timeout=180s", ns=NS_SYSTEM),
@@ -278,9 +330,11 @@ class Runner:
         baseline_ref: str | None = None,
         advisory: str = "on",
         breaker_epoch: int | None = None,
+        reasoner: dict | None = None,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
-        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D)."""
+        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D),
+        and, with `reasoner`, the run's arm (plan_operator_config)."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -310,11 +364,10 @@ class Runner:
                    S5_RESTORE_SQL, ns=NS_DATA, note="restore role"),
         ]  # fmt: skip
         if self.locust:
-            steps.append(
-                Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
-            )
+            # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
+            steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
         if breaker_epoch is not None:
-            steps += self.plan_operator_config(advisory, breaker_epoch)
+            steps += self.plan_operator_config(advisory, breaker_epoch, reasoner)
         return steps
 
     # ---------------------------------------------------------------- execution
@@ -328,6 +381,11 @@ class Runner:
                     urllib.parse.parse_qs(body, keep_blank_values=True) if body else {},
                 )
                 rc = 0
+            elif (
+                s.argv[0] == "GET"
+            ):  # Locust's web API; anything but 200 fails the step
+                code, _ = self.http_step_get(s.argv[1])
+                rc = 0 if code == 200 else 1
             elif s.argv[0] == "SETLEVEL":
                 rc = set_level(self.git_dir, int(s.argv[1]))
             elif s.argv[0] == "git":

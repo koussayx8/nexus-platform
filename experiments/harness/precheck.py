@@ -339,6 +339,13 @@ def backstage_failures(runner, cfg: dict) -> list[str]:
     return [] if n == 0 else [f"backstage:pods={n}"]
 
 
+def request_rate(prom: Prom, namespace: str) -> float | None:
+    """sample-api's request rate in a namespace as the server counts it (2 m rate); None: no answer."""
+    return prom.scalar(
+        f'namespace:nexus_sample_api_requests:rate2m{{namespace="{namespace}"}}'
+    )
+
+
 def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
     c = cfg["locust"]
     if not runner.locust:
@@ -360,9 +367,7 @@ def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
     for ns in c[
         "namespaces"
     ]:  # the server's view: Locust's own rate lags by design (ADR-026)
-        rate = prom.scalar(
-            f'namespace:nexus_sample_api_requests:rate2m{{namespace="{ns}"}}'
-        )
+        rate = request_rate(prom, ns)
         base = c["baseline_rps_per_namespace"]
         if rate is None:
             out.append(f"locust:{ns}:no_rate")

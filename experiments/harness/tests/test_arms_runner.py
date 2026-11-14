@@ -84,7 +84,7 @@ class RunnerTest(unittest.TestCase):
     def runner(self, **kw):
         ex = FakeExec(**{k: v for k, v in kw.items() if k in ("pods", "sync")})
         return runner.Runner("ctx", exec_=ex, sleep=lambda s: None, locust=kw.get("locust"), git_dir=kw.get("git_dir"),
-                             http_post=kw.get("http_post")), ex  # fmt: skip
+                             http_post=kw.get("http_post"), http_get=kw.get("http_get")), ex  # fmt: skip
 
     def test_context_required_and_always_named(self):
         with self.assertRaises(ValueError):
@@ -251,12 +251,14 @@ class RunnerTest(unittest.TestCase):
         )
 
     def test_execute_runs_steps_in_order_and_stops_on_failure(self):
-        posts = []
+        posts, gets = [], []
         r, _ex = self.runner(
-            locust="http://l", http_post=lambda u, f: posts.append((u, f))
+            locust="http://l",
+            http_post=lambda u, f: posts.append((u, f)),
+            http_get=lambda u: gets.append(u) or (200, "{}"),
         )
         log = r.execute(r.plan_reset(3))
-        self.assertEqual(posts, [("http://l/stop", {})])
+        self.assertEqual((gets, posts), (["http://l/stop"], []))  # the stop is a GET
         self.assertEqual(len(log), len(r.plan_reset(3)))
 
         def failing(argv, cwd=None):
