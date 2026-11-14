@@ -8,10 +8,13 @@ replaced by `[REDACTED:<class>]` and counted per class, and the counts travel wi
 
 The patterns are GitLeaks-class, deliberately broad: they redact too much rather than too little.
 Image digests and git SHAs are not secrets and are kept.
+
+Time is linear in the length of a string, whatever it holds (authority-boundary review, A1): log
+text is attacker-controlled and redaction runs inside the operator's event loop. See _RUNS.
 """
 
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 # (class, pattern, group to replace or None for the whole match), in order: a longer, more specific
 # pattern first so its pieces are not counted as something else.
@@ -66,6 +69,105 @@ _PATTERNS: list[tuple[str, re.Pattern, int | None]] = [
         None,
     ),
 ]
+
+
+class _Run(NamedTuple):
+    """How to apply one pattern of the shape `\\b<run of a class><anchor><tail>` in linear time.
+
+    `re` tries such a pattern at every word boundary of a run, and every try walks the run again
+    to look for the anchor, so one long run (`a.a.a.…`) costs the square of its length. But every
+    try inside one run ends at the same place: the run must be followed by the anchor, and what
+    follows the anchor does not depend on where the try began. So only the leftmost start the
+    pattern admits can match, and when it does not, nothing in that run does.
+
+      run      finds the next run that reaches its anchor: it can start only at the first character
+               of a run (a lookbehind) and takes the run whole (possessive), so a run is walked once.
+      again    the same without the lookbehind, tried where the previous match ended: there a run
+               may begin in the middle of what the lookbehind sees as one run.
+      first    the leftmost start inside the run that the pattern admits (None: the run's start).
+      attempt  the pattern, tried at that start only.
+    """
+
+    run: re.Pattern
+    again: re.Pattern | None
+    first: re.Pattern | None
+    attempt: re.Pattern
+
+
+def _runs() -> dict[re.Pattern, _Run]:
+    by_class = {cls: pattern for cls, pattern, _ in _PATTERNS if cls != "token"}
+    scheme, local, b64, name = (
+        r"[A-Za-z0-9+.-]",
+        r"[A-Za-z0-9._%+-]",
+        r"[A-Za-z0-9_-]",
+        r"[\w.-]",
+    )
+    keyword = (
+        r"(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key"
+        r"|private[_-]?key|credentials?|authorization)"
+    )
+    return {
+        by_class["url_credential"]: _Run(
+            re.compile(rf"(?<!{scheme}){scheme}++://"),
+            re.compile(rf"{scheme}++://"),
+            re.compile(r"\b[A-Za-z]"),
+            by_class["url_credential"],
+        ),
+        # Every `\beyJ` inside one run of base64url characters shares the run's end.
+        by_class["jwt"]: _Run(
+            re.compile(rf"\beyJ{b64}*+"), None, None, by_class["jwt"]
+        ),
+        # The pattern itself would still walk the run once per keyword in it (`tokentoken…`), so
+        # the attempt is the same pattern written to walk it once: a keyword somewhere in the run
+        # (the lookahead), then the whole run, then the separator and the value.
+        by_class["password"]: _Run(
+            re.compile(rf"(?i)(?<!{name}){name}*?{keyword}{name}*+"),
+            re.compile(rf"(?i){name}*?{keyword}{name}*+"),
+            re.compile(r"\b\w"),
+            re.compile(
+                rf"(?i)\b(?={name}*?{keyword}){name}*+"
+                r"\s*[:=]\s*[\"']?([^\s\"',;&]{3,})"
+            ),
+        ),
+        by_class["email"]: _Run(
+            re.compile(rf"(?<!{local}){local}++@"),
+            re.compile(rf"{local}++@"),
+            re.compile(rf"\b{local}"),
+            by_class["email"],
+        ),
+    }
+
+
+_RUNS = _runs()
+
+
+def _sub_runs(spec: _Run, repl, text: str) -> str:
+    """pattern.sub(repl, text) for a pattern with a _Run: the same matches, in linear time."""
+    out: list[str] = []
+    done = at = 0  # the end of the last match; where the search goes on
+    while True:
+        found = None
+        if spec.again is not None and at and at == done:
+            found = spec.again.match(text, at)
+        found = found or spec.run.search(text, at)
+        if found is None:
+            break
+        start = found.start()
+        if spec.first is not None:
+            first = spec.first.search(text, start, found.end())
+            start = first.start() if first else None
+        m = spec.attempt.match(text, start) if start is not None else None
+        if m is None:
+            at = found.end()  # nothing in this run matches
+            continue
+        out += (text[done : m.start()], repl(m))
+        done = at = m.end()
+    if not out:
+        return text
+    out.append(text[done:])
+    return "".join(out)
+
+
 _VALID_IPV4 = re.compile(
     r"(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)"
 )
@@ -108,7 +210,11 @@ def redact_text(text: str, counts: dict[str, int]) -> str:
 
         parts = _MARKER.split(text)
         markers = _MARKER.findall(text)
-        parts = [pattern.sub(sub, part) for part in parts]
+        spec = _RUNS.get(pattern)
+        parts = [
+            _sub_runs(spec, sub, part) if spec else pattern.sub(sub, part)
+            for part in parts
+        ]
         text = "".join(
             p + (markers[i] if i < len(markers) else "") for i, p in enumerate(parts)
         )
