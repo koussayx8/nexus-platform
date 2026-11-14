@@ -488,14 +488,32 @@ v_fr_db() {
 }
 
 # ---------------------------------------------------------------------------
-# M14. Staged RBAC (spec §11; M2): as the operator ServiceAccount, `auth can-i --list` shows scale
-# and eviction in nexus-dev and neither in nexus-prod or nexus-data. In the other two namespaces
-# any scale or eviction row, or a wildcard resource, fails. Verbs are the last bracket group of
-# each row.
+# M14. Staged RBAC (spec §11): as the operator ServiceAccount, `auth can-i --list` per namespace.
+# Verbs are the last bracket group of each row.
+#   m2: scale and eviction in nexus-dev; neither in nexus-prod or nexus-data.
+#   m3: platform/m3-live also binds the operator's nexus-prod grants (G8, plan D18), so scale and
+#       eviction are expected in nexus-dev and nexus-prod, guarded by K1 (nexus-autonomy-floor
+#       present, Ready, failurePolicy Fail, Enforce); still neither in nexus-data.
+# A namespace that must have no grant fails on any scale or eviction row; a wildcard resource fails
+# in nexus-prod and nexus-data.
 # ---------------------------------------------------------------------------
 OPERATOR_SA=system:serviceaccount:nexus-system:nexus-operator
 v_staged_rbac() {
-  local rc=0 ns list rows scale evict wild
+  local rc=0 ns list rows scale evict wild granted=" nexus-dev " k1
+  if [[ ${MILESTONE:-m2} == m3 ]]; then
+    granted=" nexus-dev nexus-prod "
+    if ! k1=$(k get clusterpolicy nexus-autonomy-floor -o json 2>/dev/null); then
+      echo "K1 nexus-autonomy-floor: NOT FOUND (the nexus-prod grants are unguarded)"; rc=1
+    else
+      k1=$(jq -r '
+        ((.spec.validationFailureAction // "Audit")) as $dflt
+        | [.spec.rules[]? | select(.validate != null) | (.validate.failureAction // $dflt)] as $acts
+        | ((.status.ready // false) or ([.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length > 0)) as $ready
+        | "ready=\($ready) failurePolicy=\(.spec.failurePolicy // "-") ok=\($ready and (.spec.failurePolicy == "Fail") and ($acts | length > 0) and ($acts | all(. == "Enforce")))"' <<<"$k1")
+      echo "K1 nexus-autonomy-floor (guards the nexus-prod grants): $k1"
+      [[ $k1 == *"ok=true" ]] || rc=1
+    fi
+  fi
   for ns in nexus-dev nexus-prod nexus-data; do
     if ! list=$(k auth can-i --list -n "$ns" --as="$OPERATOR_SA" 2>&1); then
       echo "$ns: auth can-i --list failed"; rc=1; continue
@@ -507,8 +525,9 @@ v_staged_rbac() {
     evict=$(awk -F'\t' '$1 ~ /^pods\/eviction$/ {print $2}' <<<"$rows")
     wild=$(awk -F'\t' '$1 == "*" || $1 == "*.*" || $1 ~ /\/\*$/ {print $1}' <<<"$rows")
     echo "$ns: scale verbs=[${scale:--}] eviction verbs=[${evict:--}] wildcard resources=[${wild:--}]"
-    if [[ $ns == nexus-dev ]]; then
+    if [[ $granted == *" $ns "* ]]; then
       [[ " $scale " == *" patch "* && " $scale " == *" update "* && " $evict " == *" create "* ]] || rc=1
+      [[ $ns == nexus-dev || -z $wild ]] || rc=1
     else
       [[ -z $scale && -z $evict && -z $wild ]] || rc=1
     fi
@@ -672,7 +691,9 @@ verify M10 "sample-api /items reads the Dependency DB"   v_items
 verify M11 "Incident CRD: C1-C4, Prune=false,Delete=false" v_incident_crd
 verify M12 "NEXUS Operator Ready on its pinned digest"   v_operator
 verify M13 "Flight Recorder DB StatefulSet Ready"        v_fr_db
-verify M14 "Staged RBAC: scale and eviction in nexus-dev only" v_staged_rbac
+M14_DESC="Staged RBAC: scale and eviction in nexus-dev only"
+[[ $MILESTONE == m3 ]] && M14_DESC="Staged RBAC: scale and eviction in nexus-dev and nexus-prod (K1-guarded)"
+verify M14 "$M14_DESC" v_staged_rbac
 verify M15 "sample-api rollout strategy equals Git"      v_rollout_strategy
 verify M19 "Operator Flight Recorder link up (recorder_up = 1)" v_recorder_up
 if [[ $MILESTONE == m3 ]]; then
