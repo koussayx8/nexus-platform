@@ -1070,6 +1070,40 @@ class LiveRunTest(Base):
         self.assertEqual(posts, [])  # and no recovery
         self.assertEqual(self.reload().runs[0]["status"], "valid")
 
+    def test_a_locust_still_ramping_after_the_reset_is_waited_for_not_recovered(self):
+        class Ramping(FakeCluster):
+            """After the reset's stop and swarm: `spawning` for two reads of Locust, and the 2 m
+            request rate below the baseline for the pre-check's first two polls."""
+
+            locust_reads = rate_reads = 0
+
+            def promql(self, q):
+                if ":rate2m" in q:
+                    self.rate_reads += 1
+                    return 10.0 if self.rate_reads <= 4 else 80.0
+                return super().promql(q)
+
+        c = Ramping(self.ft)
+        live, posts = self.recovery_live(
+            c, after_reset={"state": "spawning", "user_count": 40}
+        )
+        get = live.r.http_get
+
+        def ramp(url):
+            if live.resets and c.locust_doc["state"] == "spawning":
+                c.locust_reads += 1
+                if c.locust_reads > 2:
+                    c.locust_doc = {"state": "running", "user_count": 160}
+            return get(url)
+
+        live.r.http_get = ramp
+        self.drive(live, max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual(posts, [])  # a ramp is not a Locust that is down
+        self.assertNotIn("locust_recovery", r)
+        self.assertEqual(r["status"], "valid")
+        self.assertGreater(r["precheck"]["polls"], 1)  # the loop waited for the rate
+
     def test_locust_off_baseline_users_is_restarted(self):
         c = FakeCluster(self.ft)
         live, posts = self.recovery_live(

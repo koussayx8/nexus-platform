@@ -29,8 +29,8 @@ What it adds to runner.py (which plans and executes single operations):
 * Locust at the baseline. With precheck.locust `spawn_rate` and `classes`, the reset stops Locust
   (GET /stop) and starts the exact baseline swarm again (POST /swarm: users, spawn rate, classes); a
   stop first, because a /swarm on a running swarm keeps the old classes (ADR-027). Without them the
-  reset only stops Locust, as before. Recovery: when the pre-check finds Locust stopped or off
-  baseline, before its loop or when the loop fails on Locust, the driver
+  reset only stops Locust, as before. Recovery: the driver waits for the ramp, and when Locust
+  itself is then not running the baseline, or when the pre-check loop later fails on Locust, it
   POSTs the baseline again, waits recovery_wait_s (default cap_s) and re-runs every pre-check; at
   most recovery_attempts (default 2) in a row (a run that counts resets the count), each logged and
   kept on the run record (`locust_recovery`). Past the cap the batch halts
@@ -102,6 +102,8 @@ MAX_PAUSE_GAP_S = (
     1.0  # the M2-1 void rule V2; the pre-registration fixes the batch's value
 )
 PLACEHOLDER_REF = "REPLACE_WITH_G16_APPROVAL_REF"
+# Seconds past users / spawn rate before a Locust that is not at the baseline counts as down.
+RAMP_MARGIN_S = 30
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,127}$")
 STATUSES = ("running", "valid", "void", "discarded")
 
@@ -718,17 +720,32 @@ class LiveRun:
         )
         self.sleep(conf["wait_s"])
 
-    def _prechecks(self, rec: dict, before: set, cell: dict, guard: Guard):
-        """run_prechecks, restarting Locust first when it is already down and again when the pre-check
-        fails on it. Every pre-check is re-run after each restart."""
-        force = None
+    def _after_ramp(self) -> list[str]:
+        """What Locust itself still says is wrong once the reset's swarm has had time to ramp.
+        The reset stops Locust and starts the baseline again, so just after it Locust is `spawning`
+        and the 2 m request rate is below the baseline: neither means Locust is down. So this waits
+        users / spawn rate seconds plus RAMP_MARGIN_S, reads Locust's own state and user count only,
+        and returns as soon as they are right."""
+        conf = self._recovery_conf()
+        loc = {**self.cfg["locust"], "namespaces": []}
+        deadline = self.monotonic() + conf["users"] / conf["spawn_rate"] + RAMP_MARGIN_S
         while True:
-            down = force or (
-                self._recovery_conf() is not None
-                and self._locust_down(
-                    precheck.locust_failures(self.r, precheck.Prom(self.r), self.cfg)
+            why = self._locust_down(
+                precheck.locust_failures(
+                    self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
                 )
             )
+            if not why or self.monotonic() >= deadline:
+                return why
+            self.sleep(self.poll_s)
+
+    def _prechecks(self, rec: dict, before: set, cell: dict, guard: Guard):
+        """run_prechecks, restarting Locust first when it is not running the baseline after the
+        reset's ramp, and again when the pre-check fails on it. Every pre-check is re-run after each
+        restart."""
+        force = None
+        while True:
+            down = force or (self._recovery_conf() is not None and self._after_ramp())
             if down:
                 self._recover_locust(rec, down)
                 guard.check()
