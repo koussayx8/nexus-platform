@@ -14,7 +14,7 @@ from .. import reasoner_client as rc
 from ..operator_lib import proposal, redact
 
 RAW = json.loads(
-    (pathlib.Path(__file__).parent / "fixtures" / "evidence-v1-raw.json").read_text()
+    (pathlib.Path(__file__).parent / "fixtures" / "evidence-v1.1-raw.json").read_text()
 )
 
 
@@ -72,6 +72,20 @@ class CheckRedactedTest(unittest.TestCase):
         tampered["logs"]["current"][0] = "still has 10.9.9.9"
         self.assertIn("hash", rc.check_redacted(tampered))
         self.assertIn("evidence/v1", rc.check_redacted({"schema": "other"}))
+
+    def test_v1_and_v1_1_bundles_pass_and_v2_does_not(self):
+        """evidence/v1.1 only adds metrics.zscores.inflight (ADR-039)."""
+        b = operator_redacted(RAW)
+        self.assertEqual(b["schema"], "evidence/v1.1")
+        self.assertIn("inflight", b["metrics"]["zscores"])
+        for schema, ok in (
+            ("evidence/v1", True),
+            ("evidence/v1.1", True),
+            ("evidence/v2", False),
+        ):
+            raw = {k: v for k, v in b.items() if k != "hash"} | {"schema": schema}
+            raw["hash"] = rc.proposal.hash_of(raw)
+            self.assertEqual(rc.check_redacted(raw) is None, ok, schema)
 
 
 class ProposeTest(unittest.TestCase):

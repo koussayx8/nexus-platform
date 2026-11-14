@@ -11,11 +11,14 @@ named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
 
   runner.py plan inject S1 --context C           print the steps
   runner.py run  inject S1 --context C --execute
+  runner.py run  inject S2 --context C --locust URL --users N --spawn-rate R --execute
   runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
-  runner.py gate --context C --namespace nexus-dev --locust URL --locust-users 160 \\
-      --locust-rate R --window 20m --config batch.json    read-only; exits 1 on any FAIL
+  python -m experiments.harness.runner gate --context C --namespace nexus-dev --locust URL \\
+      --locust-users 160 --locust-rate R --window 20m --config batch.json
+                                                 read-only; exits 1 on any FAIL. From the repository
+                                                 root, as a module: `runner.py gate` cannot import it
 
 Git is never force-pushed (ADR-013): reset is a forward commit on experiment/dev-state.
 Live behaviour is "live check pending": no cluster was available when this was written;
@@ -43,13 +46,21 @@ INJECT_NAMESPACES = (NS_DEV, NS_PROD)
 PROD_MAX_LEVEL = 1  # nexus-prod takes a fault only at autonomy level 1 or lower
 NS_DATA = "nexus-data"
 NS_SYSTEM = "nexus-system"
-APPS = ("sample-api-dev", "dependency-db-dev")
+# The Applications a reset refreshes and waits for, by metadata.name in platform/argocd/applications/
+# (dependency-db has no -dev twin: one Application, tracking main).
+APPS = ("sample-api-dev", "dependency-db")
 BRANCH = "experiment/dev-state"
+S3_APP = "sample-api-dev"  # the Application that tracks BRANCH: S3's fault arrives through it
 LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
 APP_PORT = 8000
+# Locust's master answers /stop only when its user count is 0, and waits for its workers up to
+# stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
+LOCUST_STOP_TIMEOUT_S = 75
+# The nexus-operator-config keys that select the reasoner arm (operator/nexus_operator/config.py).
+REASONER_KEYS = ("reasonerEndpoint", "reasonerMode", "reasonerModel", "reasonerEffort")
 
 HANG_PY = (
     "import urllib.request as u;"
@@ -111,6 +122,10 @@ class Runner:
         self.git_dir = git_dir
         self.http_post = http_post or _post_form
         self.http_get = http_get or _get_text
+        # A GET that is a step: /stop answers only once the master counts no user (see below).
+        self.http_step_get = http_get or (
+            lambda url: _get_text(url, timeout=LOCUST_STOP_TIMEOUT_S)
+        )
 
     # ---------------------------------------------------------------- helpers
     def k(
@@ -148,11 +163,46 @@ class Runner:
                 f" (needs {PROD_MAX_LEVEL} or lower)"
             )
 
+    def head_revision(self) -> str:
+        """The commit the experiment clone's HEAD names (read-only): after an S3 injection, the
+        revision that was pushed."""
+        rc, out = self.exec(["git", "rev-parse", "HEAD"], cwd=self.git_dir)
+        rev = out.strip()
+        if rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", rev):
+            raise RuntimeError("cannot read the experiment clone's HEAD")
+        return rev
+
+    def applied_at(self, revision: str) -> str | None:
+        """When Argo CD finished applying `revision` to sample-api-dev (read-only): `deployedAt` of
+        the first status.history entry with that revision, as Argo CD wrote it. None while the
+        revision is not in the history, or when the Application cannot be read."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "-n", "argocd", "get", "application"]
+            + [S3_APP, "-o", "json"]
+        )
+        try:
+            doc = json.loads(out) if rc == 0 else None
+        except ValueError:
+            doc = None
+        if not isinstance(doc, dict):
+            return None
+        for entry in (doc.get("status") or {}).get("history") or []:
+            if entry.get("revision") == revision and entry.get("deployedAt"):
+                return entry["deployedAt"]
+        return None
+
     # ---------------------------------------------------------------- plans
     def plan_inject(
-        self, scenario: str, s3_patch: str | None = None, users: int | None = None
+        self,
+        scenario: str,
+        s3_patch: str | None = None,
+        users: int | None = None,
+        spawn_rate: float | None = None,
     ):
-        """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST."""
+        """Steps that start a fault. HTTP calls to Locust are Steps whose argv[0] is POST or GET.
+        A load scenario (S2, S4, S6) needs both the user count and the spawn rate: Locust 2.46.7
+        answers a /swarm without spawn_rate with HTTP 200 and {"success": false, "message": "Missing
+        or invalid user_count or spawn_rate from /swarm request"} (locust/web.py), and starts nothing."""
         sc = scenario.upper()
         if self.namespace == NS_PROD:
             if sc == "S3":
@@ -177,17 +227,20 @@ class Runner:
                 for p in self.pods(self.namespace, sample)
             ]
         if sc in ("S2", "S4", "S6"):
-            if not self.locust or users is None:
+            if not self.locust or users is None or spawn_rate is None:
                 raise ValueError(
-                    f"{sc} needs --locust URL and --users (from the calibrated capacity)"
+                    f"{sc} needs --locust URL, --users and --spawn-rate (from the calibrated capacity)"
                 )
-            steps = [
-                Step(
-                    ("POST", f"{self.locust}/swarm", f"user_count={users}"),
-                    True,
-                    f"{sc} load",
-                )
-            ]
+            if (
+                isinstance(spawn_rate, bool)
+                or not isinstance(spawn_rate, int | float)
+                or not spawn_rate > 0
+            ):
+                raise ValueError(f"{sc}: spawn rate must be a positive number")
+            body = urllib.parse.urlencode(
+                [("user_count", users), ("spawn_rate", spawn_rate)]
+            )
+            steps = [Step(("POST", f"{self.locust}/swarm", body), True, f"{sc} load")]
             if sc == "S6":
                 steps += [
                     self.k(
@@ -244,24 +297,36 @@ class Runner:
             for app in APPS
         ]  # fmt: skip
 
-    def plan_operator_config(self, advisory: str, breaker_epoch: int):
+    def plan_operator_config(
+        self, advisory: str, breaker_epoch: int, reasoner: dict | None = None
+    ):
         """Write advisoryChecks and breakerEpoch into the admin-owned ConfigMap, then restart the
         operator, which reads its configuration at startup (ADR-025). The ConfigMap is created by
         bootstrap, never by ArgoCD (template header), so this is not an ArgoCD-managed resource.
         advisoryChecks is "off" only in phase D (spec line 394); the caller decides, the batch driver
-        refuses "off" for any other cell."""
+        refuses "off" for any other cell.
+        `reasoner` is the run's arm as the operator reads it (ADR-035): all four of REASONER_KEYS,
+        as strings, in the same patch, so the operator restarts into that arm and nothing of the
+        previous run's arm stays. Without it the keys are left as they are."""
         if advisory not in ("on", "off"):
             raise ValueError(f"advisoryChecks must be on or off, not {advisory!r}")
         if not isinstance(breaker_epoch, int) or breaker_epoch < 0:
             raise ValueError(
                 "breakerEpoch must be a non-negative integer (Unix seconds)"
             )
-        patch = json.dumps(
-            {"data": {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}}
-        )
+        data = {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}
+        note = f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"
+        if reasoner is not None:
+            if set(reasoner) != set(REASONER_KEYS) or not all(
+                isinstance(v, str) for v in reasoner.values()
+            ):
+                raise ValueError(f"the arm needs exactly {REASONER_KEYS}, as strings")
+            data.update(reasoner)
+            note += f", reasonerMode={reasoner['reasonerMode']}, reasonerModel={reasoner['reasonerModel'] or '-'}"
+        patch = json.dumps({"data": data})
         return [
             self.k("patch", "configmap", "nexus-operator-config", "--type", "merge", "-p", patch,
-                   ns=NS_SYSTEM, note=f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"),
+                   ns=NS_SYSTEM, note=note),
             self.k("rollout", "restart", "deployment/nexus-operator", ns=NS_SYSTEM,
                    note="the operator reads its configuration at startup"),
             self.k("rollout", "status", "deployment/nexus-operator", "--timeout=180s", ns=NS_SYSTEM),
@@ -273,12 +338,16 @@ class Runner:
         baseline_ref: str | None = None,
         advisory: str = "on",
         breaker_epoch: int | None = None,
+        reasoner: dict | None = None,
         locust_baseline: dict | None = None,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
-        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D).
-        With locust_baseline (users, spawn_rate, classes), Locust ends at that baseline swarm; without
-        it the old behaviour stands (Locust is stopped)."""
+        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D),
+        and, with `reasoner`, the run's arm (plan_operator_config).
+        Locust is always stopped (GET /stop). With locust_baseline (users, spawn_rate, classes) the
+        baseline swarm is then started again, so Locust ends at exactly that swarm: the stop comes
+        first because a /swarm on a running swarm re-dispatches the user count with the old classes
+        (ADR-027; only stop() resets the dispatcher). Without it Locust is left idle."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -308,14 +377,12 @@ class Runner:
                    S5_RESTORE_SQL, ns=NS_DATA, note="restore role"),
         ]  # fmt: skip
         if self.locust:
+            # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
+            steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
             if locust_baseline:
                 steps.append(self.swarm_step(locust_baseline, "Locust to the baseline"))
-            else:
-                steps.append(
-                    Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
-                )
         if breaker_epoch is not None:
-            steps += self.plan_operator_config(advisory, breaker_epoch)
+            steps += self.plan_operator_config(advisory, breaker_epoch, reasoner)
         return steps
 
     # ---------------------------------------------------------------- execution
@@ -329,6 +396,11 @@ class Runner:
                     urllib.parse.parse_qs(body, keep_blank_values=True) if body else {},
                 )
                 rc = 0
+            elif (
+                s.argv[0] == "GET"
+            ):  # Locust's web API; anything but 200 fails the step
+                code, _ = self.http_step_get(s.argv[1])
+                rc = 0 if code == 200 else 1
             elif s.argv[0] == "SETLEVEL":
                 rc = set_level(self.git_dir, int(s.argv[1]))
             elif s.argv[0] == "git":
@@ -409,12 +481,21 @@ def set_level(git_dir, level: int) -> int:
     return 0
 
 
-def _post_form(url, fields):
+def _post_form(url, fields, opener=urllib.request.urlopen):
+    """POST a form to Locust's web API. Locust answers a refused /swarm with HTTP 200 and
+    {"success": false, "message": ...}: that is a failure here, so a fault that was not injected
+    stops the run instead of being waited for. An HTTP error status raises by itself (urlopen)."""
     data = urllib.parse.urlencode(fields, doseq=True).encode()
-    with urllib.request.urlopen(
-        urllib.request.Request(url, data=data, method="POST"), timeout=30
-    ) as r:
-        r.read()
+    with opener(urllib.request.Request(url, data=data, method="POST"), timeout=30) as r:
+        body = r.read().decode("utf-8", "replace")
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return
+    if isinstance(doc, dict) and doc.get("success") is False:
+        raise RuntimeError(
+            f"POST {url} was refused: {str(doc.get('message') or '')[:200]}"
+        )
 
 
 def main(argv=None):
@@ -437,6 +518,9 @@ def main(argv=None):
     ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
     ap.add_argument("--locust")
     ap.add_argument("--users", type=int)
+    ap.add_argument(
+        "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
+    )
     ap.add_argument("--git-dir")
     ap.add_argument("--s3-patch")
     ap.add_argument("--baseline-ref")
@@ -449,7 +533,7 @@ def main(argv=None):
         if not a.scenario:
             ap.error("inject needs a scenario")
         try:
-            steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+            steps = r.plan_inject(a.scenario, a.s3_patch, a.users, a.spawn_rate)
         except ValueError as e:
             ap.error(str(e))
     elif a.op == "reset":

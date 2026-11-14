@@ -85,7 +85,7 @@ class RunnerTest(unittest.TestCase):
     def runner(self, **kw):
         ex = FakeExec(**{k: v for k, v in kw.items() if k in ("pods", "sync")})
         return runner.Runner("ctx", exec_=ex, sleep=lambda s: None, locust=kw.get("locust"), git_dir=kw.get("git_dir"),
-                             http_post=kw.get("http_post")), ex  # fmt: skip
+                             http_post=kw.get("http_post"), http_get=kw.get("http_get")), ex  # fmt: skip
 
     def test_context_required_and_always_named(self):
         with self.assertRaises(ValueError):
@@ -113,8 +113,12 @@ class RunnerTest(unittest.TestCase):
         r, _ = self.runner(locust="http://l")
         with self.assertRaises(ValueError):
             r.plan_inject("S4")
-        s6 = r.plan_inject("S6", users=15)
-        self.assertEqual(s6[0].argv, ("POST", "http://l/swarm", "user_count=15"))
+        with self.assertRaises(ValueError):
+            r.plan_inject("S4", users=15)  # Locust refuses a swarm without spawn_rate
+        s6 = r.plan_inject("S6", users=15, spawn_rate=4)
+        self.assertEqual(
+            s6[0].argv, ("POST", "http://l/swarm", "user_count=15&spawn_rate=4")
+        )
         self.assertTrue(any("/fault/inject-logs" in s.argv[-1] for s in s6[1:]))
 
     def test_s3_is_a_forward_push_only(self):
@@ -134,11 +138,16 @@ class RunnerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             r.plan_inject("S9")
 
-    def test_reset_leaves_locust_at_the_baseline_swarm_instead_of_stopping_it(self):
+    def test_reset_stops_locust_then_starts_the_baseline_swarm(self):
         b = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
         r, _ = self.runner(locust="http://l")
-        posts = [s for s in r.plan_reset(3, locust_baseline=b) if s.argv[0] == "POST"]
-        (swarm,) = posts
+        stop, swarm = [
+            s
+            for s in r.plan_reset(3, locust_baseline=b)
+            if s.argv[0] in ("GET", "POST")
+        ]
+        # the stop first: a /swarm on a running swarm keeps the old classes (ADR-027)
+        self.assertEqual(stop.argv, ("GET", "http://l/stop"))
         self.assertEqual(swarm.argv[:2], ("POST", "http://l/swarm"))
         self.assertEqual(
             urllib.parse.parse_qs(swarm.argv[2]),
@@ -148,16 +157,19 @@ class RunnerTest(unittest.TestCase):
                 "user_classes": ["DevUser", "ProdUser"],
             },
         )
-        # without a baseline the old step stands
-        (stop,) = [s for s in r.plan_reset(3) if s.argv[0] == "POST"]
-        self.assertEqual(stop.argv, ("POST", "http://l/stop", ""))
-        # executed, the form reaches http_post with one user_classes field per class
-        got = []
+        # without a baseline the reset only stops Locust, with the same GET
+        (only,) = [s for s in r.plan_reset(3) if s.argv[0] in ("GET", "POST")]
+        self.assertEqual(only.argv, ("GET", "http://l/stop"))
+        # executed, in that order; the form reaches http_post with one user_classes field per class
+        sent = []
         r2, _ = self.runner(
-            locust="http://l", http_post=lambda u, f: got.append((u, f))
+            locust="http://l",
+            http_post=lambda u, f: sent.append(("POST", u, f)),
+            http_get=lambda u: sent.append(("GET", u)) or (200, "{}"),
         )
-        r2.execute([swarm])
-        self.assertEqual(got[0][1]["user_classes"], ["DevUser", "ProdUser"])
+        r2.execute(r2.plan_reset(3, locust_baseline=b))
+        self.assertEqual([x[:2] for x in sent], [("GET", "http://l/stop"), ("POST", "http://l/swarm")])  # fmt: skip
+        self.assertEqual(sent[1][2]["user_classes"], ["DevUser", "ProdUser"])
 
     def test_reset_order_and_no_force(self):
         r, _ = self.runner(locust="http://l", git_dir="/g")
@@ -273,12 +285,14 @@ class RunnerTest(unittest.TestCase):
         )
 
     def test_execute_runs_steps_in_order_and_stops_on_failure(self):
-        posts = []
+        posts, gets = [], []
         r, _ex = self.runner(
-            locust="http://l", http_post=lambda u, f: posts.append((u, f))
+            locust="http://l",
+            http_post=lambda u, f: posts.append((u, f)),
+            http_get=lambda u: gets.append(u) or (200, "{}"),
         )
         log = r.execute(r.plan_reset(3))
-        self.assertEqual(posts, [("http://l/stop", {})])
+        self.assertEqual((gets, posts), (["http://l/stop"], []))  # the stop is a GET
         self.assertEqual(len(log), len(r.plan_reset(3)))
 
         def failing(argv, cwd=None):

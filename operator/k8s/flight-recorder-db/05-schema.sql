@@ -59,8 +59,11 @@ CREATE TABLE IF NOT EXISTS evidence_bundles (
 );
 CREATE INDEX IF NOT EXISTS evidence_bundles_incident ON evidence_bundles (incident_uid);
 
+-- Keyed by (incident_uid, proposal_hash) since ADR-039: the hash is of the proposal content only,
+-- so two Incidents with the same proposal each keep their own row. A volume initialised before
+-- ADR-039 is migrated by migrations/039-proposals-incident-key.sql (not part of the init).
 CREATE TABLE IF NOT EXISTS proposals (
-    proposal_hash      text PRIMARY KEY,
+    proposal_hash      text NOT NULL,
     incident_uid       text NOT NULL REFERENCES incidents (incident_uid),
     reasoner_mode      text NOT NULL,
     model_id           text,
@@ -71,7 +74,8 @@ CREATE TABLE IF NOT EXISTS proposals (
     parsed_proposal    jsonb,
     schema_valid       boolean NOT NULL,
     latency_ms         integer,
-    fallback_used      boolean NOT NULL DEFAULT false
+    fallback_used      boolean NOT NULL DEFAULT false,
+    PRIMARY KEY (incident_uid, proposal_hash)
 );
 -- Added after ADR-031 (task 2c, ADR-035): the Reasoner request id (links a failed attempt and its
 -- fallback row) and why a proposal was rejected. Additive and idempotent, so it also applies to a

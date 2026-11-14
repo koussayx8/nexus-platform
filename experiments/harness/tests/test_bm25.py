@@ -56,12 +56,27 @@ class IndexTest(unittest.TestCase):
         import json
 
         raw = json.loads(
-            (Path(__file__).parent / "fixtures" / "evidence-v1-raw.json").read_text()
+            (Path(__file__).parent / "fixtures" / "evidence-v1.1-raw.json").read_text()
         )
         q = bm25.build_query(raw)  # lastTermination is a string in evidence/v1
         for tok in ("nexuslatencyanomaly", "oomkilled", "unhealthy", "latencyp95"):
             self.assertIn(tok, q)
         self.assertNotIn("cpu", q)  # Z 0.4: not anomalous
+
+    def test_a_null_zscore_adds_no_token_and_does_not_raise(self):
+        # 2026-11-07T07:19:39Z: latencyP95 was null; later in a hang p95 and the error ratio are too.
+        z = {"cpu": -6.77, "latencyP95": None, "errorRatio": None, "requestRate": -62.1, "inflight": 80.0}  # fmt: skip
+        q = bm25.build_query(bundle(metrics={"zscores": z}))
+        self.assertEqual(q, ["cpu", "requestrate", "inflight"])
+
+    def test_only_numbers_count_as_zscores(self):
+        z = {"cpu": True, "latencyP95": "9", "errorRatio": float("nan"), "requestRate": 3.0, "inflight": 3.01}  # fmt: skip
+        self.assertEqual(bm25.build_query(bundle(metrics={"zscores": z})), ["inflight"])
+
+    def test_a_bundle_with_null_zscores_still_retrieves(self):
+        hang = bundle(incident={"alerts": [{"name": "NexusLatencyAnomaly"}]},
+                      metrics={"zscores": {"latencyP95": None, "cpu": -6.77, "inflight": 80.0}})  # fmt: skip
+        self.assertEqual(self.top(hang)[0]["runbook"], "rb-gray-failure")
 
     def test_floor_gives_no_runbook(self):
         s5 = bundle(

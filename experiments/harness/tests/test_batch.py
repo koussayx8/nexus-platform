@@ -663,6 +663,19 @@ class FakeCluster:
         self.rps = 80.0
         self.recorder_up = 1.0  # nexus_operator_recorder_up: a number, a list of series, or None (no answer)
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
+        self.detected_at = None  # spec.detectedAt of the injected fault's Incident, set when it appears
+        self.operator_config = {}  # nexus-operator-config data, as the reset's patches leave it
+
+    def reasoner_status(self):
+        """status.reasoner as the operator writes it (act.py) for the arm in its ConfigMap: R1 only
+        when no endpoint is set, R1 with fallbackUsed when the Reasoner call failed, else the
+        Reasoner's own mode and model."""
+        cfg = self.operator_config
+        if not cfg.get("reasonerEndpoint"):
+            return {"mode": "rules", "fallbackUsed": False}
+        if self.fallback:
+            return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
+        return {"mode": cfg["reasonerMode"], "modelId": cfg["reasonerModel"] or None, "fallbackUsed": False}  # fmt: skip
 
     def vector(self, value):
         return json.dumps(
@@ -696,6 +709,8 @@ class FakeCluster:
     def __call__(self, argv, cwd=None):
         self.calls.append(argv)
         line = " ".join(argv)
+        if "nexus-operator-config" in argv and "patch" in argv:
+            self.operator_config.update(json.loads(argv[argv.index("-p") + 1])["data"])
         if "--raw" in argv and "/proxy/healthz" in argv[-1]:
             return (
                 (0, json.dumps(self.reasoner)) if self.reasoner is not None else (1, "")
@@ -759,7 +774,12 @@ class FakeCluster:
                         }
                     )
                 phase = self.phases.pop(0) if len(self.phases) > 1 else self.phases[0]
-                items.append({"metadata": {"uid": "new"}, "status": {"phase": phase, "reasoner": {"fallbackUsed": self.fallback}}})  # fmt: skip
+                if self.detected_at is None:  # the alert starts once the fault is in
+                    self.detected_at = batch._utc(self.ft.wall())
+                items.append({"metadata": {"uid": "new", "name": "inc-new", "creationTimestamp": self.detected_at},
+                              "spec": {"source": {"alertname": "NexusLatencyAnomaly"}, "detectedAt": self.detected_at,
+                                       "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}},
+                              "status": {"phase": phase, "reasoner": self.reasoner_status()}})  # fmt: skip
             return 0, json.dumps({"items": items})
         if any("sync.status" in a for a in argv):
             return 0, self.synced
@@ -956,8 +976,12 @@ class LiveRunTest(Base):
     def test_happy_path_reads_terminal_phase_fallback_and_the_no_fault_record(self):
         c = FakeCluster(self.ft, phases=("Diagnosing", "Resolved"), fallback=True)
         c.alerts = [firing("NexusTrafficAnomaly")]
+        # only an arm that calls the Reasoner can fall back to R1
+        self.q = batch.Queue.create(
+            self.dir / "r3", REF, [dict(CELLS[0], reasoner="R3")], precheck_cfg=PRE
+        )
         out = self.drive(self.live(c), max_runs=1)
-        r = self.reload().runs[0]
+        r = self.q.runs[0]
         self.assertEqual(
             (r["status"], r["terminal"], r["fallbackUsed"]), ("valid", "Resolved", True)
         )
@@ -977,9 +1001,9 @@ class LiveRunTest(Base):
                  idx("rollout restart deployment/nexus-operator"), idx("sync.status"), idx("zscore15m"), idx("/fault/hang")]  # fmt: skip
         self.assertEqual(order, sorted(order))
 
-    # ---- Locust recovery (fake Locust). The reset swarms Locust to the baseline; `after_reset` is what
-    # Locust looks like afterwards (the fake's way of having it stop or drift), and a recovery swarm
-    # heals it when `heals`.
+    # ---- Locust recovery (fake Locust). The reset stops Locust and swarms it to the baseline;
+    # `after_reset` is what Locust looks like afterwards (the fake's way of having it stop or drift),
+    # and a recovery swarm heals it when `heals`.
     def recovery_live(self, c, heals=True, after_reset=None, **loc):
         cfg = {**PRE, "locust": {**PRE["locust"], "spawn_rate": 4, "classes": ["DevUser", "ProdUser"],
                                  "recovery_wait_s": 30, **loc}}  # fmt: skip
@@ -1024,14 +1048,27 @@ class LiveRunTest(Base):
         self.drive(live, max_runs=1)
         r = self.reload().runs[0]
         self.assertEqual(r["status"], "valid")
-        self.assertEqual(
-            live.resets, [self.BASELINE_SWARM]
-        )  # the reset leaves the baseline, no /stop
+        self.assertEqual(live.resets, [self.BASELINE_SWARM])  # the reset's own swarm
         self.assertEqual(posts, [self.BASELINE_SWARM])  # and so does the recovery
         (att,) = r["locust_recovery"]
         self.assertEqual((att["attempt"], att["of"], att["posted"]), (1, 2, True))
         self.assertTrue(att["why"])
         self.assertTrue(r["precheck"]["ok"])  # every pre-check re-ran after the restart
+
+    def test_the_reset_stops_locust_with_a_get_before_the_baseline_swarm(self):
+        c = FakeCluster(self.ft)
+        live, posts = self.recovery_live(
+            c, after_reset={"state": "running", "user_count": 160}
+        )
+        order, get, post = [], live.r.http_step_get, live.r.http_post
+        live.r.http_step_get = lambda u: order.append(("GET", u)) or get(u)
+        live.r.http_post = lambda u, f: order.append(("POST", u)) or post(u, f)
+        self.drive(live, max_runs=1)
+        self.assertEqual(
+            order[:2], [("GET", "http://l/stop"), ("POST", "http://l/swarm")]
+        )
+        self.assertEqual(posts, [])  # and no recovery
+        self.assertEqual(self.reload().runs[0]["status"], "valid")
 
     def test_locust_off_baseline_users_is_restarted(self):
         c = FakeCluster(self.ft)
@@ -1067,7 +1104,10 @@ class LiveRunTest(Base):
         q = batch.Queue.create(self.dir, REF, s1_twice, precheck_cfg=PRE)
         self.drive(live, queue=q, max_runs=1)
         self.assertEqual(live.recoveries, 0)  # cleared by the successful run
-        c.injected = False  # the fake yields one Incident per injection: let the next run have its own
+        c.injected, c.detected_at = (
+            False,
+            None,
+        )  # the fake yields one Incident per injection: let the next run have its own
         self.drive(live, queue=q, max_runs=1)
         runs = self.reload().runs
         self.assertEqual([r["status"] for r in runs], ["valid", "valid"])
@@ -1265,14 +1305,46 @@ class LiveRunTest(Base):
         )
         self.assertFalse(c.injected)
 
-    def test_incident_that_never_ends_is_discarded(self):
+    def test_an_incident_still_open_at_the_end_of_the_wait_is_a_failed_run_not_a_discard(
+        self,
+    ):
         c = FakeCluster(self.ft, phases=("Executing",))
         live = self.live(c)
-        live.wait_s = 0
+        live.wait_s = 20
         self.drive(live, max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual((r["status"], r["terminal"]), ("valid", None))
+        self.assertTrue(r["timed_out"])
         self.assertEqual(
-            self.reload().runs[0]["discard_reason"], "no_terminal_incident"
+            (r["incident"]["uid"], r["incident"]["phase"]), ("new", "Executing")
         )
+
+    def test_a_run_whose_incident_ended_is_not_marked_timed_out(self):
+        self.drive(self.live(FakeCluster(self.ft)), max_runs=1)
+        r = self.reload().runs[0]
+        self.assertEqual((r["terminal"], r["timed_out"]), ("Resolved", False))
+
+    def test_no_incident_of_the_runs_own_by_the_end_of_the_wait_is_discarded(self):
+        class Undetected(FakeCluster):
+            """The fault goes in and no Incident ever appears."""
+
+            def __call__(self, argv, cwd=None):
+                if "incidents" not in argv:
+                    return super().__call__(argv, cwd)
+                was, self.injected = self.injected, False
+                try:
+                    return super().__call__(argv, cwd)
+                finally:
+                    self.injected = was
+
+        c = Undetected(self.ft)
+        live = self.live(c)
+        live.wait_s = 20
+        self.drive(live, max_runs=1)
+        r = self.reload().runs[0]
+        self.assertTrue(c.injected)
+        self.assertEqual((r["status"], r["discard_reason"]), ("discarded", "no_incident"))  # fmt: skip
+        self.assertNotIn("incident", r)
 
 
 class ExampleConfigTest(unittest.TestCase):

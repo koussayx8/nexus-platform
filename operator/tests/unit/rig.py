@@ -19,7 +19,15 @@ from nexus_operator.gate import Gate
 from nexus_operator.model import iso
 from nexus_operator.verifier import Verifier
 
-TERMINAL = {"Resolved", "Escalated", "Blocked", "Recommended", "Dismissed"}
+TERMINAL = {
+    "Resolved",
+    "Escalated",
+    "Blocked",
+    "Recommended",
+    "Dismissed",
+    "Rejected",
+    "Expired",
+}
 
 
 class Rig:
@@ -72,7 +80,7 @@ class Rig:
         self.api.put(name, created=T0, status=status)
         digest = f"sha256:{name}"
         if isinstance(self.rec, FakeRecorder):
-            self.rec.proposals[digest] = doc
+            self.rec.proposals[(f"uid-{name}", digest)] = doc
         else:  # a real Writer: the incident row first, then the proposal under its hash
             uid = f"uid-{name}"
             self.call(
