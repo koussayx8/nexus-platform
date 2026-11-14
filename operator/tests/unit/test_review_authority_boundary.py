@@ -21,7 +21,7 @@ def review(finding: str):
 
 
 # ---------------------------------------------------------------- A1: quadratic redaction
-@review("A1: redaction time grows with the square of an attacker-controlled log line")
+# Fixed (redact._RUNS): a normal test now. The 1 MB lines are in test_redact_linear.py.
 def test_redacting_one_long_log_line_takes_bounded_time():
     line = "a." * 4000  # 8,000 characters; a container may log far longer lines
     started = time.perf_counter()
