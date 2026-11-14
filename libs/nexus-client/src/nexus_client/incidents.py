@@ -41,13 +41,35 @@ def _message(body: str | None, fallback: str) -> str:
         return fallback
 
 
+def impersonation_headers(as_user: str | None, as_group: str | None) -> dict[str, str]:
+    """The Impersonate-* headers for `--as` / `--as-group` (what kubectl sends for the same flags).
+
+    The official client ignores a kubeconfig user's `as:` / `as-groups:` fields, so nexusctl takes
+    the identity as flags. One group only: the client merges headers into a dict, so a repeated
+    Impersonate-Group cannot be sent. The API server checks that the caller may impersonate.
+    """
+    if as_group and not as_user:
+        raise ValueError("--as-group needs --as (the API server requires a user to impersonate)")
+    headers: dict[str, str] = {}
+    if as_user:
+        headers["Impersonate-User"] = as_user
+    if as_group:
+        headers["Impersonate-Group"] = as_group
+    return headers
+
+
 class KubeIncidentApi:
     def __init__(self, namespace: str = NAMESPACE, context: str | None = None,
-                 kubeconfig: str | None = None) -> None:
+                 kubeconfig: str | None = None, as_user: str | None = None,
+                 as_group: str | None = None) -> None:
         from kubernetes import client, config
 
+        headers = impersonation_headers(as_user, as_group)
         config.load_kube_config(config_file=kubeconfig, context=context)  # type: ignore[no-untyped-call]
-        self._api = client.CustomObjectsApi()
+        api_client = client.ApiClient()
+        for name, value in headers.items():
+            api_client.set_default_header(name, value)  # type: ignore[no-untyped-call]
+        self._api = client.CustomObjectsApi(api_client)
         self._ns = namespace
 
     def _call(self, fn: Any, *args: Any, **kw: Any) -> tuple[dict[str, Any], str | None]:
