@@ -58,6 +58,10 @@ def impersonation_headers(as_user: str | None, as_group: str | None) -> dict[str
     return headers
 
 
+def _admission_denial(message: str) -> bool:
+    return "admission webhook" in message and "denied the request" in message
+
+
 class KubeIncidentApi:
     def __init__(self, namespace: str = NAMESPACE, context: str | None = None,
                  kubeconfig: str | None = None, as_user: str | None = None,
@@ -86,9 +90,12 @@ class KubeIncidentApi:
                 raise NotFound(_message(e.body, "not found")) from e
             if e.status == 409:
                 raise Conflict(_message(e.body, "conflict")) from e
-            if e.status in (401, 403, 422):
-                raise Denied(_message(e.body, e.reason or "denied"), audit) from e
-            raise NexusClientError(f"{e.status} {e.reason}") from e
+            message = _message(e.body, e.reason or "denied")
+            # Kyverno answers a webhook denial with 400 ("admission webhook ... denied the
+            # request"); any other 400 is a malformed request and stays an error, with its message
+            if e.status in (401, 403, 422) or (e.status == 400 and _admission_denial(message)):
+                raise Denied(message, audit) from e
+            raise NexusClientError(f"{e.status} {e.reason}: {message}") from e
         except (HTTPError, OSError) as e:
             raise Unreachable(str(e)) from e
         return data, headers.get("Audit-Id")
