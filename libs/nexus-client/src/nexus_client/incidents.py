@@ -77,7 +77,9 @@ class KubeIncidentApi:
         from urllib3.exceptions import HTTPError
 
         try:
-            data, _status, headers = fn(*args, _return_http_data_only=False, **kw)
+            # *_with_http_info returns (data, status, headers); since kubernetes 37 the plain
+            # methods ignore _return_http_data_only and return the body alone
+            data, _status, headers = fn(*args, **kw)
         except ApiException as e:
             audit = (e.headers or {}).get("Audit-Id") if e.headers else None
             if e.status == 404:
@@ -92,17 +94,17 @@ class KubeIncidentApi:
         return data, headers.get("Audit-Id")
 
     def get(self, name: str) -> Reply:
-        data, audit = self._call(self._api.get_namespaced_custom_object,
+        data, audit = self._call(self._api.get_namespaced_custom_object_with_http_info,
                                  GROUP, VERSION, self._ns, PLURAL, name)
         return Reply(Incident.model_validate(data), audit)
 
     def list(self) -> list[Incident]:
-        data, _ = self._call(self._api.list_namespaced_custom_object,
+        data, _ = self._call(self._api.list_namespaced_custom_object_with_http_info,
                              GROUP, VERSION, self._ns, PLURAL)
         return [Incident.model_validate(i) for i in data.get("items", [])]
 
     def patch_approval(self, name: str, approval: dict[str, Any], resource_version: str) -> Reply:
         body = {"metadata": {"resourceVersion": resource_version}, "spec": {"approval": approval}}
-        data, audit = self._call(self._api.patch_namespaced_custom_object,
+        data, audit = self._call(self._api.patch_namespaced_custom_object_with_http_info,
                                  GROUP, VERSION, self._ns, PLURAL, name, body)
         return Reply(Incident.model_validate(data), audit)
