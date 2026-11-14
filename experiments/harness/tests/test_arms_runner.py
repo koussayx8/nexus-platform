@@ -10,16 +10,17 @@ from .. import arms, runner
 
 
 class ArmsTest(unittest.TestCase):
-    def test_spec_arms_and_haiku(self):
+    def test_the_arms_are_the_specs_four(self):
+        self.assertEqual(sorted(arms.ARMS), ["R0", "R1", "R2", "R3"])
         self.assertEqual(arms.arm_config("R2")["model"], "openai/gpt-oss-20b")
         self.assertEqual(arms.arm_config("R3")["model"], "openai/gpt-oss-120b")
-        h = arms.arm_config("H1")
-        self.assertEqual((h["provider"], h["mode"]), ("anthropic", "llm"))
         for a in ("R0", "R1"):
             self.assertIsNone(arms.arm_config(a)["model"])
+        with self.assertRaises(KeyError):
+            arms.arm_config("R9")
 
     def test_common_settings_frozen(self):
-        for a in ("R2", "R3", "H1", "R3-high"):
+        for a in ("R2", "R3"):
             c = arms.arm_config(a)
             self.assertEqual(
                 (
@@ -30,35 +31,22 @@ class ArmsTest(unittest.TestCase):
                 ),
                 (0, 1024, 30, 1),
             )
+            self.assertEqual(c["reasoning_effort"], "low")  # the spec's one effort
 
-    def test_sweep(self):
-        s = arms.sweep("R3")
-        self.assertEqual(sorted(s), ["R3-high", "R3-low", "R3-medium"])
-        self.assertEqual(
-            {v["reasoning_effort"] for v in s.values()}, {"low", "medium", "high"}
-        )
-        self.assertEqual(
-            arms.arm_config("R3-low")["model"], arms.arm_config("R3")["model"]
-        )
-        with self.assertRaises(ValueError):
-            arms.sweep("R1")
-        with self.assertRaises(KeyError):
-            arms.arm_config("R9")
-
-    def test_haiku_and_sweep_are_phase_b_only(self):
+    def test_the_haiku_arm_and_the_effort_sweep_are_gone(self):
+        # Cut on 2026-11-12 (TASKS.md D3, D10): no H1, no per-effort arm, in any phase.
         for name in ("H1", "R3-low", "R3-medium", "R3-high"):
-            self.assertEqual(arms.arm_config(name)["phases"], ("B",), name)
-        for phase in ("A", "C", "D"):
-            offending = {"H1", "R3-low", "R3-medium", "R3-high"} & set(
-                arms.arms_for_phase(phase)
-            )
-            self.assertFalse(offending, (phase, offending))
+            with self.assertRaises(KeyError, msg=name):
+                arms.arm_config(name)
+        self.assertFalse(hasattr(arms, "sweep"))
+        self.assertTrue(all(c["provider"] in (None, "groq") for c in arms.ARMS.values()))  # fmt: skip
+
+    def test_arms_per_phase(self):
         self.assertEqual(arms.arms_for_phase("A"), ["R1", "R3"])  # C1 and C2
+        self.assertEqual(arms.arms_for_phase("B"), ["R0", "R1", "R2", "R3"])  # C3
+        self.assertEqual(arms.arms_for_phase("C"), ["R1"])
         self.assertEqual(arms.arms_for_phase("D"), ["R0"])  # C7
-        self.assertEqual(
-            arms.arms_for_phase("B"),
-            ["H1", "R0", "R1", "R2", "R3", "R3-high", "R3-low", "R3-medium"],
-        )
+        self.assertEqual(arms.CONFIGURATIONS["C3"][0], ("R0", "R1", "R2", "R3"))
 
     def test_configurations_refer_to_known_arms(self):
         for arms_, _levels, _phase in arms.CONFIGURATIONS.values():
