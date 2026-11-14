@@ -281,6 +281,14 @@ class Runner:
             ]  # fmt: skip
         raise ValueError(f"unknown scenario {scenario}")
 
+    def swarm_step(self, b: dict, note: str = "") -> Step:
+        """POST /swarm with b = {users, spawn_rate, classes}: the exact baseline, one user_classes field per class."""
+        body = urllib.parse.urlencode(
+            [("user_count", b["users"]), ("spawn_rate", b["spawn_rate"])]
+            + [("user_classes", c) for c in b["classes"]]
+        )
+        return Step(("POST", f"{self.locust}/swarm", body), True, note)
+
     def plan_refresh(self):
         """ArgoCD hard refresh by annotation: no sync (selfHeal syncs by itself)."""
         return [
@@ -331,10 +339,15 @@ class Runner:
         advisory: str = "on",
         breaker_epoch: int | None = None,
         reasoner: dict | None = None,
+        locust_baseline: dict | None = None,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
         breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D),
-        and, with `reasoner`, the run's arm (plan_operator_config)."""
+        and, with `reasoner`, the run's arm (plan_operator_config).
+        Locust is always stopped (GET /stop). With locust_baseline (users, spawn_rate, classes) the
+        baseline swarm is then started again, so Locust ends at exactly that swarm: the stop comes
+        first because a /swarm on a running swarm re-dispatches the user count with the old classes
+        (ADR-027; only stop() resets the dispatcher). Without it Locust is left idle."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -366,6 +379,8 @@ class Runner:
         if self.locust:
             # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
             steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
+            if locust_baseline:
+                steps.append(self.swarm_step(locust_baseline, "Locust to the baseline"))
         if breaker_epoch is not None:
             steps += self.plan_operator_config(advisory, breaker_epoch, reasoner)
         return steps

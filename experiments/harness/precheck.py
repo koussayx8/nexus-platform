@@ -158,6 +158,21 @@ def normalise(cfg: dict | None) -> dict:
     _number(loc["baseline_users"], "locust.baseline_users")
     _number(loc["baseline_rps_per_namespace"], "locust.baseline_rps_per_namespace")
     _number(loc["tolerance"], "locust.tolerance")
+    # Optional Locust recovery (batch.py): the exact baseline swarm as platform/load/master.yaml autostarts it.
+    if "spawn_rate" in loc:
+        _number(loc["spawn_rate"], "locust.spawn_rate")
+    if "classes" in loc and (
+        not isinstance(loc["classes"], list)
+        or not loc["classes"]
+        or not all(isinstance(c, str) and c for c in loc["classes"])
+    ):
+        raise ConfigError(
+            "precheck.locust.classes must be a non-empty list of class names"
+        )
+    if "recovery_attempts" in loc:
+        _number(loc["recovery_attempts"], "locust.recovery_attempts", positive=False)
+    if "recovery_wait_s" in loc:
+        _number(loc["recovery_wait_s"], "locust.recovery_wait_s", positive=False)
     _number(rs["port"], "reasoner.port")
     _number(au["max_age_s"], "audit_log.max_age_s")
     if _bare_hash(rs["expected_index_hash"]) is None:

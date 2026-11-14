@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import unittest
+import urllib.parse
 from unittest import mock
 
 from .. import arms, runner
@@ -136,6 +137,39 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("pg_terminate_backend", s.argv[-1])
         with self.assertRaises(ValueError):
             r.plan_inject("S9")
+
+    def test_reset_stops_locust_then_starts_the_baseline_swarm(self):
+        b = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
+        r, _ = self.runner(locust="http://l")
+        stop, swarm = [
+            s
+            for s in r.plan_reset(3, locust_baseline=b)
+            if s.argv[0] in ("GET", "POST")
+        ]
+        # the stop first: a /swarm on a running swarm keeps the old classes (ADR-027)
+        self.assertEqual(stop.argv, ("GET", "http://l/stop"))
+        self.assertEqual(swarm.argv[:2], ("POST", "http://l/swarm"))
+        self.assertEqual(
+            urllib.parse.parse_qs(swarm.argv[2]),
+            {
+                "user_count": ["160"],
+                "spawn_rate": ["4"],
+                "user_classes": ["DevUser", "ProdUser"],
+            },
+        )
+        # without a baseline the reset only stops Locust, with the same GET
+        (only,) = [s for s in r.plan_reset(3) if s.argv[0] in ("GET", "POST")]
+        self.assertEqual(only.argv, ("GET", "http://l/stop"))
+        # executed, in that order; the form reaches http_post with one user_classes field per class
+        sent = []
+        r2, _ = self.runner(
+            locust="http://l",
+            http_post=lambda u, f: sent.append(("POST", u, f)),
+            http_get=lambda u: sent.append(("GET", u)) or (200, "{}"),
+        )
+        r2.execute(r2.plan_reset(3, locust_baseline=b))
+        self.assertEqual([x[:2] for x in sent], [("GET", "http://l/stop"), ("POST", "http://l/swarm")])  # fmt: skip
+        self.assertEqual(sent[1][2]["user_classes"], ["DevUser", "ProdUser"])
 
     def test_reset_order_and_no_force(self):
         r, _ = self.runner(locust="http://l", git_dir="/g")
