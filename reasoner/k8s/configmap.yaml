@@ -3,8 +3,9 @@
 # `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git). The arms are the
 # spec's R2 and R3 only: the Haiku arm (H1) was cut on 2026-11-12 (TASKS.md D3, D10).
 #
-# scoreFloor 3.0675 is the value PROPOSED by experiments/retrieval/results.json (2.9584 in PR #147;
-# 3.0675 after rb-gray-failure v2, ADR-039); it is frozen only at G16. The Ollama demo fallback
+# scoreFloor 3.1739 is the value PROPOSED by experiments/retrieval/results.json (2.9584 in PR #147;
+# 3.0675 after rb-gray-failure v2, ADR-039; 3.1739 after the Block 3 polish of rb-gray-failure v3 and
+# rb-bad-rollout v2, TASKS.md D23); it is frozen only at G16. The Ollama demo fallback
 # has no baseUrl here: the host IP changes on WSL2 and is set at bootstrap (spec §18), so `demo`
 # is unavailable (503) until then.
 apiVersion: v1
@@ -19,7 +20,7 @@ data:
   reasoner.json: |
     {
       "indexPath": "/app/index/index.json",
-      "scoreFloor": 3.0675,
+      "scoreFloor": 3.1739,
       "timeoutSeconds": 30,
       "maxOutputTokens": 1024,
       "seed": 0,
