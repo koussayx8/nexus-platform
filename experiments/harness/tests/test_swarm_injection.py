@@ -126,7 +126,7 @@ class BatchTest(tb.Base):
 
     def test_the_cells_spawn_rate_reaches_the_swarm(self):
         posts = []
-        cell = {"scenario": "S4", "level": 3, "users": 240, "spawn_rate": 4}
+        cell = {"scenario": "S4", "reasoner": "R1", "level": 3, "users": 240, "spawn_rate": 4}  # fmt: skip
         self.run_cell(cell, lambda u, f: posts.append((u, f)))
         self.assertIn(
             ("http://l/swarm", {"user_count": ["240"], "spawn_rate": ["4"]}), posts
@@ -136,7 +136,7 @@ class BatchTest(tb.Base):
         posts = []
         with self.assertRaises(ValueError):
             self.run_cell(
-                {"scenario": "S4", "level": 3, "users": 240},
+                {"scenario": "S4", "reasoner": "R1", "level": 3, "users": 240},
                 lambda u, f: posts.append((u, f)),
             )
         self.assertNotIn("http://l/swarm", [u for u, _ in posts])

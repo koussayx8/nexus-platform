@@ -59,3 +59,23 @@ def test_reject_needs_a_reason(api: FakeApi) -> None:
 
 def test_bad_output_format(api: FakeApi) -> None:
     assert runner.invoke(app_module.app, ["-o", "xml", "list"]).exit_code != 0
+
+
+def test_as_and_as_group_reach_the_api_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeApi(incident_dict())
+    seen: list[tuple[str | None, str | None]] = []
+
+    def factory(_c: object) -> FakeApi:
+        seen.append((app_module.state.as_user, app_module.state.as_group))
+        return fake
+
+    monkeypatch.setattr(app_module, "_api_factory", factory)
+    monkeypatch.setenv("NEXUSCTL_CONFIG", "/nonexistent/config.yaml")
+    r = runner.invoke(app_module.app, ["--as", "koussay-approver", "--as-group", "nexus-approvers", "list"])
+    assert r.exit_code == exitcodes.OK, r.output
+    assert seen == [("koussay-approver", "nexus-approvers")]
+
+
+def test_as_group_without_as_is_refused_before_any_read(api: FakeApi) -> None:
+    r = runner.invoke(app_module.app, ["--as-group", "nexus-approvers", "list"])
+    assert r.exit_code != 0 and api.gets == 0

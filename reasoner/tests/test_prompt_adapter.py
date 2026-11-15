@@ -3,7 +3,7 @@ import os
 import unittest
 import urllib.error
 
-from nexus_reasoner import adapter, prompt
+from nexus_reasoner import adapter, config, prompt
 
 from .helpers import CFG, FakeOpener, bundle, good_proposal, retriever
 
@@ -52,7 +52,6 @@ class AdapterTest(unittest.TestCase):
     def setUp(self):
         self.env = dict(os.environ)
         os.environ["T_GROQ_KEY"] = "gsk-test-secret"
-        os.environ["T_ANT_KEY"] = "ant-test-secret"
         self.b = bundle()
 
     def tearDown(self):
@@ -84,24 +83,21 @@ class AdapterTest(unittest.TestCase):
         adapter.complete(CFG, CFG.models["R3"], "S", "U", effort="high", opener=op)
         self.assertEqual(op.calls[0]["body"]["reasoning_effort"], "high")
 
-    def test_anthropic_request(self):
-        op = FakeOpener(
-            lambda u, b: {
-                "content": [{"type": "text", "text": "{}"}],
-                "usage": {"input_tokens": 1},
-            }
-        )
-        c = adapter.complete(CFG, CFG.models["H1"], "S", "U", opener=op)
-        call = op.calls[0]
-        self.assertEqual(call["url"], "https://a.test/v1/messages")
-        self.assertEqual(call["headers"]["X-api-key"], "ant-test-secret")
-        self.assertEqual(
-            (call["body"]["system"], call["body"]["temperature"]), ("S", 0)
-        )
-        self.assertEqual(c.model, "claude-haiku-5-5")
+    def test_no_anthropic_provider(self):
+        # The Haiku arm (H1) was cut on 2026-11-12 (TASKS.md D3, D10), and its provider with it.
+        with self.assertRaises(config.ConfigError):
+            config.parse(
+                {
+                    "indexPath": "x",
+                    "scoreFloor": 1.0,
+                    "models": {
+                        "H1": {"provider": "anthropic", "model": "m", "apiKeyEnv": "K"}
+                    },
+                }
+            )
 
     def test_ollama_request_needs_no_key(self):
-        os.environ.pop("T_GROQ_KEY"), os.environ.pop("T_ANT_KEY")
+        os.environ.pop("T_GROQ_KEY")
         op = FakeOpener(lambda u, b: {"message": {"content": "{}"}, "eval_count": 3})
         adapter.complete(CFG, CFG.models["demo"], "S", "U", opener=op)
         call = op.calls[0]
