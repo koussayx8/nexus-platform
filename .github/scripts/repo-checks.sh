@@ -32,6 +32,8 @@
 # 18. scripts/forward-merge-check.sh on fixture trees: a forward-merge's tree must equal main's.
 # 16. The audit policy and rotation in scripts/bootstrap.sh: rule order, operator and approver
 #     writes at RequestResponse, every other write at Metadata (audit-policy.sh, ADR-036).
+# 19. No rendered Application deploys the all-zero placeholder digest (sha256:0{64}): an image
+#     that was never built is wired into ArgoCD only after its digest bump (the Reasoner, Block 3).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
@@ -82,6 +84,14 @@ echo "::endgroup::"
 
 echo "::group::Render every Application and check its AppProject"
 bash "$(dirname "$0")/render-apps.sh" "$work/render"
+echo "::endgroup::"
+
+echo "::group::No rendered Application deploys a placeholder image digest"
+if placeholders=$(grep -nE '@sha256:0{64}' "$work"/render/apps/*.yaml); then
+  echo "::error::the all-zero placeholder digest is in a rendered Application (merge its digest bump first):"
+  echo "$placeholders"; exit 1
+fi
+echo "none"
 echo "::endgroup::"
 
 echo "::group::Every ConfigMap an Application's workloads reference exists in its render"

@@ -1392,8 +1392,8 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   of any namespace (V2); the end-of-run Locust check voids an S1 run whose hang was not fixed (V3); a cell's reasoner arm
   is never written to the operator (V4); no injection time is recorded (V5). The High and Medium findings and a G16 fix
   list are in `docs/reviews/2026-11-10-m4-validity.md` on #198.
-- [→ G16, ADR] **`restart_v1` verifies on p95 only** (ADR-039 addendum, #197 A2): a partial hang that a restart did
-  not fix can verify early.
+- [done 2026-11-15, ADR-039 addendum] **`restart_v1` verified on p95 only** (#197 A2): `restart_v2` requires every
+  signal that was anomalous in the bundle back within its pre-fault baseline; the restart timeout is 300 s (X12).
 - [→ spec v1.1, #203] **The spec's scenario table disagrees with the operator at L1** (2026-11-13): §20 says S3 and S5
   end `Recommended` at L1, but a live L1 proposal of `escalate` ends `Escalated / proposed_escalation` (E1 attempt 2,
   2026-11-07, `inc-a676334b7210ccba-1794045159`; `docs/plans/m2-exit-record.md`). Decide which is right and record it

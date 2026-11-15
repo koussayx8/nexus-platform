@@ -1,0 +1,252 @@
+{
+ "cases": [
+  {
+   "bundle": {
+    "events": [],
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusLatencyAnomaly"
+      }
+     ]
+    },
+    "logs": {
+     "current": [],
+     "previous": []
+    },
+    "metrics": {
+     "zscores": {
+      "cpu": -6.830111209149924,
+      "errorRatio": 0.0,
+      "inflight": 80.0,
+      "latencyP95": 0.01831589869031071,
+      "requestRate": -57.020317460317465
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": "Completed",
+        "reason": null
+       }
+      ]
+     },
+     {
+      "containers": [
+       {
+        "lastTermination": "Completed",
+        "reason": null
+       }
+      ]
+     }
+    ],
+    "schema": "evidence/v1.1",
+    "workload": {
+     "rolloutInProgress": false
+    }
+   },
+   "expect_only_above_floor": true,
+   "expect_top1": "rb-gray-failure",
+   "id": "s1-e1-attempt3-prod",
+   "logs_note": "462 log lines, 0 with an error token",
+   "provenance": "real: S1 full hang, nexus-prod, 2026-11-11 (E1 attempt 3, ~/nexus-evidence/e1-attempt3-2026-11-11/fr-rows-prod.json), evidence/v1.1"
+  },
+  {
+   "bundle": {
+    "events": [],
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusLatencyAnomaly"
+      }
+     ]
+    },
+    "logs": {
+     "current": [],
+     "previous": []
+    },
+    "metrics": {
+     "zscores": {
+      "cpu": -6.765853788323353,
+      "errorRatio": 0.0,
+      "latencyP95": -0.0199997268300528,
+      "requestRate": -62.1238733366077
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": "Unknown",
+        "reason": null
+       }
+      ]
+     },
+     {
+      "containers": [
+       {
+        "lastTermination": "Unknown",
+        "reason": null
+       }
+      ]
+     }
+    ],
+    "schema": "evidence/v1",
+    "workload": {
+     "rolloutInProgress": false
+    }
+   },
+   "expect_only_above_floor": true,
+   "expect_top1": "rb-gray-failure",
+   "id": "s1-adr039-prod",
+   "logs_note": "800 log lines, 0 with an error token",
+   "provenance": "real: S1 full hang, nexus-prod, 2026-11-07 (ADR-039 regression corpus, ~/nexus-evidence/adr-039-fr-20261107/bundles.json [2]), evidence/v1"
+  },
+  {
+   "bundle": {
+    "events": [],
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusTrafficAnomaly"
+      }
+     ]
+    },
+    "logs": {
+     "current": [],
+     "previous": []
+    },
+    "metrics": {
+     "zscores": {
+      "cpu": 7.6217863844155325,
+      "errorRatio": null,
+      "latencyP95": null,
+      "requestRate": 55.66512789371772
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": "Unknown",
+        "reason": null
+       }
+      ]
+     },
+     {
+      "containers": [
+       {
+        "lastTermination": "Unknown",
+        "reason": null
+       }
+      ]
+     }
+    ],
+    "schema": "evidence/v1",
+    "workload": {
+     "rolloutInProgress": false
+    }
+   },
+   "expect_only_above_floor": true,
+   "expect_top1": "rb-traffic-spike",
+   "id": "traffic-step-adr039-prod",
+   "logs_note": "800 log lines, 0 with an error token",
+   "provenance": "real: E1 traffic step, nexus-prod, 2026-11-07 (bundles.json [0]), evidence/v1"
+  },
+  {
+   "bundle": {
+    "events": [],
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusCpuAnomaly"
+      }
+     ]
+    },
+    "logs": {
+     "current": [],
+     "previous": []
+    },
+    "metrics": {
+     "zscores": {
+      "cpu": 5.0,
+      "inflight": 1.0,
+      "latencyP95": 4.0,
+      "requestRate": 0.5
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": null,
+        "reason": null
+       }
+      ]
+     }
+    ],
+    "schema": "evidence/v1.1",
+    "workload": {
+     "rolloutInProgress": false
+    }
+   },
+   "expect_only_above_floor": true,
+   "expect_top1": "rb-cpu-saturation",
+   "id": "cpu-saturation-synthetic",
+   "provenance": "SYNTHETIC: CPU saturation, CPU Z +5 with latency high (labelled synthetic, D16)"
+  },
+  {
+   "bundle": {
+    "events": [],
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusTrafficAnomaly"
+      }
+     ],
+     "note": null,
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     },
+     "uid": "q10"
+    },
+    "logs": {
+     "current": [],
+     "previous": []
+    },
+    "metrics": {
+     "window": "30m",
+     "zscores": {
+      "requestRate": 4.2
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": null,
+        "reason": null,
+        "state": "running"
+       }
+      ],
+      "name": "sample-api-0"
+     }
+    ],
+    "schema": "evidence/v1",
+    "workload": {
+     "desired": 2,
+     "rolloutInProgress": false
+    }
+   },
+   "expect_only_above_floor": true,
+   "expect_top1": "rb-traffic-spike",
+   "id": "s4-q10",
+   "provenance": "SYNTHETIC: S4 traffic spike, experiments/retrieval/queries.json q10 (request rate Z +4.2 only)"
+  }
+ ],
+ "note": "Bundles reduced to the fields bm25.build_query reads; each real one gives the same query as its full bundle (checked when written). Acceptance for the ADR-039 addendum (2026-11-15).",
+ "schema": "retrieval-acceptance/v1"
+}

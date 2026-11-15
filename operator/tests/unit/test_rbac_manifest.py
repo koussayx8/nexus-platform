@@ -136,7 +136,7 @@ def test_argocd_applications_are_read_only():
     assert set(rules[0]["verbs"]) == {"get", "list", "watch"}
 
 
-# ---- platform/m3-live: the nexus-prod grants (G8), not deployed until the M3-live PR ----------
+# ---- platform/m3-live: the nexus-prod grants (G8), deployed since the M3 switch-on (#214) ------
 M3_LIVE = RBAC.parent / "m3-live"
 
 
@@ -203,8 +203,9 @@ def test_m3_live_prod_role_has_no_delete_wildcard_or_nexus_data():
             assert "*" not in rule["resources"] and "*" not in rule["apiGroups"]
 
 
-def test_m3_live_kustomization_lists_the_prod_grants_and_platform_does_not_list_m3_live():
+def test_m3_live_kustomization_lists_the_prod_grants_and_platform_lists_m3_live():
     k = yaml.safe_load((M3_LIVE / "kustomization.yaml").read_text())
     assert "nexus-operator-prod.yaml" in k["resources"]
+    # M3 is live (#214): the `platform` Application deploys m3-live, as a directory of its own.
     platform = yaml.safe_load((RBAC.parent / "kustomization.yaml").read_text())
-    assert "m3-live" not in platform["resources"]
+    assert platform["resources"].count("m3-live") == 1
