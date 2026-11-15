@@ -529,7 +529,7 @@ def test_restart_is_verified_after_sixty_stable_seconds():
     assert rig.status()["phase"] == "Verifying"
     rig.tick(seconds=40)
     assert ended(rig) == ("Resolved", "remediation_verified")
-    assert rig.rec.verifications[("uid-inc", "restart_v1")][0] == "met"
+    assert rig.rec.verifications[("uid-inc", "restart_v2")][0] == "met"
 
 
 def test_a_new_container_restart_resets_the_restart_hold():
