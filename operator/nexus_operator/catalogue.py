@@ -48,7 +48,7 @@ class Entry:
 CATALOGUE: dict[str, Entry] = {
     e.action_id: e
     for e in (
-        Entry("restart_workload", True, "restart_v1", 180, 300, None),
+        Entry("restart_workload", True, "restart_v1", 300, 300, None),
         Entry("scale_deployment", True, "scale_v1", 240, 30, "scale_back"),
         Entry("escalate", False, None, 0, 0, None),
         Entry("no_action", False, None, 0, 0, None),
