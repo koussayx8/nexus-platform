@@ -19,7 +19,6 @@ CFG = config.parse(
         "models": {
             "R2": {"provider": "groq", "model": "openai/gpt-oss-20b", "baseUrl": "https://g.test/openai/v1", "apiKeyEnv": "T_GROQ_KEY"},
             "R3": {"provider": "groq", "model": "openai/gpt-oss-120b", "baseUrl": "https://g.test/openai/v1", "apiKeyEnv": "T_GROQ_KEY"},
-            "H1": {"provider": "anthropic", "model": "claude-haiku-5-5", "baseUrl": "https://a.test", "apiKeyEnv": "T_ANT_KEY"},
             "demo": {"provider": "ollama", "model": "llama-demo", "baseUrl": "http://o.test:11434"},
             "nourl": {"provider": "ollama", "model": "no-url", "baseUrl": ""},
         },
