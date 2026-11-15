@@ -233,10 +233,42 @@ class Index:
         ]
 
 
+# An anomalous metric (|Z| > 3) adds words from the runbooks' own vocabulary, chosen by the sign of
+# its Z-score (ADR-039 addendum, 2026-11-15). The evidence field names are no runbook word
+# (requestRate, inflight, latencyP95 and errorRatio never matched), and a sign-blind "cpu" made the
+# CPU *drop* of a full hang read as CPU saturation: the real S1 bundle (CPU Z -6.83, rate Z -57,
+# in-flight Z 80) ranked rb-cpu-saturation first, above the floor.
+#   cpu high          "cpu": only saturation raises it. A drop says nothing for any runbook.
+#   inflight high     "flight", as in rb-gray-failure's "the in-flight request count".
+#   requestRate high  "rise", as in rb-traffic-spike's "a rise in requests". Not "request rate":
+#                     rb-cpu-saturation has it too and would rise above the floor on a traffic step.
+#   requestRate low   "completed", "drops", as in rb-gray-failure's "the rate of completed requests
+#                     drops".
+#   latencyP95, errorRatio  no word in either direction: high latency is shared by rb-gray-failure
+#                     and rb-cpu-saturation, where CPU decides, and "error" pulls the queries that
+#                     have no runbook (q25-q27) toward rb-cert-expiry and rb-traffic-spike.
+# A metric not listed here adds nothing.
+METRIC_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
+    "cpu": {"high": ("cpu",), "low": ()},
+    "inflight": {"high": ("flight",), "low": ()},
+    "requestRate": {"high": ("rise",), "low": ("completed", "drops")},
+    "latencyP95": {"high": (), "low": ()},
+    "errorRatio": {"high": (), "low": ()},
+}
+
+
+def metric_terms(name: str, z) -> list[str]:
+    """The query words for one Z-score: none unless it is a number beyond +-3 (a null is "no data",
+    never invented; a bool is not a number), then the words for its metric and direction."""
+    if not isinstance(z, int | float) or isinstance(z, bool) or not abs(z) > 3:
+        return []
+    return list(METRIC_TERMS.get(name, {}).get("high" if z > 0 else "low", ()))
+
+
 def build_query(bundle: dict) -> list[str]:
     """Query tokens from evidence fields only: alert names, waiting/termination reasons, event
-    reasons, up to ten log error tokens by frequency, anomalous metric names, rollout state.
-    No free text from a model is read."""
+    reasons, up to ten log error tokens by frequency, words for the anomalous metrics by direction
+    (METRIC_TERMS), rollout state. No free text from a model is read."""
     q: list[str] = []
     for a in bundle.get("incident", {}).get("alerts", []):
         q += tokenize(a["name"])
@@ -259,8 +291,7 @@ def build_query(bundle: dict) -> list[str]:
     for name, z in bundle.get("metrics", {}).get("zscores", {}).items():
         # A signal with no data is null in a real bundle (evidence.py: "null, never invented"),
         # e.g. p95 once a hang lets no request complete. No value, no token.
-        if isinstance(z, int | float) and not isinstance(z, bool) and abs(z) > 3:
-            q += tokenize(name)
+        q += metric_terms(name, z)
     if bundle.get("workload", {}).get("rolloutInProgress"):
         q += ["rollout"]
     return q
