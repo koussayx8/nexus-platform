@@ -448,6 +448,15 @@ class FakeMetrics:
             "namespace:nexus_sample_api_error_ratio:rate2m": 0.0,
             "namespace:nexus_sample_api_latency_p95:baseline_avg15m": 0.05,
             "namespace:nexus_sample_api_latency_p95:baseline_stddev15m": 0.01,
+            # the raw signals restart_v2 reads and their baselines: B = 80 req/s (ADR-026)
+            "namespace:nexus_sample_api_inflight:sum": 0.0,
+            "namespace:nexus_sample_api_requests:rate2m": 80.0,
+            "namespace:nexus_sample_api_inflight:baseline_avg15m": 0.0,
+            "namespace:nexus_sample_api_inflight:baseline_stddev15m": 0.0,
+            "namespace:nexus_sample_api_error_ratio:baseline_avg15m": 0.0,
+            "namespace:nexus_sample_api_error_ratio:baseline_stddev15m": 0.0,
+            "namespace:nexus_sample_api_requests:baseline_avg15m": 80.0,
+            "namespace:nexus_sample_api_requests:baseline_stddev15m": 1.0,
         }
 
     async def scalar(self, query, namespace):
@@ -465,7 +474,12 @@ class Clock:
         self.t += datetime.timedelta(seconds=seconds)
 
 
-BASELINE = {"latencyP95": {"mean": 0.05, "stddev": 0.01}}
+BASELINE = {
+    "latencyP95": {"mean": 0.05, "stddev": 0.01},
+    "inflight": {"mean": 0.0, "stddev": 0.0},
+    "errorRatio": {"mean": 0.0, "stddev": 0.0},
+    "requestRate": {"mean": 80.0, "stddev": 1.0},
+}
 
 
 def proposal_doc(action="restart_workload", replicas=None, **over) -> dict:

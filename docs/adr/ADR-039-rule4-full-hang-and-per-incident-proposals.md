@@ -169,3 +169,117 @@ The third case is not one of S1–S6, where every hang is total. It stays open: 
 require in-flight requests and the request rate back near baseline when the proposal came from the in-flight branch.
 That change belongs to G16's review of verification criteria, and needs its own ADR because the catalogue's criteria are
 frozen (spec §9).
+
+## Addendum (2026-11-15): direction-aware metric words in the BM25 query
+
+A retrieval-protocol change, made before the Block 9 freeze (TASKS.md D23). R1 is unaffected: the Rules Engine
+does not use retrieval (`operator/nexus_operator` does not import `bm25`).
+
+**The finding (reviewer, Block 3).** "The BM25 query" above said `inflight` adds nothing to any score. It also
+missed a worse effect: the query ignored the sign of a Z-score. On index `fad76a74…`, the real S1 bundle (E1
+attempt 3, nexus-prod, 2026-11-11: CPU Z −6.83, rate Z −57, in-flight Z 80) gave
+`[nexuslatencyanomaly, completed, cpu, inflight, requestrate]`. It ranked `rb-cpu-saturation#1` first at 4.49,
+above the 3.1739 floor, so the Reasoner would have shown R3 the CPU-saturation runbook for a hang. The CPU *drop*
+added `cpu`, and the camelCase names (`requestrate`, `inflight`, `latencyp95`, `errorratio`) matched no runbook word.
+
+**The decision.** `bm25.build_query` maps an anomalous metric (|Z| > 3) to words from the runbooks' own text, by
+direction (`bm25.METRIC_TERMS`). A metric not in the table adds nothing.
+
+| Metric | High (Z > 3) | Low (Z < −3) | Why |
+|---|---|---|---|
+| `cpu` | `cpu` | nothing | Only saturation raises CPU; a drop points at no runbook |
+| `inflight` | `flight` | nothing | rb-gray-failure: "the in-flight request count" |
+| `requestRate` | `rise` | `completed`, `drops` | rb-traffic-spike: "a rise in requests"; rb-gray-failure: "the rate of completed requests drops" |
+| `latencyP95` | nothing | nothing | Shared by rb-gray-failure and rb-cpu-saturation; CPU decides. "latency p95" moved q01–q03 to rb-cpu-saturation |
+| `errorRatio` | nothing | nothing | "error" pulled the no-runbook queries q25–q27 toward rb-cert-expiry and rb-traffic-spike |
+
+A rate rise does not add "request rate": rb-cpu-saturation contains those words too, and the real traffic-step
+bundle would have passed the floor for it (4.91). No runbook text changed.
+
+**Results** (`make eval-retrieval`, the same 30 queries):
+
+| Metric | Before | After |
+|---|---|---|
+| Corpus hash | `fad76a74…e6d8` | `fad76a74…e6d8` (the runbooks did not change) |
+| Recall@1 / Recall@3 / MRR | 0.7917 / 0.9167 / 0.8583 | 0.7917 / 0.9167 / 0.8583 |
+| Proposed floor | 3.1739 | 3.1739 |
+| Recall@1 at the floor | 0.4583 | 0.5417 |
+| False retrieval at the floor | 0.0 | 0.0 |
+
+Acceptance (`experiments/harness/tests/fixtures/retrieval-acceptance.json`, `RetrievalAcceptanceTest`): each case
+retrieves its runbook first and no other runbook above the floor.
+
+| Case | Top-1 | Other runbooks above the floor |
+|---|---|---|
+| Real S1, E1 attempt 3 (2026-11-11) | rb-gray-failure 6.28 | none (rb-cpu-saturation 2.50) |
+| Real S1, ADR-039 corpus (2026-11-07) | rb-gray-failure 4.22 | none |
+| Real traffic step (2026-11-07) | rb-traffic-spike 4.09 | none |
+| Synthetic CPU saturation (CPU Z +5) | rb-cpu-saturation 4.95 | none |
+| Synthetic S4 (q10) | rb-traffic-spike 3.49 | none |
+
+With the old builder, two of the three acceptance tests fail; the third holds the committed eval to the
+record above (negative control).
+
+**Consequences.**
+- The corpus hash pins the runbooks, not the query builder. Two Reasoner images with the same `corpusHash` can
+  retrieve differently. The image digest pins both, so the pre-registration (G16) records the Reasoner digest
+  as well as the index hash.
+- `bm25.py` is a `reasoner.yml` build path. The change rides promotion 9, so the image is rebuilt once.
+- Spec v1.1 (G17): §15's query construction records the direction-aware metric words.
+
+## Addendum (2026-11-15): `restart_v2` replaces `restart_v1` (#197 A2)
+
+**Owner decision, 2026-11-15:** A2 is fixed, not kept as a limitation. This replaces the last paragraph of the
+2026-11-11 addendum, which left the fix to G16 and its own ADR. `docs/architecture/final-spec.md` changes at G17
+(re-plan X12).
+
+**What a wrong restart ended as.** The same inputs on dev `c007c78` and on this change (the act-path rig, two
+replicas, L3; a "wrong restart" is one that does not remove the fault):
+
+| Scenario | After the restart | `restart_v1` | `restart_v2` |
+|---|---|---|---|
+| S1, partial hang not cleared | p95 flat, 80 in flight, rate 17 of 80 req/s | **`Resolved / remediation_verified`** | `Escalated / verification_failed` |
+| S1, full hang not cleared | no p95 (nothing completes) | `Escalated / verification_failed` | the same |
+| S3, bad rollout | never restarted: the Gate's preconditions refuse it | `Blocked / precondition_failed`, 0 evictions | the same |
+| S5, dependency refuses the application | p95 flat, error ratio 20 % | **`Resolved / remediation_verified`** | `Escalated / verification_failed` |
+| S6, traffic step that goes on | p95 flat, rate 120 of 80 req/s | **`Resolved / remediation_verified`** | `Escalated / verification_failed` |
+
+R1 never proposes a restart on S5 or S6 (rules 6 and 5). There the restart is a Reasoner's proposal (R0, R2, R3)
+or the static baseline's.
+
+**The criterion.** `restart_v2` is met when, for 60 s, every replica is Ready, no container restarts, and every
+required signal is within its raw pre-fault baseline.
+
+| | |
+|---|---|
+| Required signals | p95 always. In-flight, request rate and error ratio when their Z-score in the evidence bundle was anomalous (Z > 3; \|Z\| > 3 for the request rate) or missing |
+| Within baseline | `value <= mean + 3 × max(stddev, ε)`, with ε the signal's floor in the Z-score rules (ADR-024): p95 0.01 s, in-flight 1, error ratio 0.01, request rate 1/s. The request rate is two-sided: a drop is requests that do not complete, a rise is a spike that goes on |
+| Unknown | Not met (ADR-024): a missing value, a missing baseline, or no record of the anomalous signals (then all four are required) |
+| Where it is recorded | `status.evidence.baseline` holds the mean and stddev of the four signals' `baseline_avg15m` and `baseline_stddev15m` rules, read at Diagnosing. `status.evidence.anomalous` lists the signals. The verification row's `observations.signals` holds each value and verdict |
+
+**No evidence-schema change.** Both fields are Incident status, which the CRD leaves open
+(`x-kubernetes-preserve-unknown-fields`). The bundle stays `evidence/v1.1`: the validators, the Reasoner image and
+the corpus hash are untouched. The four baseline rules already exist (`nexus-detection.yaml`).
+
+**The Verifying timeout of a restart goes from 180 s to 300 s** (spec §7, §9). The request rate is a 2 min rate
+over the new pods' series. After a restart that clears a hang it needs about 120 s to return to 80 ± 3 req/s, is
+read up to 45 s late (15 s scrape, 30 s rule interval), and then has to hold for 60 s: about 225 s. With 180 s
+the test with the real S1 values ends `Escalated`. **The climb is the rule's arithmetic, not a measurement:** no
+recorded run holds that series through a recovery. The F3 values that are real: the bundle's Z-scores (in-flight
+80.0, request rate −60.3), the p95 baseline (0.0257 s ± 0.0024), and p95 good 55 s after Verifying began. The
+first live S1 at L3 settles it; `observations.signals` and `status.verification.goodSince` show the wait.
+
+**Consequences and limits.**
+- **S1 resolves later.** `restart_v1` was met 115 s after Verifying began (F3). `restart_v2` should take about 3
+  to 4 minutes, so M2's 2 min 34 s from detection to resolution will not repeat. A failed restart escalates after
+  300 s, not 180 s.
+- **A fault that ends on its own during verification still credits the restart** (a traffic step that stops within
+  the window). No signal-based criterion can tell the two apart.
+- **One in-flight burst resets the 60 s hold.** A single scrape read 5 in flight in a clean window (nexus-dev,
+  2026-11-07T07:50:12Z; the bound is 3). The 300 s leave room for one reset.
+- **An Incident proposed by an older operator has no record**, so all four signals are required against baselines
+  it does not have: it escalates. Deploy with no Incident between Proposed and Verifying.
+- **`scale_v1` has the same hole and is not changed here.** It reads Ready replicas, CPU per pod and p95. In the
+  rig a wrong scale 2 → 3 ends `Resolved / remediation_verified` on the S1 partial hang, the S5 and the S6 inputs
+  above.
+- **Spec v1.1 (G17):** §7 and §9 (`restart_v2`, 300 s), §20 (S1's criterion).

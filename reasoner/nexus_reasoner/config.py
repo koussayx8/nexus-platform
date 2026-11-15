@@ -12,7 +12,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-PROVIDERS = ("groq", "anthropic", "ollama")
+PROVIDERS = ("groq", "ollama")  # no anthropic: the Haiku arm was cut (TASKS.md D3, D10)
 EFFORTS = ("low", "medium", "high")
 MODES = ("rules", "llm", "adversarial")
 
@@ -23,7 +23,7 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class ModelEntry:
-    name: str  # R2, R3, H1, demo
+    name: str  # R2, R3, demo
     provider: str
     model: str
     base_url: str

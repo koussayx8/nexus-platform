@@ -21,7 +21,7 @@ def review(finding: str):
 
 
 # ---------------------------------------------------------------- A1: quadratic redaction
-@review("A1: redaction time grows with the square of an attacker-controlled log line")
+# Fixed (redact._RUNS): a normal test now. The 1 MB lines are in test_redact_linear.py.
 def test_redacting_one_long_log_line_takes_bounded_time():
     line = "a." * 4000  # 8,000 characters; a container may log far longer lines
     started = time.perf_counter()
@@ -30,14 +30,17 @@ def test_redacting_one_long_log_line_takes_bounded_time():
 
 
 # ---------------------------------------------------------------- A2: a hang that stays hung
-@review("A2: restart_v1 never reads the in-flight signal that ADR-039's branch acts on")
+# Fixed (restart_v2, ADR-039 addendum 2026-11-15): a normal test now, and it reads the raw
+# signals the Verifier reads. The scenarios are in test_restart_verification.py.
 def test_a_restart_is_not_verified_while_requests_still_pile_up():
-    # A full hang that the restart did not clear: the p95 of the few completed requests is flat,
-    # in-flight Z is still 80 and the completed rate is still far below its baseline.
+    # A hang that the restart did not clear: the p95 of the few completed requests is flat,
+    # 80 requests are still in flight and the completed rate is still far below its baseline.
     rig = Rig(metrics=FakeMetrics(p95=0.05, inflight=80.0, requestRate=-62.0))
+    rig.metrics.values["namespace:nexus_sample_api_inflight:sum"] = 80.0
+    rig.metrics.values["namespace:nexus_sample_api_requests:rate2m"] = 17.0
     rig.proposed(proposal_doc())
-    rig.run(ticks=60)
-    assert ended(rig) != ("Resolved", "remediation_verified")
+    rig.run(ticks=90)
+    assert ended(rig) == ("Escalated", "verification_failed")
 
 
 # ---------------------------------------------------------------- A3: response lost
