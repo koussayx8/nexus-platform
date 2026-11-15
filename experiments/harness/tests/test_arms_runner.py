@@ -148,6 +148,13 @@ class RunnerTest(unittest.TestCase):
         # without a baseline the reset only stops Locust, with the same GET
         (only,) = [s for s in r.plan_reset(3) if s.argv[0] in ("GET", "POST")]
         self.assertEqual(only.argv, ("GET", "http://l/stop"))
+        # and told to leave Locust alone it has no Locust step at all, baseline or not
+        for kw in ({}, {"locust_baseline": b}):
+            steps = r.plan_reset(3, touch_locust=False, **kw)
+            self.assertFalse([s for s in steps if s.argv[0] in ("GET", "POST")])
+            self.assertEqual(
+                len(steps), len(r.plan_reset(3)) - 1
+            )  # nothing else changes
         # executed, in that order; the form reaches http_post with one user_classes field per class
         sent = []
         r2, _ = self.runner(

@@ -26,10 +26,15 @@ What it adds to runner.py (which plans and executes single operations):
   check, and no non-terminal Incident, all inside the 20 min cap. The window records the alerts and
   Incidents that fired with nothing injected, in the run record (`no_fault`). Incidents are never
   deleted: one still open at the cap stops the batch (`halt`, reason recorded) until `clear-halt`.
-* Locust at the baseline. With precheck.locust `spawn_rate` and `classes`, the reset stops Locust
-  (GET /stop) and starts the exact baseline swarm again (POST /swarm: users, spawn rate, classes); a
-  stop first, because a /swarm on a running swarm keeps the old classes (ADR-027). Without them the
-  reset only stops Locust, as before. Recovery: the driver waits for the ramp, and when Locust
+* Locust and the reset. A reset touches Locust only when it has to: a load scenario (S2, S4, S6)
+  changed the load since the last reset that restored it, or Locust itself is not `running` with the
+  baseline users (or does not answer). After S1, S3 or S5 with Locust at the baseline it is left
+  running, with no stop and no new swarm, so the 15 min baseline is not disturbed. The decision and
+  its reason are on the run record (`locust_reset`). A reset that touches Locust stops it (GET /stop)
+  and, with precheck.locust `spawn_rate` and `classes`, starts the exact baseline swarm again (POST
+  /swarm: users, spawn rate, classes); the stop first, because a /swarm on a running swarm keeps the
+  old classes (ADR-027). Without them it can only stop Locust.
+* Locust recovery (needs `spawn_rate` and `classes`): the driver waits for the ramp, and when Locust
   itself is then not running the baseline, or when the pre-check loop later fails on Locust, it
   POSTs the baseline again, waits recovery_wait_s (default cap_s) and re-runs every pre-check; at
   most recovery_attempts (default 2) in a row (a run that counts resets the count), each logged and
@@ -102,6 +107,7 @@ MAX_PAUSE_GAP_S = (
     1.0  # the M2-1 void rule V2; the pre-registration fixes the batch's value
 )
 PLACEHOLDER_REF = "REPLACE_WITH_G16_APPROVAL_REF"
+LOAD_SCENARIOS = ("S2", "S4", "S6")  # their injection is a Locust swarm
 # Seconds past users / spawn rate before a Locust that is not at the baseline counts as down.
 RAMP_MARGIN_S = 30
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,127}$")
@@ -639,6 +645,9 @@ class LiveRun:
         self.wait_s, self.poll_s = wait_s, poll_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
         self.recoveries = 0  # consecutive Locust restarts; a successful run resets it
+        # True from a load injection (S2, S4, S6) until a reset has touched Locust. A new process
+        # starts False: what an earlier one left shows in Locust's user count (_locust_touch).
+        self.load_changed = False
 
     def incidents(self) -> list[dict]:
         rc, out = self.r.exec(
@@ -720,21 +729,34 @@ class LiveRun:
         )
         self.sleep(conf["wait_s"])
 
-    def _after_ramp(self) -> list[str]:
-        """What Locust itself still says is wrong once the reset's swarm has had time to ramp.
-        The reset stops Locust and starts the baseline again, so just after it Locust is `spawning`
-        and the 2 m request rate is below the baseline: neither means Locust is down. So this waits
-        users / spawn rate seconds plus RAMP_MARGIN_S, reads Locust's own state and user count only,
-        and returns as soon as they are right."""
-        conf = self._recovery_conf()
+    def _locust_own(self) -> list[str]:
+        """What Locust itself says against the baseline: its state and user count, or that it
+        does not answer. No server-side rate."""
         loc = {**self.cfg["locust"], "namespaces": []}
+        return precheck.locust_failures(
+            self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
+        )
+
+    def _locust_touch(self) -> list[str]:
+        """Why this run's reset must touch Locust; empty: it is left running as it is. Either a load
+        scenario changed the load since the last reset that touched Locust, or Locust is not running
+        the baseline. A Locust that does not answer counts: the reset's stop then fails and the
+        batch stops, where leaving it would discard run after run."""
+        if not self.r.locust:
+            return []
+        return ["load_changed"] if self.load_changed else self._locust_own()
+
+    def _after_ramp(self) -> list[str]:
+        """What Locust itself still says is wrong once a reset's swarm has had time to ramp.
+        A reset that touched Locust stopped it and started the baseline again, so just after it
+        Locust is `spawning` and the 2 m request rate is below the baseline: neither means Locust
+        is down. So this waits users / spawn rate seconds plus RAMP_MARGIN_S, reads Locust's own
+        state and user count only, and returns as soon as they are right (at once, when the reset
+        left a healthy Locust alone)."""
+        conf = self._recovery_conf()
         deadline = self.monotonic() + conf["users"] / conf["spawn_rate"] + RAMP_MARGIN_S
         while True:
-            why = self._locust_down(
-                precheck.locust_failures(
-                    self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
-                )
-            )
+            why = self._locust_down(self._locust_own())
             if not why or self.monotonic() >= deadline:
                 return why
             self.sleep(self.poll_s)
@@ -780,7 +802,7 @@ class LiveRun:
         tell a Locust that stopped from a service that does not answer, and the second is what a
         remediation that failed looks like."""
         loc = {**self.cfg["locust"], "namespaces": []}
-        if cell["scenario"].upper() in ("S2", "S4", "S6"):
+        if cell["scenario"].upper() in LOAD_SCENARIOS:
             loc["baseline_users"] = cell.get("users")
         return precheck.locust_failures(
             self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
@@ -807,6 +829,8 @@ class LiveRun:
             cell.get("users"),
             cell.get("spawn_rate"),
         )
+        if cell["scenario"].upper() in LOAD_SCENARIOS:
+            self.load_changed = True  # from here on Locust is not at the baseline
         started = self.wall()
         r.execute(steps)
         done = _utc(self.wall())
@@ -835,6 +859,8 @@ class LiveRun:
         arm = operator_reasoner(cell["reasoner"], self.reasoner_endpoint())
         rec["arm"] = {"name": cell["reasoner"], "written": arm}
         before = {i["metadata"]["uid"] for i in self.incidents()}
+        touch = self._locust_touch()
+        rec["locust_reset"] = {"touched": bool(touch), "why": touch}
         r.execute(
             r.plan_reset(
                 int(cell["level"]),
@@ -843,8 +869,11 @@ class LiveRun:
                 epoch,
                 arm,
                 locust_baseline=self._locust_baseline(),
+                touch_locust=bool(touch),
             )
         )
+        if touch:
+            self.load_changed = False
         guard.check()
         if not r.wait_synced():
             return Outcome(False, discard_reason="applications_not_synced")

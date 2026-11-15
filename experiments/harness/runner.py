@@ -340,14 +340,17 @@ class Runner:
         breaker_epoch: int | None = None,
         reasoner: dict | None = None,
         locust_baseline: dict | None = None,
+        touch_locust: bool = True,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
         breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D),
         and, with `reasoner`, the run's arm (plan_operator_config).
-        Locust is always stopped (GET /stop). With locust_baseline (users, spawn_rate, classes) the
-        baseline swarm is then started again, so Locust ends at exactly that swarm: the stop comes
-        first because a /swarm on a running swarm re-dispatches the user count with the old classes
-        (ADR-027; only stop() resets the dispatcher). Without it Locust is left idle."""
+        Locust: with touch_locust it is stopped (GET /stop) and, with locust_baseline (users,
+        spawn_rate, classes), the baseline swarm is then started again, so Locust ends at exactly
+        that swarm; the stop comes first because a /swarm on a running swarm re-dispatches the user
+        count with the old classes (ADR-027; only stop() resets the dispatcher). Without a baseline
+        it is left idle. With touch_locust False there is no Locust step: it keeps running as it is
+        (the batch driver says so when no load scenario ran and Locust is at the baseline)."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
@@ -376,7 +379,7 @@ class Runner:
             self.k("exec", "dependency-db-0", "-c", "dependency-db", "--", "psql", "-U", "postgres", "-c",
                    S5_RESTORE_SQL, ns=NS_DATA, note="restore role"),
         ]  # fmt: skip
-        if self.locust:
+        if self.locust and touch_locust:
             # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
             steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
             if locust_baseline:
