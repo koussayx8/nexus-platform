@@ -62,7 +62,7 @@ from .reasoner_client import ReasonerClient
 from .reasoner_client import Result as ReasonerResult
 from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
 from .redact import redact_bundle
-from .verifier import Verifier
+from .verifier import Verifier, anomalous
 
 logger = logging.getLogger("nexus.act")
 
@@ -395,6 +395,7 @@ class ActPath:
                 "bundleHash": work.bundle["hash"],
                 "redactions": sum(work.counts.values()),
                 "baseline": work.baseline,
+                "anomalous": anomalous(work.bundle),  # restart_v2 requires these
             },
             reasoner=self._reasoner_status(answer),
             proposal={

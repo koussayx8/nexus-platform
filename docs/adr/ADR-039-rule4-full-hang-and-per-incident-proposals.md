@@ -226,3 +226,60 @@ record above (negative control).
   as well as the index hash.
 - `bm25.py` is a `reasoner.yml` build path. The change rides promotion 9, so the image is rebuilt once.
 - Spec v1.1 (G17): §15's query construction records the direction-aware metric words.
+
+## Addendum (2026-11-15): `restart_v2` replaces `restart_v1` (#197 A2)
+
+**Owner decision, 2026-11-15:** A2 is fixed, not kept as a limitation. This replaces the last paragraph of the
+2026-11-11 addendum, which left the fix to G16 and its own ADR. `docs/architecture/final-spec.md` changes at G17
+(re-plan X12).
+
+**What a wrong restart ended as.** The same inputs on dev `c007c78` and on this change (the act-path rig, two
+replicas, L3; a "wrong restart" is one that does not remove the fault):
+
+| Scenario | After the restart | `restart_v1` | `restart_v2` |
+|---|---|---|---|
+| S1, partial hang not cleared | p95 flat, 80 in flight, rate 17 of 80 req/s | **`Resolved / remediation_verified`** | `Escalated / verification_failed` |
+| S1, full hang not cleared | no p95 (nothing completes) | `Escalated / verification_failed` | the same |
+| S3, bad rollout | never restarted: the Gate's preconditions refuse it | `Blocked / precondition_failed`, 0 evictions | the same |
+| S5, dependency refuses the application | p95 flat, error ratio 20 % | **`Resolved / remediation_verified`** | `Escalated / verification_failed` |
+| S6, traffic step that goes on | p95 flat, rate 120 of 80 req/s | **`Resolved / remediation_verified`** | `Escalated / verification_failed` |
+
+R1 never proposes a restart on S5 or S6 (rules 6 and 5). There the restart is a Reasoner's proposal (R0, R2, R3)
+or the static baseline's.
+
+**The criterion.** `restart_v2` is met when, for 60 s, every replica is Ready, no container restarts, and every
+required signal is within its raw pre-fault baseline.
+
+| | |
+|---|---|
+| Required signals | p95 always. In-flight, request rate and error ratio when their Z-score in the evidence bundle was anomalous (Z > 3; \|Z\| > 3 for the request rate) or missing |
+| Within baseline | `value <= mean + 3 × max(stddev, ε)`, with ε the signal's floor in the Z-score rules (ADR-024): p95 0.01 s, in-flight 1, error ratio 0.01, request rate 1/s. The request rate is two-sided: a drop is requests that do not complete, a rise is a spike that goes on |
+| Unknown | Not met (ADR-024): a missing value, a missing baseline, or no record of the anomalous signals (then all four are required) |
+| Where it is recorded | `status.evidence.baseline` holds the mean and stddev of the four signals' `baseline_avg15m` and `baseline_stddev15m` rules, read at Diagnosing. `status.evidence.anomalous` lists the signals. The verification row's `observations.signals` holds each value and verdict |
+
+**No evidence-schema change.** Both fields are Incident status, which the CRD leaves open
+(`x-kubernetes-preserve-unknown-fields`). The bundle stays `evidence/v1.1`: the validators, the Reasoner image and
+the corpus hash are untouched. The four baseline rules already exist (`nexus-detection.yaml`).
+
+**The Verifying timeout of a restart goes from 180 s to 300 s** (spec §7, §9). The request rate is a 2 min rate
+over the new pods' series. After a restart that clears a hang it needs about 120 s to return to 80 ± 3 req/s, is
+read up to 45 s late (15 s scrape, 30 s rule interval), and then has to hold for 60 s: about 225 s. With 180 s
+the test with the real S1 values ends `Escalated`. **The climb is the rule's arithmetic, not a measurement:** no
+recorded run holds that series through a recovery. The F3 values that are real: the bundle's Z-scores (in-flight
+80.0, request rate −60.3), the p95 baseline (0.0257 s ± 0.0024), and p95 good 55 s after Verifying began. The
+first live S1 at L3 settles it; `observations.signals` and `status.verification.goodSince` show the wait.
+
+**Consequences and limits.**
+- **S1 resolves later.** `restart_v1` was met 115 s after Verifying began (F3). `restart_v2` should take about 3
+  to 4 minutes, so M2's 2 min 34 s from detection to resolution will not repeat. A failed restart escalates after
+  300 s, not 180 s.
+- **A fault that ends on its own during verification still credits the restart** (a traffic step that stops within
+  the window). No signal-based criterion can tell the two apart.
+- **One in-flight burst resets the 60 s hold.** A single scrape read 5 in flight in a clean window (nexus-dev,
+  2026-11-07T07:50:12Z; the bound is 3). The 300 s leave room for one reset.
+- **An Incident proposed by an older operator has no record**, so all four signals are required against baselines
+  it does not have: it escalates. Deploy with no Incident between Proposed and Verifying.
+- **`scale_v1` has the same hole and is not changed here.** It reads Ready replicas, CPU per pod and p95. In the
+  rig a wrong scale 2 → 3 ends `Resolved / remediation_verified` on the S1 partial hang, the S5 and the S6 inputs
+  above.
+- **Spec v1.1 (G17):** §7 and §9 (`restart_v2`, 300 s), §20 (S1's criterion).
