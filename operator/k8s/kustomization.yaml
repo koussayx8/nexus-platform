@@ -1,6 +1,8 @@
 # The `nexus` Application (M1b-8 PR B; ADR-025): the NEXUS Operator's ServiceAccount and
 # Deployment. Its RBAC is platform/rbac/ (the `platform` Application); the Incident CRD is
 # platform/crds/. The operator waits for that RBAC at startup without restarting (deployment.yaml).
+# Since Block 3 it also carries the Reasoner (reasoner/k8s), wired in after its first digest bump;
+# repo-checks step 19 refuses the placeholder digest in any rendered Application.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -9,3 +11,4 @@ resources:
   - deployment.yaml
   - metrics-service.yaml
   - flight-recorder-db      # spec §14, ADR-031; credentials: scripts/flight-recorder-secrets.sh
+  - ../../reasoner/k8s       # the Reasoner (spec §16; Block 3); its objects name nexus-reasoner
