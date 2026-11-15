@@ -169,3 +169,60 @@ The third case is not one of S1–S6, where every hang is total. It stays open: 
 require in-flight requests and the request rate back near baseline when the proposal came from the in-flight branch.
 That change belongs to G16's review of verification criteria, and needs its own ADR because the catalogue's criteria are
 frozen (spec §9).
+
+## Addendum (2026-11-15): direction-aware metric words in the BM25 query
+
+A retrieval-protocol change, made before the Block 9 freeze (TASKS.md D23). R1 is unaffected: the Rules Engine
+does not use retrieval (`operator/nexus_operator` does not import `bm25`).
+
+**The finding (reviewer, Block 3).** "The BM25 query" above said `inflight` adds nothing to any score. It also
+missed a worse effect: the query ignored the sign of a Z-score. On index `fad76a74…`, the real S1 bundle (E1
+attempt 3, nexus-prod, 2026-11-11: CPU Z −6.83, rate Z −57, in-flight Z 80) gave
+`[nexuslatencyanomaly, completed, cpu, inflight, requestrate]`. It ranked `rb-cpu-saturation#1` first at 4.49,
+above the 3.1739 floor, so the Reasoner would have shown R3 the CPU-saturation runbook for a hang. The CPU *drop*
+added `cpu`, and the camelCase names (`requestrate`, `inflight`, `latencyp95`, `errorratio`) matched no runbook word.
+
+**The decision.** `bm25.build_query` maps an anomalous metric (|Z| > 3) to words from the runbooks' own text, by
+direction (`bm25.METRIC_TERMS`). A metric not in the table adds nothing.
+
+| Metric | High (Z > 3) | Low (Z < −3) | Why |
+|---|---|---|---|
+| `cpu` | `cpu` | nothing | Only saturation raises CPU; a drop points at no runbook |
+| `inflight` | `flight` | nothing | rb-gray-failure: "the in-flight request count" |
+| `requestRate` | `rise` | `completed`, `drops` | rb-traffic-spike: "a rise in requests"; rb-gray-failure: "the rate of completed requests drops" |
+| `latencyP95` | nothing | nothing | Shared by rb-gray-failure and rb-cpu-saturation; CPU decides. "latency p95" moved q01–q03 to rb-cpu-saturation |
+| `errorRatio` | nothing | nothing | "error" pulled the no-runbook queries q25–q27 toward rb-cert-expiry and rb-traffic-spike |
+
+A rate rise does not add "request rate": rb-cpu-saturation contains those words too, and the real traffic-step
+bundle would have passed the floor for it (4.91). No runbook text changed.
+
+**Results** (`make eval-retrieval`, the same 30 queries):
+
+| Metric | Before | After |
+|---|---|---|
+| Corpus hash | `fad76a74…e6d8` | `fad76a74…e6d8` (the runbooks did not change) |
+| Recall@1 / Recall@3 / MRR | 0.7917 / 0.9167 / 0.8583 | 0.7917 / 0.9167 / 0.8583 |
+| Proposed floor | 3.1739 | 3.1739 |
+| Recall@1 at the floor | 0.4583 | 0.5417 |
+| False retrieval at the floor | 0.0 | 0.0 |
+
+Acceptance (`experiments/harness/tests/fixtures/retrieval-acceptance.json`, `RetrievalAcceptanceTest`): each case
+retrieves its runbook first and no other runbook above the floor.
+
+| Case | Top-1 | Other runbooks above the floor |
+|---|---|---|
+| Real S1, E1 attempt 3 (2026-11-11) | rb-gray-failure 6.28 | none (rb-cpu-saturation 2.50) |
+| Real S1, ADR-039 corpus (2026-11-07) | rb-gray-failure 4.22 | none |
+| Real traffic step (2026-11-07) | rb-traffic-spike 4.09 | none |
+| Synthetic CPU saturation (CPU Z +5) | rb-cpu-saturation 4.95 | none |
+| Synthetic S4 (q10) | rb-traffic-spike 3.49 | none |
+
+With the old builder, two of the three acceptance tests fail; the third holds the committed eval to the
+record above (negative control).
+
+**Consequences.**
+- The corpus hash pins the runbooks, not the query builder. Two Reasoner images with the same `corpusHash` can
+  retrieve differently. The image digest pins both, so the pre-registration (G16) records the Reasoner digest
+  as well as the index hash.
+- `bm25.py` is a `reasoner.yml` build path. The change rides promotion 9, so the image is rebuilt once.
+- Spec v1.1 (G17): §15's query construction records the direction-aware metric words.
