@@ -6,6 +6,13 @@ uses milestone tags (`v0.N.0`, one per milestone exit).
 
 ## [Unreleased]
 
+### Changed
+- `restart_v2` replaces `restart_v1` (ADR-039 addendum 2026-11-15, #197 A2): a restart is verified only when every
+  signal that was anomalous in the evidence bundle (in-flight, request rate, error ratio, and p95 always) is back
+  within its raw pre-fault baseline for 60 s; unknown is not met. A restart that fixed nothing no longer ends
+  `Resolved` on a partial hang, a dependency failure or a traffic step. The restart's Verifying timeout is 300 s
+  (was 180 s). `status.evidence` gains the four baselines and `anomalous`; `evidence/v1.1` is unchanged.
+
 ## [0.4.0] - 2026-11-11
 
 M2 — the operator acts (spec §4, §9, §14, §16; [`docs/plans/m2-exit-record.md`](docs/plans/m2-exit-record.md)). The act path

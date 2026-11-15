@@ -158,6 +158,21 @@ def normalise(cfg: dict | None) -> dict:
     _number(loc["baseline_users"], "locust.baseline_users")
     _number(loc["baseline_rps_per_namespace"], "locust.baseline_rps_per_namespace")
     _number(loc["tolerance"], "locust.tolerance")
+    # Optional Locust recovery (batch.py): the exact baseline swarm as platform/load/master.yaml autostarts it.
+    if "spawn_rate" in loc:
+        _number(loc["spawn_rate"], "locust.spawn_rate")
+    if "classes" in loc and (
+        not isinstance(loc["classes"], list)
+        or not loc["classes"]
+        or not all(isinstance(c, str) and c for c in loc["classes"])
+    ):
+        raise ConfigError(
+            "precheck.locust.classes must be a non-empty list of class names"
+        )
+    if "recovery_attempts" in loc:
+        _number(loc["recovery_attempts"], "locust.recovery_attempts", positive=False)
+    if "recovery_wait_s" in loc:
+        _number(loc["recovery_wait_s"], "locust.recovery_wait_s", positive=False)
     _number(rs["port"], "reasoner.port")
     _number(au["max_age_s"], "audit_log.max_age_s")
     if _bare_hash(rs["expected_index_hash"]) is None:
@@ -339,6 +354,13 @@ def backstage_failures(runner, cfg: dict) -> list[str]:
     return [] if n == 0 else [f"backstage:pods={n}"]
 
 
+def request_rate(prom: Prom, namespace: str) -> float | None:
+    """sample-api's request rate in a namespace as the server counts it (2 m rate); None: no answer."""
+    return prom.scalar(
+        f'namespace:nexus_sample_api_requests:rate2m{{namespace="{namespace}"}}'
+    )
+
+
 def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
     c = cfg["locust"]
     if not runner.locust:
@@ -360,9 +382,7 @@ def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
     for ns in c[
         "namespaces"
     ]:  # the server's view: Locust's own rate lags by design (ADR-026)
-        rate = prom.scalar(
-            f'namespace:nexus_sample_api_requests:rate2m{{namespace="{ns}"}}'
-        )
+        rate = request_rate(prom, ns)
         base = c["baseline_rps_per_namespace"]
         if rate is None:
             out.append(f"locust:{ns}:no_rate")

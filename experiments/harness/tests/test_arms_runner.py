@@ -4,22 +4,24 @@ import contextlib
 import io
 import json
 import unittest
+import urllib.parse
 from unittest import mock
 
 from .. import arms, runner
 
 
 class ArmsTest(unittest.TestCase):
-    def test_spec_arms_and_haiku(self):
+    def test_the_arms_are_the_specs_four(self):
+        self.assertEqual(sorted(arms.ARMS), ["R0", "R1", "R2", "R3"])
         self.assertEqual(arms.arm_config("R2")["model"], "openai/gpt-oss-20b")
         self.assertEqual(arms.arm_config("R3")["model"], "openai/gpt-oss-120b")
-        h = arms.arm_config("H1")
-        self.assertEqual((h["provider"], h["mode"]), ("anthropic", "llm"))
         for a in ("R0", "R1"):
             self.assertIsNone(arms.arm_config(a)["model"])
+        with self.assertRaises(KeyError):
+            arms.arm_config("R9")
 
     def test_common_settings_frozen(self):
-        for a in ("R2", "R3", "H1", "R3-high"):
+        for a in ("R2", "R3"):
             c = arms.arm_config(a)
             self.assertEqual(
                 (
@@ -30,35 +32,22 @@ class ArmsTest(unittest.TestCase):
                 ),
                 (0, 1024, 30, 1),
             )
+            self.assertEqual(c["reasoning_effort"], "low")  # the spec's one effort
 
-    def test_sweep(self):
-        s = arms.sweep("R3")
-        self.assertEqual(sorted(s), ["R3-high", "R3-low", "R3-medium"])
-        self.assertEqual(
-            {v["reasoning_effort"] for v in s.values()}, {"low", "medium", "high"}
-        )
-        self.assertEqual(
-            arms.arm_config("R3-low")["model"], arms.arm_config("R3")["model"]
-        )
-        with self.assertRaises(ValueError):
-            arms.sweep("R1")
-        with self.assertRaises(KeyError):
-            arms.arm_config("R9")
-
-    def test_haiku_and_sweep_are_phase_b_only(self):
+    def test_the_haiku_arm_and_the_effort_sweep_are_gone(self):
+        # Cut on 2026-11-12 (TASKS.md D3, D10): no H1, no per-effort arm, in any phase.
         for name in ("H1", "R3-low", "R3-medium", "R3-high"):
-            self.assertEqual(arms.arm_config(name)["phases"], ("B",), name)
-        for phase in ("A", "C", "D"):
-            offending = {"H1", "R3-low", "R3-medium", "R3-high"} & set(
-                arms.arms_for_phase(phase)
-            )
-            self.assertFalse(offending, (phase, offending))
+            with self.assertRaises(KeyError, msg=name):
+                arms.arm_config(name)
+        self.assertFalse(hasattr(arms, "sweep"))
+        self.assertTrue(all(c["provider"] in (None, "groq") for c in arms.ARMS.values()))  # fmt: skip
+
+    def test_arms_per_phase(self):
         self.assertEqual(arms.arms_for_phase("A"), ["R1", "R3"])  # C1 and C2
+        self.assertEqual(arms.arms_for_phase("B"), ["R0", "R1", "R2", "R3"])  # C3
+        self.assertEqual(arms.arms_for_phase("C"), ["R1"])
         self.assertEqual(arms.arms_for_phase("D"), ["R0"])  # C7
-        self.assertEqual(
-            arms.arms_for_phase("B"),
-            ["H1", "R0", "R1", "R2", "R3", "R3-high", "R3-low", "R3-medium"],
-        )
+        self.assertEqual(arms.CONFIGURATIONS["C3"][0], ("R0", "R1", "R2", "R3"))
 
     def test_configurations_refer_to_known_arms(self):
         for arms_, _levels, _phase in arms.CONFIGURATIONS.values():
@@ -84,7 +73,7 @@ class RunnerTest(unittest.TestCase):
     def runner(self, **kw):
         ex = FakeExec(**{k: v for k, v in kw.items() if k in ("pods", "sync")})
         return runner.Runner("ctx", exec_=ex, sleep=lambda s: None, locust=kw.get("locust"), git_dir=kw.get("git_dir"),
-                             http_post=kw.get("http_post")), ex  # fmt: skip
+                             http_post=kw.get("http_post"), http_get=kw.get("http_get")), ex  # fmt: skip
 
     def test_context_required_and_always_named(self):
         with self.assertRaises(ValueError):
@@ -136,6 +125,46 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("pg_terminate_backend", s.argv[-1])
         with self.assertRaises(ValueError):
             r.plan_inject("S9")
+
+    def test_reset_stops_locust_then_starts_the_baseline_swarm(self):
+        b = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
+        r, _ = self.runner(locust="http://l")
+        stop, swarm = [
+            s
+            for s in r.plan_reset(3, locust_baseline=b)
+            if s.argv[0] in ("GET", "POST")
+        ]
+        # the stop first: a /swarm on a running swarm keeps the old classes (ADR-027)
+        self.assertEqual(stop.argv, ("GET", "http://l/stop"))
+        self.assertEqual(swarm.argv[:2], ("POST", "http://l/swarm"))
+        self.assertEqual(
+            urllib.parse.parse_qs(swarm.argv[2]),
+            {
+                "user_count": ["160"],
+                "spawn_rate": ["4"],
+                "user_classes": ["DevUser", "ProdUser"],
+            },
+        )
+        # without a baseline the reset only stops Locust, with the same GET
+        (only,) = [s for s in r.plan_reset(3) if s.argv[0] in ("GET", "POST")]
+        self.assertEqual(only.argv, ("GET", "http://l/stop"))
+        # and told to leave Locust alone it has no Locust step at all, baseline or not
+        for kw in ({}, {"locust_baseline": b}):
+            steps = r.plan_reset(3, touch_locust=False, **kw)
+            self.assertFalse([s for s in steps if s.argv[0] in ("GET", "POST")])
+            self.assertEqual(
+                len(steps), len(r.plan_reset(3)) - 1
+            )  # nothing else changes
+        # executed, in that order; the form reaches http_post with one user_classes field per class
+        sent = []
+        r2, _ = self.runner(
+            locust="http://l",
+            http_post=lambda u, f: sent.append(("POST", u, f)),
+            http_get=lambda u: sent.append(("GET", u)) or (200, "{}"),
+        )
+        r2.execute(r2.plan_reset(3, locust_baseline=b))
+        self.assertEqual([x[:2] for x in sent], [("GET", "http://l/stop"), ("POST", "http://l/swarm")])  # fmt: skip
+        self.assertEqual(sent[1][2]["user_classes"], ["DevUser", "ProdUser"])
 
     def test_reset_order_and_no_force(self):
         r, _ = self.runner(locust="http://l", git_dir="/g")
@@ -251,12 +280,14 @@ class RunnerTest(unittest.TestCase):
         )
 
     def test_execute_runs_steps_in_order_and_stops_on_failure(self):
-        posts = []
+        posts, gets = [], []
         r, _ex = self.runner(
-            locust="http://l", http_post=lambda u, f: posts.append((u, f))
+            locust="http://l",
+            http_post=lambda u, f: posts.append((u, f)),
+            http_get=lambda u: gets.append(u) or (200, "{}"),
         )
         log = r.execute(r.plan_reset(3))
-        self.assertEqual(posts, [("http://l/stop", {})])
+        self.assertEqual((gets, posts), (["http://l/stop"], []))  # the stop is a GET
         self.assertEqual(len(log), len(r.plan_reset(3)))
 
         def failing(argv, cwd=None):

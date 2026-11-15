@@ -12,7 +12,9 @@ last 15 minutes, at most 50; at most 200 log lines per pod for at most 3 pods; m
 
 Any value the cluster or Prometheus cannot give is null, never invented; R1 treats a missing
 Z-score as no match. The baseline (ADR-024: recorded at detection, compared raw by the Verifier)
-is the mean and standard deviation of the p95 latency recording rule, null when unavailable.
+is the mean and standard deviation of the 15 min baseline recording rules of the four signals
+restart_v2 can require (BASELINES), null when unavailable. It goes to status.evidence, not into
+the bundle: evidence/v1.1 is unchanged.
 """
 
 import datetime
@@ -35,8 +37,13 @@ ZSCORES = {
 }
 SCHEMA = "evidence/v1.1"
 ERROR_RATIO = "namespace:nexus_sample_api_error_ratio:rate2m"
-P95_MEAN = "namespace:nexus_sample_api_latency_p95:baseline_avg15m"
-P95_STDDEV = "namespace:nexus_sample_api_latency_p95:baseline_stddev15m"
+# status.evidence.baseline: signal (its key in ZSCORES) -> the prefix of its baseline rules
+BASELINES = {
+    "latencyP95": "namespace:nexus_sample_api_latency_p95",
+    "inflight": "namespace:nexus_sample_api_inflight",
+    "errorRatio": "namespace:nexus_sample_api_error_ratio",
+    "requestRate": "namespace:nexus_sample_api_requests",
+}
 
 
 class CollectionError(Exception):
@@ -231,9 +238,10 @@ class EvidenceCollector:
         }
 
     async def _baseline(self, ns: str, now: datetime.datetime) -> dict:
-        mean = await self._scalar(P95_MEAN, ns)
-        std = await self._scalar(P95_STDDEV, ns)
-        return {
-            "latencyP95": {"mean": mean, "stddev": std},
-            "capturedAt": iso(now),
-        }
+        out: dict = {}
+        for signal, rule in BASELINES.items():
+            out[signal] = {
+                "mean": await self._scalar(f"{rule}:baseline_avg15m", ns),
+                "stddev": await self._scalar(f"{rule}:baseline_stddev15m", ns),
+            }
+        return out | {"capturedAt": iso(now)}

@@ -26,14 +26,55 @@ What it adds to runner.py (which plans and executes single operations):
   check, and no non-terminal Incident, all inside the 20 min cap. The window records the alerts and
   Incidents that fired with nothing injected, in the run record (`no_fault`). Incidents are never
   deleted: one still open at the cap stops the batch (`halt`, reason recorded) until `clear-halt`.
-* End-of-run Locust check: before a run counts as valid, precheck.locust_failures is re-run; a Locust that
-  is not running at the baseline (S2/S4/S6: at the cell's users) voids the run (`locust_end_check`) and the
-  cell requeues it.
+* Locust and the reset. A reset touches Locust only when it has to: a load scenario (S2, S4, S6)
+  changed the load since the last reset that restored it, or Locust itself is not `running` with the
+  baseline users (or does not answer). After S1, S3 or S5 with Locust at the baseline it is left
+  running, with no stop and no new swarm, so the 15 min baseline is not disturbed. The decision and
+  its reason are on the run record (`locust_reset`). A reset that touches Locust stops it (GET /stop)
+  and, with precheck.locust `spawn_rate` and `classes`, starts the exact baseline swarm again (POST
+  /swarm: users, spawn rate, classes); the stop first, because a /swarm on a running swarm keeps the
+  old classes (ADR-027). Without them it can only stop Locust.
+* Locust recovery (needs `spawn_rate` and `classes`): the driver waits for the ramp, and when Locust
+  itself is then not running the baseline, or when the pre-check loop later fails on Locust, it
+  POSTs the baseline again, waits recovery_wait_s (default cap_s) and re-runs every pre-check; at
+  most recovery_attempts (default 2) in a row (a run that counts resets the count), each logged and
+  kept on the run record (`locust_recovery`). Past the cap the batch halts
+  (`locust_recovery_cap_reached`).
+* End-of-run Locust check: before a run counts, Locust's own state and user count are read again; a
+  Locust that is not `running` with the baseline users (S2/S4/S6: the cell's users), or that does not
+  answer, voids the run (`locust_end_check`) and the cell requeues it. The server-side request rate
+  is NOT part of this check: a service that still does not answer after a remediation that failed
+  (or that verified wrongly) has a rate near zero, and voiding on it would keep only the runs whose
+  remediation worked. The rate of every configured namespace is read at the same moment and kept on
+  the run record (`rate_end`), for the analysis; it decides nothing.
 * A load cell (S2, S4, S6) carries `users` and `spawn_rate`; both go to Locust's /swarm, and a
   refused swarm (success false) is a runner error, not a run to wait for.
 * The operator's advisoryChecks and breakerEpoch are written at every reset (plan_operator_config);
   "off" only for a phase D cell.
+* The cell's reasoner arm is written with them (operator_reasoner): reasonerEndpoint, reasonerMode,
+  reasonerModel and reasonerEffort, all four at every reset, so the operator restarts into the cell's
+  arm. R1 is the operator's own Rules Engine: the endpoint is written empty. A cell whose `reasoner`
+  is not an arm of arms.py is refused at `init`. At the end of the run the Incident's
+  status.reasoner is compared with the arm (arm_mismatch); a contradiction discards the run
+  (`arm_mismatch`) and halts the batch, because the next run would be wrong the same way.
 * fallbackUsed (spec §17) is on every run record.
+* The run's Incident (run_incident): of the Incidents created after the snapshot taken just before
+  the injection, the first created whose target is the injected namespace, that is not a smoke
+  Incident, and whose alert started (spec.detectedAt) at or after the injection. Only that Incident
+  ends the run. Every other Incident created during the run, in any namespace, is kept on the run
+  record (`other_incidents`) and decides nothing. The alert's name is not part of the match: one
+  open Incident absorbs every alert on its target (poller.py), so the name is the first alert's.
+* When a run ends, and what it counts as. The run's Incident reached a terminal phase: a valid
+  run with that phase, whatever it is. The wait (wait_s after the injection) ran out with the
+  run's Incident still open: a valid run with `terminal` null and `timed_out` true, a remediation
+  that did not finish, never a discard. The wait ran out with no Incident of the run's own:
+  discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
+  not go in.
+* The injection time is on every run record that injected (`injection_at`, null before that): the
+  wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
+  push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
+  Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
+  that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
 
 Mutations: nothing mutates without --execute AND an approval reference. The reference is the one
 the pre-registration (G16) names for the whole batch; `init` stores it, `run` must be given the same
@@ -57,7 +98,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import precheck
+from . import arms, precheck
 from . import runner as runner_mod
 from .operator_lib import model
 
@@ -66,6 +107,9 @@ MAX_PAUSE_GAP_S = (
     1.0  # the M2-1 void rule V2; the pre-registration fixes the batch's value
 )
 PLACEHOLDER_REF = "REPLACE_WITH_G16_APPROVAL_REF"
+LOAD_SCENARIOS = ("S2", "S4", "S6")  # their injection is a Locust swarm
+# Seconds past users / spawn rate before a Locust that is not at the baseline counts as down.
+RAMP_MARGIN_S = 30
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,127}$")
 STATUSES = ("running", "valid", "void", "discarded")
 
@@ -160,6 +204,10 @@ def validate_cells(cells) -> list[dict]:
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        if c["reasoner"] not in arms.ARMS:
+            raise Refused(
+                f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
+            )
         for k in ("tier", "valid_target", "max_attempts"):
             if not isinstance(c[k], int) or isinstance(c[k], bool) or c[k] < 1:
                 raise Refused(f"cell {c['cell']!r}: {k} must be an integer >= 1")
@@ -338,6 +386,7 @@ class Queue:
             "discard_reason": None,
             "fallbackUsed": False,
             "terminal": None,
+            "injection_at": None,
         }
         self.runs.append(rec)
         self.save()
@@ -487,11 +536,97 @@ def drive(
 # ---------------------------------------------------------------- the live run
 
 
+def operator_reasoner(arm: str, endpoint: str) -> dict[str, str]:
+    """The four nexus-operator-config keys (ADR-035) that make the operator run an arm of arms.py.
+    R1 is the operator's embedded Rules Engine: the endpoint is empty, so the Reasoner Client is
+    off. Every other arm calls the Reasoner at `endpoint`, in the arm's mode, with its model and
+    effort. Every key is always present, so a merge patch leaves nothing of another arm."""
+    a = arms.ARMS[arm]
+    if a["mode"] == "rules":
+        return {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
+    return {
+        "reasonerEndpoint": endpoint,
+        "reasonerMode": a["mode"],
+        "reasonerModel": a.get("model") or "",
+        "reasonerEffort": a.get("reasoning_effort") or "",
+    }
+
+
+def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
+    """Why an Incident's status.reasoner contradicts the cell's arm; None when it does not.
+
+    * No status.reasoner: the Incident never had a proposal (L0, or it ended before Proposed).
+      There is nothing to compare, and nothing contradicts the arm the reset wrote.
+    * fallbackUsed: R1 answered once for a Reasoner call that failed (spec §17). That is the arm's
+      own run, counted against it, so it is no contradiction, except on an arm that calls no
+      Reasoner: R1 cannot fall back, so the operator was running something else.
+    * Otherwise the mode is the arm's, and so is the model id when the arm has one."""
+    a = arms.ARMS[arm]
+    if not reasoner_status:
+        return None
+    if reasoner_status.get("fallbackUsed"):
+        if a["mode"] == "rules":
+            return "fallbackUsed on an arm that calls no Reasoner"
+        return None
+    mode, model_id = reasoner_status.get("mode"), reasoner_status.get("modelId")
+    if mode != a["mode"]:
+        return f"mode {mode!r}, the arm's is {a['mode']!r}"
+    if a.get("model") is not None and model_id != a["model"]:
+        return f"model {model_id!r}, the arm's is {a['model']!r}"
+    return None
+
+
+def incident_brief(incident: dict) -> dict:
+    """What a run record keeps of an Incident."""
+    meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
+    status = incident.get("status") or {}
+    return {
+        "uid": meta.get("uid"),
+        "name": meta.get("name"),
+        "namespace": (spec.get("target") or {}).get("namespace"),
+        "alertname": (spec.get("source") or {}).get("alertname"),
+        "detected_at": spec.get("detectedAt"),
+        "phase": status.get("phase"),
+        "reason": status.get("reason"),
+    }
+
+
+def caused_by_injection(incident: dict, namespace: str, injected_at) -> bool:
+    """Can the injected fault have caused this Incident? Its target is the injected namespace, it
+    is not a smoke Incident, and its alert started at or after the injection (spec.detectedAt is
+    the alert's startsAt, poller.py). An Incident that does not say is not the run's."""
+    meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
+    if (meta.get("labels") or {}).get(model.SMOKE_LABEL) == "true":
+        return False
+    if (spec.get("target") or {}).get("namespace") != namespace:
+        return False
+    try:
+        return model.parse_time(spec.get("detectedAt") or "") >= injected_at
+    except ValueError:
+        return False
+
+
+def run_incident(new: list[dict], namespace: str, injected_at) -> dict | None:
+    """The run's Incident among those created since the injection snapshot: the first created
+    that the injection can have caused (ties: the earlier alert, then the name). None yet, maybe."""
+    own = [i for i in new if caused_by_injection(i, namespace, injected_at)]
+    return min(
+        own,
+        key=lambda i: (
+            i["metadata"].get("creationTimestamp") or "",
+            (i.get("spec") or {}).get("detectedAt") or "",
+            i["metadata"].get("name") or i["metadata"]["uid"],
+        ),
+        default=None,
+    )
+
+
 class LiveRun:
-    """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks
-    and breakerEpoch), wait for Applications, pre-checks, inject, wait for the Incident to end, read
-    fallbackUsed. Every mutation is one the pre-registration approves (S1-S6 injection, the §20
-    reset, the advisoryChecks toggle), and `drive` runs nothing without the approval reference.
+    """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks,
+    breakerEpoch and the cell's reasoner arm), wait for Applications, pre-checks, inject, wait for
+    the run's Incident to end, check the arm, read fallbackUsed. Every mutation is one the
+    pre-registration approves (S1-S6 injection, the §20 reset, the advisoryChecks toggle, the
+    arm), and `drive` runs nothing without the approval reference.
     Incidents are NEVER deleted. Live check pending; the tests run it against a fake exec."""
 
     def __init__(
@@ -509,6 +644,10 @@ class LiveRun:
         self.r, self.cfg = runner, precheck.normalise(precheck_cfg)
         self.wait_s, self.poll_s = wait_s, poll_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
+        self.recoveries = 0  # consecutive Locust restarts; a successful run resets it
+        # True from a load injection (S2, S4, S6) until a reset has touched Locust. A new process
+        # starts False: what an earlier one left shows in Locust's user count (_locust_touch).
+        self.load_changed = False
 
     def incidents(self) -> list[dict]:
         rc, out = self.r.exec(
@@ -519,44 +658,226 @@ class LiveRun:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
 
+    # ---- Locust recovery: restart the baseline swarm when the pre-check finds Locust stopped or off baseline
+    def _recovery_conf(self) -> dict | None:
+        """The baseline to restart with, from the config (precheck.locust); None when the config does
+        not give spawn_rate and classes (then there is no recovery and a Locust failure discards as before)."""
+        loc = self.cfg["locust"]
+        if "spawn_rate" not in loc or "classes" not in loc:
+            return None
+        return {
+            "users": int(loc["baseline_users"]),
+            "spawn_rate": loc["spawn_rate"],
+            "classes": list(loc["classes"]),
+            "max": int(loc.get("recovery_attempts", 2)),
+            "wait_s": loc.get("recovery_wait_s", self.cfg["cap_s"]),
+        }
+
+    def _locust_baseline(self) -> dict | None:
+        """The swarm the reset starts after its stop (users, spawn_rate, classes), or None without
+        the config: then the reset only stops Locust."""
+        conf = self._recovery_conf()
+        return (
+            {k: conf[k] for k in ("users", "spawn_rate", "classes")} if conf else None
+        )
+
+    @staticmethod
+    def _locust_down(failures: list[str]) -> list[str]:
+        """Failures that mean Locust is stopped or off baseline (not 'no answer' or 'no url')."""
+        return [
+            f
+            for f in failures
+            if f.startswith(("locust:state=", "locust:users="))
+            or (f.startswith("locust:nexus-") and ":rps=" in f)
+        ]
+
+    def _recover_locust(self, rec: dict, why: list[str]) -> None:
+        """One recovery attempt: POST the baseline to the master, then wait the clean-baseline window.
+        Raises StopBatch when the per-batch cap is reached."""
+        conf = self._recovery_conf()
+        done = rec.setdefault("locust_recovery", [])
+        if conf is None or self.recoveries >= conf["max"]:
+            raise StopBatch(
+                "locust_recovery_cap_reached"
+                if conf
+                else "locust_recovery_unconfigured"
+            )
+        self.recoveries += 1
+        entry = {
+            "attempt": self.recoveries,
+            "of": conf["max"],
+            "why": why,
+            "at": _utc(self.wall()),
+        }
+        try:
+            self.r.http_post(
+                f"{self.r.locust.rstrip('/')}/swarm",
+                {
+                    "user_count": [str(conf["users"])],
+                    "spawn_rate": [str(conf["spawn_rate"])],
+                    "user_classes": conf["classes"],
+                },
+            )
+            entry["posted"] = True
+        except OSError as e:
+            entry["posted"] = False
+            entry["error"] = f"{type(e).__name__}"
+        done.append(entry)
+        print(
+            f"batch: locust recovery {entry['attempt']}/{conf['max']}: {why}; posted={entry['posted']}",
+            file=sys.stderr,
+        )
+        self.sleep(conf["wait_s"])
+
+    def _locust_own(self) -> list[str]:
+        """What Locust itself says against the baseline: its state and user count, or that it
+        does not answer. No server-side rate."""
+        loc = {**self.cfg["locust"], "namespaces": []}
+        return precheck.locust_failures(
+            self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
+        )
+
+    def _locust_touch(self) -> list[str]:
+        """Why this run's reset must touch Locust; empty: it is left running as it is. Either a load
+        scenario changed the load since the last reset that touched Locust, or Locust is not running
+        the baseline. A Locust that does not answer counts: the reset's stop then fails and the
+        batch stops, where leaving it would discard run after run."""
+        if not self.r.locust:
+            return []
+        return ["load_changed"] if self.load_changed else self._locust_own()
+
+    def _after_ramp(self) -> list[str]:
+        """What Locust itself still says is wrong once a reset's swarm has had time to ramp.
+        A reset that touched Locust stopped it and started the baseline again, so just after it
+        Locust is `spawning` and the 2 m request rate is below the baseline: neither means Locust
+        is down. So this waits users / spawn rate seconds plus RAMP_MARGIN_S, reads Locust's own
+        state and user count only, and returns as soon as they are right (at once, when the reset
+        left a healthy Locust alone)."""
+        conf = self._recovery_conf()
+        deadline = self.monotonic() + conf["users"] / conf["spawn_rate"] + RAMP_MARGIN_S
+        while True:
+            why = self._locust_down(self._locust_own())
+            if not why or self.monotonic() >= deadline:
+                return why
+            self.sleep(self.poll_s)
+
+    def _prechecks(self, rec: dict, before: set, cell: dict, guard: Guard):
+        """run_prechecks, restarting Locust first when it is not running the baseline after the
+        reset's ramp, and again when the pre-check fails on it. Every pre-check is re-run after each
+        restart."""
+        force = None
+        while True:
+            down = force or (self._recovery_conf() is not None and self._after_ramp())
+            if down:
+                self._recover_locust(rec, down)
+                guard.check()
+            force = None
+            pc = precheck.run_prechecks(
+                precheck.Prom(self.r),
+                self.cfg,
+                self.incidents,
+                before,
+                model.TERMINAL_PHASES,
+                int(cell["level"]),
+                monotonic=self.monotonic,
+                wall=self.wall,
+                sleep=self.sleep,
+                stat=self.stat,
+            )
+            if pc.ok or pc.stop_reason or self._recovery_conf() is None:
+                return pc
+            force = self._locust_down(pc.failures) or None
+            if not force:
+                return pc
+
+    def reasoner_endpoint(self) -> str:
+        """The Reasoner Service the pre-check holds to the expected index hash (precheck.reasoner):
+        the one the operator is pointed at for an arm that calls a Reasoner."""
+        c = self.cfg["reasoner"]
+        return f"http://{c['service']}.{c['namespace']}.svc:{int(c['port'])}"
+
     def locust_end_failures(self, cell: dict) -> list[str]:
-        """precheck.locust_failures at the end of a run. S2/S4/S6 drive their own load, so for them
-        the target is the cell's users (no per-namespace rate: the fault load is not the baseline);
-        every other scenario is held to the pre-registered baseline users and rate."""
-        cfg = self.cfg
-        if cell["scenario"].upper() in ("S2", "S4", "S6"):
-            loc = {
-                **cfg["locust"],
-                "baseline_users": cell.get("users"),
-                "namespaces": [],
-            }
-            cfg = {**cfg, "locust": loc}
-        return precheck.locust_failures(self.r, precheck.Prom(self.r), cfg)
+        """Why Locust voids a run at its end: Locust's own state and user count (the baseline users;
+        for S2/S4/S6, which drive their own load, the cell's users). No server-side rate: it cannot
+        tell a Locust that stopped from a service that does not answer, and the second is what a
+        remediation that failed looks like."""
+        loc = {**self.cfg["locust"], "namespaces": []}
+        if cell["scenario"].upper() in LOAD_SCENARIOS:
+            loc["baseline_users"] = cell.get("users")
+        return precheck.locust_failures(
+            self.r, precheck.Prom(self.r), {**self.cfg, "locust": loc}
+        )
+
+    def rate_end(self) -> dict:
+        """The server-side request rate per configured namespace at the end of a run (None: no
+        answer), with the baseline it would be held to in a pre-check. Recorded, never judged."""
+        loc, prom = self.cfg["locust"], precheck.Prom(self.r)
+        return {
+            "baseline_rps": loc["baseline_rps_per_namespace"],
+            "tolerance": loc["tolerance"],
+            "rps": {ns: precheck.request_rate(prom, ns) for ns in loc["namespaces"]},
+        }
+
+    def inject(self, cell: dict, rec: dict, guard: Guard) -> bool:
+        """Run the cell's injection and stamp when the fault started on the run record (spec §21,
+        "injection start"). False when an S3 revision was pushed and Argo CD did not apply it
+        within wait_s: no fault went in."""
+        r = self.r
+        steps = r.plan_inject(
+            cell["scenario"],
+            cell.get("s3_patch"),
+            cell.get("users"),
+            cell.get("spawn_rate"),
+        )
+        if cell["scenario"].upper() in LOAD_SCENARIOS:
+            self.load_changed = True  # from here on Locust is not at the baseline
+        started = self.wall()
+        r.execute(steps)
+        done = _utc(self.wall())
+        if cell["scenario"].upper() != "S3":
+            rec["injection_at"], rec["injection_done_at"] = _utc(started), done
+            return True
+        # S3 is a push to experiment/dev-state: nothing is faulty until Argo CD applies it.
+        rec["injection_pushed_at"] = done
+        rec["injection_revision"] = revision = r.head_revision()
+        deadline = self.monotonic() + self.wait_s
+        while True:
+            guard.check()
+            applied = r.applied_at(revision)
+            if applied:
+                rec["injection_at"] = _utc(model.parse_time(applied).timestamp())
+                return True
+            if self.monotonic() >= deadline:
+                return False
+            self.sleep(self.poll_s)
 
     def __call__(self, cell: dict, rec: dict, guard: Guard) -> Outcome:
         r = self.r
         advisory = cell.get("advisory_checks", "on")
         epoch = int(self.wall())
         rec["advisory_checks"], rec["breaker_epoch"] = advisory, epoch
+        arm = operator_reasoner(cell["reasoner"], self.reasoner_endpoint())
+        rec["arm"] = {"name": cell["reasoner"], "written": arm}
         before = {i["metadata"]["uid"] for i in self.incidents()}
+        touch = self._locust_touch()
+        rec["locust_reset"] = {"touched": bool(touch), "why": touch}
         r.execute(
-            r.plan_reset(int(cell["level"]), cell.get("baseline_ref"), advisory, epoch)
+            r.plan_reset(
+                int(cell["level"]),
+                cell.get("baseline_ref"),
+                advisory,
+                epoch,
+                arm,
+                locust_baseline=self._locust_baseline(),
+                touch_locust=bool(touch),
+            )
         )
+        if touch:
+            self.load_changed = False
         guard.check()
         if not r.wait_synced():
             return Outcome(False, discard_reason="applications_not_synced")
-        pc = precheck.run_prechecks(
-            precheck.Prom(r),
-            self.cfg,
-            self.incidents,
-            before,
-            model.TERMINAL_PHASES,
-            int(cell["level"]),
-            monotonic=self.monotonic,
-            wall=self.wall,
-            sleep=self.sleep,
-            stat=self.stat,
-        )
+        pc = self._prechecks(rec, before, cell, guard)
         # the no-fault record and the pre-check outcome go on the run record, kept whatever follows
         rec["no_fault"] = pc.window
         rec["precheck"] = {
@@ -573,38 +894,65 @@ class LiveRun:
         before = {
             i["metadata"]["uid"] for i in self.incidents()
         }  # false alarms are not this run's
-        r.execute(
-            r.plan_inject(
-                cell["scenario"],
-                cell.get("s3_patch"),
-                cell.get("users"),
-                cell.get("spawn_rate"),
-            )
-        )
+        if not self.inject(cell, rec, guard):
+            return Outcome(False, discard_reason="injection_not_applied")
+        injected_at = model.parse_time(rec["injection_at"])
         deadline = self.monotonic() + self.wait_s
-        while self.monotonic() < deadline:
+        uid, own, ended = None, None, False
+        while True:
             guard.check()
             new = [i for i in self.incidents() if i["metadata"]["uid"] not in before]
-            ended = [
-                i
-                for i in new
-                if (i.get("status") or {}).get("phase") in model.TERMINAL_PHASES
-            ]
-            if ended:
-                # the end check: Locust must still be running at the load the run was measured at
-                why = self.locust_end_failures(cell)
-                rec["locust_end"] = {"ok": not why, "failures": why}
-                if why:
-                    raise Voided("locust_end_check")
-                st = ended[0]["status"]
-                return Outcome(
-                    True,
-                    st["phase"],
-                    bool((st.get("reasoner") or {}).get("fallbackUsed")),
-                    notes={"incident": ended[0]["metadata"]["uid"]},
-                )
+            if uid is None:  # once chosen, the run's Incident does not change
+                own = run_incident(new, r.namespace, injected_at)
+                uid = own["metadata"]["uid"] if own else None
+            else:
+                own = next((i for i in new if i["metadata"]["uid"] == uid), None)
+            if own is not None:
+                rec["incident"] = incident_brief(own)
+            rec["other_incidents"] = sorted(
+                (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
+                key=lambda b: b["uid"],
+            )
+            ended = (
+                own is not None
+                and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
+            )
+            if ended or self.monotonic() >= deadline:
+                break
             self.sleep(self.poll_s)
-        return Outcome(False, discard_reason="no_terminal_incident")
+        if own is None:
+            # nothing of the run's own to score (or it was deleted under the run: never by the runner)
+            return Outcome(
+                False, discard_reason="incident_gone" if uid else "no_incident"
+            )
+        # the end check: Locust must still be running at the load the run was measured at
+        why = self.locust_end_failures(cell)
+        rec["locust_end"] = {"ok": not why, "failures": why}
+        rec["rate_end"] = self.rate_end()
+        if why:
+            raise Voided("locust_end_check")
+        st = own.get("status") or {}
+        # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
+        seen = st.get("reasoner")
+        rec["arm"]["observed"] = (
+            {k: seen.get(k) for k in ("mode", "modelId", "fallbackUsed")}
+            if isinstance(seen, dict)
+            else None
+        )
+        rec["arm"]["mismatch"] = arm_mismatch(cell["reasoner"], seen)
+        if rec["arm"]["mismatch"]:
+            raise StopBatch("arm_mismatch")
+        # An Incident still open at the end of the wait is a remediation that did not finish: the
+        # run counts, with no terminal phase.
+        rec["timed_out"] = not ended
+        self.recoveries = (
+            0  # the cap counts consecutive recoveries: a run that counts clears it
+        )
+        return Outcome(
+            True,
+            st.get("phase") if ended else None,
+            bool((st.get("reasoner") or {}).get("fallbackUsed")),
+        )
 
 
 # ---------------------------------------------------------------- command line

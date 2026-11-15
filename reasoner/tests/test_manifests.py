@@ -1,4 +1,5 @@
-"""I1/N6 and 'merged is not deployed': manifest tests (re-plan O7). Text-level, standard library only."""
+"""I1/N6 and "never deployed with the placeholder digest": manifest tests (re-plan O7). Text-level,
+standard library only."""
 
 import json
 import re
@@ -65,7 +66,7 @@ class ManifestTest(unittest.TestCase):
                     dep,
                 )
             ),
-            2,
+            1,  # groq-api-key only: the anthropic key went with the Haiku arm
         )
         self.assertNotRegex(
             dep + (K8S / "configmap.yaml").read_text(), r"(gsk_|sk-ant|Bearer )"
@@ -78,17 +79,30 @@ class ManifestTest(unittest.TestCase):
         cfg = config.parse(json.loads(textwrap.dedent(block)))
         self.assertEqual(cfg.models["R2"].model, "openai/gpt-oss-20b")
         self.assertEqual(cfg.models["R3"].model, "openai/gpt-oss-120b")
-        self.assertEqual(cfg.models["H1"].provider, "anthropic")
+        # No H1: the Haiku arm was cut (TASKS.md D3, D10).
+        self.assertEqual(set(cfg.models), {"R2", "R3", "demo"})
         self.assertEqual(cfg.models["demo"].provider, "ollama")
         self.assertEqual((cfg.timeout_s, cfg.max_output_tokens), (30.0, 1024))
         results = json.loads((REPO / "experiments/retrieval/results.json").read_text())
         self.assertEqual(cfg.score_floor, results["metrics"]["proposed_floor"])
 
-    def test_merged_is_not_deployed(self):
-        for p in (REPO / "platform" / "argocd").rglob("*.yaml"):
-            self.assertNotIn("reasoner/k8s", p.read_text(), p)
-        for p in (REPO / "operator/k8s").rglob("kustomization.yaml"):
-            self.assertNotRegex(p.read_text(), r"reasoner")
+    def test_never_deployed_with_the_placeholder_digest(self):
+        # Merged is deployed only once the image is real: whatever wires reasoner/k8s into ArgoCD
+        # (an Application, or the `nexus` Application's operator/k8s) needs a built digest, never the
+        # all-zero placeholder. repo-checks step 19 holds the same on the rendered Applications.
+        wired = [
+            p
+            for p in (REPO / "platform" / "argocd").rglob("*.yaml")
+            if "reasoner/k8s" in p.read_text()
+        ] + [
+            p
+            for p in (REPO / "operator/k8s").rglob("kustomization.yaml")
+            if re.search(r"reasoner", p.read_text())
+        ]
+        if wired:
+            self.assertNotRegex(
+                (K8S / "deployment.yaml").read_text(), r"@sha256:0{64}", wired
+            )
 
 
 class ValidatorTest(unittest.TestCase):

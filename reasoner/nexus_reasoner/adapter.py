@@ -5,9 +5,9 @@ text. Settings are the spec's: temperature 0, at most 1,024 output tokens, JSON-
 the provider supports it, a seed where supported, a 30 s timeout. Reasoning traces are requested
 hidden where the provider has the option and are never read or stored.
 
-Providers: groq (R2, R3; OpenAI-compatible), anthropic (the Haiku arm), ollama (offline demo
-fallback, not an experimental arm). Everything provider-specific (URL, model id, key variable,
-effort) comes from config. The key is read from the environment when a call is made and appears
+Providers: groq (R2, R3; OpenAI-compatible) and ollama (offline demo fallback, not an
+experimental arm). The anthropic provider served the Haiku arm only and went with it (TASKS.md D3,
+D10). Everything provider-specific (URL, model id, key variable, effort) comes from config. The key is read from the environment when a call is made and appears
 nowhere else: not in errors, logs or results.
 """
 
@@ -118,24 +118,6 @@ def complete(
             text = doc["choices"][0]["message"]["content"]
             usage = doc.get("usage") or {}
             settings["reasoning_effort"] = effort
-        elif entry.provider == "anthropic":
-            # No seed and no schema output on this API; the schema is in the prompt. The effort
-            # control is not sent: how the Haiku arm sets it is fixed in the M4 pre-registration.
-            body = {
-                "model": entry.model,
-                "max_tokens": cfg.max_output_tokens,
-                "temperature": 0,
-                "system": system,
-                "messages": [{"role": "user", "content": user}],
-            }
-            headers = {"x-api-key": _key(entry), "anthropic-version": "2023-06-01"}
-            doc = _post(f"{base}/v1/messages", headers, body, cfg.timeout_s, opener)
-            text = "".join(
-                b.get("text", "") for b in doc["content"] if b.get("type") == "text"
-            )
-            usage = doc.get("usage") or {}
-            settings["seed"] = None
-            settings["reasoning_effort"] = None
         elif entry.provider == "ollama":
             body = {
                 "model": entry.model,

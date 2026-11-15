@@ -184,5 +184,59 @@ class RetrievalEvalTest(unittest.TestCase):
         self.assertEqual(empty, [])
 
 
+# The retrieval record before the ADR-039 addendum (2026-11-15, index fad76a74...): the addendum
+# may not make any of these worse.
+BEFORE_ADDENDUM = {"recall_at_1": 0.7916666666666666, "recall_at_3": 0.9166666666666666,
+                   "mrr": 0.8582535885167464}  # fmt: skip
+
+
+class RetrievalAcceptanceTest(unittest.TestCase):
+    """ADR-039 addendum: real bundles reach their runbook, and no other runbook passes the floor.
+    Fixture: tests/fixtures/retrieval-acceptance.json (real bundles reduced to what build_query
+    reads; synthetic cases labelled SYNTHETIC)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.idx = bm25.Index.from_dir(CORPUS)
+        cls.results = json.loads(
+            (REPO / "experiments/retrieval/results.json").read_text()
+        )
+        cls.floor = cls.results["metrics"]["proposed_floor"]
+        doc = json.loads(
+            (
+                Path(__file__).parent / "fixtures" / "retrieval-acceptance.json"
+            ).read_text()
+        )
+        cls.cases = {c["id"]: c for c in doc["cases"]}
+
+    def test_each_case_retrieves_its_runbook_first_and_alone_above_the_floor(self):
+        self.assertEqual(
+            set(self.cases),
+            {"s1-e1-attempt3-prod", "s1-adr039-prod", "traffic-step-adr039-prod",
+             "cpu-saturation-synthetic", "s4-q10"},
+        )  # fmt: skip
+        for cid, c in self.cases.items():
+            hits = self.idx.retrieve(bm25.build_query(c["bundle"]), self.floor)
+            self.assertTrue(hits, f"{cid}: nothing above the floor {self.floor}")
+            self.assertEqual(hits[0]["runbook"], c["expect_top1"], cid)
+            if c["expect_only_above_floor"]:
+                self.assertEqual({h["runbook"] for h in hits}, {c["expect_top1"]}, cid)
+
+    def test_the_real_s1_hang_is_not_cpu_saturation(self):
+        # The reviewer's finding on fad76a74: rb-cpu-saturation#1 4.49 above the floor on a CPU drop.
+        scores = dict(
+            self.idx.score(
+                bm25.build_query(self.cases["s1-e1-attempt3-prod"]["bundle"])
+            )
+        )
+        self.assertLess(scores["rb-cpu-saturation#1"], self.floor)
+
+    def test_eval_not_worse_and_no_false_retrieval_at_the_floor(self):
+        m = self.results["metrics"]
+        for k, before in BEFORE_ADDENDUM.items():
+            self.assertGreaterEqual(m[k], before, k)
+        self.assertEqual(m["false_retrieval_rate_at_floor"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
