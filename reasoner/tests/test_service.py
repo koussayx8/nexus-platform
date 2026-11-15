@@ -35,7 +35,7 @@ def groq(p):
 class ServiceTest(unittest.TestCase):
     def setUp(self):
         self.env = dict(os.environ)
-        os.environ["T_GROQ_KEY"], os.environ["T_ANT_KEY"] = "k1", "k2"
+        os.environ["T_GROQ_KEY"] = "k1"
         self.b = bundle()
 
     def tearDown(self):
@@ -107,17 +107,6 @@ class ServiceTest(unittest.TestCase):
             self.call(reasoner(op), model=model)
             m = op.calls[0]["body"]["messages"]
             sent[model] = (m[0]["content"], m[1]["content"])
-        op = FakeOpener(
-            lambda u, b: {
-                "content": [
-                    {"type": "text", "text": json.dumps(good_proposal(self.b))}
-                ],
-                "usage": {},
-            }
-        )
-        self.call(reasoner(op), model="claude-haiku-5-5")
-        b = op.calls[0]["body"]
-        sent["h1"] = (b["system"], b["messages"][0]["content"])
         op = FakeOpener(
             lambda u, b: {"message": {"content": json.dumps(good_proposal(self.b))}}
         )

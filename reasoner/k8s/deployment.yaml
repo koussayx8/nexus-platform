@@ -7,9 +7,9 @@
 # Image: PLACEHOLDER digest. The reasoner.yml workflow builds and signs the multi-arch image on main;
 # the digest of that build replaces this value in a reviewed change before M4 syncs this directory.
 #
-# Provider keys come from the Secret `nexus-reasoner-keys` (keys groq-api-key, anthropic-api-key),
-# which the owner creates. Both are optional: a missing key makes that provider answer 503, and the
-# operator falls back to R1.
+# The provider key comes from the Secret `nexus-reasoner-keys` (key groq-api-key), which the owner
+# creates. It is optional: a missing key makes the provider answer 503, and the operator falls back
+# to R1.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -49,9 +49,6 @@ spec:
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef: {name: nexus-reasoner-keys, key: groq-api-key, optional: true}
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef: {name: nexus-reasoner-keys, key: anthropic-api-key, optional: true}
           volumeMounts:
             - name: config
               mountPath: /etc/nexus-reasoner

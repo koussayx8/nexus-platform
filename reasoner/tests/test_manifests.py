@@ -65,7 +65,7 @@ class ManifestTest(unittest.TestCase):
                     dep,
                 )
             ),
-            2,
+            1,  # groq-api-key only: the anthropic key went with the Haiku arm
         )
         self.assertNotRegex(
             dep + (K8S / "configmap.yaml").read_text(), r"(gsk_|sk-ant|Bearer )"
@@ -78,7 +78,8 @@ class ManifestTest(unittest.TestCase):
         cfg = config.parse(json.loads(textwrap.dedent(block)))
         self.assertEqual(cfg.models["R2"].model, "openai/gpt-oss-20b")
         self.assertEqual(cfg.models["R3"].model, "openai/gpt-oss-120b")
-        self.assertEqual(cfg.models["H1"].provider, "anthropic")
+        # No H1: the Haiku arm was cut (TASKS.md D3, D10).
+        self.assertEqual(set(cfg.models), {"R2", "R3", "demo"})
         self.assertEqual(cfg.models["demo"].provider, "ollama")
         self.assertEqual((cfg.timeout_s, cfg.max_output_tokens), (30.0, 1024))
         results = json.loads((REPO / "experiments/retrieval/results.json").read_text())
