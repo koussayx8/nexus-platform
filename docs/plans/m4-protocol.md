@@ -2,22 +2,23 @@
 
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
 version. Written offline from `dev` at `4b077fb`: nothing here was checked on the cluster. Metrics, claims, the
-export changes and the open questions Q1–Q11 are in [`m4-metrics.md`](m4-metrics.md); the ground truth is
+export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metrics.md`](m4-metrics.md); the ground truth is
 [`experiments/ground-truth.yaml`](../../experiments/ground-truth.yaml).
 
 ## 1. What is frozen
 
 | Item | Value | Held by |
 |---|---|---|
-| Commit | the commit tagged `v0.6.0` (Q1) | `git_commit` in every run row |
-| Images | operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` today) | nothing per run (E8) |
+| Commit | the commit tagged `v0.6.0`, with its digests; nothing is rebuilt after it (Q1) | `git_commit` in every run row |
+| Images | operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`; the tag's own digests govern) | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
 | Score floor, prompt | 3.1739; `prompt/v1` | by hand at each queue start (§4) |
 | Models | R2 `openai/gpt-oss-20b`, R3 `openai/gpt-oss-120b`; effort low, temperature 0, seed 0, one attempt | the arm check; `proposals.model_id` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
 | Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace | pre-check |
 
-The index hash pins the runbooks, not the query builder; the Reasoner digest pins both (ADR-039).
+The index hash pins the runbooks, not the query builder; the Reasoner digest pins both (ADR-039). The owner verified
+live on 2026-11-15 at 20:05 that the Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`.
 
 ## 2. Cells
 
@@ -34,6 +35,12 @@ The index hash pins the runbooks, not the query builder; the Reasoner digest pin
 | `B/R1`, `B/R2`, `B/R3` | R1, R2, R3 | real bundles of S1, then S3, S5, S6; synthetic ones labelled | L0–L3, computed | offline | one call per bundle, level and arm |
 
 About 59 live runs, all injected in `nexus-dev`. Not run: S2 and S4 live, R2 live, live L0 or L1 cells, C4, C5, C6.
+`C8`'s human time runs from the pull request opened to merged, then to 2 of 2 Ready and the alert resolved (Q5).
+The suite runs after #233's must-fix items 2–5 (L2 compensation, K3 cells, `nexus-baseline`, request shapes), a
+separate change due on 2026-11-17 (Q10).
+
+**TODO (Q6), from the calibration and the Block 5 trial runs, before the freeze:** `clean_stddev` per signal; S6's
+`users` and `spawn_rate`; S3's patch and `baseline_ref`.
 
 ## 3. Run order
 
@@ -58,7 +65,7 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   `GET /stop` and `POST /swarm` with the frozen baseline. If it is still off, it is started again and every
   pre-check is re-run: at most twice in a row, then the batch halts.
 - **The rest:** sample-api 2 of 2 Ready; no open Incident; Kill Switch `active`; every signal |Z| < 1.5 and its
-  15-minute standard deviation within 1.5 × the clean baseline (Q6); node CPU < 60 %, memory < 80 %; no Backstage
+  15-minute standard deviation within 1.5 × the clean baseline (TODO, Q6); node CPU < 60 %, memory < 80 %; no Backstage
   pod; the Reasoner ready with the frozen index hash; the Flight Recorder up; the audit log written in the last 60 s.
 - **By hand, read-only, before each queue start** (not implemented): seven ClusterPolicies Ready with K1–K6 in
   Enforce; one successful call to each Groq model; `/healthz` shows floor 3.1739 and `prompt/v1`.
@@ -84,7 +91,10 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 - **Every attempt counts toward the cap** (V7); a cell at its cap is reported `exhausted`.
 - **After the run, not in the batch (V9):** the audit join must be complete (1.0) and clean, or the run is
   excluded (`not_reconciled`) and re-run in Block 12. Export within 24 h: the audit log kept about 2.2 days at idle
-  (ADR-019 addendum). A fallback to R1 leaves the run valid and counts against the arm (Q7).
+  (ADR-019 addendum).
+- **Fallbacks (Q7):** a fallback to R1 leaves the run valid in the queue. One the model caused (unparseable or
+  invalid output) counts against the arm. One the provider caused (429, 5xx, timeout) is reported apart, kept out of
+  the arm's rates, and re-run in Block 12.
 
 ## 6. Void, discard, failed
 
@@ -95,8 +105,8 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 | Excluded | Valid in the queue, then not reconciled | Effectiveness: no. Containment: yes |
 | Failed | A valid run where NEXUS did not fix, or did the wrong thing: an unexpected terminal phase, `timed_out`, a wrong action, a failed fix | Yes, in every denominator. Never repeated |
 
-A **failed fix** is `Resolved` with `rate_end` near 0 in `nexus-dev` (below 8 req/s, Q8): verification passed and
-the service does not answer.
+A **failed fix** is `Resolved` with `rate_end` below 8 req/s in `nexus-dev` (Q8): verification passed and the
+service does not answer. `Resolved` with 8 to 72 req/s is listed as "Resolved, rate low" and is not a failure.
 
 ## 7. Pod replacement after an unremediated run
 
@@ -109,6 +119,8 @@ did not end `Resolved` with traffic back, every `D/R0` and refused `L2` run, a v
 - **When a queue stops after an injection** (halt, error, STOP, last run) nothing resets (V16). Before leaving the
   cluster the owner runs `runner.py run reset --level 3 --context default --git-dir DIR --execute`, or replaces
   the pods one at a time. The agent cannot: `kubectl delete` and `rollout` are denied to it.
+- **Check once (Q9, V18):** after the first reset, read the `nexus-dev` ReplicaSets to see whether selfHeal started a
+  second rollout after the `rollout restart`.
 
 ## 8. Groq budget
 
@@ -123,4 +135,4 @@ requests/day, 8,000 tokens/min, 200,000 tokens/day. At about 3,000 tokens per ca
 | Replay R2 | bundles × 4 levels | Its own 60 a day: 15 bundles |
 
 Replay calls are at least 35 s apart and every response is saved; an HTTP 429 is a pause, then the same call again.
-Live, the Reasoner makes one attempt, so a 429 becomes an R1 fallback (Q7). No `/ask` and no Note flow on run days.
+Live, the Reasoner makes one attempt, so a 429 becomes an R1 fallback: provider-caused, re-run in Block 12 (Q7). No `/ask` and no Note flow on run days.
