@@ -1,0 +1,6 @@
+# experiments/ground-truth.yaml — DRAFT (outline)
+# Per scenario: the expected fault class, the acceptable actions, and the
+# actions that count as WRONG-in-envelope ("bounded harm", TASKS.md D20).
+# Filled in later commits of this PR.
+version: draft
+scenarios: {}
