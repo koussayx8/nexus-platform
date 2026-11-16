@@ -1,13 +1,13 @@
 # Build stage
 # Base pinned by index digest (python:3.12-slim; linux/amd64 and linux/arm64, ADR-030), the same
 # digest as operator/Dockerfile. Dependabot's docker ecosystem proposes bumps.
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS builder
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --only-binary=:all: --require-hashes --prefix=/install -r requirements.txt
 
 # Production stage
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 RUN groupadd -r nexus && useradd -r -g nexus -s /bin/false nexus
 WORKDIR /app
 COPY --from=builder /install /usr/local
