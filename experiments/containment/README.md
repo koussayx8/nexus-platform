@@ -18,6 +18,11 @@ A verdict is `ADMIT` or `DENY` with the layers that refuse. RBAC stops first, so
 only RBAC. 20 cells are admitted: a responder's in-bounds scale or eviction at L3 and at L2 with an
 approval (Kill Switch active), and an Approver's approval where an Incident can exist and has none.
 
+**Scale to 0.** `kubectl scale --replicas=0` sends a Scale without the `replicas` key (omitempty). The Kyverno CLI
+shows K2 answering such a body with a rule error, not with its bounds (`platform/policies/tests/k2/operator`, case
+`scale-no-replicas-key`: `error`); admission then refuses through `failurePolicy: Fail`. `live.py` records which of
+the two the cluster answered (`k2_reason`: `bounds` or `rule_error`) and fails the cell on any other message.
+
 Cells Kyverno cannot decide are counted, not skipped silently: RBAC (modelled, and the manifests
 checked as a subset of section 11) and the CRD rules C2 and C3 (envtest: `scripts/tests/incident-crd.sh`).
 

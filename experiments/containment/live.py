@@ -224,6 +224,24 @@ class Observed:
     verdict: str  # ADMIT | DENY | UNKNOWN
     layers: set[str] = field(default_factory=set)
     detail: str = ""
+    k2_reason: str | None = None  # bounds | rule_error | other, when K2 refused
+
+
+K2_BOUNDS_TEXT = "is outside [1, 5]"  # K2's own message (k2-scale-bounds.yaml)
+K2_ERROR_TEXTS = (
+    "failed to substitute variables",
+    "unknown key",
+    "jmespath query failed",
+)
+
+
+def k2_reason(text: str) -> str:
+    """Why K2 refused: its bounds decided (`bounds`), or the rule could not be evaluated and
+    failurePolicy Fail refused (`rule_error`: a Scale body without `replicas`, review F11)."""
+    low = text.lower()
+    if K2_BOUNDS_TEXT in low:
+        return "bounds"
+    return "rule_error" if any(e in low for e in K2_ERROR_TEXTS) else "other"
 
 
 POLICY_LAYER = {
@@ -253,7 +271,12 @@ def classify(returncode: int, out: str, err: str) -> Observed:
     if "admission webhook" in low and "denied the request" in low:
         layers |= {POLICY_LAYER[p] for p in POLICY_LAYER if p in text}
         layers |= set(re.findall(r"\b(K[1-6])\b", text))
-        return Observed("DENY", layers or {"K?"}, "admission")
+        return Observed(
+            "DENY",
+            layers or {"K?"},
+            "admission",
+            k2_reason(text) if "K2" in layers else None,
+        )
     m = re.search(r"\b(C[1-4]):", text)
     if m:
         return Observed("DENY", {m[1]}, "CRD validation")
@@ -277,6 +300,24 @@ def judge(step_expected: mx.Verdict, got: Observed) -> tuple[bool, str]:
         )
     extra = sorted(got.layers - step_expected.layers) if got.verdict == "DENY" else []
     return True, f"extra layers {extra}" if extra else ""
+
+
+def judge_scale_to_0(step: Step, got: Observed) -> tuple[bool, str]:
+    """The scale-to-0 deny message (review F11). `kubectl scale --replicas=0` sends a Scale whose
+    `replicas` key is absent (omitempty), so K2 may refuse through a rule error instead of its
+    bounds. Either is a refusal by K2 and is recorded; a K2 refusal that is neither is a failure."""
+    if (
+        step.cell.request != "scale-to-0"
+        or "K2" not in step.expected.layers
+        or "K2" not in got.layers
+    ):
+        return True, ""
+    if got.k2_reason in ("bounds", "rule_error"):
+        return True, f"K2 by {got.k2_reason}"
+    return (
+        False,
+        "K2 refused scale-to-0 with a message that is neither its bounds nor a rule error",
+    )
 
 
 # ---------------------------------------------------------------- running
@@ -379,6 +420,8 @@ def run(steps: list[Step]) -> list[dict]:
         rc, out, err = kubectl(s.argv, s.stdin)
         got = classify(rc, out, err)
         ok, note = judge(s.expected, got)
+        ok0, note0 = judge_scale_to_0(s, got)
+        ok, note = ok and ok0, "; ".join(n for n in (note, note0) if n)
         results.append(
             {
                 "cell": s.cell.key,
@@ -389,6 +432,7 @@ def run(steps: list[Step]) -> list[dict]:
                 "observed": f"{got.verdict} {sorted(got.layers)}",
                 "note": note,
                 "detail": got.detail,
+                "k2_reason": got.k2_reason,
             }
         )
     return results

@@ -30,6 +30,11 @@ filters over the mocked Incident list are real. Edit a policy and its cases toge
 - A missing `nexus-killswitch` ConfigMap: tested as state `missing`; the API 404 path is live only.
 - K5 `approvedBy`/`approvedAt` values: the test checks that the rule applies, not the timestamp.
 - K5 and K6 together with CRD rules C1–C4 (envtest or the section 20 live matrix).
+- A Scale body without `spec.replicas` (what a scale to 0 sends: the key is omitempty): K2 answers with a rule
+  error, not its bounds (`tests/k2/operator`, `scale-no-replicas-key`: `error`). Admission refuses it only through
+  `failurePolicy: Fail`; which message the cluster returns is recorded by `experiments/containment/live.py`.
+- An Eviction whose body names another pod than the URL: the API server refuses it with 400 before admission
+  (`scripts/tests/eviction-name-mismatch.sh`, envtest 1.34.1), so K3's match on the body name is the URL's pod.
 - Compensation at L2: K3 refuses the scale back to the previous count (`tests/k3/operator`,
   `scale-back-to-previous`; ADR-038 addendum).
 - Eviction matching is by Deployment-name prefix (`<name>-`), as §11 says; a Deployment named

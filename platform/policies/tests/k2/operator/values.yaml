@@ -47,3 +47,7 @@ policies:
     values:
       request.oldObject.spec.replicas: 5
       request.operation: UPDATE
+  - name: scale-no-replicas-key
+    values:
+      request.oldObject.spec.replicas: 2
+      request.operation: UPDATE

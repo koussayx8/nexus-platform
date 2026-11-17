@@ -58,3 +58,9 @@ results:
   - scale-5-to-3
   kind: Scale
   result: pass
+- policy: nexus-scale-bounds
+  rule: scale-bounds
+  resources:
+  - scale-no-replicas-key
+  kind: Scale
+  result: error

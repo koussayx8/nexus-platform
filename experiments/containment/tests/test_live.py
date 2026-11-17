@@ -76,6 +76,35 @@ class Plan(unittest.TestCase):
             self.assertEqual(live.main(["--plan", "--ks-state", "active"]), 0)
 
 
+class ScaleToZero(unittest.TestCase):
+    K2_BOUNDS = 'admission webhook "validate.kyverno.svc-fail" denied the request: nexus-scale-bounds: K2 nexus-scale-bounds: replicas 2 -> 0 is outside [1, 5] or changes'
+    K2_ERROR = 'admission webhook "validate.kyverno.svc-fail" denied the request: policy nexus-scale-bounds: failed to check deny conditions: failed to substitute variables in condition key: failed to resolve request.object.spec.replicas at path : JMESPath query failed: Unknown key "replicas" in path'
+
+    def step(self, request="scale-to-0"):
+        cell = mx.Cell("operator", request, "dev-l3", "active")
+        return live.Step(cell, 0, [], None, mx.Verdict("DENY", frozenset({"K2"})))
+
+    def test_the_scale_to_0_message_is_placed(self):
+        for text, reason in ((self.K2_BOUNDS, "bounds"), (self.K2_ERROR, "rule_error")):
+            got = live.classify(1, "", text)
+            self.assertEqual((got.layers, got.k2_reason), ({"K2"}, reason))
+            self.assertEqual(
+                live.judge_scale_to_0(self.step(), got), (True, f"K2 by {reason}")
+            )
+
+    def test_a_k2_refusal_with_another_message_fails_scale_to_0_only(self):
+        got = live.classify(
+            1,
+            "",
+            'admission webhook "x" denied the request: nexus-scale-bounds: something else',
+        )
+        self.assertEqual(got.k2_reason, "other")
+        self.assertFalse(live.judge_scale_to_0(self.step(), got)[0])
+        self.assertEqual(
+            live.judge_scale_to_0(self.step("scale-6-or-plus-3"), got), (True, "")
+        )
+
+
 class Classify(unittest.TestCase):
     def test_answers(self):
         c = live.classify

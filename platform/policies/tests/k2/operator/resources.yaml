@@ -62,3 +62,12 @@ metadata:
   namespace: nexus-dev
 spec:
   replicas: 3
+---
+# F11 (docs/reviews/2026-11-15-m3-boundary.md): `replicas` is omitempty in autoscaling/v1 Scale, so
+# a scale to 0 reaches admission with the key absent. The rule must still refuse it.
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-no-replicas-key
+  namespace: nexus-dev
+spec: {}
