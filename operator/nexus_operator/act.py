@@ -152,10 +152,19 @@ class Answer:
     fallback_used: bool
     latency_ms: int | None
     digest: str = ""
+    fallback_reason: str | None = None  # why the Reasoner's answer was not used (Q7)
 
     @property
     def request_id(self) -> str | None:
         return self.result.request_id if self.result is not None else None
+
+
+def _failure_reason(result: ReasonerResult) -> str:
+    """The client's reason and the first error: "http_502: model_unavailable: http_403",
+    "timeout", "rejected: <detail>". The Flight Recorder's reject_reason and status.reasoner's
+    fallbackReason carry the same text, so the export can tell provider failures apart (Q7)."""
+    reason = result.reason or "unknown"
+    return reason + (f": {result.errors[0]}" if result.errors else "")
 
 
 def _level(status: dict) -> int:
@@ -426,6 +435,7 @@ class ActPath:
             "latencyMs": answer.latency_ms,
             "requestId": answer.request_id,
             "fallbackUsed": answer.fallback_used,
+            "fallbackReason": answer.fallback_reason,
         }
         return {k: v for k, v in status.items() if v is not None}
 
@@ -468,7 +478,14 @@ class ActPath:
             work.fell_back = True
         doc = rules.propose(work.bundle)  # R1 once; fallbackUsed = true
         return Answer(
-            doc, proposal.validate(doc), "rules", {}, result, True, result.latency_ms
+            doc,
+            proposal.validate(doc),
+            "rules",
+            {},
+            result,
+            True,
+            result.latency_ms,
+            fallback_reason=_failure_reason(result)[:200],
         )
 
     async def _store(self, uid: str, work: "Diagnosis", answer: "Answer", now) -> None:
@@ -480,7 +497,7 @@ class ActPath:
         )
         result = answer.result
         if result is not None and not result.ok:
-            reason = result.reason + (f": {result.errors[0]}" if result.errors else "")
+            reason = _failure_reason(result)
             await self.recorder.record_proposal(
                 proposal.hash_of({"requestId": result.request_id, "failure": reason}),
                 uid,

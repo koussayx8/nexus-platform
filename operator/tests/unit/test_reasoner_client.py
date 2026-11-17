@@ -209,6 +209,45 @@ def test_provider_errors_are_failures_with_the_status(status):
 
     r = run(fail, call)
     assert (r.ok, r.reason, r.status) == (False, f"http_{status}", status)
+    assert r.errors == ["model_unavailable"]
+
+
+def test_a_provider_refusal_keeps_the_reasoners_error_and_detail():
+    """2026-11-17: Groq refused every R3 call with 403; the Reasoner said so in a 502 body,
+    and the operator used to drop it."""
+
+    async def fail(request, body):
+        return json_response({"error": "model_unavailable", "detail": "http_403"}, 502)
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(fail, call)
+    assert (r.reason, r.errors) == ("http_502", ["model_unavailable: http_403"])
+
+
+@pytest.mark.parametrize(
+    "raw, errors",
+    [
+        ("<html>bad gateway</html>", []),
+        (json.dumps(["model_unavailable"]), []),
+        (json.dumps({"error": 7, "detail": None}), []),
+        (json.dumps({"detail": "http_429"}), ["http_429"]),
+        (
+            json.dumps({"error": "x\nInjected: $(rm)", "detail": "d" * 500}),
+            ["x?Injected: ??rm?: " + "d" * 100],
+        ),
+    ],
+)
+def test_the_error_body_is_untrusted_short_and_plain(raw, errors):
+    async def fail(request, body):
+        return web.Response(status=502, text=raw)
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(fail, call)
+    assert (r.reason, r.errors) == ("http_502", errors)
 
 
 def test_a_schema_invalid_answer_is_refused_and_kept_raw():

@@ -139,6 +139,10 @@ def test_without_an_endpoint_nothing_changes():
     [
         (failure("timeout"), "timeout"),
         (failure("http_502"), "http_502"),
+        (
+            failure("http_502", errors=["model_unavailable: http_403"]),
+            "http_502: model_unavailable: http_403",
+        ),
         (failure("http_500"), "http_500"),
         (failure("transport"), "transport"),
         (failure("unparseable", raw="<html>"), "unparseable"),
@@ -176,10 +180,19 @@ def test_any_failure_falls_back_to_r1_once_with_fallback_used(result, stored_rea
     )  # R1 on gray-failure evidence
     s = rig.status()
     assert s["reasoner"]["fallbackUsed"] is True and s["reasoner"]["mode"] == "rules"
+    # the same text as the row (Q7)
+    assert s["reasoner"]["fallbackReason"] == stored_reason
     assert (
         s["proposal"]["hash"] in rows(rig)
         and rows(rig)[s["proposal"]["hash"]]["fallback_used"]
     )
+
+
+def test_a_long_fallback_reason_is_capped_in_the_status():
+    rig = make(FakeReasoner(failure("rejected", errors=["e" * 500], raw="{}")))
+    run_until_proposed(rig)
+    reason = rig.status()["reasoner"]["fallbackReason"]
+    assert reason.startswith("rejected: eee") and len(reason) == 200
 
 
 def test_the_422_reason_and_raw_output_are_both_in_the_failed_row():

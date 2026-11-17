@@ -21,6 +21,7 @@ The client never raises on an HTTP or transport failure: that is a Result with a
 
 import dataclasses
 import json
+import re
 import time
 import uuid
 from typing import Any
@@ -79,6 +80,27 @@ def check_redacted(bundle: Any) -> str | None:
     if left:
         return f"unredacted content found: {', '.join(left)}"
     return None
+
+
+_UNSAFE = re.compile(r"[^A-Za-z0-9_.:/ -]")
+
+
+def _error_detail(raw: str | None) -> list[str]:
+    """`error` and `detail` of a non-200 answer as one short line, e.g. "model_unavailable: http_403"
+    (a 502 whose provider call was refused). The Reasoner is untrusted: only a JSON object is
+    read, each part keeps a small character set and 100 characters at most. [] when unreadable."""
+    try:
+        body = json.loads(raw) if raw else None
+    except ValueError:
+        return []
+    if not isinstance(body, dict):
+        return []
+    parts = [
+        _UNSAFE.sub("?", v)[:100]
+        for v in (body.get("error"), body.get("detail"))
+        if isinstance(v, str) and v
+    ]
+    return [": ".join(parts)] if parts else []
 
 
 def _clean_meta(meta: Any) -> dict:
@@ -173,9 +195,15 @@ class ReasonerClient:
             )
         if status == 422:
             return self._rejection(request_id, status, raw, elapsed())
+        # Any other status: the reason stays http_<n>; the Reasoner's own words go in errors.
         if status != 200:
             return Result(
-                False, request_id, f"http_{status}", status=status, latency_ms=elapsed()
+                False,
+                request_id,
+                f"http_{status}",
+                errors=_error_detail(raw),
+                status=status,
+                latency_ms=elapsed(),
             )
         return self._accept(request_id, status, raw, elapsed())
 
