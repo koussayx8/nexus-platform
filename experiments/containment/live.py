@@ -332,20 +332,18 @@ def judge(
 
 def judge_scale_to_0(step: Step, got: Observed) -> tuple[bool, str]:
     """The scale-to-0 deny message (review F11). `kubectl scale --replicas=0` sends a Scale whose
-    `replicas` key is absent (omitempty), so K2 may refuse through a rule error instead of its
-    bounds. Either is a refusal by K2 and is recorded; a K2 refusal that is neither is a failure."""
+    `replicas` key is absent (omitempty). K2 defaults it to 0, so its bounds must refuse it; a
+    rule error means the deployed K2 predates that default, and fails the cell like any other
+    message."""
     if (
         step.cell.request != "scale-to-0"
         or "K2" not in step.expected.layers
         or "K2" not in got.layers
     ):
         return True, ""
-    if got.k2_reason in ("bounds", "rule_error"):
-        return True, f"K2 by {got.k2_reason}"
-    return (
-        False,
-        "K2 refused scale-to-0 with a message that is neither its bounds nor a rule error",
-    )
+    if got.k2_reason == "bounds":
+        return True, "K2 by bounds"
+    return False, f"K2 refused scale-to-0 by {got.k2_reason}, not by its bounds"
 
 
 # ---------------------------------------------------------------- running

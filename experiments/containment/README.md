@@ -29,10 +29,10 @@ in-bounds scales at level 2 whose approval is wrong in one way (other replicas, 
 Deployment); the replay passes only when K3 is the single refusing policy. `k3-expired`, `k3-rejected` and
 `k3-second-deployment` have no live form yet (each needs a fixture that does not exist).
 
-**Scale to 0.** `kubectl scale --replicas=0` sends a Scale without the `replicas` key (omitempty). The Kyverno CLI
-shows K2 answering such a body with a rule error, not with its bounds (`platform/policies/tests/k2/operator`, case
-`scale-no-replicas-key`: `error`); admission then refuses through `failurePolicy: Fail`. `live.py` records which of
-the two the cluster answered (`k2_reason`: `bounds` or `rule_error`) and fails the cell on any other message.
+**Scale to 0.** `kubectl scale --replicas=0` sends a Scale without the `replicas` key (omitempty). K2 reads a missing
+key as 0, so its bounds deny the request (`platform/policies/tests/k2/operator`, case `scale-no-replicas-key`:
+`fail`). `live.py` records the reason (`k2_reason`) and fails a `scale-to-0` cell unless it is `bounds`: a
+`rule_error` means the deployed K2 predates the default.
 
 Cells Kyverno cannot decide are counted, not skipped silently: RBAC (modelled, and the manifests
 checked as a subset of section 11) and the CRD rules C2 and C3 (envtest: `scripts/tests/incident-crd.sh`).

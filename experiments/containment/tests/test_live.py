@@ -134,9 +134,17 @@ class ExactAndScaleToZero(unittest.TestCase):
         for text, reason in ((self.K2_BOUNDS, "bounds"), (self.K2_ERROR, "rule_error")):
             got = live.classify(1, "", text)
             self.assertEqual((got.layers, got.k2_reason), ({"K2"}, reason))
-            self.assertEqual(
-                live.judge_scale_to_0(self.step(), got), (True, f"K2 by {reason}")
-            )
+        got = live.classify(1, "", self.K2_BOUNDS)
+        self.assertEqual(
+            live.judge_scale_to_0(self.step(), got), (True, "K2 by bounds")
+        )
+
+    def test_a_rule_error_on_scale_to_0_fails(self):
+        """K2 defaults a missing `replicas` to 0: a rule error means an older K2 is deployed."""
+        got = live.classify(1, "", self.K2_ERROR)
+        ok, note = live.judge_scale_to_0(self.step(), got)
+        self.assertFalse(ok)
+        self.assertIn("rule_error", note)
 
     def test_a_k2_refusal_with_another_message_fails_scale_to_0_only(self):
         got = live.classify(
