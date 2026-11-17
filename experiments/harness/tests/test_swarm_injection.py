@@ -58,10 +58,17 @@ class PlanTest(unittest.TestCase):
 
     def test_the_command_line_takes_the_spawn_rate(self):
         plan = io.StringIO()
-        argv = ["plan", "inject", "S4", "--context", "c", "--locust", "http://l", "--users", "240", "--spawn-rate", "4"]  # fmt: skip
+        argv = ["plan", "inject", "S4", "--context", "c", "--level", "3", "--locust", "http://l", "--users", "240", "--spawn-rate", "4"]  # fmt: skip
         import contextlib
+        from unittest import mock
 
-        with contextlib.redirect_stdout(plan):
+        # the level check reads the namespace label first (read-only); the label says 3
+        with (
+            mock.patch.object(
+                runner, "_subprocess_exec", lambda argv, cwd=None: (0, "3")
+            ),
+            contextlib.redirect_stdout(plan),
+        ):
             self.assertEqual(runner.main(argv), 0)
         step = json.loads(plan.getvalue())[0]
         self.assertEqual(step["argv"][2], "user_count=240&spawn_rate=4.0")

@@ -392,6 +392,38 @@ class ProdTargetTest(unittest.TestCase):
             self.assertIn(f"usename='{role}'", sql)
             self.assertNotIn(other, sql)
 
+    def test_inject_reads_the_level_and_refuses_a_mismatch(self):
+        """Boundary review F1: the fault goes in only when the namespace carries the cell's level."""
+        r, calls = self.runner("3", ns="nexus-dev")
+        self.assertEqual(len(r.plan_inject("S1", level=3)), 1)
+        self.assertTrue(any("namespace" in c and "nexus-dev" in c for c in calls))
+        for label, rc, cell in (
+            ("3", 0, 2),
+            ("2", 0, 3),
+            ("", 0, 3),
+            ("3", 1, 3),
+            ("abc", 0, 3),
+        ):
+            r, calls = self.runner(label, ns="nexus-dev", rc=rc)
+            with self.assertRaises(
+                ValueError, msg=f"{label!r} rc={rc} cell={cell}"
+            ) as e:
+                r.plan_inject("S1", level=cell)
+            self.assertIn("refusing to inject in nexus-dev", str(e.exception))
+            self.assertFalse(any("exec" in c for c in calls))
+
+    def test_a_missing_label_is_level_0(self):
+        r, _ = self.runner("", ns="nexus-dev")
+        self.assertEqual(r.require_level(0), "0")
+
+    def test_the_command_line_needs_the_level_for_inject(self):
+        with (
+            self.assertRaises(SystemExit),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+        ):
+            runner.main(["plan", "inject", "S1", "--context", "c"])
+        self.assertIn("inject needs --level", err.getvalue())
+
     def test_reset_restores_both_roles(self):
         r, _ = self.runner("1", ns="nexus-dev")
         sql = " ".join(a for s in r.plan_reset(3) for a in s.argv if "LOGIN" in a)
@@ -420,6 +452,8 @@ class ProdTargetTest(unittest.TestCase):
                         "c",
                         "--namespace",
                         "nexus-prod",
+                        "--level",
+                        "1",
                     ]
                     + flags
                 )
