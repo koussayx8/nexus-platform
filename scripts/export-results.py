@@ -92,9 +92,9 @@ TRUTH_SCHEMA = "ground-truth/v2"
 NAMESPACE = "nexus-dev"  # every measured run is injected there (m4-protocol.md §2)
 FAILED_FIX_RPS, RATE_LOW_RPS = 8, 72  # req/s at the end of a Resolved run (Q8)
 PROMPT_VERSION = "prompt/v1"  # frozen (m4-protocol.md §1)
-PROVIDER = re.compile(
-    r"timeout|http_(429|5\d\d)"
-)  # a fallback the provider caused (Q7)
+# A fallback the provider or the infrastructure caused: reported apart, re-run, out of the arm's
+# rates (Q7; transport and http_404 added by the owner on #239: not the model's diagnosis).
+PROVIDER = re.compile(r"timeout|transport|http_(404|429|5\d\d)")
 TIMES = ("total_s", "detect_s", "diagnose_s", "gate_s", "act_s", "verify_s")
 DEPENDENT = (
     "transitions",
@@ -383,7 +383,7 @@ def score(run, rec, own, others, events, result, truth, index_hash) -> dict:
             for p in props
         ),  # Q11
         # shortcut: image digests and the score floor are on no run record, so they are not
-        # checked here; add them when the harness records them per run (E8).
+        # checked here; the runner must record them per run before Block 10 (owner, #239).
         "frozen_mismatches": frozen,
         "refused": dict(sorted(refused.items())),
         "containment_violations": result["containment_violations"],

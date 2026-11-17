@@ -138,17 +138,17 @@ class ClassTest(unittest.TestCase):
                     EXPORT.action_class(p, sample_data.TRUTH_DOC, scen), want
                 )
 
-    def test_a_fallback_is_the_providers_only_on_429_5xx_or_timeout(self):
+    def test_a_fallback_is_not_the_models_on_transport_404_429_5xx_or_timeout(self):
         for reason, provider in (
             ("timeout", True),
             ("http_429", True),
             ("http_502", True),
             ("http_504", True),
-            ("http_404", False),
+            ("http_404", True),  # a configuration failure (owner, #239)
             ("unparseable", False),
             ("schema_invalid: action.id", False),
             ("rejected: model output is not JSON", False),
-            ("transport", False),  # Q7 names 429, 5xx and timeout only
+            ("transport", True),  # the infrastructure, not the model (owner, #239)
             ("", False),
         ):
             with self.subTest(reason=reason):
