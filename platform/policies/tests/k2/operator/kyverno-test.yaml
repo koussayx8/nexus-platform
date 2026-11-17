@@ -63,4 +63,16 @@ results:
   resources:
   - scale-no-replicas-key
   kind: Scale
-  result: error
+  result: fail
+- policy: nexus-scale-bounds
+  rule: scale-bounds
+  resources:
+  - scale-from-0-to-2
+  kind: Scale
+  result: pass
+- policy: nexus-scale-bounds
+  rule: scale-bounds
+  resources:
+  - scale-from-0-to-3
+  kind: Scale
+  result: fail

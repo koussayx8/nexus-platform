@@ -51,3 +51,11 @@ policies:
     values:
       request.oldObject.spec.replicas: 2
       request.operation: UPDATE
+  - name: scale-from-0-to-2
+    values:
+      request.oldObject.spec.replicas: null
+      request.operation: UPDATE
+  - name: scale-from-0-to-3
+    values:
+      request.oldObject.spec.replicas: null
+      request.operation: UPDATE
