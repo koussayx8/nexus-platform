@@ -542,3 +542,34 @@ policies:
             parameters:
               replicas: 4
       request.operation: CREATE
+  - name: scale-back-to-previous
+    values:
+      level: '2'
+      incidents:
+      - apiVersion: nexus.io/v1alpha1
+        kind: Incident
+        metadata:
+          name: inc-1
+          namespace: nexus-system
+        spec:
+          source:
+            type: detector
+          target:
+            namespace: nexus-dev
+            kind: Deployment
+            name: scale-back-to-previous
+          approval:
+            decision: approved
+            actionId: scale_deployment
+            proposalHash: sha256:ab12
+            expiresAt: '2099-01-01T00:00:00Z'
+            approvedBy: approver-1
+            parameters:
+              replicas: 4
+        status:
+          proposal:
+            hash: sha256:ab12
+            actionId: scale_deployment
+            parameters:
+              replicas: 4
+      request.operation: UPDATE

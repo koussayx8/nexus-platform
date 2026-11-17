@@ -281,6 +281,7 @@ class FakeRecorder:
         fallback_used=False,
         request_id=None,
         reject_reason=None,
+        usage=None,
     ):
         self._up()
         self._fk(incident_uid)
@@ -301,6 +302,7 @@ class FakeRecorder:
             "fallback_used": fallback_used,
             "request_id": request_id,
             "reject_reason": reject_reason,
+            "usage": usage,
         }
         self.proposals[key] = (
             parsed_proposal if parsed_proposal is not None else (raw_output or "")

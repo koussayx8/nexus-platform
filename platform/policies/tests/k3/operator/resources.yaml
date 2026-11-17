@@ -136,3 +136,13 @@ kind: Eviction
 metadata:
   name: evict-scale-approval-only-6d9f7c8b5-x2k4q
   namespace: nexus-dev
+---
+# F7 (docs/reviews/2026-11-15-m3-boundary.md): the compensation of an approved scale to 4 is a
+# scale back to the previous count, 2. The approval pins 4, so K3 refuses it (ADR-038 addendum).
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-back-to-previous
+  namespace: nexus-dev
+spec:
+  replicas: 2

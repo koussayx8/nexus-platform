@@ -209,9 +209,16 @@ for f in scripts/verify-state.sh scripts/lib/readonly.sh; do
     echo "FAIL every-kubectl-call-names-the-context: $f"; while IFS= read -r line; do echo "  | $line"; done <<<"$bare"; failed=1
   fi
 done
+# Direct calls, outside k(): the two port-forwards, the audit probe, and M18's /healthz read (k()'s
+# --request-timeout reaches the Reasoner as ?timeout=..., which it answers with 404). The last one
+# must stay a read: `get --raw` of that one path.
 calls=$(grep -cE 'kubectl --context default ' "$root/scripts/verify-state.sh")
-if [[ $calls == 3 ]]; then echo "PASS verify-state-direct-calls: the two port-forwards and the audit probe"
-else echo "FAIL verify-state-direct-calls: $calls direct kubectl calls, expected 3"; failed=1; fi
+if [[ $calls == 4 ]]; then echo "PASS verify-state-direct-calls: the two port-forwards, the audit probe and M18's /healthz read"
+else echo "FAIL verify-state-direct-calls: $calls direct kubectl calls, expected 4"; failed=1; fi
+if [[ $(grep -cE 'kubectl --context default get --raw "\$REASONER_HEALTHZ"' "$root/scripts/verify-state.sh") == 1 ]] \
+  && grep -qE '^REASONER_HEALTHZ=/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz$' "$root/scripts/verify-state.sh"; then
+  echo "PASS verify-state-direct-healthz-is-a-read"
+else echo "FAIL verify-state-direct-healthz-is-a-read"; failed=1; fi
 
 # k() is the one place that names it: a call site that passes --context again is a second copy.
 if grep -nE '(^|[[:space:](])k (get|describe|logs|auth|version|api-resources)[^#]*--context' "$root/scripts/verify-state.sh" "$root/scripts/capture-state.sh"; then

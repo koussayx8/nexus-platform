@@ -59,6 +59,11 @@ def answer(doc=None, **meta) -> Result:
             "promptVersion": "p-1",
             "retrievedChunks": ["rb-gray#1"],
             "latencyMs": 900,
+            "usage": {
+                "promptTokens": 1200,
+                "completionTokens": 150,
+                "totalTokens": 1350,
+            },
             **meta,
         },
         status=200,
@@ -119,7 +124,10 @@ def test_success_sends_the_redacted_bundle_once_and_records_every_field():
     assert s["reasoner"] == {
         "mode": "llm", "modelId": MODEL, "promptVersion": "p-1", "indexHash": "sha256:idx",
         "chunks": ["rb-gray#1"], "latencyMs": 900, "requestId": "req-ok", "fallbackUsed": False,
+        "usage": {"promptTokens": 1200, "completionTokens": 150, "totalTokens": 1350,
+                  "latencyMs": 900},
     }  # fmt: skip
+    assert row["usage"] == s["reasoner"]["usage"]  # the same figures, on the call's row
 
 
 def test_without_an_endpoint_nothing_changes():
@@ -139,6 +147,10 @@ def test_without_an_endpoint_nothing_changes():
     [
         (failure("timeout"), "timeout"),
         (failure("http_502"), "http_502"),
+        (
+            failure("http_502", errors=["model_unavailable: http_403"]),
+            "http_502: model_unavailable: http_403",
+        ),
         (failure("http_500"), "http_500"),
         (failure("transport"), "transport"),
         (failure("unparseable", raw="<html>"), "unparseable"),
@@ -176,10 +188,48 @@ def test_any_failure_falls_back_to_r1_once_with_fallback_used(result, stored_rea
     )  # R1 on gray-failure evidence
     s = rig.status()
     assert s["reasoner"]["fallbackUsed"] is True and s["reasoner"]["mode"] == "rules"
+    # the same text as the row (Q7)
+    assert s["reasoner"]["fallbackReason"] == stored_reason
     assert (
         s["proposal"]["hash"] in rows(rig)
         and rows(rig)[s["proposal"]["hash"]]["fallback_used"]
     )
+
+
+def test_a_fallback_counts_the_calls_cost_once_on_the_failed_row():
+    """A 422 after the model answered spent tokens: they go on the failed attempt's row and in
+    status.reasoner, never on the R1 row, so the export sums each call once (F-B)."""
+    spent = {"promptTokens": 900, "completionTokens": 80, "totalTokens": 980}
+    result = failure("rejected", raw="{}", errors=["bad"],
+                     meta={"rejection": "invalid_proposal", "usage": spent})  # fmt: skip
+    rig = make(FakeReasoner(result))
+    run_until_proposed(rig)
+    failed, used = sorted(rows(rig).values(), key=lambda r: r["fallback_used"])
+    assert failed["usage"] == spent | {"latencyMs": 40}
+    assert used["usage"] is None
+    assert rig.status()["reasoner"]["usage"] == spent | {"latencyMs": 40}
+
+
+def test_a_call_with_no_answer_records_its_latency_only():
+    rig = make(FakeReasoner(failure("timeout")))
+    run_until_proposed(rig)
+    failed = next(r for r in rows(rig).values() if not r["fallback_used"])
+    assert failed["usage"] == {"latencyMs": 30000}
+    assert rig.status()["reasoner"]["usage"] == {"latencyMs": 30000}
+
+
+def test_no_reasoner_means_no_usage():
+    rig = make(None)
+    run_until_proposed(rig)
+    [row] = rows(rig).values()
+    assert row["usage"] is None and "usage" not in rig.status()["reasoner"]
+
+
+def test_a_long_fallback_reason_is_capped_in_the_status():
+    rig = make(FakeReasoner(failure("rejected", errors=["e" * 500], raw="{}")))
+    run_until_proposed(rig)
+    reason = rig.status()["reasoner"]["fallbackReason"]
+    assert reason.startswith("rejected: eee") and len(reason) == 200
 
 
 def test_the_422_reason_and_raw_output_are_both_in_the_failed_row():

@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS proposals (
 -- volume that was initialised before: psql -f 05-schema.sql as the database owner.
 ALTER TABLE proposals ADD COLUMN IF NOT EXISTS request_id    text;
 ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reject_reason text;
+-- Added 2026-11-17 (Block 3, F-B): what one Reasoner call cost, on the row of that call (the
+-- Reasoner's proposal, or the failed attempt before an R1 fallback; never the R1 row):
+-- {"promptTokens", "completionTokens", "totalTokens", "latencyMs"}, each present when known.
+-- Additive and idempotent like the two above; the writer leaves it out until it exists.
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS usage         jsonb;
 CREATE INDEX IF NOT EXISTS proposals_incident ON proposals (incident_uid);
 
 CREATE TABLE IF NOT EXISTS gate_decisions (

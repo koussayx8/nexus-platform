@@ -78,6 +78,30 @@ class AdapterTest(unittest.TestCase):
         self.assertNotIn("gsk-test-secret", json.dumps(body))
         self.assertEqual(adapter.parse_json(c.text)["action"]["id"], "restart_workload")
 
+    def test_every_provider_call_names_its_user_agent(self):
+        """Groq's edge answers 403 to urllib's default "Python-urllib/3.x" (2026-11-17)."""
+        op = FakeOpener(groq_reply(good_proposal(self.b)))
+        adapter.complete(CFG, CFG.models["R3"], "S", "U", opener=op)
+        headers = {k.lower(): v for k, v in op.calls[0]["headers"].items()}
+        self.assertEqual(headers["user-agent"], "nexus-reasoner/1.0")
+        self.assertNotIn("python-urllib", headers["user-agent"].lower())
+
+    def test_the_user_agent_reaches_the_wire(self):
+        """The header survives urllib's opener: build_opener() adds its default only when absent."""
+        import urllib.request
+
+        seen = {}
+
+        class Capture(urllib.request.HTTPHandler):
+            def http_open(self, req):
+                seen.update({k.lower(): v for k, v in req.header_items()})
+                raise urllib.error.URLError("captured")
+
+        opener = urllib.request.build_opener(Capture)
+        with self.assertRaises(adapter.AdapterError):
+            adapter._post("http://g.test/x", {}, {}, 1.0, opener.open)
+        self.assertEqual(seen["user-agent"], "nexus-reasoner/1.0")
+
     def test_effort_override_for_the_sweep(self):
         op = FakeOpener(groq_reply(good_proposal(self.b)))
         adapter.complete(CFG, CFG.models["R3"], "S", "U", effort="high", opener=op)

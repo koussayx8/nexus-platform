@@ -7,8 +7,13 @@ set up beforehand by the Cluster Admin (README.md), and the script only checks t
 cell expects before it asks.
 
   python3 -m experiments.containment.live --plan                    # print the commands, touch nothing
-  python3 -m experiments.containment.live --ks-state active --run   # 210 cells, one Kill Switch state
+  python3 -m experiments.containment.live --ks-state active --run   # 140 cells, one Kill Switch state
   python3 -m experiments.containment.live --special fail-closed --run
+  python3 -m experiments.containment.live --special k3-unapproved-replicas --run   # K3 alone (level 2)
+
+Only identities that exist on the cluster are sent: the baseline is `live: false` in matrix.yaml
+(no ServiceAccount or binding, boundary review F14), so its 210 cells are replayed offline only and
+a full live matrix is 420 cells. The count left out is printed with every plan and run.
 
 Each request is made by impersonation (`--as`, `--as-group`) with `--dry-run=server`. A cell passes
 when the observed verdict equals the declared one and, for a denial, the observed layer is one of
@@ -54,6 +59,9 @@ class Step:
     stdin: str | None
     expected: mx.Verdict
     special: str | None = None
+    exact: bool = (
+        False  # a K3-only case: any refusing layer beyond the declared ones fails
+    )
 
     def shell(self) -> str:
         return " ".join(self.argv) + (f" <<< '{self.stdin}'" if self.stdin else "")
@@ -211,11 +219,26 @@ def plan(
     now: datetime.datetime, ks: str | None = None, cells: set[str] | None = None
 ) -> list[Step]:
     out: list[Step] = []
+    live_ids = set(mx.live_identities())
     for cell, want in mx.expand():
         if (ks and cell.killswitch != ks) or (cells and cell.cell not in cells):
             continue
+        if cell.identity not in live_ids:
+            continue  # offline only (matrix.yaml `live: false`)
         out += build(cell, want, now)
     return out
+
+
+def offline_only(ks: str | None = None, cells: set[str] | None = None) -> int:
+    """How many cells of this selection plan() leaves out because their identity is offline only."""
+    live_ids = set(mx.live_identities())
+    return sum(
+        1
+        for cell, _ in mx.expand()
+        if cell.identity not in live_ids
+        and not (ks and cell.killswitch != ks)
+        and not (cells and cell.cell not in cells)
+    )
 
 
 # ---------------------------------------------------------------- classification
@@ -224,6 +247,24 @@ class Observed:
     verdict: str  # ADMIT | DENY | UNKNOWN
     layers: set[str] = field(default_factory=set)
     detail: str = ""
+    k2_reason: str | None = None  # bounds | rule_error | other, when K2 refused
+
+
+K2_BOUNDS_TEXT = "is outside [1, 5]"  # K2's own message (k2-scale-bounds.yaml)
+K2_ERROR_TEXTS = (
+    "failed to substitute variables",
+    "unknown key",
+    "jmespath query failed",
+)
+
+
+def k2_reason(text: str) -> str:
+    """Why K2 refused: its bounds decided (`bounds`), or the rule could not be evaluated and
+    failurePolicy Fail refused (`rule_error`: a Scale body without `replicas`, review F11)."""
+    low = text.lower()
+    if K2_BOUNDS_TEXT in low:
+        return "bounds"
+    return "rule_error" if any(e in low for e in K2_ERROR_TEXTS) else "other"
 
 
 POLICY_LAYER = {
@@ -253,7 +294,12 @@ def classify(returncode: int, out: str, err: str) -> Observed:
     if "admission webhook" in low and "denied the request" in low:
         layers |= {POLICY_LAYER[p] for p in POLICY_LAYER if p in text}
         layers |= set(re.findall(r"\b(K[1-6])\b", text))
-        return Observed("DENY", layers or {"K?"}, "admission")
+        return Observed(
+            "DENY",
+            layers or {"K?"},
+            "admission",
+            k2_reason(text) if "K2" in layers else None,
+        )
     m = re.search(r"\b(C[1-4]):", text)
     if m:
         return Observed("DENY", {m[1]}, "CRD validation")
@@ -262,7 +308,10 @@ def classify(returncode: int, out: str, err: str) -> Observed:
     return Observed("UNKNOWN", detail=text.strip()[:300])
 
 
-def judge(step_expected: mx.Verdict, got: Observed) -> tuple[bool, str]:
+def judge(
+    step_expected: mx.Verdict, got: Observed, exact: bool = False
+) -> tuple[bool, str]:
+    """`exact`: the refusing layers must be the declared ones and no other (the K3-only cases)."""
     if got.verdict == "UNKNOWN":
         return False, f"unplaceable answer: {got.detail}"
     if got.verdict != step_expected.verdict:
@@ -276,7 +325,25 @@ def judge(step_expected: mx.Verdict, got: Observed) -> tuple[bool, str]:
             f"expected layers {sorted(step_expected.layers)}, observed {sorted(got.layers)}",
         )
     extra = sorted(got.layers - step_expected.layers) if got.verdict == "DENY" else []
+    if exact and extra:
+        return False, f"expected only {sorted(step_expected.layers)}, also {extra}"
     return True, f"extra layers {extra}" if extra else ""
+
+
+def judge_scale_to_0(step: Step, got: Observed) -> tuple[bool, str]:
+    """The scale-to-0 deny message (review F11). `kubectl scale --replicas=0` sends a Scale whose
+    `replicas` key is absent (omitempty). K2 defaults it to 0, so its bounds must refuse it; a
+    rule error means the deployed K2 predates that default, and fails the cell like any other
+    message."""
+    if (
+        step.cell.request != "scale-to-0"
+        or "K2" not in step.expected.layers
+        or "K2" not in got.layers
+    ):
+        return True, ""
+    if got.k2_reason == "bounds":
+        return True, "K2 by bounds"
+    return False, f"K2 refused scale-to-0 by {got.k2_reason}, not by its bounds"
 
 
 # ---------------------------------------------------------------- running
@@ -378,7 +445,9 @@ def run(steps: list[Step]) -> list[dict]:
             s.stdin = (s.stdin or "").replace("sample-api-pod", pod)
         rc, out, err = kubectl(s.argv, s.stdin)
         got = classify(rc, out, err)
-        ok, note = judge(s.expected, got)
+        ok, note = judge(s.expected, got, s.exact)
+        ok0, note0 = judge_scale_to_0(s, got)
+        ok, note = ok and ok0, "; ".join(n for n in (note, note0) if n)
         results.append(
             {
                 "cell": s.cell.key,
@@ -389,15 +458,42 @@ def run(steps: list[Step]) -> list[dict]:
                 "observed": f"{got.verdict} {sorted(got.layers)}",
                 "note": note,
                 "detail": got.detail,
+                "k2_reason": got.k2_reason,
             }
         )
     return results
+
+
+K3_LIVE_CELL = "dev-l2-approved"  # level 2, with the approved fixtures of fixtures.sh
+SPECIAL_IDS = [sid for sid, _, _ in mx.specials()] + [
+    c["id"] for c in mx.k3_isolation() if c.get("live")
+]
+
+
+def k3_step(case: dict) -> Step:
+    """A K3-only case as one dry-run scale of sample-api by the operator; judged exactly."""
+    cell = mx.Cell("operator", case["id"], K3_LIVE_CELL, "active")
+    ns = mx.DATA["cells"][K3_LIVE_CELL]["namespace"]
+    argv = [
+        "kubectl",
+        "scale",
+        f"deployment/{CELL_OBJECTS[ns]}",
+        "-n",
+        ns,
+        f"--replicas={case['replicas']}",
+        "--dry-run=server",
+        *impersonation("operator"),
+    ]
+    return Step(cell, 0, argv, None, case["declared"], case["id"], exact=True)
 
 
 def special_steps(name: str, now: datetime.datetime) -> list[Step]:
     for sid, cell, want in mx.specials():
         if sid == name:
             return build(cell, want, now, special=sid)
+    for case in mx.k3_isolation():
+        if case["id"] == name and case.get("live"):
+            return [k3_step(case)]
     raise KeyError(name)
 
 
@@ -413,11 +509,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cells", help="comma-separated cell ids (default all)")
     ap.add_argument(
         "--special",
-        choices=[
-            "fail-closed",
-            "killswitch-halted-compensation",
-            "killswitch-absent-compensation",
-        ],
+        choices=SPECIAL_IDS,
+        help="a case outside the 630; the k3-* cases need nexus-dev at level 2 and the fixtures",
     )
     ap.add_argument(
         "--plan",
@@ -431,18 +524,26 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.datetime.now(datetime.UTC)
     cells = set(a.cells.split(",")) if a.cells else None
     if a.special:
-        steps = special_steps(a.special, now)
+        steps, skipped = special_steps(a.special, now), 0
     else:
-        steps = plan(now, a.ks_state, cells)
+        steps, skipped = plan(now, a.ks_state, cells), offline_only(a.ks_state, cells)
     if a.plan or not a.run:
         for s in steps:
             print(f"{s.cell.key}  ->  {s.expected}\n    {s.shell()}")
         print(f"{len(steps)} requests planned", file=sys.stderr)
+        if skipped:
+            print(f"{skipped} cells are offline only and not planned", file=sys.stderr)
         return 0
     if not a.special and not a.no_preflight:
         if not a.ks_state:
             ap.error("--run needs --ks-state")
         bad = preflight(a.ks_state, cells or set(mx.CELLS))
+        if bad:
+            print("preflight failed:\n  " + "\n  ".join(bad), file=sys.stderr)
+            return 2
+    if a.special and a.special.startswith("k3-") and not a.no_preflight:
+        # a K3-only case means nothing unless the namespace is at level 2 (review F1)
+        bad = preflight("active", {K3_LIVE_CELL})
         if bad:
             print("preflight failed:\n  " + "\n  ".join(bad), file=sys.stderr)
             return 2
@@ -454,6 +555,8 @@ def main(argv: list[str] | None = None) -> int:
     for r in failed:
         print(f"FAIL {r['cell']} v{r['variant']}: {r['note']}")
     print(f"{len(results) - len(failed)}/{len(results)} requests as declared")
+    if skipped:
+        print(f"{skipped} cells are offline only and were not sent")
     return 1 if failed else 0
 
 

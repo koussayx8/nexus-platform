@@ -14,7 +14,8 @@ check is READ-ONLY (get / get --raw / GET / stat); none changes anything:
   * Kill Switch `active`: ConfigMap nexus-killswitch, data.state; anything else, or absent, fails
     (the operator treats a missing ConfigMap as halted, spec §16).
   * the namespace level is the cell's level: label nexus.io/autonomy-level on nexus-dev (a missing
-    label is L0, fail closed, as the policies read it).
+    label is L0, fail closed, as the policies read it). The level read is recorded with every
+    window (`window.namespace_level`: observed and the cell's), pass or fail.
   * Backstage at zero: no pod in the backstage namespace.
   * Locust at its baseline, within +-10 %: the swarm is `running` with the configured number of
     users, and sample-api's request rate in each namespace is within the tolerance of the
@@ -331,16 +332,21 @@ def killswitch_failures(runner, cfg: dict) -> list[str]:
     return [] if state == "active" else [f"killswitch:state={state!r}"]
 
 
-def namespace_level_failures(runner, cfg: dict, level: int) -> list[str]:
-    ns = cfg["namespace"]
-    rc, out = _kubectl(runner, "get", "namespace", ns, "-o", "json")
+def namespace_level(runner, cfg: dict) -> str | None:
+    """The autonomy level the namespace carries now: its label, "0" when the label is missing
+    (fail closed, as the policies read it), None when the namespace cannot be read."""
+    rc, out = _kubectl(runner, "get", "namespace", cfg["namespace"], "-o", "json")
     doc = _json(out) if rc == 0 else None
     if not isinstance(doc, dict):
+        return None
+    return str(((doc.get("metadata") or {}).get("labels") or {}).get(LEVEL_LABEL, "0"))
+
+
+def namespace_level_failures(runner, cfg: dict, level: int) -> list[str]:
+    got = namespace_level(runner, cfg)
+    if got is None:
         return ["namespace_level:no_answer"]
-    got = ((doc.get("metadata") or {}).get("labels") or {}).get(
-        LEVEL_LABEL, "0"
-    )  # missing = L0
-    return [] if str(got) == str(level) else [f"namespace_level:{got}!={level}"]
+    return [] if got == str(level) else [f"namespace_level:{got}!={level}"]
 
 
 def backstage_failures(runner, cfg: dict) -> list[str]:
@@ -523,6 +529,9 @@ def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: 
         "start": _iso(start_w), "end": _iso(end_w), "seconds": end_w - start_w, "polls": polls,
         "alerts": fired_alerts(prom, end_w - start_w),
         "incidents": sorted(new, key=lambda i: i["uid"]),
+        # the level the namespace carried at the end of the window, beside the cell's (review F1):
+        # a run reported at a level is a run that was checked to be at it
+        "namespace_level": {"observed": namespace_level(prom.r, cfg), "cell": str(level)},
     }  # fmt: skip
     # the batch stops only when the cap ran out on an open Incident; other failures discard the run
     stop = "non_terminal_incident" if failures and open_ else None
