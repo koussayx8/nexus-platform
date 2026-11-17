@@ -9,6 +9,7 @@ cell expects before it asks.
   python3 -m experiments.containment.live --plan                    # print the commands, touch nothing
   python3 -m experiments.containment.live --ks-state active --run   # 210 cells, one Kill Switch state
   python3 -m experiments.containment.live --special fail-closed --run
+  python3 -m experiments.containment.live --special k3-unapproved-replicas --run   # K3 alone (level 2)
 
 Each request is made by impersonation (`--as`, `--as-group`) with `--dry-run=server`. A cell passes
 when the observed verdict equals the declared one and, for a denial, the observed layer is one of
@@ -54,6 +55,9 @@ class Step:
     stdin: str | None
     expected: mx.Verdict
     special: str | None = None
+    exact: bool = (
+        False  # a K3-only case: any refusing layer beyond the declared ones fails
+    )
 
     def shell(self) -> str:
         return " ".join(self.argv) + (f" <<< '{self.stdin}'" if self.stdin else "")
@@ -285,7 +289,10 @@ def classify(returncode: int, out: str, err: str) -> Observed:
     return Observed("UNKNOWN", detail=text.strip()[:300])
 
 
-def judge(step_expected: mx.Verdict, got: Observed) -> tuple[bool, str]:
+def judge(
+    step_expected: mx.Verdict, got: Observed, exact: bool = False
+) -> tuple[bool, str]:
+    """`exact`: the refusing layers must be the declared ones and no other (the K3-only cases)."""
     if got.verdict == "UNKNOWN":
         return False, f"unplaceable answer: {got.detail}"
     if got.verdict != step_expected.verdict:
@@ -299,6 +306,8 @@ def judge(step_expected: mx.Verdict, got: Observed) -> tuple[bool, str]:
             f"expected layers {sorted(step_expected.layers)}, observed {sorted(got.layers)}",
         )
     extra = sorted(got.layers - step_expected.layers) if got.verdict == "DENY" else []
+    if exact and extra:
+        return False, f"expected only {sorted(step_expected.layers)}, also {extra}"
     return True, f"extra layers {extra}" if extra else ""
 
 
@@ -419,7 +428,7 @@ def run(steps: list[Step]) -> list[dict]:
             s.stdin = (s.stdin or "").replace("sample-api-pod", pod)
         rc, out, err = kubectl(s.argv, s.stdin)
         got = classify(rc, out, err)
-        ok, note = judge(s.expected, got)
+        ok, note = judge(s.expected, got, s.exact)
         ok0, note0 = judge_scale_to_0(s, got)
         ok, note = ok and ok0, "; ".join(n for n in (note, note0) if n)
         results.append(
@@ -438,10 +447,36 @@ def run(steps: list[Step]) -> list[dict]:
     return results
 
 
+K3_LIVE_CELL = "dev-l2-approved"  # level 2, with the approved fixtures of fixtures.sh
+SPECIAL_IDS = [sid for sid, _, _ in mx.specials()] + [
+    c["id"] for c in mx.k3_isolation() if c.get("live")
+]
+
+
+def k3_step(case: dict) -> Step:
+    """A K3-only case as one dry-run scale of sample-api by the operator; judged exactly."""
+    cell = mx.Cell("operator", case["id"], K3_LIVE_CELL, "active")
+    ns = mx.DATA["cells"][K3_LIVE_CELL]["namespace"]
+    argv = [
+        "kubectl",
+        "scale",
+        f"deployment/{CELL_OBJECTS[ns]}",
+        "-n",
+        ns,
+        f"--replicas={case['replicas']}",
+        "--dry-run=server",
+        *impersonation("operator"),
+    ]
+    return Step(cell, 0, argv, None, case["declared"], case["id"], exact=True)
+
+
 def special_steps(name: str, now: datetime.datetime) -> list[Step]:
     for sid, cell, want in mx.specials():
         if sid == name:
             return build(cell, want, now, special=sid)
+    for case in mx.k3_isolation():
+        if case["id"] == name and case.get("live"):
+            return [k3_step(case)]
     raise KeyError(name)
 
 
@@ -457,11 +492,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cells", help="comma-separated cell ids (default all)")
     ap.add_argument(
         "--special",
-        choices=[
-            "fail-closed",
-            "killswitch-halted-compensation",
-            "killswitch-absent-compensation",
-        ],
+        choices=SPECIAL_IDS,
+        help="a case outside the 630; the k3-* cases need nexus-dev at level 2 and the fixtures",
     )
     ap.add_argument(
         "--plan",
@@ -487,6 +519,12 @@ def main(argv: list[str] | None = None) -> int:
         if not a.ks_state:
             ap.error("--run needs --ks-state")
         bad = preflight(a.ks_state, cells or set(mx.CELLS))
+        if bad:
+            print("preflight failed:\n  " + "\n  ".join(bad), file=sys.stderr)
+            return 2
+    if a.special and a.special.startswith("k3-") and not a.no_preflight:
+        # a K3-only case means nothing unless the namespace is at level 2 (review F1)
+        bad = preflight("active", {K3_LIVE_CELL})
         if bad:
             print("preflight failed:\n  " + "\n  ".join(bad), file=sys.stderr)
             return 2
