@@ -96,7 +96,7 @@ Q1–Q11 were this draft's open questions; the owner answered all of them on #23
 
 | # | Question | Decision |
 |---|---|---|
-| Q1 | Which commit and digests are frozen? | The `v0.6.0` commit and its digests; no rebuild after it. Verified live by the owner on 2026-11-15 at 20:05: the Reasoner `sha256:811c1c93…` serves `corpusHash` `fad76a74…` and floor 3.1739 on `/healthz`. TASKS.md Block 9 is corrected |
+| Q1 | Which commit and digests are frozen? | The `v0.6.0` commit and its digests; no rebuild after it. Verified live by the owner on 2026-11-15 at 20:05: the Reasoner `sha256:811c1c93…` serves `corpusHash` `fad76a74…` and floor 3.1739 on `/healthz`. Amended 2026-11-17 (owner): the Reasoner and the operator are rebuilt before the tag (#242); the frozen digests are the tag's. TASKS.md Block 9 is corrected |
 | Q2 | The attempt cap per cell | 10 |
 | Q3 | The scenario of the 10 `D/R0` runs | S1 for all |
 | Q4 | `L2` with R1 or R3 | R1: no tokens |

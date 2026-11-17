@@ -10,7 +10,7 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Item | Value | Held by |
 |---|---|---|
 | Commit | the commit tagged `v0.6.0`, with its digests; nothing is rebuilt after it (Q1) | `git_commit` in every run row |
-| Images | operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`; the tag's own digests govern) | nothing per run (E8) |
+| Images | the digests at the `v0.6.0` tag. Today: operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`); the operator and the Reasoner are rebuilt before the tag (#242), so these two change | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
 | Score floor, prompt | 3.1739; `prompt/v1` | by hand at each queue start (§4) |
 | Models | R2 `openai/gpt-oss-20b`, R3 `openai/gpt-oss-120b`; effort low, temperature 0, seed 0, one attempt | the arm check; `proposals.model_id` |
@@ -18,7 +18,8 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace | pre-check |
 
 The index hash pins the runbooks, not the query builder; the Reasoner digest pins both (ADR-039). The owner verified
-live on 2026-11-15 at 20:05 that the Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`.
+live on 2026-11-15 at 20:05 that the Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`; the
+rebuilt Reasoner (#242) must serve the same two values, since its runbooks and index did not change.
 
 ## 2. Cells
 

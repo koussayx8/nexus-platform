@@ -919,8 +919,10 @@ secrets, `sudo`.
 - [ ] **Block 8 — 12-01 → 12-02. Note flow, then `/ask`.** Hard stop 12-02. **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
 - [ ] **Block 9 — 12-03 → 12-04. Freeze.** Runbook polish and one retrieval re-check (D23): done in Block 3. The
-  Reasoner image `sha256:811c1c93…` serves index hash `fad76a74…` and floor 3.1739 (owner, verified live 2026-11-15
-  20:05); the freeze is the `v0.6.0` commit and its digests, with no rebuild after it (#234 Q1);
+  Reasoner image IS rebuilt before `v0.6.0`: #242 (the provider User-Agent fix; every live R3 call of 2026-11-17 got
+  403) changes its code, not its index, so the rebuilt image must still serve index hash `fad76a74…` and floor
+  3.1739 on `/healthz` (`sha256:811c1c93…` did, owner, verified live 2026-11-15 20:05). The freeze is the `v0.6.0`
+  commit and its digests, with no rebuild after it (#234 Q1);
   `experiments/ground-truth.yaml`; a one-page run protocol; spec v1.1 (#203, amended for D3, D8, D9 and the L1
   scenario item in Later); the 6-hour idle test (D19). The runner records the operator and Reasoner image digests
   and the Reasoner `scoreFloor` (from `/healthz`) in every run record, and the export's frozen-values check (E8,
