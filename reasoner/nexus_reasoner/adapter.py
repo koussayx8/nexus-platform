@@ -40,11 +40,21 @@ class Completion:
     settings: dict
 
 
+# Sent on every provider call. Without it urllib sends "Python-urllib/3.x", which Groq's edge
+# refuses with HTTP 403 (Cloudflare error 1010, a blocked client signature): every live R3 call of
+# 2026-11-17 failed that way while curl, with the same key, got 200.
+USER_AGENT = "nexus-reasoner/1.0"
+
+
 def _post(url: str, headers: dict, body: dict, timeout: float, opener) -> dict:
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", **headers},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+            **headers,
+        },
         method="POST",
     )
     try:

@@ -152,10 +152,32 @@ class Answer:
     fallback_used: bool
     latency_ms: int | None
     digest: str = ""
+    fallback_reason: str | None = None  # why the Reasoner's answer was not used (Q7)
+    usage: dict | None = (
+        None  # what the one Reasoner call cost (F-B); None: no call was made
+    )
 
     @property
     def request_id(self) -> str | None:
         return self.result.request_id if self.result is not None else None
+
+
+def _failure_reason(result: ReasonerResult) -> str:
+    """The client's reason and the first error: "http_502: model_unavailable: http_403",
+    "timeout", "rejected: <detail>". The Flight Recorder's reject_reason and status.reasoner's
+    fallbackReason carry the same text, so the export can tell provider failures apart (Q7)."""
+    reason = result.reason or "unknown"
+    return reason + (f": {result.errors[0]}" if result.errors else "")
+
+
+def _call_usage(result: ReasonerResult) -> dict | None:
+    """Tokens (when the Reasoner reported them) and the operator's round-trip latency of one
+    call: {"promptTokens", "completionTokens", "totalTokens", "latencyMs"}, each when known;
+    None when nothing is known."""
+    usage = dict(result.meta.get("usage") or {})
+    if result.latency_ms is not None:
+        usage["latencyMs"] = result.latency_ms
+    return usage or None
 
 
 def _level(status: dict) -> int:
@@ -426,6 +448,8 @@ class ActPath:
             "latencyMs": answer.latency_ms,
             "requestId": answer.request_id,
             "fallbackUsed": answer.fallback_used,
+            "fallbackReason": answer.fallback_reason,
+            "usage": answer.usage,
         }
         return {k: v for k, v in status.items() if v is not None}
 
@@ -460,6 +484,7 @@ class ActPath:
                 result,
                 False,
                 result.latency_ms,
+                usage=_call_usage(result),
             )
         if result.reason == "not_redacted":
             return Answer(None, [], "rules", {}, result, False, None)
@@ -468,7 +493,15 @@ class ActPath:
             work.fell_back = True
         doc = rules.propose(work.bundle)  # R1 once; fallbackUsed = true
         return Answer(
-            doc, proposal.validate(doc), "rules", {}, result, True, result.latency_ms
+            doc,
+            proposal.validate(doc),
+            "rules",
+            {},
+            result,
+            True,
+            result.latency_ms,
+            fallback_reason=_failure_reason(result)[:200],
+            usage=_call_usage(result),
         )
 
     async def _store(self, uid: str, work: "Diagnosis", answer: "Answer", now) -> None:
@@ -480,7 +513,7 @@ class ActPath:
         )
         result = answer.result
         if result is not None and not result.ok:
-            reason = result.reason + (f": {result.errors[0]}" if result.errors else "")
+            reason = _failure_reason(result)
             await self.recorder.record_proposal(
                 proposal.hash_of({"requestId": result.request_id, "failure": reason}),
                 uid,
@@ -493,6 +526,7 @@ class ActPath:
                 fallback_used=False,
                 request_id=result.request_id,
                 reject_reason=reason[:500],
+                usage=_call_usage(result),  # the call's cost sits on the call's own row
             )
         meta = answer.meta
         answer.digest = proposal.hash_of(answer.doc)
@@ -511,6 +545,8 @@ class ActPath:
             fallback_used=answer.fallback_used,
             request_id=answer.request_id,
             reject_reason="; ".join(answer.errors)[:500] or None,
+            # the R1 row of a fallback carries none: the call is counted once, on its own row
+            usage=None if answer.fallback_used else answer.usage,
         )
 
     # ---- Proposed ------------------------------------------------------------------------
