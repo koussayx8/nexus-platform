@@ -1,6 +1,7 @@
 # ADR-041: C8 — The Ready Revert PR, Opened from a Machine-Account Fork
 
-**Status:** Proposed (draft for the owner's review; accepted when its pull request merges)
+**Status:** Proposed (accepted when its pull request merges). Owner answers of 2026-11-17 are recorded below;
+the pull request stays draft until Block 6.
 **Date:** 2026-11-16
 **Spec:** §13 (GitOps boundary, spec:1005), §19 (rulesets), §20 (configuration C8, spec:1788), AD-16. C8 moves
 from SHOULD to in scope, recorded for spec v1.1 (#203). `docs/architecture/final-spec.md` does not change with
@@ -32,6 +33,15 @@ Facts this ADR builds on:
 | The operator's NetworkPolicy has no public egress; its comment says the spec's public-443 rule "is for the SHOULD fork-PR feature and is omitted" | VERIFIED: `platform/network/system.yaml:36-38` |
 | Every workflow triggers on `pull_request`; none on `pull_request_target` or `workflow_run` | VERIFIED in the review (section 5); `grep` on `.github/workflows/` here shows `pull_request` only |
 
+## Owner answers, 2026-11-17 (#237)
+
+| Point | Answer |
+|---|---|
+| A1: the newest commit touching the overlay, when the Reasoner names none | Accepted. The pull request body must say the commit was chosen by this rule, not by the Reasoner |
+| A2: the commit must touch **only** the overlay path | Accepted |
+| Fallback (outcome C): push to the fork and post the compare link | Accepted |
+| The token is in the bot, not the operator | **This ADR overrides spec:1005.** Added to the spec v1.1 list as X13 (`docs/plans/pfe-replan.md`) |
+
 ## Decisions
 
 | # | Decision |
@@ -41,7 +51,7 @@ Facts this ADR builds on:
 | 3 | **The token has no write access to `koussayx8/nexus-platform`.** First choice: a fine-grained token, repository access "only the fork", Contents read/write, Pull requests read/write, Metadata read. If that token cannot open the upstream pull request: a classic token with `public_repo` only. **No ruleset change** (D15). |
 | 4 | **The 10-minute token test runs first**, before any Block 6 code (below). Its result picks the token type, or the fallback. |
 | 5 | **Branch map, static, in the bot's ConfigMap in Git:** `nexus-dev` → `experiment/dev-state`, overlay `overlays/dev`; `nexus-prod` → `main`, overlay `overlays/prod`. Any other namespace: no pull request. |
-| 6 | **The commit to revert must be on the tracked branch and touch the target's overlay.** A SHA named by the Reasoner is untrusted and is accepted only if it passes these checks (below). If no check-passing SHA exists, no pull request is opened and the chat says why. |
+| 6 | **The commit to revert must be on the tracked branch and touch only the target's overlay** (A2). A SHA named by the Reasoner is untrusted and is accepted only if it passes these checks (below). When the Reasoner names none, the bot takes the newest commit on the tracked branch that touches the overlay (A1), and the pull request body says so. If no check-passing SHA exists, no pull request is opened and the chat says why. |
 | 7 | **The diff is a mechanical revert computed by the bot** (`git revert`). No Reasoner output is ever in the diff, the commit message, the branch name or the title. |
 | 8 | **The pull request is ready, not draft**, titled and described from a fixed template filled with validated fields (below). |
 | 9 | **NEXUS never merges.** The token cannot merge (no upstream write). The bot calls no merge endpoint, enables no auto-merge, and sets `maintainer_can_modify: false`. The owner merges under CLAUDE.md rule 11. |
@@ -67,7 +77,7 @@ is merged; the test pull request is closed at the end.
 |---|---|
 | A — the fine-grained token opens the pull request | Use it. Smallest reach: one repository |
 | B — only the classic token does | Use it, and state its reach in the thesis: write to the machine account's own public repositories, and pull requests, issues and comments on any public repository. Still no write upstream |
-| C — neither does | **Fallback, no new design:** the bot pushes the branch to the fork and posts the compare link (`…/compare/<base>...<machine>:nexus/revert-<incident>?expand=1`) in the chat; the owner opens the pull request with one tap. C8's metric then starts at the link, not at the pull request |
+| C — neither does | **Fallback (accepted by the owner):** the bot pushes the branch to the fork and posts the compare link (`…/compare/<base>...<machine>:nexus/revert-<incident>?expand=1`) in the chat; the owner opens the pull request with one tap. C8's metric then starts at the link, not at the pull request |
 
 Record the outcome, with the HTTP status of steps 4 and 5, in this ADR before Block 6 continues.
 
@@ -82,7 +92,7 @@ with one chat line naming the check.
 | 1 | The candidate is a full 40-hex SHA | No refs, no ranges, no option-like strings reach `git` |
 | 2 | The bot fetches the tracked branch from the **upstream** (anonymous, read-only, depth 50) and the candidate is an ancestor of its tip | "On the tracked branch": not a fork commit, not another branch, not older than 50 commits |
 | 3 | The candidate has exactly one parent | Reverting a merge needs a chosen parent; refuse instead |
-| 4 | The candidate changes at least one file under the target's overlay path | "Touches the target's overlay" |
+| 4 | The candidate changes at least one file, and **every** file it changes is under the target's overlay path (A2) | A commit that also touches `platform/` or `.github/` would have those changes reverted too |
 | 5 | `git revert --no-edit <sha>` applies without conflict, and the resulting diff is not empty | A commit already reverted, or changed since, is not reverted blindly |
 | 6 | No open pull request from `<machine>:nexus/revert-*` targets that branch, and the working branch does not exist in the fork | Decision 11 |
 
@@ -91,15 +101,16 @@ regression" (spec:1005, spec:1801). Today nothing structured does: R1's `detail`
 schema has no commit field. So:
 
 - If `recommendation.detail` contains exactly one 40-hex token, that is the candidate (untrusted; checks 1–6).
-- Otherwise the candidate is the newest commit on the tracked branch that touches the overlay path, and the
-  pull request body says "selected by the bot, not named by the reasoner".
+- Otherwise (rule A1) the candidate is the newest commit on the tracked branch that touches the overlay path.
+  It then goes through the same checks 1–6; if it fails one, no older commit is tried. The pull request body
+  says the commit was chosen by rule A1, not by the Reasoner.
 
-**Two additions in this draft, for the owner to confirm or strike:**
+**Two rules added by this ADR, accepted by the owner on 2026-11-17:**
 
-| # | Addition | Reason |
+| # | Rule | Reason |
 |---|---|---|
-| A1 | The fallback above (newest overlay commit when the Reasoner names none) | Without it, every R1 run of S3 opens no pull request, and C8 could only be shown with R3 |
-| A2 | Stricter check 4: **every** file the candidate changes is under the overlay path | A commit that also touches `platform/` or `.github/` would have those changes reverted too. The runner's S3 commits touch the overlay only (UNVERIFIED — read the S3 injector in Block 6) |
+| A1 | The newest overlay commit, when the Reasoner names none. The body names the rule | Without it, every R1 run of S3 opens no pull request, and C8 could only be shown with R3 |
+| A2 | Check 4 is strict: **every** file the candidate changes is under the overlay path | See check 4. The runner's S3 commits touch the overlay only (UNVERIFIED, U5 — read the S3 injector in Block 6) |
 
 Git is run with hooks disabled, no submodules, in an empty scratch directory. The token is passed by an
 askpass helper or an HTTP header, never in a URL, in `argv` or in a log line. The revert commit's message is
@@ -123,7 +134,9 @@ Proposal:        <sha256:…>
 
 Reverts:         <full SHA>
 Subject:         `<original subject, sanitised, at most 72 characters>`
-Selected by:     <the reasoner | the bot (newest commit touching <overlay>)>
+Chosen by:       <one of the two lines below, verbatim>
+                 the Reasoner named this commit; NEXUS checked it
+                 rule A1 (ADR-041): the newest commit touching <overlay>. The Reasoner did NOT name it
 Tracked branch:  <branch>          (Argo CD application <name>)
 
 The diff is a mechanical `git revert` of that one commit. Review the diff, not this text.
@@ -186,16 +199,17 @@ required check; report those minutes with the human time, not as NEXUS latency.
 
 ## Contradictions with the spec and the sources
 
-For the spec v1.1 draft (#203). Reported, not adapted silently.
+Reported, not adapted silently. The rows that change the spec are in the spec v1.1 list as X13
+(`docs/plans/pfe-replan.md`). Rows are numbered P1–P6 here, to keep them apart from that list's X numbers.
 
 | # | Source | Says | This ADR | Why |
 |---|---|---|---|---|
-| X1 | Spec:1005 | The fork token "is mounted into the operator as a file" | Mounted in the bot pod only | Review section 5: in the operator it gives a compromised operator a direct outside channel. The operator's NetworkPolicy already has no public egress (`system.yaml:36-38`) |
-| X2 | Spec:1005, spec:1801 | The escalation names the commit that introduced the regression | Nothing structured names it today (`rules.py:64-65`); addition A1 covers the gap | A structured `recommendation.commit` field would be a schema and prompt change before the freeze; not proposed here |
-| X3 | Spec §20 | C8 is SHOULD | In scope (D8) | Owner decision |
-| X4 | Plan 3.3 | Label `nexus-revert` | No label; found by author and head prefix | The machine account cannot label upstream |
-| X5 | Plan 3.3 | Preferred fix: a "require a pull request" ruleset with a bypass | No ruleset change; fork | D15 |
-| X6 | Review section 5 | Title and body "carry Reasoner text: treat as untrusted" | They carry none | Simpler than sanitising it |
+| P1 | Spec:1005 | The fork token "is mounted into the operator as a file" | Mounted in the bot pod only. **Overrides the spec** (owner, 2026-11-17); spec v1.1 list X13 | Review section 5: in the operator it gives a compromised operator a direct outside channel. The operator's NetworkPolicy already has no public egress (`system.yaml:36-38`) |
+| P2 | Spec:1005, spec:1801 | The escalation names the commit that introduced the regression | Nothing structured names it today (`rules.py:64-65`); addition A1 covers the gap | A structured `recommendation.commit` field would be a schema and prompt change before the freeze; not proposed here |
+| P3 | Spec §20 | C8 is SHOULD | In scope (D8) | Owner decision |
+| P4 | Plan 3.3 | Label `nexus-revert` | No label; found by author and head prefix | The machine account cannot label upstream |
+| P5 | Plan 3.3 | Preferred fix: a "require a pull request" ruleset with a bypass | No ruleset change; fork | D15 |
+| P6 | Review section 5 | Title and body "carry Reasoner text: treat as untrusted" | They carry none | Simpler than sanitising it |
 
 ## Not verified
 
@@ -205,7 +219,7 @@ For the spec v1.1 draft (#203). Reported, not adapted silently.
 | U2 | The upstream setting "require approval for fork pull request workflows" and its level | Owner: repository Settings → Actions → General; or `gh api repos/koussayx8/nexus-platform/actions/permissions/fork-pr-contributor-approval` |
 | U3 | Whether the ruleset on `experiment/dev-state` blocks a plain push (plan 3.3). No longer decisive: the token has no upstream write | `gh api repos/koussayx8/nexus-platform/rulesets` |
 | U4 | The exact paths of the fault class, confidence, arm and model in `status` (`act.py:395` shows `bundleHash`; `act.py:558-564` the recommendation) | Read `act.py` and one `Escalated` Incident from a Block 5 trial run |
-| U5 | The S3 injector's commits touch only `overlays/dev` (addition A2) | Read `experiments/` S3 injection code in Block 6 |
+| U5 | The S3 injector's commits touch only `overlays/dev` (rule A2) | Read `experiments/` S3 injection code in Block 6 |
 | U6 | ArgoCD pickup time after a merge into `experiment/dev-state` | Measured in the Block 6 end-to-end run |
 | U7 | The required check on `main` runs on a fork pull request without secrets and can pass | The first pull request against `main`, or cut the mapping |
 
@@ -220,9 +234,9 @@ adds the rest (ADR-040). The package and image step (2 hours) is ADR-040's step 
 | 0. Token test | This ADR: the outcome and the HTTP statuses | The test itself (owner) | 0.2 |
 | 1. Package, image, pod | `bot/` skeleton, `bot/Dockerfile` (with `git`), `.github/workflows/bot.yml`, `bot/k8s/` (namespace, ServiceAccount, Deployment, ConfigMap with the branch map), `platform/rbac/nexus-bot.yaml` (the read Role on Incidents only), `platform/network/bot.yaml`, the Argo CD Application, the AppProject destination | `kustomize build`; CI green | 2 (from Block 7) |
 | 2. Trigger | `bot/nexus_bot/watch.py`: `Escalated` + `escalate` + `git_revert` + namespace in the map | Other phases, kinds and namespaces trigger nothing; one attempt per Incident | 1 |
-| 3. Commit validation | `bot/nexus_bot/revert.py` | A fixture repository built in the test: SHA not 40 hex; SHA on another branch; older than depth; merge commit; outside the overlay; (A2) overlay plus another path; already reverted; conflict. Each → no push, the named check | 2 |
+| 3. Commit validation | `bot/nexus_bot/revert.py` | A fixture repository built in the test: SHA not 40 hex; SHA on another branch; older than depth; merge commit; outside the overlay; overlay plus another path (A2); no SHA named → the newest overlay commit (A1); already reverted; conflict. Each → no push, the named check | 2 |
 | 4. Revert and push | `bot/nexus_bot/revert.py`, `bot/nexus_bot/gitcmd.py` (hooks off, askpass) | Fixture "fork" remote: only `nexus/revert-<incident>` is pushed; the diff equals the inverse of the candidate's; the token is in no `argv`, URL or log line | 2 |
-| 5. Pull request | `bot/nexus_bot/github.py`: create, find by author and head prefix, get | Fake API: body equals the template for a fixed Incident; no Reasoner free text; `maintainer_can_modify` false; `draft` false; no merge or auto-merge call exists in the module (a test greps for it); second Incident on the same branch → no second pull request | 2 |
+| 5. Pull request | `bot/nexus_bot/github.py`: create, find by author and head prefix, get | Fake API: body equals the template for a fixed Incident; the "Chosen by" line is the A1 line when the Reasoner named no SHA and the Reasoner line otherwise; no Reasoner free text; `maintainer_can_modify` false; `draft` false; no merge or auto-merge call exists in the module (a test greps for it); second Incident on the same branch → no second pull request | 2 |
 | 6. Merge recognition | `bot/nexus_bot/prwatch.py` | Fake API: merged, closed, timeout, restart recovery | 1 |
 | 7. Secret script | `scripts/nexus-bot-secrets.sh` (GitHub token; the Telegram token is added in Block 7) | Stub `kubectl`; the value never in output | 0.5 |
 | 8. Export | `scripts/export-results.py`: C8 times from the pull request | Fixture JSON | 0.5 |

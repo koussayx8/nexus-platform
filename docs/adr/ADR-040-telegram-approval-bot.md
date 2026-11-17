@@ -1,6 +1,7 @@
 # ADR-040: The Telegram Approval Bot
 
-**Status:** Proposed (draft for the owner's review; accepted when its pull request merges)
+**Status:** Proposed (accepted when its pull request merges). Owner answers of 2026-11-17 are recorded below;
+the pull request stays draft until Block 6.
 **Date:** 2026-11-16
 **Spec:** §10 (trust model), §11 (RBAC, K5, K6), §16A (`nexusctl`, approval), §18 (network), §24 (threats).
 A second approval interface beside `nexusctl`, recorded for spec v1.1 (#203). `docs/architecture/final-spec.md`
@@ -33,6 +34,15 @@ What the approval path already enforces, outside any client (VERIFIED):
 The bot is therefore a **client**, like `nexusctl`. It authorises nothing. A bot that sends a wrong approval is
 refused by K5; a bot that sends a right one adds no power that `nexusctl --as` does not already have.
 
+## Owner answers, 2026-11-17 (#237)
+
+| Point | Answer |
+|---|---|
+| Namespace `nexus-bot` (decision 1, B1) | Accepted |
+| Reads under the bot's own read-only Roles; impersonation only for the three writes (decision 5, B2) | Accepted: least privilege and a clearer audit trail than the plan |
+| `/ask` calls Groq directly from the bot (decision 10) | Accepted on two conditions: a **separate Groq API key in its own Secret**, so runs and `/ask` never share a key or its limits; and `/ask` **disabled on run days**. It stays cut-first |
+| The CRD needs `spec.source.note` before the Note flow (B4) | Recorded: Block 8, cut-first with the Note flow |
+
 ## Decisions
 
 | # | Decision |
@@ -46,7 +56,7 @@ refused by K5; a bot that sends a right one adds no power that `nexusctl --as` d
 | 7 | **Button payload:** action letter + short Incident key + 32 hex of the proposal hash (format below, 51 bytes of Telegram's 64). **Before writing `spec.approval`, the bot re-reads the live Incident** and requires: phase `AwaitingApproval`, no decision yet, and the stored hash starting with those 32 hex. It then writes the **full** hash, with the `resourceVersion` it just read. |
 | 8 | **Read-only commands:** `/status`, `/pods <ns>`, `/incident <name>` (D21). Fixed grammar, fixed namespaces. They write nothing. |
 | 9 | **Note flow:** reject the open Incident, then create a new human Incident with `spec.source.note` (D9; Block 8). The note is an order to the Reasoner, never to the cluster. |
-| 10 | **`/ask`:** one fixed read-only snapshot, **one** LLM call, plain-text answer marked "advice only". The bot never parses or acts on the answer. No tool loop (CLAUDE.md rule 8). Not on run days (D22). |
+| 10 | **`/ask`:** one fixed read-only snapshot, **one** LLM call, plain-text answer marked "advice only". The bot never parses or acts on the answer. No tool loop (CLAUDE.md rule 8). The call goes to Groq directly from the bot, with a **separate API key in its own Secret**; the Reasoner's key is never mounted in the bot. **Disabled on run days** (D22). Cut first. |
 | 11 | **Plain text only.** No `parse_mode`, so Telegram interprets no Markdown or HTML; link previews disabled. Every untrusted string goes through `nexusctl`'s `sanitize` (`nexusctl/src/nexusctl/render/sanitize.py`) and `explain_text` (`render/views.py:59`), not a second renderer. Messages are cut at 4096 characters. |
 | 12 | **Plain alerts go through Alertmanager's `telegram_configs`**, not through bot code. Sending with the same token does not conflict with the bot's long poll. |
 | 13 | **The thesis reports both identities:** the Incident's `approvedBy` (`koussay-approver`) and the audit log's impersonator (`system:serviceaccount:nexus-bot:nexus-bot`). The bot also writes `reason: "telegram:<from.id>"` into `spec.approval`, so the Incident records which chat account pressed. |
@@ -286,8 +296,9 @@ Incident stays `Rejected` and the bot says so; the owner sends the note again or
 | Snapshot | Fixed: the output of `/status` and of `/pods` for both namespaces, and the Explain text of open Incidents. Collected once, before the call. The model cannot ask for more |
 | Call | One request, no tools, no retry loop. The question is at most 300 characters |
 | Answer | Sanitised, plain text, first line `ADVICE ONLY — NEXUS will not act on this`. No buttons under it. Never parsed |
-| Path | The bot calls the model provider directly with its own key; the Reasoner's ingress, prompt and version are untouched, because they are part of the frozen measured system |
-| When | Not on run days (provider token budget, D22). A flag in the bot's ConfigMap turns it off |
+| Path | The bot calls Groq directly. The Reasoner's ingress, prompt and version are untouched, because they are part of the frozen measured system |
+| Key | A separate Groq API key, in its own Secret `nexus-bot/nexus-bot-ask-groq`, mounted as a file in the bot only. The Reasoner's key stays in `nexus-reasoner`. Runs and `/ask` never share a key or its limits. Whether Groq counts limits per key or per account is UNVERIFIED (U8) |
+| When | **Disabled on run days.** `ask.enabled` in the bot's ConfigMap, in Git, default `false`; the run protocol (Block 9) checks that it is `false` before the first run of a day. When it is off, `/ask` answers one fixed line and makes no call |
 
 ## Threat model
 
@@ -331,15 +342,16 @@ owner reads before deciding.
 
 ## Contradictions with the spec and the sources
 
-For the spec v1.1 draft (#203). Reported, not adapted silently.
+Reported, not adapted silently. The rows that change the spec are in the spec v1.1 list as X14
+(`docs/plans/pfe-replan.md`). Rows are numbered B1–B5 here, to keep them apart from that list's X numbers.
 
 | # | Source | Says | This ADR | Why |
 |---|---|---|---|---|
-| X1 | Spec §3; `platform/argocd/projects/*.yaml` destinations | Nine namespaces | A tenth, `nexus-bot` | Decision 6: the credential must not be in the operator's namespace |
-| X2 | Plan 3.1 | The bot's ClusterRole is impersonate "and nothing else"; reads are made as the approver | Reads under the bot's own read-only Roles | `/pods` needs pod reads the approvers do not have; and the audit trail then separates decisions from polling |
-| X3 | Review section 5 | The bot "patches with that hash and never re-reads at click" | It re-reads and requires the 32-hex prefix | A 64-hex hash does not fit in 64 bytes with an Incident key. The prefix check gives the same guarantee: the write succeeds only for the proposal shown |
-| X4 | Plan 3.1 | "No CRD change" | True for approval. The **Note flow needs one**: `spec.source` has no `note` property (`incidents.nexus.io.yaml:65-72`), so the API server would prune it | Spec:1421 defines `spec.source.note`; the CRD never got it. Block 8 adds `note: {type: string, maxLength: 500}`; C1 already makes it immutable |
-| X5 | Review section 5 | A "Role" limited to impersonate | A ClusterRole | `users` and `groups` are cluster-scoped virtual resources |
+| B1 | Spec §3; `platform/argocd/projects/*.yaml` destinations | Nine namespaces | A tenth, `nexus-bot` | Decision 6: the credential must not be in the operator's namespace |
+| B2 | Plan 3.1 | The bot's ClusterRole is impersonate "and nothing else"; reads are made as the approver | Reads under the bot's own read-only Roles | `/pods` needs pod reads the approvers do not have; and the audit trail then separates decisions from polling |
+| B3 | Review section 5 | The bot "patches with that hash and never re-reads at click" | It re-reads and requires the 32-hex prefix | A 64-hex hash does not fit in 64 bytes with an Incident key. The prefix check gives the same guarantee: the write succeeds only for the proposal shown |
+| B4 | Plan 3.1 | "No CRD change" | True for approval. The **Note flow needs one**: `spec.source` has no `note` property (`incidents.nexus.io.yaml:65-72`), so the API server would prune it | Spec:1421 defines `spec.source.note`; the CRD never got it. Block 8 adds `note: {type: string, maxLength: 500}` **before** any Note-flow code; C1 already makes it immutable. Cut-first with the Note flow: if Block 8 is cut, the CRD is not changed |
+| B5 | Review section 5 | A "Role" limited to impersonate | A ClusterRole | `users` and `groups` are cluster-scoped virtual resources |
 
 ## Not verified
 
@@ -351,6 +363,7 @@ For the spec v1.1 draft (#203). Reported, not adapted silently.
 | U4 | `evidence.py:161` sets `"note": None`; whether the prompt renders `incident.note` | Read `evidence.py` and `reasoner/nexus_reasoner/prompt.py` in Block 8. A prompt change must land before the Block 9 freeze |
 | U5 | The audit policy (ADR-036) records Incident patches with `impersonatedUser` | After the first live approve: `scripts/audit-join.py` output for that Incident |
 | U6 | Alertmanager can reach `api.telegram.org` (no NetworkPolicy file exists for `monitoring` under `platform/network/`) | Block 7: one test alert |
+| U8 | Groq applies rate limits per API key, not per account or organisation. If they are per account, a separate key does not separate the limits, and only "disabled on run days" protects the runs | Groq's rate-limit documentation and the response headers of one call per key, in Block 8 |
 | U7 | Telegram's limits as used here: 64-byte `callback_data`, 4096-character messages, one `getUpdates` consumer per token | The Bot API reference, read at build time; the unit tests pin the first two |
 
 ## Build checklist — Block 7 (bot core), 18 hours
@@ -373,8 +386,9 @@ impersonator; a press from a second Telegram account is ignored; a press on a st
 **Owner-only:** BotFather registration; the bot token; the Telegram user ID; two-step verification on the
 Telegram account; running the Secret script.
 
-**Block 8 additions (11–14 hours for the Note flow, then `/ask`):** the CRD `note` property (X4);
-`nexusctl request`; the operator path for human Incidents (U3); `bot/nexus_bot/note.py` and `ask.py`; tests:
+**Block 8 additions (11–14 hours for the Note flow, then `/ask`):** the CRD `note` property (B4);
+`nexusctl request`; the operator path for human Incidents (U3); `bot/nexus_bot/note.py` and `ask.py`; the Secret `nexus-bot-ask-groq` added to `scripts/nexus-bot-secrets.sh`
+(owner-only: the second Groq key); tests: `ask.enabled: false` makes no HTTP call,
 reply from another sender ignored, reply after 5 minutes ignored, reject-then-create order, create failure
 reported, `/ask` makes exactly one HTTP call and its answer never reaches `decide.py`.
 
