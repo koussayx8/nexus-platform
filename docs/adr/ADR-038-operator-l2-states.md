@@ -21,3 +21,6 @@ This change adds the operator's advisory side. Nothing here ran against a cluste
 ## Consequences
 - At L2 an Incident now waits instead of ending `Escalated / autonomy_denied`. `nexus-dev` is not L2 before the M3 exit demo.
 - Live checks pending: K3 admitting the post-approval dry-run, a `SubjectAccessReview` in `nexus-prod`, the L2 run of the M3 exit.
+
+## Addendum (2026-11-17): compensation at L2 (boundary review F7)
+At L2, K3 refuses the compensation of an approved scale: the approval pins the approved count and the scale-back names the previous one (`kyverno test platform/policies/tests/k3/operator`, case `scale-back-to-previous`: `fail`). A scale whose verification fails at L2 therefore ends `Escalated / compensation_blocked` with the changed count in place. **Proposed, for the owner to confirm at the Block 3 gate: intended.** Compensation is "a gated request like any other" (spec, failure-handling table), an approval covers one action and not its undo, and the L2 outcome counts report `compensation_blocked` as its own class. Offline only; not exercised live.

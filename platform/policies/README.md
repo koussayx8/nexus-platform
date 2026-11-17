@@ -30,6 +30,8 @@ filters over the mocked Incident list are real. Edit a policy and its cases toge
 - A missing `nexus-killswitch` ConfigMap: tested as state `missing`; the API 404 path is live only.
 - K5 `approvedBy`/`approvedAt` values: the test checks that the rule applies, not the timestamp.
 - K5 and K6 together with CRD rules C1–C4 (envtest or the section 20 live matrix).
+- Compensation at L2: K3 refuses the scale back to the previous count (`tests/k3/operator`,
+  `scale-back-to-previous`; ADR-038 addendum).
 - Eviction matching is by Deployment-name prefix (`<name>-`), as §11 says; a Deployment named
   `sample` would also cover pods of `sample-api`. Both namespaces hold one Deployment today.
 
