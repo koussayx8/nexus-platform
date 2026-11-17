@@ -19,10 +19,16 @@ identities:
     username: system:serviceaccount:nexus-system:nexus-operator
     groups: [system:serviceaccounts, system:authenticated]
     role: responder
+  # Offline only (boundary review F14, 2026-11-15): the cluster has no nexus-baseline ServiceAccount
+  # and no binding that names it, so RBAC would refuse every baseline request and the ADMIT cells
+  # could not be observed. Its 210 cells stay declared and are replayed through the Kyverno CLI;
+  # live.py does not send them. Remove `live: false` only when the ServiceAccount and its binding
+  # are deployed through Git.
   baseline:
     username: system:serviceaccount:nexus-system:nexus-baseline
     groups: [system:serviceaccounts, system:authenticated]
     role: responder
+    live: false
   approver:
     username: approver-1
     groups: [nexus-approvers, system:authenticated]
@@ -158,3 +164,46 @@ special:
     killswitch: absent
     verdict: DENY
     layers: [K4]
+
+# K3 alone (boundary review, must-fix 3). In the 630, every K3 DENY at dev-l2-approved is also a K2
+# DENY, and dev-l2-none has no approval at all, so no cell shows K3 refusing a request that every
+# other layer admits. These cases do: the operator, nexus-dev at level 2, Kill Switch active, an
+# in-bounds scale from 2 (K1, K2 and K4 admit), and one Incident for the namespace whose approval
+# is wrong in exactly one way. The control is the same request with nothing wrong. Outside the 630.
+# Replayed through the Kyverno CLI (kyverno_replay.replay_k3_isolation); `live: true` marks the
+# cases the fixtures of fixtures.sh already allow on a cluster (live.py --special <id>).
+k3_isolation:
+  - id: k3-control-approved
+    text: Control - the approval pins this Deployment at 3 and has not expired; the scale to 3 is admitted.
+    replicas: 3
+    incident: {target: same, decision: approved, replicas: 3, expiry: future}
+    verdict: ADMIT
+    live: true
+  - id: k3-unapproved-replicas
+    text: The approval pins 3; a scale to 4 is in bounds (2 to 4) and is refused by K3 alone.
+    replicas: 4
+    incident: {target: same, decision: approved, replicas: 3, expiry: future}
+    verdict: DENY
+    layers: [K3]
+    live: true
+  - id: k3-expired
+    text: The approval pins 3 and expired; the scale to 3 is refused by K3 alone.
+    replicas: 3
+    incident: {target: same, decision: approved, replicas: 3, expiry: past}
+    verdict: DENY
+    layers: [K3]
+    live: false   # K5 refuses a past expiresAt at write time: a live case has to wait out a real expiry
+  - id: k3-rejected
+    text: The decision is rejected; the scale to 3 is refused by K3 alone.
+    replicas: 3
+    incident: {target: same, decision: rejected, replicas: 3, expiry: future}
+    verdict: DENY
+    layers: [K3]
+    live: false   # no rejected fixture in fixtures.sh
+  - id: k3-second-deployment
+    text: The approval pins another Deployment of the namespace at 3; this Deployment's scale to 3 is refused by K3 alone.
+    replicas: 3
+    incident: {target: other, decision: approved, replicas: 3, expiry: future}
+    verdict: DENY
+    layers: [K3]
+    live: false   # nexus-dev holds one Deployment (F2); a second one is a Git change

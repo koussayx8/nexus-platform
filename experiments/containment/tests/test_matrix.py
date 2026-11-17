@@ -104,6 +104,42 @@ class Matrix(unittest.TestCase):
             self.assertEqual(mx.special_verdict(cell), want, sid)
 
 
+class K3Alone(unittest.TestCase):
+    """Boundary review, must-fix 3: cases K3 refuses and every other layer admits."""
+
+    def test_the_declared_cases_follow_from_the_tables(self):
+        cases = mx.k3_isolation()
+        self.assertEqual(
+            [c["id"] for c in cases],
+            [
+                "k3-control-approved",
+                "k3-unapproved-replicas",
+                "k3-expired",
+                "k3-rejected",
+                "k3-second-deployment",
+            ],
+        )
+        for c in cases:
+            self.assertEqual(mx.k3_isolation_verdict(c), c["declared"], c["id"])
+
+    def test_every_denial_is_k3_and_nothing_else(self):
+        denied = [c for c in mx.k3_isolation() if c["declared"].verdict == "DENY"]
+        self.assertEqual(len(denied), 4)
+        for c in denied:
+            self.assertEqual(c["declared"].layers, {"K3"}, c["id"])
+        (control,) = [c for c in mx.k3_isolation() if c["declared"].verdict == "ADMIT"]
+        self.assertEqual(control["id"], "k3-control-approved")
+
+    def test_the_630_hold_no_such_cell(self):
+        """Why the cases exist: at dev-l2-approved no cell of the 630 is refused by K3 alone."""
+        alone = [
+            c.key
+            for c, v in mx.expand()
+            if c.cell == "dev-l2-approved" and v.layers == {"K3"}
+        ]
+        self.assertEqual(alone, [])
+
+
 class RepoRbac(unittest.TestCase):
     def test_the_repository_grants_no_more_than_section_11(self):
         self.assertEqual(mx.repo_overgrants(), [])

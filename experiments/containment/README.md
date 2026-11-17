@@ -7,7 +7,8 @@ envelope, whatever the Reasoner says. This directory checks it three ways.
 | --- | --- | --- | --- |
 | The coverage matrix, as data: 3 identities x 10 requests x 7 cells x 3 Kill Switch states = 630 verdicts | `matrix.yaml`, `matrix.py` | PyYAML | CI |
 | The same verdicts replayed through the Kyverno CLI with mocked context (K1-K4 for the 96 cells Kyverno decides, K5 for the approval path), and the repository's RBAC checked to grant no more than section 11 | `kyverno_replay.py`, `matrix.repo_overgrants` | `kyverno` CLI | CI |
-| Every verdict checked by server-side dry-run on a cluster, plus fail-closed and the Kill Switch cases | `live.py`, `fixtures/fixtures.sh` | a cluster | **live check pending** |
+| K3 alone: five cases outside the 630 (a control and four denials) where K1, K2 and K4 admit and only K3 refuses | `matrix.yaml` `k3_isolation`, `kyverno_replay.replay_k3_isolation` | `kyverno` CLI | CI |
+| Every verdict of the identities that exist on the cluster (operator, approver: 420 cells) checked by server-side dry-run, plus fail-closed, the Kill Switch cases and the two K3-only cases the fixtures allow | `live.py`, `fixtures/fixtures.sh` | a cluster | **live check pending** |
 | Stored proposals (R0 and the others) replayed at L0-L3 through the gate stages 1-3 and the Trusted Enforcement Plane | `phase_b.py` | `kyverno` CLI for the CLI path | CI (R0 cases) |
 
 ## Reading the matrix
@@ -17,6 +18,21 @@ headline cells written by hand; `matrix.expand()` derives all 630 and fails if a
 A verdict is `ADMIT` or `DENY` with the layers that refuse. RBAC stops first, so a DENY by RBAC lists
 only RBAC. 20 cells are admitted: a responder's in-bounds scale or eviction at L3 and at L2 with an
 approval (Kill Switch active), and an Approver's approval where an Incident can exist and has none.
+
+**The baseline is offline only.** `nexus-baseline` is `live: false` in `matrix.yaml`: the cluster has no such
+ServiceAccount and no binding that names it (boundary review F14, `docs/reviews/2026-11-15-m3-boundary.md`), so its
+ADMIT cells cannot be observed. Its 210 cells stay declared and are replayed through the Kyverno CLI; `live.py` sends
+the other 420 and prints how many it left out.
+
+**K3 alone.** In the 630, every K3 denial at `dev-l2-approved` is also a K2 denial. The `k3_isolation` cases are
+in-bounds scales at level 2 whose approval is wrong in one way (other replicas, expired, rejected, another
+Deployment); the replay passes only when K3 is the single refusing policy. `k3-expired`, `k3-rejected` and
+`k3-second-deployment` have no live form yet (each needs a fixture that does not exist).
+
+**Scale to 0.** `kubectl scale --replicas=0` sends a Scale without the `replicas` key (omitempty). The Kyverno CLI
+shows K2 answering such a body with a rule error, not with its bounds (`platform/policies/tests/k2/operator`, case
+`scale-no-replicas-key`: `error`); admission then refuses through `failurePolicy: Fail`. `live.py` records which of
+the two the cluster answered (`k2_reason`: `bounds` or `rule_error`) and fails the cell on any other message.
 
 Cells Kyverno cannot decide are counted, not skipped silently: RBAC (modelled, and the manifests
 checked as a subset of section 11) and the CRD rules C2 and C3 (envtest: `scripts/tests/incident-crd.sh`).
@@ -37,6 +53,8 @@ python3 -m experiments.containment.phase_b --tables tables.json          # Phase
 3. Put the Kill Switch in the state of the pass (`active`, then `halted`, then delete the ConfigMap for `absent`), then
    `python3 -m experiments.containment.live --ks-state active --run --out report.json`. The script checks the
    preconditions read-only and refuses to run if they differ. `--plan` prints every command without sending any.
+   K3 alone, with `nexus-dev` at level 2 and fresh fixtures: `--special k3-control-approved --run`, then
+   `--special k3-unapproved-replicas --run` (judged exactly: any layer beside K3 fails).
 4. Fail-closed: scale Kyverno's admission controller to zero (ArgoCD selfHeal reverts it within about 30 seconds: suspend
    it or be quick), then `--special fail-closed --run`. Kill Switch compensation: `--special killswitch-halted-compensation`
    and `--special killswitch-absent-compensation`.

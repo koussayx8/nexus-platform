@@ -96,7 +96,9 @@ for tfile in sorted(tests_dir.rglob("kyverno-test.yaml")):
         for rname in res["resources"]:
             if (res["kind"], rname) not in resources:
                 err(f"{tfile}: result for missing resource {res['kind']}/{rname}")
-        if res["result"] not in ("pass", "fail", "skip"):
+        # `error`: the rule could not be evaluated; admission refuses it only through
+        # failurePolicy Fail (checked above for every policy). Used for K2's absent `replicas` key.
+        if res["result"] not in ("pass", "fail", "skip", "error"):
             err(f"{tfile}: bad result {res['result']}")
         if "patchedResources" in res and not (tfile.parent / res["patchedResources"]).exists():
             err(f"{tfile}: patchedResources {res['patchedResources']} not found")

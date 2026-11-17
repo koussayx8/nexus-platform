@@ -828,6 +828,9 @@ class LiveRun:
             cell.get("s3_patch"),
             cell.get("users"),
             cell.get("spawn_rate"),
+            level=int(
+                cell["level"]
+            ),  # read again at the injection: the cell's level or no fault
         )
         if cell["scenario"].upper() in LOAD_SCENARIOS:
             self.load_changed = True  # from here on Locust is not at the baseline
