@@ -615,7 +615,14 @@ v_network_policies() {
 # through the API server's service proxy answers status=ready with corpusHash equal to
 # NEXUS_VERIFY_REASONER_INDEX_HASH (a bare 64-hex digest; an optional sha256: prefix is ignored on
 # both sides). Same probe as experiments/harness/precheck.py.
+#
+# The /healthz read does not go through k(): k() adds --request-timeout, which kubectl sends as
+# `?timeout=20s`; the service proxy passes the query string to the pod, and the Reasoner matches
+# its path exactly (reasoner/nexus_reasoner/service.py do_GET), so it answers 404 (Block 3,
+# 2026-11-17). The Reasoner image is frozen, so the probe changes: a fixed `get --raw`, bounded by
+# `timeout 45` instead, like the M7 probe.
 # ---------------------------------------------------------------------------
+REASONER_HEALTHZ=/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz
 v_reasoner() {
   local jf rc=0 want ready doc status got expected
   jf=$(mktemp)
@@ -626,7 +633,7 @@ v_reasoner() {
   rm -f "$jf"
   echo "nexus-reasoner/nexus-reasoner: readyReplicas=$ready replicas=$want"
   [[ $want =~ ^[0-9]+$ && $ready =~ ^[0-9]+$ ]] && (( want > 0 && ready == want )) || rc=1
-  if ! doc=$(k get --raw "/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz" 2>/dev/null); then
+  if ! doc=$(timeout 45 kubectl --context default get --raw "$REASONER_HEALTHZ" 2>/dev/null); then
     echo "/healthz: no answer through the service proxy"; return 1
   fi
   status=$(jq -r '.status // "-"' <<<"$doc" 2>/dev/null) || { echo "/healthz: unparsable"; return 1; }
