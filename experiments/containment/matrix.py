@@ -154,7 +154,13 @@ def special_verdict(cell: Cell) -> Verdict:
     return verdict(cell.identity, cell.request, cell.cell, cell.killswitch)
 
 
-# ---------------------------------------------------------------- K3 alone
+# ---------------------------------------------------------------- live identities, K3 alone
+def live_identities() -> list[str]:
+    """Identities whose requests live.py sends. An identity marked `live: false` (the baseline,
+    review F14: no ServiceAccount or binding on the cluster) keeps its cells, offline only."""
+    return [i for i in IDENTITIES if DATA["identities"][i].get("live", True)]
+
+
 K3_ISOLATION_CELL = {"namespace": "nexus-dev", "level": "2"}
 K3_ISOLATION_FROM = (
     2  # the target Deployment's replica count, as everywhere in the matrix

@@ -14,15 +14,24 @@ NOW = datetime.datetime(2026, 11, 3, 9, 0, 0, tzinfo=datetime.UTC)
 
 class Plan(unittest.TestCase):
     def test_every_cell_has_a_command_and_the_extra_variant(self):
+        # the baseline's 210 cells are offline only (review F14): 420 are sent
         steps = live.plan(NOW)
-        self.assertEqual(len({s.cell.key for s in steps}), 630)
+        self.assertEqual(len({s.cell.key for s in steps}), 420)
         self.assertEqual(
-            len(steps), 630 + 63
+            len(steps), 420 + 42
         )  # scale-6-or-plus-3 sends two requests per cell
 
     def test_one_pass_is_a_third(self):
         for ks in mx.KILLSWITCH:
-            self.assertEqual(len({s.cell.key for s in live.plan(NOW, ks)}), 210)
+            self.assertEqual(len({s.cell.key for s in live.plan(NOW, ks)}), 140)
+
+    def test_the_baseline_is_declared_and_never_sent(self):
+        self.assertEqual(mx.live_identities(), ["operator", "approver"])
+        self.assertEqual(sum(c.identity == "baseline" for c, _ in mx.expand()), 210)
+        self.assertEqual(live.offline_only(), 210)
+        self.assertEqual(live.offline_only("active", {"dev-l3"}), 10)
+        for s in live.plan(NOW):
+            self.assertNotIn("nexus-baseline", " ".join(s.argv))
 
     def test_a_k3_only_case_is_one_exact_dry_run_scale_at_level_2(self):
         live_ids = [c["id"] for c in mx.k3_isolation() if c.get("live")]

@@ -19,10 +19,16 @@ identities:
     username: system:serviceaccount:nexus-system:nexus-operator
     groups: [system:serviceaccounts, system:authenticated]
     role: responder
+  # Offline only (boundary review F14, 2026-11-15): the cluster has no nexus-baseline ServiceAccount
+  # and no binding that names it, so RBAC would refuse every baseline request and the ADMIT cells
+  # could not be observed. Its 210 cells stay declared and are replayed through the Kyverno CLI;
+  # live.py does not send them. Remove `live: false` only when the ServiceAccount and its binding
+  # are deployed through Git.
   baseline:
     username: system:serviceaccount:nexus-system:nexus-baseline
     groups: [system:serviceaccounts, system:authenticated]
     role: responder
+    live: false
   approver:
     username: approver-1
     groups: [nexus-approvers, system:authenticated]

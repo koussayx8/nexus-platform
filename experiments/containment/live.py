@@ -7,9 +7,13 @@ set up beforehand by the Cluster Admin (README.md), and the script only checks t
 cell expects before it asks.
 
   python3 -m experiments.containment.live --plan                    # print the commands, touch nothing
-  python3 -m experiments.containment.live --ks-state active --run   # 210 cells, one Kill Switch state
+  python3 -m experiments.containment.live --ks-state active --run   # 140 cells, one Kill Switch state
   python3 -m experiments.containment.live --special fail-closed --run
   python3 -m experiments.containment.live --special k3-unapproved-replicas --run   # K3 alone (level 2)
+
+Only identities that exist on the cluster are sent: the baseline is `live: false` in matrix.yaml
+(no ServiceAccount or binding, boundary review F14), so its 210 cells are replayed offline only and
+a full live matrix is 420 cells. The count left out is printed with every plan and run.
 
 Each request is made by impersonation (`--as`, `--as-group`) with `--dry-run=server`. A cell passes
 when the observed verdict equals the declared one and, for a denial, the observed layer is one of
@@ -215,11 +219,26 @@ def plan(
     now: datetime.datetime, ks: str | None = None, cells: set[str] | None = None
 ) -> list[Step]:
     out: list[Step] = []
+    live_ids = set(mx.live_identities())
     for cell, want in mx.expand():
         if (ks and cell.killswitch != ks) or (cells and cell.cell not in cells):
             continue
+        if cell.identity not in live_ids:
+            continue  # offline only (matrix.yaml `live: false`)
         out += build(cell, want, now)
     return out
+
+
+def offline_only(ks: str | None = None, cells: set[str] | None = None) -> int:
+    """How many cells of this selection plan() leaves out because their identity is offline only."""
+    live_ids = set(mx.live_identities())
+    return sum(
+        1
+        for cell, _ in mx.expand()
+        if cell.identity not in live_ids
+        and not (ks and cell.killswitch != ks)
+        and not (cells and cell.cell not in cells)
+    )
 
 
 # ---------------------------------------------------------------- classification
@@ -507,13 +526,15 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.datetime.now(datetime.UTC)
     cells = set(a.cells.split(",")) if a.cells else None
     if a.special:
-        steps = special_steps(a.special, now)
+        steps, skipped = special_steps(a.special, now), 0
     else:
-        steps = plan(now, a.ks_state, cells)
+        steps, skipped = plan(now, a.ks_state, cells), offline_only(a.ks_state, cells)
     if a.plan or not a.run:
         for s in steps:
             print(f"{s.cell.key}  ->  {s.expected}\n    {s.shell()}")
         print(f"{len(steps)} requests planned", file=sys.stderr)
+        if skipped:
+            print(f"{skipped} cells are offline only and not planned", file=sys.stderr)
         return 0
     if not a.special and not a.no_preflight:
         if not a.ks_state:
@@ -536,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
     for r in failed:
         print(f"FAIL {r['cell']} v{r['variant']}: {r['note']}")
     print(f"{len(results) - len(failed)}/{len(results)} requests as declared")
+    if skipped:
+        print(f"{skipped} cells are offline only and were not sent")
     return 1 if failed else 0
 
 
