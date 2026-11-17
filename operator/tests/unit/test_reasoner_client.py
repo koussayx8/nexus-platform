@@ -319,6 +319,56 @@ def test_an_out_of_envelope_proposal_passes_the_client_to_reach_the_gate():
     assert r.ok and r.doc["action"]["parameters"] == {"replicas": 40}
 
 
+@pytest.mark.parametrize(
+    "usage, want",
+    [
+        (  # groq, as received: extra fields are dropped
+            {"prompt_tokens": 1200, "completion_tokens": 150, "total_tokens": 1350,
+             "queue_time": 0.01, "prompt_tokens_details": {"cached_tokens": 0}},
+            {"promptTokens": 1200, "completionTokens": 150, "totalTokens": 1350},
+        ),
+        ({"prompt_eval_count": 700, "eval_count": 90},  # ollama: the total is the sum
+         {"promptTokens": 700, "completionTokens": 90, "totalTokens": 790}),
+        ({"prompt_tokens": True, "completion_tokens": -1, "total_tokens": "9"}, None),
+        ({"total_tokens": 10**12}, None),
+        ("1350 tokens", None),
+        (None, None),
+    ],
+)  # fmt: skip
+def test_usage_keeps_the_token_counts_only(usage, want):
+    async def answer(request, body):
+        return json_response(good_answer(usage=usage))
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(answer, call)
+    assert r.ok and r.meta.get("usage") == want
+
+
+def test_a_rejection_after_the_model_answered_keeps_its_usage():
+    async def refuse(request, body):
+        meta = {"mode": "llm", "usage": {"prompt_tokens": 5, "completion_tokens": 2}}
+        body = {
+            "error": "invalid_proposal",
+            "detail": "x",
+            "raw": "{}",
+            "metadata": meta,
+        }
+        return json_response(body, 422)
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(refuse, call)
+    assert r.reason == "rejected"
+    assert r.meta["usage"] == {
+        "promptTokens": 5,
+        "completionTokens": 2,
+        "totalTokens": 7,
+    }
+
+
 def test_the_metadata_is_reduced_to_short_scalars():
     meta = {
         "model": "m" * 500,

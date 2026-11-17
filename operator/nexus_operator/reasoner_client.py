@@ -103,6 +103,31 @@ def _error_detail(raw: str | None) -> list[str]:
     return [": ".join(parts)] if parts else []
 
 
+_USAGE_KEYS = (  # ours <- the provider's (groq first, then ollama)
+    ("promptTokens", ("prompt_tokens", "prompt_eval_count")),
+    ("completionTokens", ("completion_tokens", "eval_count")),
+    ("totalTokens", ("total_tokens",)),
+)
+
+
+def _usage(raw: Any) -> dict:
+    """The token counts of one call from the Reasoner's `metadata.usage` (the provider's own
+    `usage`, passed through): non-negative integers only, anything else dropped. The total is the
+    sum when the provider gives none (ollama). {} when nothing usable."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    for ours, theirs in _USAGE_KEYS:
+        for key in theirs:
+            v = raw.get(key)
+            if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 10**9:
+                out[ours] = v
+                break
+    if "totalTokens" not in out and {"promptTokens", "completionTokens"} <= set(out):
+        out["totalTokens"] = out["promptTokens"] + out["completionTokens"]
+    return out
+
+
 def _clean_meta(meta: Any) -> dict:
     """Short scalars from the Reasoner's metadata; anything else is dropped."""
     if not isinstance(meta, dict):
@@ -117,6 +142,9 @@ def _clean_meta(meta: Any) -> dict:
     chunks = meta.get("retrievedChunks")
     if isinstance(chunks, list):
         out["retrievedChunks"] = [c[:100] for c in chunks if isinstance(c, str)][:20]
+    usage = _usage(meta.get("usage"))
+    if usage:
+        out["usage"] = usage
     return out
 
 
