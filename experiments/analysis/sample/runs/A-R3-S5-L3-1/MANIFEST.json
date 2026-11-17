@@ -4,12 +4,12 @@
   "audit_links.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "metrics.json": "64f0c85dab0f79902424d7b0d64797d4f3b8a34faa33089a295430b88a12338f",
   "reconciliation.json": "96a1dbd3b367e057284f9f7261bda5085c6bf68c814632df64d904f08d9062d1",
-  "run.json": "7c63f43f932a82543a43b13bce269c5a002739661cb6711dbb7cee41b084570a",
+  "run.json": "0b7e7ded3274739d2f6563d1bc4afa210e63cfb30adde09ef80240dc45b72aa9",
   "tables.json": "62497a8e6acac557a2314e2dc8f245aae8cc92f542262e91d3fca89c6681d8fa"
  },
  "fixture": true,
  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
- "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+ "ground_truth_hash": "0229c9ae6db995b4c1a94e47c289f3f3031658379c277e1869eb088039422a76",
  "run_id": "A/R3/S5/L3#1",
- "schema": "run-export/v1"
+ "schema": "run-export/v2"
 }

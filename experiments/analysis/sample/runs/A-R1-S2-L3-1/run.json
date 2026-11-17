@@ -1,6 +1,6 @@
 {
  "fixture": true,
- "injection_at": "2027-01-05T10:00:00+00:00",
+ "injection_at": null,
  "queue_record": {
   "approval_ref": "G16/fixture#approval-0",
   "attempt": 1,
@@ -35,7 +35,7 @@
   "discarded": true,
   "ended_at": "2027-01-05T13:20:00+00:00",
   "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
-  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+  "ground_truth_hash": "0229c9ae6db995b4c1a94e47c289f3f3031658379c277e1869eb088039422a76",
   "level": 3,
   "reasoner": "R1",
   "repetition": 1,
@@ -43,5 +43,5 @@
   "scenario": "S2",
   "started_at": "2027-01-05T13:00:00+00:00"
  },
- "schema": "run-export/v1"
+ "schema": "run-export/v2"
 }
