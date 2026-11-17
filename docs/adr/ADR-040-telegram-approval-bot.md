@@ -1,30 +1,392 @@
-# ADR-040: The Telegram Approval Bot (OUTLINE)
+# ADR-040: The Telegram Approval Bot
 
-**Status:** Outline — draft follows in the next commit
+**Status:** Proposed (draft for the owner's review; accepted when its pull request merges)
 **Date:** 2026-11-16
-**Spec:** §10, §11, §16A, §18, §24; `TASKS.md` D9, D21, D22
+**Spec:** §10 (trust model), §11 (RBAC, K5, K6), §16A (`nexusctl`, approval), §18 (network), §24 (threats).
+A second approval interface beside `nexusctl`, recorded for spec v1.1 (#203). `docs/architecture/final-spec.md`
+does not change with this ADR.
+**Decisions it implements:** `TASKS.md` D9 (the bot), D21 (read-only commands), D22 (`/ask`).
+**Built in:** Block 7 (bot core), Block 8 (Note flow, `/ask`).
 
-## Outline
+Labels: **VERIFIED** = read in a file on `origin/dev` at `4b077fb` in this session, cited. **UNVERIFIED** =
+not exercised; the settling command is named. No cluster command was run for this ADR (offline only).
 
-1. **Context** — D9, D21, D22; review plan Part 3 (3.1, 3.2); M3 boundary review section 5; what
-   exists today (`nexusctl --as`, Role `nexus-approvers`, K5, K6, CRD C1–C2).
-2. **Decisions** (table)
-   - Transport: outbound long polling only, no webhook, no ingress.
-   - Who may press: Telegram user-ID allowlist, private chat only.
-   - Identity: the bot impersonates `koussay-approver` / `nexus-approvers`; the exact ClusterRole,
-     limited by `resourceNames`; reads under the bot's own ServiceAccount.
-   - Where the credential lives: namespace `nexus-bot`, never the operator pod or `nexus-system`.
-   - Button payload: action letter + short Incident key + 32 hex of the proposal hash; re-check
-     against the live Incident before writing `spec.approval`.
-   - Read-only commands: `/status`, `/pods`, `/incident`.
-   - Note flow: reject, then a new human Incident with `spec.source.note`.
-   - `/ask`: one snapshot, one LLM call, advice only.
-   - Rendering: plain text, no Markdown.
-3. **RBAC** — the exact YAML.
-4. **Button payload and the press sequence.**
-5. **Commands, Note flow, `/ask`.**
-6. **Threat model** (table) and **stated limits**.
-7. **Contradictions with the spec and the sources** — for spec v1.1.
-8. **Not verified** — each with the command that settles it.
-9. **Build checklist, Block 7 (and Block 8)** — files, tests, hours.
-10. **Consequences.**
+## Context
+
+The owner approves level-2 proposals with `nexusctl approve`, from a terminal, acting as `koussay-approver` in
+group `nexus-approvers` through impersonation (`nexusctl/README.md:32-37`). D9 adds a chat channel so that the
+same decision can be made from a phone.
+
+The designs are in `~/nexus-reports/fable-review-plan-2026-11-12.md` Part 3 (3.1, 3.2) and in section 5 of
+`docs/reviews/2026-11-15-m3-boundary.md` (PR #233, not yet on `dev`).
+
+What the approval path already enforces, outside any client (VERIFIED):
+
+| Layer | What it does | Where |
+|---|---|---|
+| Role `nexus-approvers` (`nexus-system`) | get, list, watch, create, patch on Incidents; get on two ConfigMaps. No status, no delete | `platform/policies/approvers-rbac.yaml:20-34` |
+| K5 `stamp-approver` | `approvedBy` and `approvedAt` come from the request identity and clock | `k5-incident-approval.yaml:28-47` |
+| K5 `approvers-only`, `expiry-max-15m`, `bind-proposal-hash`, `bind-action`, `bind-replicas` | Only the group may approve; at most 15 minutes; the approval equals the Incident's own proposal | `k5-incident-approval.yaml:3-14` |
+| K6 `human-approvers` | `source.type: human` only from the group | `k6-incident-source.yaml:55-74` |
+| CRD C1, C2 | `spec.source` and `spec.target` immutable; `spec.approval` write-once | `platform/crds/incidents.nexus.io.yaml:57-63` |
+
+The bot is therefore a **client**, like `nexusctl`. It authorises nothing. A bot that sends a wrong approval is
+refused by K5; a bot that sends a right one adds no power that `nexusctl --as` does not already have.
+
+## Decisions
+
+| # | Decision |
+|---|---|
+| 1 | **One new bounded component, the bot.** One Deployment, one replica, ServiceAccount `nexus-bot`, in a **new namespace `nexus-bot`**. It holds the Telegram token (and the C8 token, ADR-041). The operator gains no credential and no network route. |
+| 2 | **Outbound-only long polling.** The bot calls `getUpdates` (timeout 50 s, `allowed_updates: ["message", "callback_query"]`). No webhook, no Service, no Ingress, no inbound NetworkPolicy rule. At start it calls `deleteWebhook`, so a webhook set with a stolen token does not silently take the updates. |
+| 3 | **Who may press: a Telegram user-ID allowlist.** An update is handled only when `from.id` is in the allowlist **and** the chat is private (`chat.type == "private"`, `chat.id == from.id`). Anything else is dropped and logged (IDs only, no text). Group chats and channels are refused. The allowlist is a ConfigMap in Git mapping one numeric ID to one approver username; today it has one entry. |
+| 4 | **Writes are sent as the approver, by impersonation.** The bot's ServiceAccount may impersonate user `koussay-approver` and group `nexus-approvers`, by `resourceNames`, and nothing else by that ClusterRole (YAML below). K5 then stamps `approvedBy: koussay-approver`. No CRD change, no K5 or K6 change, no new grant on Incidents. |
+| 5 | **Reads are made as the bot itself.** Watching Incidents, `/status`, `/pods` and `/incident` use the ServiceAccount's own read-only Roles. Impersonation is used for exactly three writes: approve, reject, create a human Incident. Every audit event with `impersonatedUser.username = koussay-approver` and the bot as `user.username` is then a decision made through the chat. |
+| 6 | **The approver credential is never in the operator pod.** The only credential that can impersonate the approver is the `nexus-bot` ServiceAccount token, projected into the bot pod in namespace `nexus-bot`. Nothing is mounted in `nexus-system`. The operator's RBAC has no pod create, no `pods/exec` and no `serviceaccounts/token` anywhere (review section 1, VERIFIED there on 2026-11-15), so it cannot mint or read that token. Otherwise review finding F8 would become "a compromised operator approves itself" and level 2 would collapse into level 3. |
+| 7 | **Button payload:** action letter + short Incident key + 32 hex of the proposal hash (format below, 51 bytes of Telegram's 64). **Before writing `spec.approval`, the bot re-reads the live Incident** and requires: phase `AwaitingApproval`, no decision yet, and the stored hash starting with those 32 hex. It then writes the **full** hash, with the `resourceVersion` it just read. |
+| 8 | **Read-only commands:** `/status`, `/pods <ns>`, `/incident <name>` (D21). Fixed grammar, fixed namespaces. They write nothing. |
+| 9 | **Note flow:** reject the open Incident, then create a new human Incident with `spec.source.note` (D9; Block 8). The note is an order to the Reasoner, never to the cluster. |
+| 10 | **`/ask`:** one fixed read-only snapshot, **one** LLM call, plain-text answer marked "advice only". The bot never parses or acts on the answer. No tool loop (CLAUDE.md rule 8). Not on run days (D22). |
+| 11 | **Plain text only.** No `parse_mode`, so Telegram interprets no Markdown or HTML; link previews disabled. Every untrusted string goes through `nexusctl`'s `sanitize` (`nexusctl/src/nexusctl/render/sanitize.py`) and `explain_text` (`render/views.py:59`), not a second renderer. Messages are cut at 4096 characters. |
+| 12 | **Plain alerts go through Alertmanager's `telegram_configs`**, not through bot code. Sending with the same token does not conflict with the bot's long poll. |
+| 13 | **The thesis reports both identities:** the Incident's `approvedBy` (`koussay-approver`) and the audit log's impersonator (`system:serviceaccount:nexus-bot:nexus-bot`). The bot also writes `reason: "telegram:<from.id>"` into `spec.approval`, so the Incident records which chat account pressed. |
+
+## RBAC — the exact YAML
+
+File: `platform/rbac/nexus-bot.yaml` (new). The first two objects are the whole of the bot's write authority.
+
+```yaml
+# The bot may act as ONE user in ONE group. Nothing else is in this ClusterRole.
+# `impersonate` on users and groups is cluster-scoped, so this cannot be a namespaced Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-bot-impersonate-approver
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-040"
+rules:
+  - apiGroups: [""]
+    resources: [users]
+    verbs: [impersonate]
+    resourceNames: [koussay-approver]
+  - apiGroups: [""]
+    resources: [groups]
+    verbs: [impersonate]
+    resourceNames: [nexus-approvers]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-bot-impersonate-approver
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-impersonate-approver
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+# Reads, as the bot itself (decision 5). No write verb anywhere below.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-bot-read
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [nexus.io]
+    resources: [incidents]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [nexus-killswitch, nexus-operator-config]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-bot-read
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-bot-read
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+# /pods and the level line of /status. Bound in nexus-dev and nexus-prod only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-bot-read-workloads
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-bot-read-workloads
+  namespace: nexus-dev
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-read-workloads
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-bot-read-workloads
+  namespace: nexus-prod
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-read-workloads
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+# The autonomy-level labels of the two namespaces, by name. `list` cannot be limited by name, so only `get`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-bot-read-namespaces
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [nexus-dev, nexus-prod]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-bot-read-namespaces
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-read-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+```
+
+What the impersonation ClusterRole gives, precisely:
+
+| Question | Answer |
+|---|---|
+| What can the bot do as the approver? | Whatever `koussay-approver` in `nexus-approvers` can: the Role `nexus-approvers` and the ClusterRole `nexus-approvers-namespaces` (`approvers-rbac.yaml`), content-limited by K5 and K6 |
+| Can it impersonate another user, or another group? | No. `resourceNames` lists one of each. `system:masters`, any ServiceAccount (resource `serviceaccounts`) and extra fields (`userextras`) are not granted |
+| Can it send the user without the group? | Yes, and then it holds less: the Role is bound to the group |
+| Does it need `system:authenticated`? | No. The API server adds it to an impersonated non-anonymous user itself (UNVERIFIED on this cluster; settled by the first live approve in Block 7) |
+| Does it need a pod-log, Secret or exec right? | No, and it has none |
+
+**Review this file under CODEOWNERS.** It is cluster-scoped, and a second name added to `resourceNames` is a
+new approver.
+
+## Button payload and the press sequence
+
+Telegram limits `callback_data` to 64 bytes. An Incident name is 31 characters (`inc-<fingerprint>-<epoch>`,
+`operator/nexus_operator/poller.py:111-112`) and a proposal hash is `sha256:` plus 64 hex
+(`proposal.py:100-103`), so neither fits whole beside the other.
+
+```
+<letter>:<key>:<h32>            51 bytes
+  letter  a = Approve, r = Reject, e = Explain, n = Note
+  key     the first 16 hex of the Incident's metadata.uid, dashes removed
+  h32     the first 32 hex of status.proposal.hash, after "sha256:"
+regex     ^[aren]:[0-9a-f]{16}:[0-9a-f]{32}$
+```
+
+The key is taken from the UID, not the name, so its length does not depend on how an Incident is named (a human
+Incident has no alert fingerprint). 128 bits of hash prefix cannot be collided in practice, and K5 compares the
+full hash in any case.
+
+On a press of Approve or Reject:
+
+| Step | The bot | If it fails |
+|---|---|---|
+| 1 | Checks the sender (decision 3) | Drop, log |
+| 2 | Matches the payload against the regex | Drop, log |
+| 3 | Lists Incidents in `nexus-system` (own identity); keeps those whose UID starts with the key | Not exactly one: "not found", nothing written |
+| 4 | Runs `check_decidable` (`libs/nexus-client/src/nexus_client/approval.py:41`): phase `AwaitingApproval`, a proposal, no decision yet | "No longer awaiting approval", buttons removed |
+| 5 | Requires the live `status.proposal.hash` to start with `sha256:` + h32 | "The proposal changed since this message; nothing written", buttons removed |
+| 6 | Builds the approval with `build_approval` (same file, line 62) from the live Incident: decision, action, parameters, **full** hash, `expiresAt = now + 15 min − 15 s`, `reason: telegram:<from.id>` | — |
+| 7 | Patches `spec.approval` **as `koussay-approver` / `nexus-approvers`**, with the `resourceVersion` read in step 3 | A K5, C2 or conflict refusal is shown as text, with the Audit-Id |
+| 8 | Re-reads; edits the message to "Approved by `<approvedBy>` at `<approvedAt>`", removes the buttons | — |
+
+The bot keeps no table of what it showed: the payload is the whole memory, so a restart loses nothing. A stale
+button fails at step 4 or 5; a second press fails at step 4 and, behind it, at C2.
+
+**The fields on screen above the buttons** — target, action, replicas, hash, level, expiry — are read from the
+Incident fields that K5 binds, and are printed outside the "untrusted" box. The Reasoner's hypothesis is inside
+the box. Explain and Note never change what Approve sends.
+
+## Commands, Note flow, `/ask`
+
+**Read-only commands (D21).** Sender check as for buttons.
+
+| Command | Shows | Reads |
+|---|---|---|
+| `/status` | Open Incidents (name, target, phase, age), the level of `nexus-dev` and `nexus-prod`, the Kill Switch | Incidents; two namespaces; ConfigMap `nexus-killswitch` |
+| `/pods <ns>` | Per Deployment: ready / desired; per pod: phase, restarts. `<ns>` must be `nexus-dev` or `nexus-prod` | Pods, Deployments |
+| `/incident <name>` | The same text as the Explain button. `<name>` must match `^inc-[a-z0-9-]{1,59}$` | One Incident |
+
+No pod logs, no events, no Secrets: the bot has no right to them.
+
+**Note flow (D9; Block 8).**
+
+1. The owner presses Note. The bot asks for the text with a forced reply.
+2. The reply is accepted only from the allowlisted sender, as a reply to that question, within 5 minutes, at
+   most 500 characters.
+3. If the Incident is still `AwaitingApproval` with the hash shown, the bot **rejects** it, as the approver,
+   with `reason: superseded by note, telegram:<from.id>`. If it is already terminal, nothing is done to it.
+4. The bot **creates a new Incident**, as the approver: `source.type: human`, the same `spec.target`,
+   `spec.source.note` = the text. K6 admits it and stamps `source.requester` (`k6-incident-source.yaml:20-30`).
+5. The operator diagnoses it; the note reaches the Reasoner inside the evidence, labelled human-supplied
+   (spec:1421). The new proposal comes back with buttons and passes the Safety Gate and Kyverno like any other.
+
+"Restart it instead" can yield `restart_workload`. "Delete the namespace" cannot be expressed in the four-entry
+catalogue: the result is an escalation or `Blocked / not_in_catalogue`. If step 4 fails after step 3, the first
+Incident stays `Rejected` and the bot says so; the owner sends the note again or uses `nexusctl`.
+
+**`/ask <question>` (D22; Block 8, after the Note flow; cut first).**
+
+| Aspect | Rule |
+|---|---|
+| Snapshot | Fixed: the output of `/status` and of `/pods` for both namespaces, and the Explain text of open Incidents. Collected once, before the call. The model cannot ask for more |
+| Call | One request, no tools, no retry loop. The question is at most 300 characters |
+| Answer | Sanitised, plain text, first line `ADVICE ONLY — NEXUS will not act on this`. No buttons under it. Never parsed |
+| Path | The bot calls the model provider directly with its own key; the Reasoner's ingress, prompt and version are untouched, because they are part of the frozen measured system |
+| When | Not on run days (provider token budget, D22). A flag in the bot's ConfigMap turns it off |
+
+## Threat model
+
+Assets: the right to write `spec.approval` as the approver; the right to create human Incidents; the text the
+owner reads before deciding.
+
+| Threat | What the attacker gets | What still holds | Residual |
+|---|---|---|---|
+| Stranger messages the bot, or adds it to a group | Nothing: dropped by the allowlist and the private-chat rule | — | None |
+| Forged callback from outside Telegram | Not possible with long polling: there is no endpoint to post to | — | None |
+| **The owner's Telegram account is taken over** (SIM swap, stolen session) | Approve, reject, send notes, as the owner | Only a proposal the operator made; only the four catalogue actions; K1–K4, the bounds [1, 5], the 15-minute expiry | **Accepted limit 1** |
+| **The bot's ServiceAccount token is stolen** (pod compromise, a party that can create pods or tokens in `nexus-bot`) | The same writes as the approver, without Telegram | The same bounds. The token is a projected, expiring token | **Accepted limit 2** |
+| The Telegram bot token is stolen | Reads the updates and competes for them (approvals stall); sends messages as the bot, including a misleading text above a button whose payload is a genuine pending proposal | It cannot forge `from.id`, so it cannot press. A press still approves only the proposal named in the payload, and the bot's confirmation is built from the live Incident | **Accepted limit 3**; rotate through BotFather |
+| Compromised operator approves itself | Nothing: it has no route to the credential (decision 6); K5 `approvers-only` refuses its identity | — | None found |
+| Compromised operator shows a false diagnosis beside a real action | The owner may approve an in-catalogue action for a wrong reason | Target, action and replicas on screen are the K5-bound fields | Review limitation 4 (F4, F8); unchanged by the bot |
+| Reasoner text shaped like a button, a link or a trusted field | Displayed as text in the untrusted box | No Markdown; sanitised; previews off | Social engineering only |
+| A note that tries to command the cluster | It is evidence for an untrusted Reasoner | Safety Gate, catalogue, Kyverno | By design |
+| A stale or replayed press (Telegram redelivers after a bot restart) | Nothing: phase and hash are re-checked; C2 is write-once | — | None |
+| A poisoned `/ask` answer | Text on the owner's screen | It triggers nothing | Social engineering only |
+| The bot is down | No chat approvals | `nexusctl` still works | Availability only |
+
+## Stated limits
+
+1. **Whoever controls the owner's Telegram account can approve as the owner.** The control is outside NEXUS:
+   the account's two-step verification. The harm stays inside the bounds.
+2. **Whoever holds the `nexus-bot` ServiceAccount token can approve as the owner.** That includes the cluster
+   admin, ArgoCD and anyone who can change Git: all three are already trusted (review limitation 8).
+3. **A second approver through the bot is indistinguishable in the cluster.** Every chat approval is
+   `koussay-approver`. Only the `reason` field and the bot's log name the Telegram account. Per-approver signing
+   keys would fix this and do not fit before the defense.
+4. **An approval is still a licence for up to 15 minutes, not a single use** (review F5, F6). The bot neither
+   widens nor narrows this.
+5. **Telegram is not confidential storage.** Bot chats are not end-to-end encrypted; target names, pod names,
+   metrics and the Reasoner's text leave the cluster. The messages are built from the redacted bundle, and no
+   Secret can be read by the bot.
+6. **The bot pod is the most sensitive pod after the operator.** It holds the impersonation right and two
+   outside tokens, and it handles untrusted text. It has no ingress, runs non-root with a read-only root
+   filesystem, and its egress is DNS, the API server and public TCP 443 — by address range, not by name (the
+   spec §18 known limitation).
+7. **`/ask` sends the snapshot to the model provider.** It is advice; it has no path to an action.
+
+## Contradictions with the spec and the sources
+
+For the spec v1.1 draft (#203). Reported, not adapted silently.
+
+| # | Source | Says | This ADR | Why |
+|---|---|---|---|---|
+| X1 | Spec §3; `platform/argocd/projects/*.yaml` destinations | Nine namespaces | A tenth, `nexus-bot` | Decision 6: the credential must not be in the operator's namespace |
+| X2 | Plan 3.1 | The bot's ClusterRole is impersonate "and nothing else"; reads are made as the approver | Reads under the bot's own read-only Roles | `/pods` needs pod reads the approvers do not have; and the audit trail then separates decisions from polling |
+| X3 | Review section 5 | The bot "patches with that hash and never re-reads at click" | It re-reads and requires the 32-hex prefix | A 64-hex hash does not fit in 64 bytes with an Incident key. The prefix check gives the same guarantee: the write succeeds only for the proposal shown |
+| X4 | Plan 3.1 | "No CRD change" | True for approval. The **Note flow needs one**: `spec.source` has no `note` property (`incidents.nexus.io.yaml:65-72`), so the API server would prune it | Spec:1421 defines `spec.source.note`; the CRD never got it. Block 8 adds `note: {type: string, maxLength: 500}`; C1 already makes it immutable |
+| X5 | Review section 5 | A "Role" limited to impersonate | A ClusterRole | `users` and `groups` are cluster-scoped virtual resources |
+
+## Not verified
+
+| # | Item | Settled by |
+|---|---|---|
+| U1 | No binding names `koussay-approver` beyond the group's (the repository has none: `grep -rn koussay-approver` finds only `nexusctl` and `libs` tests and docs) | `kubectl auth can-i --list --as koussay-approver --as-group nexus-approvers -n nexus-system` (read-only), and the same with `-n kube-system` |
+| U2 | The API server accepts the impersonation with only the two `resourceNames` rules | Block 7: `kubectl auth can-i impersonate users/koussay-approver --as system:serviceaccount:nexus-bot:nexus-bot` → yes; the same for `users/admin` → no; then the first live approve |
+| U3 | The operator reconciles an Incident it did not create from an alert (plan 3.2) | Block 8, first task: an envtest case that creates a `human` Incident |
+| U4 | `evidence.py:161` sets `"note": None`; whether the prompt renders `incident.note` | Read `evidence.py` and `reasoner/nexus_reasoner/prompt.py` in Block 8. A prompt change must land before the Block 9 freeze |
+| U5 | The audit policy (ADR-036) records Incident patches with `impersonatedUser` | After the first live approve: `scripts/audit-join.py` output for that Incident |
+| U6 | Alertmanager can reach `api.telegram.org` (no NetworkPolicy file exists for `monitoring` under `platform/network/`) | Block 7: one test alert |
+| U7 | Telegram's limits as used here: 64-byte `callback_data`, 4096-character messages, one `getUpdates` consumer per token | The Bot API reference, read at build time; the unit tests pin the first two |
+
+## Build checklist — Block 7 (bot core), 18 hours
+
+| Step | Files | Tests (offline unless marked) | Hours |
+|---|---|---|---|
+| 1. Package and image | `bot/pyproject.toml`, `bot/Dockerfile`, `bot/nexus_bot/{main,config}.py`; depends on `libs/nexus-client` and `nexusctl` (renderer). `.github/workflows/bot.yml` (lint, tests, build, Cosign, digest-bump PR — the Reasoner's pattern) | CI green; image runs non-root | 2 |
+| 2. Telegram client | `bot/nexus_bot/telegram.py`: `getUpdates`, `sendMessage`, `answerCallbackQuery`, `editMessageReplyMarkup`, `deleteWebhook`; no `parse_mode` | Fake HTTP server: offset handling; no request ever carries `parse_mode`; the token never appears in a log line or an exception text | 3 |
+| 3. Sender check and payload | `bot/nexus_bot/{auth,payload}.py` | Allowlist: other ID, group chat, channel, missing `from` → dropped. Payload: round trip, 51 bytes, regex rejects every malformed case | 2 |
+| 4. Watch and push | `bot/nexus_bot/watch.py`: push on `AwaitingApproval`, `Escalated`, `Resolved`, `Blocked`; one message per Incident and phase | Fake Incident stream; restart does not resend | 3 |
+| 5. Approve, Reject, Explain | `bot/nexus_bot/decide.py`, using `check_decidable` and `build_approval` | Stale hash → no write. Wrong phase → no write. Already decided → no write. Two matches for a key → no write. The patch carries the impersonation headers, the full hash, the `resourceVersion`, an expiry inside 15 min. Reject carries no action. A K5 denial is shown as text | 3 |
+| 6. `/status`, `/pods`, `/incident` | `bot/nexus_bot/commands.py` | Namespace outside the two → refused. Name regex. No call uses the impersonation headers | 2 |
+| 7. Manifests | `bot/k8s/{namespace,serviceaccount,deployment,configmap,kustomization}.yaml`; `platform/rbac/nexus-bot.yaml` (above); `platform/network/bot.yaml` (default-deny; egress DNS, API server 443 and 6443 as in `system.yaml:36-66`, public 443 as in `reasoner.yaml`); `platform/argocd/applications/nexus-bot.yaml`; the AppProject destination `nexus-bot`, in the same PR | `kustomize build`; `scripts/tests/policies-offline.py` extended: the ClusterRole has exactly two rules, one `resourceNames` entry each, verb `impersonate` only | 2 |
+| 8. Secret script and Alertmanager | `scripts/nexus-bot-secrets.sh` (the `flight-recorder-secrets.sh` pattern: create if absent, value never in argv or output); `telegram_configs` in the inline Helm values of `platform/argocd/applications/observability.yaml` with `bot_token_file` | Script dry test with a stub `kubectl`; `helm template` renders the receiver | 1 |
+
+**Live gate (owner approval needed):** U2's two `can-i` checks; one level-2 approval from the phone; the
+Incident shows `approvedBy: koussay-approver` and `reason: telegram:<id>`; the audit log shows the bot as
+impersonator; a press from a second Telegram account is ignored; a press on a stale message writes nothing.
+
+**Owner-only:** BotFather registration; the bot token; the Telegram user ID; two-step verification on the
+Telegram account; running the Secret script.
+
+**Block 8 additions (11–14 hours for the Note flow, then `/ask`):** the CRD `note` property (X4);
+`nexusctl request`; the operator path for human Incidents (U3); `bot/nexus_bot/note.py` and `ask.py`; tests:
+reply from another sender ignored, reply after 5 minutes ignored, reject-then-create order, create failure
+reported, `/ask` makes exactly one HTTP call and its answer never reaches `decide.py`.
+
+## Consequences
+
+- A level-2 approval can be given from a phone, and the Incident and the audit log both say who and through
+  what.
+- The set of trusted parties grows by two: the owner's Telegram account and the bot pod. Both are bounded by
+  the same admission rules as any approver; neither can leave the four-action envelope.
+- The cluster gains one cluster-scoped grant (`impersonate`, two names) and one namespace.
+- `nexusctl` stays the reference client and the fallback. The approval rules live in `libs/nexus-client` and
+  are used by both.
+- The spec needs addenda in v1.1: §3 and the AppProject (namespace), §10 and §24 (component, threat rows),
+  §11 (the ClusterRole), §16A (the second interface), §18 (the bot's egress); ADR-033 gets a pointer to this
+  ADR.
