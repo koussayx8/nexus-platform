@@ -62,3 +62,29 @@ metadata:
   namespace: nexus-dev
 spec:
   replicas: 3
+---
+# F11 (docs/reviews/2026-11-15-m3-boundary.md): `replicas` is omitempty in autoscaling/v1 Scale, so
+# a scale to 0 reaches admission with the key absent. K2 defaults it to 0 and its bounds refuse it.
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-no-replicas-key
+  namespace: nexus-dev
+spec: {}
+---
+# A scale from 0: the old Scale has no `replicas` key either; K2 reads it as 0.
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-from-0-to-2
+  namespace: nexus-dev
+spec:
+  replicas: 2
+---
+apiVersion: autoscaling/v1
+kind: Scale
+metadata:
+  name: scale-from-0-to-3
+  namespace: nexus-dev
+spec:
+  replicas: 3

@@ -1,5 +1,8 @@
 # K2 nexus-scale-bounds (spec §11). Deny a scale outside [1, 5], or one that differs from the old
 # value by more than 2. Tests: platform/policies/tests/k2.
+# `replicas` is omitempty in autoscaling/v1 Scale: a scale to 0 (or from 0) reaches admission with
+# the key absent. Every read defaults it to 0, so the bounds themselves deny a scale to 0 instead
+# of a failed variable lookup under failurePolicy Fail (boundary review F11).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -29,17 +32,17 @@ spec:
       validate:
         failureAction: Enforce
         message: >-
-          K2 nexus-scale-bounds: replicas {{ request.oldObject.spec.replicas }} ->
-          {{ request.object.spec.replicas }} is outside [1, 5] or changes the count by more than 2.
+          K2 nexus-scale-bounds: replicas {{ request.oldObject.spec.replicas || `0` }} ->
+          {{ request.object.spec.replicas || `0` }} is outside [1, 5] or changes the count by more than 2.
         deny:
           conditions:
             any:
-              - key: "{{ request.object.spec.replicas }}"
+              - key: "{{ request.object.spec.replicas || `0` }}"
                 operator: LessThan
                 value: 1
-              - key: "{{ request.object.spec.replicas }}"
+              - key: "{{ request.object.spec.replicas || `0` }}"
                 operator: GreaterThan
                 value: 5
-              - key: "{{ abs(subtract(request.object.spec.replicas, request.oldObject.spec.replicas)) }}"
+              - key: "{{ abs(subtract(request.object.spec.replicas || `0`, request.oldObject.spec.replicas || `0`)) }}"
                 operator: GreaterThan
                 value: 2

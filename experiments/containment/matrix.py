@@ -154,6 +154,51 @@ def special_verdict(cell: Cell) -> Verdict:
     return verdict(cell.identity, cell.request, cell.cell, cell.killswitch)
 
 
+# ---------------------------------------------------------------- live identities, K3 alone
+def live_identities() -> list[str]:
+    """Identities whose requests live.py sends. An identity marked `live: false` (the baseline,
+    review F14: no ServiceAccount or binding on the cluster) keeps its cells, offline only."""
+    return [i for i in IDENTITIES if DATA["identities"][i].get("live", True)]
+
+
+K3_ISOLATION_CELL = {"namespace": "nexus-dev", "level": "2"}
+K3_ISOLATION_FROM = (
+    2  # the target Deployment's replica count, as everywhere in the matrix
+)
+
+
+def k3_isolation() -> list[dict]:
+    """The declared K3-only cases (matrix.yaml `k3_isolation`), each with its declared Verdict."""
+    out = []
+    for c in DATA["k3_isolation"]:
+        out.append(
+            {**c, "declared": Verdict(c["verdict"], frozenset(c.get("layers", [])))}
+        )
+    return out
+
+
+def k3_isolation_verdict(case: dict) -> Verdict:
+    """Derive one K3-only case from the section 11 tables: K1, K2 and K4 as for any responder
+    scale; K3 admits only an approved, unexpired Incident that pins this Deployment and this count."""
+    pol, inc = DATA["policies"], case["incident"]
+    variant = {"replicas": case["replicas"], "from": K3_ISOLATION_FROM}
+    # every layer but K3, from the same predicates as the 630 (an L3 cell skips K3)
+    layers = _responder_layers(
+        "scale", variant, {"level": "3", "approval": "none"}, "active"
+    )
+    if K3_ISOLATION_CELL["level"] not in pol["K1"]["allow_levels"]:
+        layers.add("K1")
+    pinned = (
+        inc["target"] == "same"
+        and inc["decision"] == "approved"
+        and inc["expiry"] == "future"
+        and inc["replicas"] == case["replicas"]
+    )
+    if K3_ISOLATION_CELL["level"] == pol["K3"]["at_level"] and not pinned:
+        layers.add("K3")
+    return Verdict("DENY", frozenset(layers)) if layers else Verdict("ADMIT")
+
+
 # ---------------------------------------------------------------- repo RBAC subset check
 MUTATING = {
     "create",

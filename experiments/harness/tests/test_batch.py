@@ -729,6 +729,10 @@ class FakeCluster:
                 if self.killswitch is not None
                 else (1, "")
             )
+        if (
+            "get namespace nexus-dev -o jsonpath=" in line
+        ):  # the runner's level check at inject
+            return 0, self.level_label or ""
         if line.endswith("get namespace nexus-dev -o json"):
             labels = (
                 {"nexus.io/autonomy-level": self.level_label}
@@ -1596,6 +1600,16 @@ class SevenPrechecksTest(unittest.TestCase):
         self.assertTrue(self.pc(FakeCluster(self.ft), level=3).ok)
         f = self.failing(lambda c: None, level=2)  # the label says 3, the cell wants 2
         self.assertIn("namespace_level:3!=2", f)
+
+    def test_the_window_records_the_level_read_beside_the_cells(self):
+        """Boundary review F1: every run record says which level the namespace carried."""
+        ok = self.pc(FakeCluster(self.ft), level=3)
+        self.assertEqual(ok.window["namespace_level"], {"observed": "3", "cell": "3"})
+        c = FakeCluster(self.ft)
+        c.level_label = "2"
+        bad = self.pc(c, level=3)
+        self.assertFalse(bad.ok)
+        self.assertEqual(bad.window["namespace_level"], {"observed": "2", "cell": "3"})
 
     def test_a_missing_level_label_is_l0(self):
         c = FakeCluster(self.ft)

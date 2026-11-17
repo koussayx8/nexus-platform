@@ -9,10 +9,13 @@ mutates). Without --execute the plan is printed and nothing runs. With --execute
 step runs through the injected `exec`. The cluster CLI is always called with the context
 named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
 
-  runner.py plan inject S1 --context C           print the steps
-  runner.py run  inject S1 --context C --execute
-  runner.py run  inject S2 --context C --locust URL --users N --spawn-rate R --execute
-  runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
+  runner.py plan inject S1 --context C --level 3           print the steps
+  runner.py run  inject S1 --context C --level 3 --execute
+  runner.py run  inject S2 --context C --level 3 --locust URL --users N --spawn-rate R --execute
+  runner.py run  inject S1 --context C --level 1 --namespace nexus-prod --execute   (level <= 1 only)
+
+inject needs --level, the cell's autonomy level: the namespace label is read first and a fault is
+refused when it differs (a missing label is level 0). The level changes only through Git (reset).
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
   python -m experiments.harness.runner gate --context C --namespace nexus-dev --locust URL \\
@@ -163,6 +166,23 @@ class Runner:
                 f" (needs {PROD_MAX_LEVEL} or lower)"
             )
 
+    def require_level(self, level: int) -> str:
+        """Refuse a fault unless the target namespace carries the cell's autonomy level (boundary
+        review F1: a run reported at L2 that ran at L3 never passed through K3). Read-only. A
+        missing label is level 0, as the policies read it; an unreadable namespace refuses.
+        Returns the level read. The level itself changes only through Git (plan_reset)."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "get", "namespace", self.namespace, "-o",
+             "jsonpath={.metadata.labels.nexus\\.io/autonomy-level}"]
+        )  # fmt: skip
+        got = out.strip() or "0"
+        if rc != 0 or got != str(int(level)):
+            raise ValueError(
+                f"refusing to inject in {self.namespace}: autonomy level"
+                f" {got if rc == 0 else 'unreadable'!r}, the cell's level is {int(level)}"
+            )
+        return got
+
     def head_revision(self) -> str:
         """The commit the experiment clone's HEAD names (read-only): after an S3 injection, the
         revision that was pushed."""
@@ -198,8 +218,11 @@ class Runner:
         s3_patch: str | None = None,
         users: int | None = None,
         spawn_rate: float | None = None,
+        level: int | None = None,
     ):
         """Steps that start a fault. HTTP calls to Locust are Steps whose argv[0] is POST or GET.
+        With `level` (the cell's autonomy level; the command line always gives it) the namespace's
+        label is read first and a mismatch refuses the fault (require_level).
         A load scenario (S2, S4, S6) needs both the user count and the spawn rate: Locust 2.46.7
         answers a /swarm without spawn_rate with HTTP 200 and {"success": false, "message": "Missing
         or invalid user_count or spawn_rate from /swarm request"} (locust/web.py), and starts nothing."""
@@ -210,6 +233,8 @@ class Runner:
                     "S3 is a Git change to nexus-dev (experiment/dev-state); not for nexus-prod"
                 )
             self.require_prod_level()
+        if level is not None:
+            self.require_level(level)
         sample = "app.kubernetes.io/name=sample-api"
         if sc == "S1":
             return [
@@ -518,7 +543,13 @@ def main(argv=None):
         default=NS_DEV,
         help="fault target for inject (default nexus-dev); nexus-prod needs level <= 1",
     )
-    ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
+    ap.add_argument(
+        "--level",
+        type=int,
+        choices=(0, 1, 2, 3),
+        help="inject: the cell's level, required; the namespace label must equal it. "
+        "reset: the level to commit (default 3)",
+    )
     ap.add_argument("--locust")
     ap.add_argument("--users", type=int)
     ap.add_argument(
@@ -535,12 +566,18 @@ def main(argv=None):
     if a.op == "inject":
         if not a.scenario:
             ap.error("inject needs a scenario")
+        if a.level is None:
+            ap.error(
+                "inject needs --level: the cell's autonomy level, checked against the namespace"
+            )
         try:
-            steps = r.plan_inject(a.scenario, a.s3_patch, a.users, a.spawn_rate)
+            steps = r.plan_inject(
+                a.scenario, a.s3_patch, a.users, a.spawn_rate, level=a.level
+            )
         except ValueError as e:
             ap.error(str(e))
     elif a.op == "reset":
-        steps = r.plan_reset(a.level, a.baseline_ref)
+        steps = r.plan_reset(3 if a.level is None else a.level, a.baseline_ref)
     else:
         steps = r.plan_refresh()
     if a.mode == "plan" or not a.execute:

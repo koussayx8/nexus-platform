@@ -21,6 +21,7 @@ The client never raises on an HTTP or transport failure: that is a Result with a
 
 import dataclasses
 import json
+import re
 import time
 import uuid
 from typing import Any
@@ -81,6 +82,52 @@ def check_redacted(bundle: Any) -> str | None:
     return None
 
 
+_UNSAFE = re.compile(r"[^A-Za-z0-9_.:/ -]")
+
+
+def _error_detail(raw: str | None) -> list[str]:
+    """`error` and `detail` of a non-200 answer as one short line, e.g. "model_unavailable: http_403"
+    (a 502 whose provider call was refused). The Reasoner is untrusted: only a JSON object is
+    read, each part keeps a small character set and 100 characters at most. [] when unreadable."""
+    try:
+        body = json.loads(raw) if raw else None
+    except ValueError:
+        return []
+    if not isinstance(body, dict):
+        return []
+    parts = [
+        _UNSAFE.sub("?", v)[:100]
+        for v in (body.get("error"), body.get("detail"))
+        if isinstance(v, str) and v
+    ]
+    return [": ".join(parts)] if parts else []
+
+
+_USAGE_KEYS = (  # ours <- the provider's (groq first, then ollama)
+    ("promptTokens", ("prompt_tokens", "prompt_eval_count")),
+    ("completionTokens", ("completion_tokens", "eval_count")),
+    ("totalTokens", ("total_tokens",)),
+)
+
+
+def _usage(raw: Any) -> dict:
+    """The token counts of one call from the Reasoner's `metadata.usage` (the provider's own
+    `usage`, passed through): non-negative integers only, anything else dropped. The total is the
+    sum when the provider gives none (ollama). {} when nothing usable."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    for ours, theirs in _USAGE_KEYS:
+        for key in theirs:
+            v = raw.get(key)
+            if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 10**9:
+                out[ours] = v
+                break
+    if "totalTokens" not in out and {"promptTokens", "completionTokens"} <= set(out):
+        out["totalTokens"] = out["promptTokens"] + out["completionTokens"]
+    return out
+
+
 def _clean_meta(meta: Any) -> dict:
     """Short scalars from the Reasoner's metadata; anything else is dropped."""
     if not isinstance(meta, dict):
@@ -95,6 +142,9 @@ def _clean_meta(meta: Any) -> dict:
     chunks = meta.get("retrievedChunks")
     if isinstance(chunks, list):
         out["retrievedChunks"] = [c[:100] for c in chunks if isinstance(c, str)][:20]
+    usage = _usage(meta.get("usage"))
+    if usage:
+        out["usage"] = usage
     return out
 
 
@@ -173,9 +223,15 @@ class ReasonerClient:
             )
         if status == 422:
             return self._rejection(request_id, status, raw, elapsed())
+        # Any other status: the reason stays http_<n>; the Reasoner's own words go in errors.
         if status != 200:
             return Result(
-                False, request_id, f"http_{status}", status=status, latency_ms=elapsed()
+                False,
+                request_id,
+                f"http_{status}",
+                errors=_error_detail(raw),
+                status=status,
+                latency_ms=elapsed(),
             )
         return self._accept(request_id, status, raw, elapsed())
 

@@ -209,6 +209,45 @@ def test_provider_errors_are_failures_with_the_status(status):
 
     r = run(fail, call)
     assert (r.ok, r.reason, r.status) == (False, f"http_{status}", status)
+    assert r.errors == ["model_unavailable"]
+
+
+def test_a_provider_refusal_keeps_the_reasoners_error_and_detail():
+    """2026-11-17: Groq refused every R3 call with 403; the Reasoner said so in a 502 body,
+    and the operator used to drop it."""
+
+    async def fail(request, body):
+        return json_response({"error": "model_unavailable", "detail": "http_403"}, 502)
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(fail, call)
+    assert (r.reason, r.errors) == ("http_502", ["model_unavailable: http_403"])
+
+
+@pytest.mark.parametrize(
+    "raw, errors",
+    [
+        ("<html>bad gateway</html>", []),
+        (json.dumps(["model_unavailable"]), []),
+        (json.dumps({"error": 7, "detail": None}), []),
+        (json.dumps({"detail": "http_429"}), ["http_429"]),
+        (
+            json.dumps({"error": "x\nInjected: $(rm)", "detail": "d" * 500}),
+            ["x?Injected: ??rm?: " + "d" * 100],
+        ),
+    ],
+)
+def test_the_error_body_is_untrusted_short_and_plain(raw, errors):
+    async def fail(request, body):
+        return web.Response(status=502, text=raw)
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(fail, call)
+    assert (r.reason, r.errors) == ("http_502", errors)
 
 
 def test_a_schema_invalid_answer_is_refused_and_kept_raw():
@@ -278,6 +317,56 @@ def test_an_out_of_envelope_proposal_passes_the_client_to_reach_the_gate():
 
     r = run(answer, call)
     assert r.ok and r.doc["action"]["parameters"] == {"replicas": 40}
+
+
+@pytest.mark.parametrize(
+    "usage, want",
+    [
+        (  # groq, as received: extra fields are dropped
+            {"prompt_tokens": 1200, "completion_tokens": 150, "total_tokens": 1350,
+             "queue_time": 0.01, "prompt_tokens_details": {"cached_tokens": 0}},
+            {"promptTokens": 1200, "completionTokens": 150, "totalTokens": 1350},
+        ),
+        ({"prompt_eval_count": 700, "eval_count": 90},  # ollama: the total is the sum
+         {"promptTokens": 700, "completionTokens": 90, "totalTokens": 790}),
+        ({"prompt_tokens": True, "completion_tokens": -1, "total_tokens": "9"}, None),
+        ({"total_tokens": 10**12}, None),
+        ("1350 tokens", None),
+        (None, None),
+    ],
+)  # fmt: skip
+def test_usage_keeps_the_token_counts_only(usage, want):
+    async def answer(request, body):
+        return json_response(good_answer(usage=usage))
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(answer, call)
+    assert r.ok and r.meta.get("usage") == want
+
+
+def test_a_rejection_after_the_model_answered_keeps_its_usage():
+    async def refuse(request, body):
+        meta = {"mode": "llm", "usage": {"prompt_tokens": 5, "completion_tokens": 2}}
+        body = {
+            "error": "invalid_proposal",
+            "detail": "x",
+            "raw": "{}",
+            "metadata": meta,
+        }
+        return json_response(body, 422)
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(refuse, call)
+    assert r.reason == "rejected"
+    assert r.meta["usage"] == {
+        "promptTokens": 5,
+        "completionTokens": 2,
+        "totalTokens": 7,
+    }
 
 
 def test_the_metadata_is_reduced_to_short_scalars():

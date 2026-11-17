@@ -29,14 +29,17 @@ case " \$* " in
   *" get networkpolicy "*) all="\$*"; n=\${all#*get networkpolicy }; n=\${n%% *}; ns=\${all#* -n }; ns=\${ns%% *}
       [[ -e \$fx/np-\$ns-\$n ]] || exit 1 ;;
   *" get deployment nexus-reasoner "*) [[ -e \$fx/reasoner-deploy.json ]] && cat "\$fx/reasoner-deploy.json" || exit 1 ;;
-  *" get --raw /api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz "*) [[ -e \$fx/healthz.json ]] && cat "\$fx/healthz.json" || exit 1 ;;
+  *" get --raw /api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz "*)
+      # as the Reasoner answers: --request-timeout becomes ?timeout=..., and /healthz?timeout=... is a 404
+      case " \$* " in *" --request-timeout"*) echo "Error from server (NotFound)" >&2; exit 1 ;; esac
+      [[ -e \$fx/healthz.json ]] && cat "\$fx/healthz.json" || exit 1 ;;
   *) echo "stub kubectl: unexpected call: \$*" >> "$work/unexpected.log"; exit 1 ;;
 esac
 STUB
 chmod +x "$work/bin/kubectl"
 export PATH=$work/bin:$PATH
 
-sed -n '/^K_POLICIES=/p; /^v_policies_enforce() {/,/^}/p; /^NETPOLS=(/,/^)/p; /^v_network_policies() {/,/^}/p; /^v_reasoner() {/,/^}/p' \
+sed -n '/^K_POLICIES=/p; /^v_policies_enforce() {/,/^}/p; /^NETPOLS=(/,/^)/p; /^v_network_policies() {/,/^}/p; /^REASONER_HEALTHZ=/p; /^v_reasoner() {/,/^}/p' \
   "$root/scripts/verify-state.sh" > "$work/funcs.sh"
 for f in v_policies_enforce v_network_policies v_reasoner; do
   grep -q "^$f() {" "$work/funcs.sh" || { echo "FAIL could not extract $f"; exit 1; }
@@ -117,6 +120,16 @@ reasoner 1 1 loading "$HASH"; run_case "reasoner-not-ready-status" 1 'status=loa
 reasoner 0 1 ready "$HASH"; run_case "reasoner-deploy-not-ready" 1 'readyReplicas=0 replicas=1' '' v_reasoner
 reasoner 1 1 ready "$HASH"; rm "$work/fx/healthz.json"; run_case "reasoner-healthz-silent" 1 'no answer' '' v_reasoner
 rm "$work/fx/reasoner-deploy.json"; run_case "reasoner-missing" 1 'NOT FOUND' '' v_reasoner
+# The /healthz read carries no --request-timeout (the stub 404s it, as the Reasoner does) and is
+# bounded by `timeout 45` in verify-state.sh instead.
+: > "$work/kubectl.log"; reasoner 1 1 ready "$HASH"
+run_case "reasoner-healthz-no-request-timeout" 0 'status=ready' 'no answer' v_reasoner
+if grep 'proxy/healthz' "$work/kubectl.log" | grep -q -- '--request-timeout'; then
+  echo "FAIL reasoner-healthz-call-has-no-request-timeout"; failed=1
+else echo "PASS reasoner-healthz-call-has-no-request-timeout"; fi
+# shellcheck disable=SC2016  # a literal pattern: $( and $REASONER_HEALTHZ must not expand
+if grep -qE '^  if ! doc=\$\(timeout 45 kubectl --context default get --raw "\$REASONER_HEALTHZ"' "$root/scripts/verify-state.sh"; then
+  echo "PASS reasoner-healthz-bounded-by-timeout-45"; else echo "FAIL reasoner-healthz-bounded-by-timeout-45"; failed=1; fi
 
 # Flag handling: all of it happens before verify-state.sh touches git or a cluster.
 flag_case() {   # <name> <want rc> <must match> <args...>
