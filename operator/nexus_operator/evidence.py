@@ -198,8 +198,12 @@ class EvidenceCollector:
         return out[:MAX_EVENTS]
 
     async def _logs(self, ns: str, pod_rows: list[dict]) -> dict:
-        logs: dict[str, list[str]] = {"current": [], "previous": []}
+        """current and previous: each pod's last lines, appended pod after pod. sources: how
+        many lines each pod gave, in that order, so a reader can split the lists per pod
+        (the Reasoner's per-pod excerpt, ADR-042). Additive: evidence/v1.1 is unchanged."""
+        logs: dict[str, list] = {"current": [], "previous": [], "sources": []}
         for row in pod_rows[:MAX_LOG_PODS]:
+            source = {"pod": row["name"], "current": 0, "previous": 0}
             for key, previous in (("current", False), ("previous", True)):
                 try:
                     text = await self.api.pod_log(
@@ -208,7 +212,10 @@ class EvidenceCollector:
                 except (ApiError, *TRANSPORT_ERRORS):
                     text = None
                 if text:
-                    logs[key] += text.splitlines()[-MAX_LOG_LINES:]
+                    lines = text.splitlines()[-MAX_LOG_LINES:]
+                    logs[key] += lines
+                    source[key] = len(lines)
+            logs["sources"].append(source)
         return logs
 
     async def _metrics(self, ns: str) -> dict:

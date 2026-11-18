@@ -71,7 +71,7 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(
             (m["arm"], m["model"], m["provider"]), ("R3", "openai/gpt-oss-120b", "groq")
         )
-        self.assertEqual(m["promptVersion"], "prompt/v1")
+        self.assertEqual(m["promptVersion"], "prompt/v2")
         self.assertEqual(m["corpusHash"], rs.retriever.corpus_hash)
         self.assertTrue(m["retrievedChunks"])
         self.assertFalse(m["noRunbook"])
