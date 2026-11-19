@@ -331,7 +331,7 @@ class RunIdentityTest(Live):
 
 
 S3_CELL = [
-    {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": "bad.diff",
+    {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": str(ROOT / runner.S3_PATCH),
      "tier": 1, "valid_target": 1, "max_attempts": 2},
 ]  # fmt: skip
 REVISION = "c0ffee" * 6 + "c0ff"

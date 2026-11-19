@@ -70,6 +70,9 @@ What it adds to runner.py (which plans and executes single operations):
   that did not finish, never a discard. The wait ran out with no Incident of the run's own:
   discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
   not go in.
+* The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
+  operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
+  index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
 * The injection time is on every run record that injected (`injection_at`, null before that): the
   wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
   push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
@@ -576,6 +579,47 @@ def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
     return None
 
 
+OPERATOR_DEPLOYMENT = "nexus-operator"
+REASONER_DEPLOYMENT = "nexus-reasoner"
+
+
+def image_digest(deployment: dict | None, name: str) -> str | None:
+    """`sha256:<64 hex>` of the Deployment's container `name` (its first container when none has
+    that name), from the image reference in its spec; None when the image is not pinned by digest."""
+    try:
+        containers = deployment["spec"]["template"]["spec"]["containers"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(containers, list) or not containers:
+        return None
+    c = next(
+        (c for c in containers if isinstance(c, dict) and c.get("name") == name),
+        containers[0],
+    )
+    image = c.get("image") if isinstance(c, dict) else None
+    m = re.search(r"@(sha256:[0-9a-f]{64})$", image) if isinstance(image, str) else None
+    return m.group(1) if m else None
+
+
+def frozen_from(operator: dict | None, reasoner: dict | None, healthz) -> dict:
+    """The frozen values one run ran with (m4-protocol §1, E8): the operator and Reasoner image
+    digests and what the Reasoner's /healthz served. A value that could not be read is None; the
+    export's frozen-values check decides what that means, this record only keeps it."""
+    h = healthz if isinstance(healthz, dict) else {}
+    floor = h.get("scoreFloor")
+    return {
+        "operator_image": image_digest(operator, OPERATOR_DEPLOYMENT),
+        "reasoner_image": image_digest(reasoner, REASONER_DEPLOYMENT),
+        "score_floor": floor
+        if isinstance(floor, int | float) and not isinstance(floor, bool)
+        else None,
+        "prompt_version": h.get("promptVersion")
+        if isinstance(h.get("promptVersion"), str)
+        else None,
+        "index_hash": precheck._bare_hash(h.get("corpusHash")),
+    }
+
+
 def incident_brief(incident: dict) -> dict:
     """What a run record keeps of an Incident."""
     meta, spec = incident.get("metadata") or {}, incident.get("spec") or {}
@@ -648,6 +692,22 @@ class LiveRun:
         # True from a load injection (S2, S4, S6) until a reset has touched Locust. A new process
         # starts False: what an earlier one left shows in Locust's user count (_locust_touch).
         self.load_changed = False
+
+    def _deployment(self, namespace: str, name: str) -> dict | None:
+        rc, out = self.r.exec(
+            [runner_mod.CLI, "--context", self.r.context, "-n", namespace]
+            + ["get", "deployment", name, "-o", "json"]
+        )
+        return precheck._json(out) if rc == 0 else None
+
+    def frozen(self) -> dict:
+        """Read-only: the two Deployments and the Reasoner's /healthz, as frozen_from keeps them."""
+        _, healthz = precheck.reasoner_healthz(self.r, self.cfg)
+        return frozen_from(
+            self._deployment(model.NAMESPACE, OPERATOR_DEPLOYMENT),
+            self._deployment(self.cfg["reasoner"]["namespace"], REASONER_DEPLOYMENT),
+            healthz,
+        )
 
     def incidents(self) -> list[dict]:
         rc, out = self.r.exec(
@@ -889,6 +949,7 @@ class LiveRun:
             "waited_s": pc.waited_s,
             "failures": pc.failures,
         }
+        rec["frozen"] = self.frozen()  # on every run record, discarded or not (E8)
         if pc.stop_reason:
             raise StopBatch(pc.stop_reason)
         if not pc.ok:

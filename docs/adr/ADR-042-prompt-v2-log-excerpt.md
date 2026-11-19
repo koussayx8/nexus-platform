@@ -19,7 +19,40 @@ On 2026-11-17 the first live R3 call after the User-Agent fix (#242) was refused
 
 ## Consequences
 - `promptVersion` becomes `prompt/v2`. Every measured run uses it, and the protocol's frozen-values table must say so (#234). Runs recorded with `prompt/v1` are not comparable with v2 runs.
-- S6: the crafted lines are written with `logger.error`, so pattern 1 keeps them (test `test_the_s6_lines_are_kept`). The live log is mostly uvicorn `/metrics` access lines: 200 lines span about 14 minutes, so a line written within that window of evidence collection is in the bundle.
+- S6: the crafted lines are written with `logger.error`, so pattern 1 keeps them (test `test_the_s6_lines_are_kept`). **Amended 2026-11-19 (owner):** the "about 14 minutes" was measured with Locust stopped. Under the baseline load (80 req/s a namespace, two pods) sample-api wrote one access line per request, so 200 lines spanned about 5 s: the S1 bundle of 2026-11-19 holds 400 current lines, all 2xx access lines (`/` 268, `/items` 68, `/ready` 27, `/metrics` 19, `/health` 18), and S6's three injected lines would be gone before evidence is collected. Fix: sample-api's access log keeps only non-2xx responses (`AccessLogFilter`, extending the fault-route filter); application logs are unchanged. With it, the bundle's lines are application lines and non-2xx access lines, and an S6 line stays in it until 200 later such lines are written.
 - Thesis limitation: the model sees at most 40 lines a pod, and a cause outside the patterns and outside the most recent lines is not shown. R1 does not read logs and is unaffected.
 - The provider may change later through configuration: Bedrock with the same `gpt-oss` models is pending an AWS account enablement. The budget is in `prompt.py`. A provider with a larger limit would change the budget, as a new prompt version.
 - Live checks pending: one real-size probe, and the S1 run with R3.
+
+## Addendum (2026-11-19): the S1 run with R3, the recorded excerpt, the token ratio
+
+- S1 with R3 at L3 on `nexus-dev` (Incident `inc-669532275a7b73d2-1795079469`) ended `Resolved` /
+  `remediation_verified`: no fallback, `restart_workload`, confidence 0.9. The provider counted
+  **5,134 prompt tokens** (407 completion); the call took 1,815 ms. That is the first request sent
+  with `prompt/v2`.
+- Decision 6 was not met in the record: the operator kept only fixed scalar keys of the Reasoner's
+  metadata, so `logSelection`, `promptTrimLevel` and `promptTokensEstimate` were dropped. The operator
+  now keeps them, cleaned, in `status.reasoner` and merged into `proposals.usage` (jsonb, no schema
+  change), also from a 502/503/504 body.
+- Ratio. 5,134 tokens is above the 5,000 budget the excerpt aims for, so 3.0 characters a token is not
+  cautious. The measured ratio is the rebuilt prompt's characters over 5,134
+  (`experiments/calibration/prompt_ratio.py`, from the Incident's stored bundle and its chunks
+  `rb-gray-failure#1`, `#2`). `CHARS_PER_TOKEN` becomes that ratio rounded down to one decimal.
+  **Measured** on the owner's export of the stored bundle (hash `sha256:094a9293…e6a6`, equal to the
+  Incident's `bundleHash`; 2 pods, 400 + 200 log lines, all access lines, 0 events): the rebuilt prompt
+  is **13,211 characters**, so **2.573 characters a token**. `CHARS_PER_TOKEN` is **2.5**. At 3.0 that
+  prompt was estimated at 4,405 tokens, level 0; the provider counted 5,134. At 2.5 the same bundle is
+  estimated at 5,285 tokens, so it gets level 1 (30 lines a pod).
+- The 422 `prompt_too_large` path's `requestTokensEstimate` is kept too (`status.reasoner`,
+  `proposals.usage`): it is the only record of a request that was never sent.
+- Effect on real-size bundles (200 access lines a pod, the three largest chunks; offline, prompt.plan()):
+
+  | chars/token | 2 pods | 3 pods |
+  | --- | --- | --- |
+  | 3.0 (until 2026-11-19) | level 0, 40 lines a pod | level 1, 30 |
+  | 2.7 – 2.9 | level 0, 40 | level 2, 20 |
+  | **2.5 (measured)** – 2.6 | level 1, 30 | level 2, 20 |
+  | 2.1 – 2.4 | level 1–2, 30–20 | level 3, 10 |
+
+- Still `prompt/v2`. Only the estimate changes, not the prompt's form; no measured run used v2
+  before this one, and this S1 run is not a measured run.
