@@ -926,7 +926,9 @@ secrets, `sudo`.
   `experiments/ground-truth.yaml`; a one-page run protocol; spec v1.1 (#203, amended for D3, D8, D9 and the L1
   scenario item in Later); the 6-hour idle test (D19). The runner records the operator and Reasoner image digests
   and the Reasoner `scoreFloor` (from `/healthz`) in every run record, and the export's frozen-values check (E8,
-  `m4-metrics.md` §4) checks them, before Block 10 (owner, #239). Tag `v0.6.0`. Code freeze.
+  `m4-metrics.md` §4) checks them, before Block 10 (owner, #239). The runner's own inject (`runner.py run
+  inject`) must work before Block 10: on 2026-11-19 the permission rules denied it and S1 was injected by hand
+  (owner, 2026-11-19). Tag `v0.6.0`. Code freeze.
   **Gate:** the protocol is merged before the first measured run. Owner: approvals, the tag. Cut first: shrink the
   protocol to half a page.
 - [ ] **Block 10 — 12-05 → 12-07. Runs 1.** The live adversarial runs and the containment suite (attended); the live

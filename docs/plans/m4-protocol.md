@@ -12,7 +12,7 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Commit | the commit tagged `v0.6.0`, with its digests; nothing is rebuilt after it (Q1) | `git_commit` in every run row |
 | Images | the digests at the `v0.6.0` tag. Today: operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`); the operator and the Reasoner are rebuilt before the tag (#242), so these two change | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
-| Score floor, prompt | 3.1739; `prompt/v1` | by hand at each queue start (§4) |
+| Score floor, prompt | 3.1739; `prompt/v2` (ADR-042), with `CHARS_PER_TOKEN` set to the ratio measured on the 2026-11-19 S1 R3 call (TBD, from the owner's Flight Recorder export; ADR-042 addendum) | by hand at each queue start (§4) |
 | Models | R2 `openai/gpt-oss-20b`, R3 `openai/gpt-oss-120b`; effort low, temperature 0, seed 0, one attempt | the arm check; `proposals.model_id` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
 | Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace | pre-check |
@@ -69,7 +69,7 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   15-minute standard deviation within 1.5 × the clean baseline (TODO, Q6); node CPU < 60 %, memory < 80 %; no Backstage
   pod; the Reasoner ready with the frozen index hash; the Flight Recorder up; the audit log written in the last 60 s.
 - **By hand, read-only, before each queue start** (not implemented): seven ClusterPolicies Ready with K1–K6 in
-  Enforce; one successful call to each Groq model; `/healthz` shows floor 3.1739 and `prompt/v1`.
+  Enforce; one successful call to each Groq model; `/healthz` shows floor 3.1739 and `prompt/v2`.
 
 ## 5. Run-validity rules, as implemented (#216 and #189 on `dev`)
 
