@@ -406,17 +406,24 @@ def _bare_hash(h) -> str | None:
     return h if re.fullmatch(r"[0-9a-f]{64}", h) else None
 
 
+def reasoner_healthz(runner, cfg: dict):
+    """The Reasoner's GET /healthz through the API server's service proxy: (reached, body), body
+    the parsed JSON (None when unparsable)."""
+    c = cfg["reasoner"]
+    path = f"/api/v1/namespaces/{c['namespace']}/services/http:{c['service']}:{c['port']}/proxy/healthz"
+    rc, out = _kubectl(runner, "get", "--raw", path)
+    return (False, None) if rc != 0 else (True, _json(out))
+
+
 def reasoner_failures(runner, cfg: dict) -> list[str]:
     """GET /healthz of the Reasoner service (reasoner/nexus_reasoner/service.py, G9), which answers
     200 {"status": "ready", "corpusHash": "<64 hex>", "promptVersion": ..., "scoreFloor": ...} once
     its index is loaded. A Pod whose index is missing never serves it, so an unreachable or non-200
     answer is "not ready"."""
     c = cfg["reasoner"]
-    path = f"/api/v1/namespaces/{c['namespace']}/services/http:{c['service']}:{c['port']}/proxy/healthz"
-    rc, out = _kubectl(runner, "get", "--raw", path)
-    if rc != 0:
+    reached, doc = reasoner_healthz(runner, cfg)
+    if not reached:
         return ["reasoner:not_ready"]
-    doc = _json(out)
     if not isinstance(doc, dict):
         return ["reasoner:healthz_unparsable"]
     if doc.get("status") != "ready":
