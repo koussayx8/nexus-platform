@@ -462,3 +462,66 @@ def test_a_v1_bundle_still_passes_the_check():
     raw = {k: v for k, v in raw.items() if k != "hash"} | {"schema": "evidence/v1"}
     raw["hash"] = proposal.hash_of(raw)
     assert check_redacted(raw) is None
+
+
+SELECTION = {
+    "pods": [{"pod": "sample-api-a", "lines": 200, "kept_error_lines": 3,
+              "kept_recent_lines": 37, "dropped": 160}],
+    "eventsShown": 20, "eventsTotal": 50,
+}  # fmt: skip
+
+
+def test_the_prompt_excerpt_is_kept():
+    """ADR-042 decision 6: what prompt/v2 sent is recorded with each call."""
+
+    async def answer(request, body):
+        return json_response(good_answer(logSelection=SELECTION, promptTrimLevel=1,
+                                         promptTokensEstimate=4870))  # fmt: skip
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(answer, call)
+    assert r.ok
+    assert r.meta["logSelection"] == SELECTION
+    assert r.meta["promptTrimLevel"] == 1 and r.meta["promptTokensEstimate"] == 4870
+
+
+def test_a_malformed_excerpt_keeps_only_clean_counts():
+    junk = {
+        "pods": [{"pod": "p" * 300, "lines": -1, "kept_error_lines": True,
+                  "kept_recent_lines": "9", "dropped": 4, "extra": "x"}, "not-a-pod"]
+        + [{"pod": None}] * 20,
+        "eventsShown": 1.5, "eventsTotal": 7, "other": {"deep": 1},
+    }  # fmt: skip
+
+    async def answer(request, body):
+        return json_response(good_answer(logSelection=junk, promptTrimLevel="1",
+                                         promptTokensEstimate=10**9))  # fmt: skip
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(answer, call)
+    sel = r.meta["logSelection"]
+    assert sel["pods"][0] == {"pod": "p" * 100, "dropped": 4}
+    assert len(sel["pods"]) == 9  # the first 10 entries, the string one dropped
+    assert sel["eventsTotal"] == 7 and "eventsShown" not in sel and "other" not in sel
+    assert "promptTrimLevel" not in r.meta and "promptTokensEstimate" not in r.meta
+
+
+def test_a_502_with_the_excerpt_keeps_it():
+    """The Reasoner sends the excerpt with model_unavailable: the call was built and sent."""
+
+    async def refuse(request, body):
+        meta = {"mode": "llm", "promptTrimLevel": 0, "promptTokensEstimate": 4100,
+                "logSelection": SELECTION}  # fmt: skip
+        return json_response({"error": "model_unavailable", "detail": "http_413",
+                              "metadata": meta}, 502)  # fmt: skip
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(refuse, call)
+    assert not r.ok and r.meta["promptTokensEstimate"] == 4100
+    assert r.meta["logSelection"] == SELECTION

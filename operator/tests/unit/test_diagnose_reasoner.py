@@ -454,3 +454,56 @@ def test_metrics_count_the_calls_and_the_fallbacks():
 
 def test_check_the_target_names_in_the_fixture():
     assert (NS, DEP, T0) and proposal.validate(proposal_doc()) == []
+
+
+SELECTION = {
+    "pods": [{"pod": "sample-api-a", "lines": 200, "kept_error_lines": 3,
+              "kept_recent_lines": 37, "dropped": 160}],
+    "eventsShown": 20, "eventsTotal": 50,
+}  # fmt: skip
+EXCERPT = {
+    "logSelection": SELECTION,
+    "promptTrimLevel": 0,
+    "promptTokensEstimate": 4870,
+}
+
+
+def test_the_excerpt_goes_in_status_reasoner_and_in_the_rows_usage():
+    """ADR-042 decision 6: status.reasoner has its own keys; the Flight Recorder's proposals.usage
+    (jsonb) carries them merged in, no schema change; status.reasoner.usage stays tokens only."""
+    rig = make(FakeReasoner(answer(**EXCERPT)))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert {k: s[k] for k in EXCERPT} == EXCERPT
+    tokens = {
+        "promptTokens": 1200,
+        "completionTokens": 150,
+        "totalTokens": 1350,
+        "latencyMs": 900,
+    }
+    assert s["usage"] == tokens
+    [row] = rows(rig).values()
+    assert row["usage"] == tokens | EXCERPT
+
+
+def test_a_fallback_keeps_the_excerpt_on_the_failed_row_only():
+    result = failure(
+        "http_502", errors=["model_unavailable: http_413"], meta=dict(EXCERPT)
+    )
+    rig = make(FakeReasoner(result))
+    run_until_proposed(rig)
+    failed, used = sorted(rows(rig).values(), key=lambda r: r["fallback_used"])
+    assert failed["usage"] == {"latencyMs": 40} | EXCERPT
+    assert used["usage"] is None
+    s = rig.status()["reasoner"]
+    assert s["fallbackUsed"] is True and s["promptTokensEstimate"] == 4870
+    assert s["usage"] == {"latencyMs": 40}
+
+
+def test_without_an_excerpt_nothing_is_added():
+    rig = make(FakeReasoner(answer()))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert not set(EXCERPT) & set(s)
+    [row] = rows(rig).values()
+    assert not set(EXCERPT) & set(row["usage"])

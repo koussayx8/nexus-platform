@@ -145,6 +145,62 @@ def _clean_meta(meta: Any) -> dict:
     usage = _usage(meta.get("usage"))
     if usage:
         out["usage"] = usage
+    out.update(_excerpt_meta(meta))
+    return out
+
+
+def _error_excerpt(raw: str) -> dict:
+    """A 502/503/504 body's excerpt: the prompt was built, and for a 502 it was sent."""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return {}
+    meta = body.get("metadata") if isinstance(body, dict) else None
+    return _excerpt_meta(meta) if isinstance(meta, dict) else {}
+
+
+EXCERPT_KEYS = ("logSelection", "promptTrimLevel", "promptTokensEstimate")
+_SELECTION_COUNTS = ("lines", "kept_error_lines", "kept_recent_lines", "dropped")
+
+
+def _count(v: Any) -> int | None:
+    return (
+        v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 10**7 else None
+    )
+
+
+def _excerpt_meta(meta: dict) -> dict:
+    """What prompt/v2 put in the prompt (ADR-042 decision 6): the trim level, the prompt's token
+    estimate and, per pod, the line counts kept and dropped. Counts are non-negative integers, a pod
+    name a short string or null, at most 10 pods; anything else is dropped. {} when none is given."""
+    out: dict = {}
+    for key in ("promptTrimLevel", "promptTokensEstimate"):
+        v = _count(meta.get(key))
+        if v is not None:
+            out[key] = v
+    sel = meta.get("logSelection")
+    if isinstance(sel, dict):
+        clean: dict = {}
+        pods = sel.get("pods")
+        if isinstance(pods, list):
+            rows = []
+            for p in pods[:10]:
+                if not isinstance(p, dict):
+                    continue
+                name = p.get("pod")
+                row: dict = {"pod": name[:100] if isinstance(name, str) else None}
+                for k in _SELECTION_COUNTS:
+                    c = _count(p.get(k))
+                    if c is not None:
+                        row[k] = c
+                rows.append(row)
+            clean["pods"] = rows
+        for k in ("eventsShown", "eventsTotal"):
+            c = _count(sel.get(k))
+            if c is not None:
+                clean[k] = c
+        if clean:
+            out["logSelection"] = clean
     return out
 
 
@@ -230,6 +286,7 @@ class ReasonerClient:
                 request_id,
                 f"http_{status}",
                 errors=_error_detail(raw),
+                meta=_error_excerpt(raw),
                 status=status,
                 latency_ms=elapsed(),
             )
