@@ -13,7 +13,10 @@ write exactly as they decide a `nexusctl approve`.
 | Buttons Approve, Reject, Explain (payload `<a\|r\|e>:<uid16>:<hash32>`, 51 bytes) | built |
 | `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>` | built, read-only |
 | Note, `/ask` | Block 8 (a Note press answers "not available") |
-| Image, CI image build and signing, manifests, RBAC, NetworkPolicy, Argo CD app, Alertmanager route | not in this change (ADR-040 build checklist steps 1, 7, 8) |
+| Image (`bot/Dockerfile`, hashed `requirements.txt`), CI build, Trivy scan, Cosign signing, digest-bump PR (`.github/workflows/bot.yml`) | built; the first image is pushed when this merges to `main` |
+| `bot/k8s/` (namespace, ServiceAccount, ConfigMap, Deployment), `platform/rbac/nexus-bot/`, `platform/network/nexus-bot/` | written, **not wired**: no Application or parent kustomization references them |
+| Alertmanager Telegram route (`platform/observability/alertmanager-telegram-values.yaml`) | written, **not enabled**: not in the `observability` Application's `valueFiles` |
+| Argo CD Application, AppProject destination `nexus-bot`, `scripts/nexus-bot-secrets.sh` | Block 7 live step |
 
 ## How a press is decided
 
@@ -70,10 +73,21 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
    `kubectl delete secret` it and create the real one). ADR-040 step 8 later replaces this with
    `scripts/nexus-bot-secrets.sh` (create if absent, value never in argv or output). Rotate the token in
    BotFather (`/revoke`) if it ever leaks; the bot calls `deleteWebhook` at every start.
-4. **Find your numeric user ID** without a third-party bot: start the bot with any allowlist, send it
+4. **Find your numeric user ID** without a third-party bot: start the bot with the empty allowlist it
+   ships with (`allowlist: {}` in `bot/k8s/configmap.yaml`), send it
    `/status` from your phone, and read the log line `dropped {"update_id": …, "from_id": <your ID>, …}`.
    Put that number in `allowlist` (in Git, reviewed), mapped to `koussay-approver`. One entry today.
 5. Send `/start` to the bot once: Telegram lets a bot message only users who have opened its chat.
+6. **When the Alertmanager route is enabled** (not before): the same token as a second Secret, in
+   `monitoring`, and your user ID as `chat_id` in `platform/observability/alertmanager-telegram-values.yaml`:
+
+   ```bash
+   read -rs -p 'Telegram bot token: ' T && echo && printf '%s' "$T" | kubectl --context default -n monitoring create secret generic alertmanager-telegram --from-file=token=/dev/stdin; unset T
+   ```
+
+   ```bash
+   kubectl --context default -n monitoring get secret alertmanager-telegram -o jsonpath='{.data.token}' | base64 -d | wc -c
+   ```
 
 ## Development (offline)
 
