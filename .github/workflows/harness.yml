@@ -9,6 +9,7 @@ on:
     branches: [main, dev]
     paths:
       - 'experiments/harness/**'
+      - 'experiments/faults/**'        # the committed S3 fault and its test
       - 'operator/nexus_operator/redact.py'
       - 'operator/nexus_operator/proposal.py'
       - 'operator/nexus_operator/catalogue.py'
@@ -31,6 +32,7 @@ on:
     branches: [main, dev]
     paths:
       - 'experiments/harness/**'
+      - 'experiments/faults/**'        # the committed S3 fault and its test
       - 'operator/nexus_operator/redact.py'
       - 'operator/nexus_operator/proposal.py'
       - 'operator/nexus_operator/catalogue.py'
