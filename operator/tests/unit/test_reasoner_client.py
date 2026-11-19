@@ -525,3 +525,20 @@ def test_a_502_with_the_excerpt_keeps_it():
     r = run(refuse, call)
     assert not r.ok and r.meta["promptTokensEstimate"] == 4100
     assert r.meta["logSelection"] == SELECTION
+
+
+def test_a_422_prompt_too_large_keeps_the_request_estimate():
+    """The request that was never sent: its estimate is the only record of its size."""
+
+    async def refuse(request, body):
+        meta = {"mode": "llm", "arm": "R3", "requestTokensEstimate": 7400}
+        return json_response(
+            {"error": "prompt_too_large", "detail": "x", "metadata": meta}, 422
+        )
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(refuse, call)
+    assert r.reason == "rejected" and r.meta["rejection"] == "prompt_too_large"
+    assert r.meta["requestTokensEstimate"] == 7400

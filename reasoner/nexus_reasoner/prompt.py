@@ -31,9 +31,7 @@ ERROR_PATTERN = re.compile(
     r"ERROR|WARN|Exception|Traceback|timeout|refused|OOMKilled|connection",
     re.IGNORECASE,
 )
-CHARS_PER_TOKEN = (
-    3.0  # cautious: the 2026-11-17 probe gave about 3 chars a token or more
-)
+CHARS_PER_TOKEN = 2.5  # measured: the 2026-11-19 S1 R3 prompt, 13,211 chars / 5,134 provider tokens = 2.57, rounded down
 PROMPT_BUDGET_TOKENS = 5_000  # what the excerpt aims for, prompt only
 REQUEST_GUARD_TOKENS = (
     7_000  # never sent above: prompt estimate + the output reservation

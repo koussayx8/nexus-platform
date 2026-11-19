@@ -38,15 +38,20 @@ On 2026-11-17 the first live R3 call after the User-Agent fix (#242) was refused
   cautious. The measured ratio is the rebuilt prompt's characters over 5,134
   (`experiments/calibration/prompt_ratio.py`, from the Incident's stored bundle and its chunks
   `rb-gray-failure#1`, `#2`). `CHARS_PER_TOKEN` becomes that ratio rounded down to one decimal.
-  **Pending:** the stored bundle needs the owner's Flight Recorder export (reading it needs the
-  database credentials); until then `CHARS_PER_TOKEN` stays 3.0.
+  **Measured** on the owner's export of the stored bundle (hash `sha256:094a9293…e6a6`, equal to the
+  Incident's `bundleHash`; 2 pods, 400 + 200 log lines, all access lines, 0 events): the rebuilt prompt
+  is **13,211 characters**, so **2.573 characters a token**. `CHARS_PER_TOKEN` is **2.5**. At 3.0 that
+  prompt was estimated at 4,405 tokens, level 0; the provider counted 5,134. At 2.5 the same bundle is
+  estimated at 5,285 tokens, so it gets level 1 (30 lines a pod).
+- The 422 `prompt_too_large` path's `requestTokensEstimate` is kept too (`status.reasoner`,
+  `proposals.usage`): it is the only record of a request that was never sent.
 - Effect on real-size bundles (200 access lines a pod, the three largest chunks; offline, prompt.plan()):
 
   | chars/token | 2 pods | 3 pods |
   | --- | --- | --- |
-  | 3.0 (today) | level 0, 40 lines a pod | level 1, 30 |
+  | 3.0 (until 2026-11-19) | level 0, 40 lines a pod | level 1, 30 |
   | 2.7 – 2.9 | level 0, 40 | level 2, 20 |
-  | 2.5 – 2.6 | level 1, 30 | level 2, 20 |
+  | **2.5 (measured)** – 2.6 | level 1, 30 | level 2, 20 |
   | 2.1 – 2.4 | level 1–2, 30–20 | level 3, 10 |
 
 - Still `prompt/v2`. Only the estimate changes, not the prompt's form; no measured run used v2

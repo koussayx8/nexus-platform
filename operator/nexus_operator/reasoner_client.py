@@ -159,7 +159,12 @@ def _error_excerpt(raw: str) -> dict:
     return _excerpt_meta(meta) if isinstance(meta, dict) else {}
 
 
-EXCERPT_KEYS = ("logSelection", "promptTrimLevel", "promptTokensEstimate")
+EXCERPT_KEYS = (
+    "logSelection",
+    "promptTrimLevel",
+    "promptTokensEstimate",
+    "requestTokensEstimate",  # the 422 prompt_too_large path: the request never sent
+)
 _SELECTION_COUNTS = ("lines", "kept_error_lines", "kept_recent_lines", "dropped")
 
 
@@ -174,7 +179,7 @@ def _excerpt_meta(meta: dict) -> dict:
     estimate and, per pod, the line counts kept and dropped. Counts are non-negative integers, a pod
     name a short string or null, at most 10 pods; anything else is dropped. {} when none is given."""
     out: dict = {}
-    for key in ("promptTrimLevel", "promptTokensEstimate"):
+    for key in ("promptTrimLevel", "promptTokensEstimate", "requestTokensEstimate"):
         v = _count(meta.get(key))
         if v is not None:
             out[key] = v
