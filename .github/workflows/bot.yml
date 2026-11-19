@@ -1,0 +1,47 @@
+name: bot
+
+# ADR-040 build checklist step 1, the offline half: ruff, mypy (strict) and pytest for the Telegram
+# bot. No secret, no network beyond pip; the image build, Cosign signing and digest-bump PR join
+# when the bot's manifests land.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths: ['bot/**', 'nexusctl/**', 'libs/nexus-client/**', '.github/workflows/bot.yml']
+  push:
+    branches: [main, dev]
+    paths: ['bot/**', 'nexusctl/**', 'libs/nexus-client/**', '.github/workflows/bot.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bot:
+    name: bot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install (the runner's Python 3.12)
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl -e bot
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: ruff
+        run: ruff check bot
+
+      - name: mypy (strict)
+        run: (cd bot && mypy nexus_bot tests)
+
+      - name: pytest
+        env:
+          KUBECONFIG: /nonexistent
+        run: (cd bot && pytest -q)
