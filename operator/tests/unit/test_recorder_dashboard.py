@@ -28,6 +28,12 @@ def queries():
 
 
 def to_plain_sql(sql: str) -> str:
+    # $__timeGroupAlias(col, $__interval): Grafana's time bucket, as a plain date_trunc (#257)
+    sql = re.sub(
+        r"\$__timeGroupAlias\(([^,]+),[^)]*\)",
+        "date_trunc('minute', \\1) AS \"time\"",
+        sql,
+    )
     sql = re.sub(r"\$__timeFilter\([^)]*\)", "true", sql)
     return sql.replace("${run}", "All")
 
