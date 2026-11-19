@@ -1,0 +1,22 @@
+# C8 configuration (ADR-041), for the bot's ConfigMap (bot/k8s/configmap.yaml, key revert.yaml, once
+# #252 merges). Values here are examples; machineAccount is the account the owner creates in the
+# token test (README).
+upstream: koussayx8/nexus-platform
+machineAccount: nexus-machine-example
+# fork: defaults to <machineAccount>/nexus-platform; must be owned by the machine account
+prMode: pull_request          # compare_link if the token test ends in outcome C
+fetchDepth: 50                # check 2: "on the tracked branch" means within the last 50 commits
+pollSeconds: 30
+mergeTimeoutHours: 24
+catchUpMinutes: 60            # after a restart, older Escalated Incidents are not attempted
+branches:                     # ADR-041 decision 5; any other namespace: no pull request
+  nexus-dev:
+    branch: experiment/dev-state
+    overlay: overlays/dev
+    application: sample-api-dev
+    exclude: [overlays/dev/namespace.yaml]   # check 4b: never revert an autonomy-level commit
+  # nexus-prod (cut first, TASKS.md Block 6; unused at L1):
+  #   branch: main
+  #   overlay: overlays/prod
+  #   application: sample-api-prod
+  #   exclude: [overlays/prod/namespace.yaml]
