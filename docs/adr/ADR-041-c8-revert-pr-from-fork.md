@@ -95,7 +95,8 @@ with one chat line naming the check.
 | 3 | The candidate has exactly one parent | Reverting a merge needs a chosen parent; refuse instead |
 | 4 | The candidate changes at least one file, and **every** file it changes is under the target's overlay path (A2) | A commit that also touches `platform/` or `.github/` would have those changes reverted too |
 | 4b | **Every** file it changes is a sample-api workload file of the overlay (`overlays/dev/kustomization.yaml`, `overlays/dev/sample-api*.yaml`; the set the S3 runner may commit), and none is `overlays/dev/namespace.yaml` (owner, 2026-11-19) | The Namespace holds `nexus.io/autonomy-level`, and the runner commits levels to it (`experiments/harness/runner.py:58-60`): without 4b, rule A1 or a named SHA could open a pull request that changes `nexus-dev`'s level |
-| 5 | `git revert --no-edit <sha>` applies without conflict, and the resulting diff is not empty | A commit already reverted, or changed since, is not reverted blindly |
+| 5 | `git revert --no-edit <sha>` applies without conflict, and the resulting diff is not empty |
+| 4c | If the revert changes `<overlay>/kustomization.yaml`: parsed as YAML at the branch tip and after the revert, **every key except `patches`** is identical; an unparsable or missing file is refused (owner, 2026-11-19) | 4b checks file names only, and that file's `resources` lists `namespace.yaml`: a revert could drop or restore the Namespace, or change `namespace`, `labels` or `images`, through an allowed file. Consequence: a commit that changes only the image digest is not revertible by C8 (escalation without a pull request) | A commit already reverted, or changed since, is not reverted blindly |
 | 6 | No open pull request from `<machine>:nexus/revert-*` targets that branch, and the working branch does not exist in the fork | Decision 11 |
 
 **Where the candidate comes from.** The frozen spec says the escalation names "the commit that introduced the
