@@ -35,10 +35,10 @@ credential and no public egress.
 | # | Check |
 |---|---|
 | 1 | a full 40-hex SHA |
-| 2 | in the upstream branch's last 50 commits (anonymous `fetch --depth 50`) and an ancestor of its tip |
+| 2 | recent: in the upstream branch's last 50 commits (anonymous `fetch --depth 50`), an ancestor of its tip, **and** committed within 24 h (`maxAgeHours`, committer date) |
 | 3 | exactly one parent (merges and the shallow boundary are refused) |
 | 4 | changes at least one file, **every** file under the overlay (A2; `overlays/dev-evil/` is outside) |
-| 4b | **not in ADR-041:** changes none of `exclude` (default `overlays/dev/namespace.yaml`, the autonomy level) |
+| 4b | every file is a sample-api workload file (`allow`: `overlays/dev/kustomization.yaml`, `overlays/dev/sample-api*.yaml`, same depth; the set the S3 runner allows) and none is in `exclude` (`overlays/dev/namespace.yaml`, the autonomy level). Owner, 2026-11-19; ADR-041 line in #237 |
 | 5 | `git revert --no-commit` applies without conflict and is not empty |
 | 6 | no open `nexus/revert-*` PR by the machine account on that branch, and the branch is new in the fork |
 
@@ -91,24 +91,27 @@ there inside a pipe.
 
    `201` = outcome A (the PR number is in `~/token-test-pr.json`). `403`/`404`/`422` = refused (ADR-041
    expects this for a fine-grained token: UNVERIFIED).
-5. **Negative checks, same token. Both must be refused; if either is not, stop: decision 3 is broken.**
-   Push to the upstream (expected: `403` / "Permission denied"):
+5. **Negative checks, same token. All three must hold; if one does not, stop: decision 3 is broken.**
+   No merge call is made at all.
+   - The token has no push right upstream: `permissions.push` must print `false`:
 
-   ```bash
-   git push https://github.com/koussayx8/nexus-platform.git HEAD:refs/heads/nexus/token-test
-   ```
+     ```bash
+     printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.nexus/github-test.token)" | curl -sS -K - -H 'Accept: application/vnd.github+json' https://api.github.com/repos/koussayx8/nexus-platform | python3 -c 'import json,sys; print(json.load(sys.stdin).get("permissions",{}).get("push"))'
+     ```
 
-   Merge the test PR (only if step 4 opened one; replace `N`). A deliberately wrong `sha` means that even
-   with the right, GitHub would answer `409` and merge nothing. `403`/`404` = refused (good);
-   `405`/`409` = the token **can** merge: stop. (That GitHub checks the right before the SHA is UNVERIFIED.)
+   - A push of a throwaway ref to the upstream is refused with `403` (still in step 3's directory, with
+     its `GIT_CONFIG_*` header set for all of github.com):
 
-   ```bash
-   printf 'header = "Authorization: Bearer %s"\n' "$(cat ~/.nexus/github-test.token)" | curl -sS -K - -o /dev/null -w '%{http_code}\n' -X PUT -H 'Accept: application/vnd.github+json' https://api.github.com/repos/koussayx8/nexus-platform/pulls/N/merge -d '{"sha":"0000000000000000000000000000000000000000"}'
-   ```
+     ```bash
+     git push https://github.com/koussayx8/nexus-platform.git HEAD:refs/heads/nexus/token-test-throwaway
+     ```
+
+     Expected: `The requested URL returned error: 403`. Anything else (above all, success): stop.
+   - Steps 3 and 4 succeeded for the **fork** push and the upstream PR (outcome A), or will in step 6.
 
 6. **Only if step 4 was refused: the classic token**, scope **`public_repo` only**. Save it over the
-   same file (step 2's command), then repeat steps 3 to 5. Expected: 3 and 4 accepted, 5 refused
-   (outcome B). If 4 is still refused: outcome C, `prMode: compare_link`.
+   same file (step 2's command), then repeat steps 3 to 5. Expected: 3 and 4 succeed, and step 5's
+   `permissions.push` is `false` and its upstream push gets `403` (outcome B). If 4 is still refused: outcome C, `prMode: compare_link`.
 7. **Clean up**: close the test PR in the browser (do not merge); delete `nexus/token-test` in the fork;
    `unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0`; revoke the token you will not use.
    Record the outcome (A, B or C) and the HTTP statuses of steps 4 and 5 in ADR-041.
