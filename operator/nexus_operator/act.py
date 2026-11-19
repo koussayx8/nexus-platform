@@ -58,7 +58,7 @@ from .metrics import (
 )
 from .model import iso, parse_time
 from .mutations import Mutations
-from .reasoner_client import ReasonerClient
+from .reasoner_client import EXCERPT_KEYS, ReasonerClient
 from .reasoner_client import Result as ReasonerResult
 from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
 from .redact import redact_bundle
@@ -177,7 +177,25 @@ def _call_usage(result: ReasonerResult) -> dict | None:
     usage = dict(result.meta.get("usage") or {})
     if result.latency_ms is not None:
         usage["latencyMs"] = result.latency_ms
+    usage.update(
+        _excerpt(result)
+    )  # what was sent, on the call's row (ADR-042 decision 6)
     return usage or None
+
+
+def _tokens(usage: dict | None) -> dict | None:
+    """status.reasoner.usage: the call's tokens and latency; the excerpt has its own keys."""
+    if usage is None:
+        return None
+    return {k: v for k, v in usage.items() if k not in EXCERPT_KEYS} or None
+
+
+def _excerpt(result: ReasonerResult | None) -> dict:
+    """logSelection, promptTrimLevel and promptTokensEstimate of one call, each when the Reasoner
+    gave it (the client has cleaned them); {} without a call."""
+    if result is None:
+        return {}
+    return {k: result.meta[k] for k in EXCERPT_KEYS if k in result.meta}
 
 
 def _level(status: dict) -> int:
@@ -449,7 +467,8 @@ class ActPath:
             "requestId": answer.request_id,
             "fallbackUsed": answer.fallback_used,
             "fallbackReason": answer.fallback_reason,
-            "usage": answer.usage,
+            "usage": _tokens(answer.usage),
+            **_excerpt(answer.result),  # also on a fallback: the call was made with it
         }
         return {k: v for k, v in status.items() if v is not None}
 

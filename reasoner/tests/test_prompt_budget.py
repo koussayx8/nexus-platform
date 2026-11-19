@@ -69,16 +69,17 @@ def excerpt_lines(user: str, key: str) -> list[str]:
 
 
 class Budget(unittest.TestCase):
-    def test_a_live_size_bundle_fits_the_budget_at_40_lines_a_pod(self):
+    def test_a_live_size_bundle_fits_the_budget_at_30_lines_a_pod(self):
+        # at the measured 2.5 chars a token (ADR-042 addendum) two full pods take level 1
         b = live_bundle()
         p = prompt.plan(b, largest_chunks(), "L3", "1")
-        self.assertEqual(p.level, 0)
+        self.assertEqual(p.level, 1)
         self.assertLessEqual(p.tokens_estimate, prompt.PROMPT_BUDGET_TOKENS)
         self.assertLessEqual(p.tokens_estimate + 1024, prompt.REQUEST_GUARD_TOKENS)
         self.assertEqual(
             p.selection["pods"],
             [
-                {"pod": pod, "lines": 200, "kept_error_lines": 0, "kept_recent_lines": 40, "dropped": 160}
+                {"pod": pod, "lines": 200, "kept_error_lines": 0, "kept_recent_lines": 30, "dropped": 170}
                 for pod in PODS
             ],
         )  # fmt: skip
@@ -185,10 +186,10 @@ class Budget(unittest.TestCase):
             for i in range(50)
         ]
         p = prompt.plan(b, [], "L3", "1")
-        last = excerpt_lines(p.user, "current")[39]
+        last = excerpt_lines(p.user, "current")[29]  # level 1: 30 lines a pod
         self.assertTrue(last.endswith(" [line cut]") and len(last) < 400)
         self.assertEqual(
-            (p.selection["eventsShown"], p.selection["eventsTotal"]), (20, 50)
+            (p.selection["eventsShown"], p.selection["eventsTotal"]), (15, 50)
         )
 
     def test_three_full_pods_of_long_error_lines_are_trimmed_and_recorded(self):
@@ -249,10 +250,10 @@ class Service(unittest.TestCase):
             sent[arm] = op.calls[0]["body"]["messages"]
             m = out["metadata"]
             self.assertEqual(m["promptVersion"], "prompt/v2")
-            self.assertEqual(m["promptTrimLevel"], 0)
+            self.assertEqual(m["promptTrimLevel"], 1)
             self.assertLessEqual(m["promptTokensEstimate"], prompt.PROMPT_BUDGET_TOKENS)
             self.assertEqual(
-                [s["dropped"] for s in m["logSelection"]["pods"]], [160, 160]
+                [s["dropped"] for s in m["logSelection"]["pods"]], [170, 170]
             )
         self.assertEqual(sent["R2"], sent["R3"])
 
