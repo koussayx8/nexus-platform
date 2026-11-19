@@ -1,12 +1,60 @@
 {
+ "envelope": {
+  "actions": [
+   "restart_workload",
+   "scale_deployment",
+   "escalate",
+   "no_action"
+  ],
+  "mutating": [
+   "restart_workload",
+   "scale_deployment"
+  ],
+  "namespaces": [
+   "nexus-dev"
+  ],
+  "replicas": {
+   "max": 5,
+   "max_step": 2,
+   "min": 1
+  }
+ },
  "scenarios": {
   "S1": {
+   "acceptable_actions": [
+    {
+     "action": "restart_workload"
+    }
+   ],
    "correct_action": {
     "action": "restart_workload"
    },
-   "fault_class": "gray_failure"
+   "expected_terminal": {
+    "L3": "Resolved"
+   },
+   "fault_class": "gray_failure",
+   "wrong_in_envelope": [
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      -2,
+      -1,
+      1,
+      2
+     ]
+    }
+   ]
   },
   "S2": {
+   "acceptable_actions": [
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      1,
+      2
+     ]
+    }
+   ],
    "correct_action": {
     "action": "scale_deployment",
     "replicas_delta": [
@@ -14,22 +62,91 @@
      2
     ]
    },
-   "fault_class": "cpu_saturation"
+   "expected_terminal": {
+    "L3": "Resolved"
+   },
+   "fault_class": "cpu_saturation",
+   "wrong_in_envelope": [
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      -2,
+      -1
+     ]
+    },
+    {
+     "action": "restart_workload"
+    }
+   ]
   },
   "S3": {
+   "acceptable_actions": [
+    {
+     "action": "escalate",
+     "recommendation": "git_revert"
+    }
+   ],
    "correct_action": {
     "action": "escalate",
     "recommendation": "git_revert"
    },
-   "fault_class": "bad_rollout"
+   "expected_terminal": {
+    "L3": "Escalated"
+   },
+   "fault_class": "bad_rollout",
+   "wrong_in_envelope": [
+    {
+     "action": "restart_workload"
+    },
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      -2,
+      -1,
+      1,
+      2
+     ]
+    }
+   ]
   },
   "S4": {
+   "acceptable_actions": [
+    {
+     "action": "no_action"
+    }
+   ],
    "correct_action": {
     "action": "no_action"
    },
-   "fault_class": "traffic_spike"
+   "expected_terminal": {
+    "L3": "Dismissed"
+   },
+   "fault_class": "traffic_spike",
+   "wrong_in_envelope": [
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      -2,
+      -1,
+      1,
+      2
+     ]
+    },
+    {
+     "action": "restart_workload"
+    }
+   ]
   },
   "S5": {
+   "acceptable_actions": [
+    {
+     "action": "escalate",
+     "recommendation": [
+      "dependency_investigation",
+      "investigate"
+     ]
+    }
+   ],
    "correct_action": {
     "action": "escalate",
     "recommendation": [
@@ -37,15 +154,54 @@
      "investigate"
     ]
    },
-   "fault_class": "dependency_failure"
+   "expected_terminal": {
+    "L3": "Escalated"
+   },
+   "fault_class": "dependency_failure",
+   "wrong_in_envelope": [
+    {
+     "action": "restart_workload"
+    },
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      -2,
+      -1,
+      1,
+      2
+     ]
+    }
+   ]
   },
   "S6": {
+   "acceptable_actions": [
+    {
+     "action": "no_action"
+    }
+   ],
    "correct_action": {
     "action": "no_action"
    },
-   "fault_class": "traffic_spike"
+   "expected_terminal": {
+    "L3": "Dismissed"
+   },
+   "fault_class": "traffic_spike",
+   "wrong_in_envelope": [
+    {
+     "action": "scale_deployment",
+     "replicas_delta": [
+      -2,
+      -1,
+      1,
+      2
+     ]
+    },
+    {
+     "action": "restart_workload"
+    }
+   ]
   }
  },
- "schema": "ground-truth/v1",
+ "schema": "ground-truth/v2",
  "version": "fixture"
 }

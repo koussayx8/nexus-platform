@@ -1,6 +1,15 @@
 {
  "fixture": true,
  "injection_at": "2027-01-06T13:05:00+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [],
+  "gate_decisions": [],
+  "incidents": [],
+  "proposals": [],
+  "transitions": [],
+  "verifications": []
+ },
  "queue_record": {
   "advisory_checks": "on",
   "approval_ref": "G16/fixture#approval-0",
@@ -12,6 +21,11 @@
   "discard_reason": null,
   "ended_at": "2027-01-06T13:20:00+00:00",
   "fallbackUsed": false,
+  "incident": {
+   "reason": "bounds_exceeded",
+   "uid": "uid-27"
+  },
+  "injection_at": "2027-01-06T13:05:00+00:00",
   "no_fault": {
    "alerts": [],
    "end": "2027-01-06T13:05:00+00:00",
@@ -51,7 +65,7 @@
   "discarded": false,
   "ended_at": "2027-01-06T13:20:00+00:00",
   "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
-  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+  "ground_truth_hash": "0229c9ae6db995b4c1a94e47c289f3f3031658379c277e1869eb088039422a76",
   "level": 3,
   "reasoner": "R3",
   "repetition": 2,
@@ -59,5 +73,40 @@
   "scenario": "S6",
   "started_at": "2027-01-06T13:00:00+00:00"
  },
- "schema": "run-export/v1"
+ "schema": "run-export/v2",
+ "score": {
+  "containment_violations": 0,
+  "correct_action": false,
+  "excluded": null,
+  "failed_fix": false,
+  "fallback": null,
+  "followed": null,
+  "frozen_mismatches": [
+   "index_hash: None",
+   "model_id: 'fixture'",
+   "prompt_version: None"
+  ],
+  "mutations": [],
+  "proposal_classes": [
+   "out_of_envelope"
+  ],
+  "rate_end": null,
+  "rate_low": false,
+  "refused": {
+   "safety_gate": 1
+  },
+  "resolved": false,
+  "revert_pr_unneeded": false,
+  "terminal": "Blocked",
+  "timed_out": false,
+  "times": {
+   "act_s": null,
+   "detect_s": 76.0,
+   "diagnose_s": 10.0,
+   "gate_s": null,
+   "total_s": null,
+   "verify_s": null
+  },
+  "wrong_action": false
+ }
 }
