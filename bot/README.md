@@ -9,7 +9,7 @@ write exactly as they decide a `nexusctl approve`.
 | --- | --- |
 | Long polling (`getUpdates`, 50 s), `deleteWebhook` at start, no inbound socket | built |
 | Sender check: allowlisted numeric user ID, private chat only, `chat.id == from.id` | built |
-| Pushes for `AwaitingApproval`, `Escalated`, `Resolved`, `Blocked` (one per Incident and phase) | built |
+| Pushes for `AwaitingApproval`, `Escalated`, `Resolved`, `Blocked` (one per Incident and phase; after a restart, every pending `AwaitingApproval` again, older news only within `catchUpMinutes`; the rest is in `/status`) | built |
 | Buttons Approve, Reject, Explain (payload `<a\|r\|e>:<uid16>:<hash32>`, 51 bytes) | built |
 | `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>` | built, read-only |
 | Note, `/ask` | Block 8 (a Note press answers "not available") |
@@ -38,7 +38,7 @@ allowlist:            # Telegram numeric user ID -> the approver username impers
 approverGroup: nexus-approvers
 namespaces: [nexus-dev, nexus-prod]   # what /pods and /status may read; no other value is accepted
 pollSeconds: 10                        # Incident scan interval for pushes
-catchUpMinutes: 15                     # on start, phases entered longer ago than this are not pushed
+catchUpMinutes: 15                     # on start, Escalated/Resolved/Blocked entered longer ago are not pushed
 ```
 
 The token is read from `/var/run/secrets/nexus-bot/telegram/token` (`NEXUS_BOT_TOKEN_FILE`), a Secret
@@ -52,14 +52,22 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
    replies with the token: copy it, do not paste it into a chat, a file in the repository or a terminal
    command line. Then `/setjoingroups` → **Disable** (the bot refuses groups anyway; this stops the invite).
 3. **Store the token as a Secret, outside Git**, once the `nexus-bot` namespace exists (a cluster write:
-   it needs your approval for the Block 7 live step). Typed at a prompt, so the value is in no argv and
-   no shell history:
+   it needs your approval for the Block 7 live step). `read -rs` takes the token at a silent prompt, so it
+   never lands in shell history or in any process's argv (only `printf`, a shell builtin, holds it, and
+   kubectl reads it from stdin):
 
    ```bash
-   read -rs -p 'Telegram bot token: ' T && printf '%s' "$T" | kubectl --context default -n nexus-bot create secret generic nexus-bot-telegram --from-file=token=/dev/stdin; unset T
+   read -rs -p 'Telegram bot token: ' T && echo && printf '%s' "$T" | kubectl --context default -n nexus-bot create secret generic nexus-bot-telegram --from-file=token=/dev/stdin; unset T
    ```
 
-   UNVERIFIED: `--from-file=…=/dev/stdin` on this kubectl version; ADR-040 step 8 replaces this line with
+   Then check it by printing **only its length** (a bot token is about 46 characters), never its value:
+
+   ```bash
+   kubectl --context default -n nexus-bot get secret nexus-bot-telegram -o jsonpath='{.data.token}' | base64 -d | wc -c
+   ```
+
+   `--from-file=…=/dev/stdin` works with kubectl on Linux; test it once with a dummy value first (then
+   `kubectl delete secret` it and create the real one). ADR-040 step 8 later replaces this with
    `scripts/nexus-bot-secrets.sh` (create if absent, value never in argv or output). Rotate the token in
    BotFather (`/revoke`) if it ever leaks; the bot calls `deleteWebhook` at every start.
 4. **Find your numeric user ID** without a third-party bot: start the bot with any allowlist, send it
