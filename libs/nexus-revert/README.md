@@ -40,7 +40,7 @@ credential and no public egress.
 | 4 | changes at least one file, **every** file under the overlay (A2; `overlays/dev-evil/` is outside) |
 | 4b | every file is a sample-api workload file (`allow`: `overlays/dev/kustomization.yaml`, `overlays/dev/sample-api*.yaml`, same depth; the set the S3 runner allows) and none is in `exclude` (`overlays/dev/namespace.yaml`, the autonomy level). Owner, 2026-11-19; ADR-041 line in #237 |
 | 5 | `git revert --no-commit` applies without conflict and is not empty |
-| 4c | if the revert changes `<overlay>/kustomization.yaml`: parsed as YAML before and after the revert, every key except `patches` is identical (`resources` — which lists the Namespace —, `namespace`, `labels`, `images`, …); an unparsable or missing file is refused. Checked after the revert is staged (owner, 2026-11-19) |
+| 4c | if the revert changes `<overlay>/kustomization.yaml`: parsed as YAML before and after the revert, every key except `patches` is identical (`resources` — which lists the Namespace —, `namespace`, `labels`, …), except that in `images` the one entry named by the branch's `image` (sample-api) may differ in `newName`, `newTag` or `digest`; any other `images` entry or field still refuses. An unparsable or missing file is refused. Checked after the revert is staged (owner, 2026-11-19) |
 | 6 | no open `nexus/revert-*` PR by the machine account on that branch, and the branch is new in the fork |
 
 4. **Revert**: fixed message `revert(<overlay>): revert <sha>` / `This reverts commit <sha>.`; author =

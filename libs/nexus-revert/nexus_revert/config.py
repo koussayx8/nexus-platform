@@ -19,6 +19,7 @@ _REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}")
 _LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,99}")
 _PATH = re.compile(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*")
+_IMAGE = re.compile(r"[a-z0-9][a-z0-9._:/-]{0,254}")
 _GLOB = re.compile(r"[A-Za-z0-9._*-]+(?:/[A-Za-z0-9._*-]+)*")
 _NAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 _EMAIL = re.compile(r"[^\s@<>]+@[^\s@<>]+")
@@ -38,6 +39,8 @@ class Target:
     # be in `exclude` (the Namespace and its autonomy level). Empty `allow` admits nothing.
     allow: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
+    # check 4c: the one `images` entry (by name) whose newName/newTag/digest a revert may change
+    image: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,9 +86,12 @@ def _target(ns: str, raw: Any) -> Target:
         raise ConfigError(f"branches.{ns}.allow must list the workload files a revert may touch")
     if any(not p.startswith(overlay + "/") for p in exclude + allow):
         raise ConfigError(f"branches.{ns}.allow and exclude entries must be under the overlay")
+    image = raw.get("image")
+    if image is not None:
+        image = _check(_IMAGE, image, f"branches.{ns}.image")
     return Target(branch=_check(_BRANCH, raw.get("branch"), f"branches.{ns}.branch"), overlay=overlay,
                   application=_check(_NAME, raw.get("application"), f"branches.{ns}.application"),
-                  allow=allow, exclude=exclude)
+                  allow=allow, exclude=exclude, image=image)
 
 
 def parse(data: Any, token: str) -> Config:

@@ -24,11 +24,14 @@ resources:
 images:
   - name: ghcr.io/koussayx8/nexus-platform/sample-api
     digest: sha256:1111
+  - name: docker.io/library/busybox
+    newTag: "1.36"
 patches:
   - target: {kind: Deployment, name: sample-api}
     patch: |-
       readiness: ok
 """
+SAMPLE_API = "ghcr.io/koussayx8/nexus-platform/sample-api"
 COMMIT_DATE = "2026-12-01T09:30:00+00:00"  # half an hour before the tests' NOW
 
 
@@ -83,7 +86,8 @@ class Repos:
             "machineAccount": MACHINE, "upstream": UPSTREAM, "prMode": "pull_request", "fetchDepth": 50,
             "branches": {"nexus-dev": {"branch": BRANCH, "overlay": "overlays/dev", "application": "sample-api-dev",
                                        "allow": ["overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml"],
-                                       "exclude": ["overlays/dev/namespace.yaml"]}},
+                                       "exclude": ["overlays/dev/namespace.yaml"],
+                                       "image": SAMPLE_API}},
         } | over
         cfg = parse(data, TOKEN)
         return Config(**{**cfg.__dict__, "git_base": self.root.as_uri()})

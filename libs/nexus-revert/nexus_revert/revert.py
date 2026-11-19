@@ -22,7 +22,8 @@ from .trigger import Request
 SHA = re.compile(r"[0-9a-f]{40}")
 BRANCH_PREFIX = "nexus/revert-"
 KUSTOMIZATION = "kustomization.yaml"
-MUTABLE_KEYS = frozenset({"patches"})  # check 4c: the only kustomization key a revert may change
+MUTABLE_KEYS = frozenset({"patches"})  # check 4c: the only kustomization key a revert may change freely
+IMAGE_FIELDS = frozenset({"name", "newName", "newTag", "digest"})  # the fields of the one images entry
 
 
 def _kustomization(git: Git, rev: str, path: str) -> dict[str, Any] | None:
@@ -37,12 +38,34 @@ def _kustomization(git: Git, rev: str, path: str) -> dict[str, Any] | None:
     return doc if isinstance(doc, dict) else None
 
 
-def kustomization_change(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[str]:
-    """The keys other than `patches` that differ (resources, namespace, labels, images, ...)."""
+def _images_ok(before: object, after: object, image: str | None) -> bool:
+    """`images` may differ only in the entry named `image`, and only in newName, newTag or digest:
+    every other entry is identical and in the same order, and that entry exists once on each side
+    with no field outside IMAGE_FIELDS."""
+    if image is None or not isinstance(before, list) or not isinstance(after, list):
+        return False
+
+    def split(entries: list[Any]) -> tuple[list[Any], list[Any]]:
+        mine = [e for e in entries if isinstance(e, dict) and e.get("name") == image]
+        return mine, [e for e in entries if not (isinstance(e, dict) and e.get("name") == image)]
+
+    (b_mine, b_rest), (a_mine, a_rest) = split(before), split(after)
+    if b_rest != a_rest or len(b_mine) != 1 or len(a_mine) != 1:
+        return False
+    return set(b_mine[0]) <= IMAGE_FIELDS and set(a_mine[0]) <= IMAGE_FIELDS
+
+
+def kustomization_change(before: dict[str, Any] | None, after: dict[str, Any] | None,
+                         image: str | None = None) -> list[str]:
+    """The keys other than `patches` that differ (resources, namespace, labels, ...); `images` only
+    when the difference is outside the `image` entry's newName/newTag/digest."""
     if before is None or after is None:
         return ["<the whole file>"]
     keys = (set(before) | set(after)) - MUTABLE_KEYS
-    return sorted(k for k in keys if before.get(k) != after.get(k))
+    changed = [k for k in keys if before.get(k) != after.get(k)]
+    if "images" in changed and _images_ok(before.get("images"), after.get("images"), image):
+        changed.remove("images")
+    return sorted(changed)
 
 
 @dataclass(frozen=True)
@@ -134,7 +157,8 @@ def prepare(req: Request, cfg: Config, git: Git, gh: GitHub, now: datetime) -> P
         # and after the revert: resources (which lists the Namespace), namespace, labels, images...
         kpath = f"{t.overlay}/{KUSTOMIZATION}"
         if kpath in files:
-            changed = kustomization_change(_kustomization(git, tip, kpath), _kustomization(git, "", kpath))
+            changed = kustomization_change(_kustomization(git, tip, kpath), _kustomization(git, "", kpath),
+                                           t.image)
             if changed:
                 git(["revert", "--abort"], check=False)
                 return Refusal("4c", f"reverting {cand} would change {kpath} beyond patches: "

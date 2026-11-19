@@ -135,7 +135,10 @@ def test_check4b_and_4c_a_patches_only_change_is_reverted(repos: Repos) -> None:
 @pytest.mark.parametrize("edit, key", [
     (lambda k: k.replace("  - namespace.yaml\n", ""), "resources"),          # drops the Namespace
     (lambda k: k.replace("namespace: nexus-dev", "namespace: nexus-prod"), "namespace"),
-    (lambda k: k.replace("sha256:1111", "sha256:2222"), "images"),
+    (lambda k: k.replace('newTag: "1.36"', 'newTag: "1.37"'), "images"),        # another image
+    (lambda k: k.replace("    digest: sha256:1111\n", "    digest: sha256:1111\n    newDigest: x\n"), "images"),
+    (lambda k: k.replace("  - name: ghcr.io/koussayx8/nexus-platform/sample-api\n    digest: sha256:1111\n", ""),
+     "images"),                                                                  # entry removed
     (lambda k: k + "labels:\n  - pairs: {nexus.io/autonomy-level: '3'}\n", "labels"),
 ])
 def test_check4c_any_key_but_patches_is_refused(repos: Repos, edit: Any, key: str) -> None:
@@ -143,6 +146,34 @@ def test_check4c_any_key_but_patches_is_refused(repos: Repos, edit: Any, key: st
     p, _ = run(repos, incident(c))
     assert isinstance(p, Refusal) and p.check == "4c" and key in p.text
     assert repos.fork_branches() == []
+
+
+@pytest.mark.parametrize("edit", [
+    lambda k: k.replace("sha256:1111", "sha256:2222"),                                   # digest
+    lambda k: k.replace("    digest: sha256:1111\n", "    digest: sha256:1111\n    newTag: \"0.3.2\"\n"),
+    lambda k: k.replace("    digest: sha256:1111\n", "    newName: ghcr.io/koussayx8/nexus-platform/sample-api-rc\n"
+                                                    "    digest: sha256:2222\n"),
+])
+def test_check4c_a_sample_api_image_change_is_reverted(repos: Repos, edit: Any) -> None:
+    c = repos.commit("feat: sample-api bad build", {"overlays/dev/kustomization.yaml": edit(KUSTOMIZATION)})
+    p, work = run(repos, incident(c))
+    assert isinstance(p, Prepared)
+    assert sh(work, "show", f"{p.revert_commit}:overlays/dev/kustomization.yaml") == KUSTOMIZATION.rstrip("\n")
+
+
+def test_check4c_sample_api_image_plus_another_image_is_refused(repos: Repos) -> None:
+    k = KUSTOMIZATION.replace("sha256:1111", "sha256:2222").replace('newTag: "1.36"', 'newTag: "1.37"')
+    c = repos.commit("chore: two images", {"overlays/dev/kustomization.yaml": k})
+    p, _ = run(repos, incident(c))
+    assert isinstance(p, Refusal) and p.check == "4c" and "images" in p.text
+
+
+def test_check4c_without_a_configured_image_any_images_change_is_refused(repos: Repos) -> None:
+    c = repos.commit("feat: digest", {"overlays/dev/kustomization.yaml": KUSTOMIZATION.replace("sha256:1111", "sha256:2222")})
+    branches = {"nexus-dev": {"branch": BRANCH, "overlay": "overlays/dev", "application": "sample-api-dev",
+                              "allow": ["overlays/dev/kustomization.yaml"], "exclude": ["overlays/dev/namespace.yaml"]}}
+    p, _ = run(repos, incident(c), branches=branches)
+    assert isinstance(p, Refusal) and p.check == "4c" and "images" in p.text
 
 
 def test_check4c_resources_edit_mixed_with_patches_is_refused(repos: Repos) -> None:

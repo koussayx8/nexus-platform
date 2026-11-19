@@ -19,6 +19,7 @@ branches:                     # ADR-041 decision 5; any other namespace: no pull
     # S3_ALLOWED), never the Namespace and its autonomy level
     allow: [overlays/dev/kustomization.yaml, overlays/dev/sample-api*.yaml]
     exclude: [overlays/dev/namespace.yaml]
+    image: ghcr.io/koussayx8/nexus-platform/sample-api   # check 4c: its newName/newTag/digest may be reverted
   # nexus-prod (cut first, TASKS.md Block 6; unused at L1):
   #   branch: main
   #   overlay: overlays/prod

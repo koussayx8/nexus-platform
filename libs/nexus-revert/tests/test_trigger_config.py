@@ -69,3 +69,4 @@ def test_shipped_example_parses(tmp_path: Path) -> None:
     assert cfg.branches["nexus-dev"].exclude == ("overlays/dev/namespace.yaml",)
     assert cfg.branches["nexus-dev"].allow == ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
     assert cfg.max_age_hours == 24
+    assert cfg.branches["nexus-dev"].image == "ghcr.io/koussayx8/nexus-platform/sample-api"
