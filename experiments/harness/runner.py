@@ -31,6 +31,7 @@ the tests run the plans against a fake `exec`.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import pathlib
 import re
@@ -58,6 +59,10 @@ LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
+# The files an S3 patch may touch: the sample-api workload files in overlays/dev/, never LEVEL_FILE.
+# The same set is C8's allow-list (libs/nexus-revert, check 4b): a revert of an S3 commit stays inside it.
+S3_ALLOWED = ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
+S3_PATCH = "experiments/faults/s3-bad-rollout.patch"  # the committed S3 fault
 APP_PORT = 8000
 # Locust's master answers /stop only when its user count is 0, and waits for its workers up to
 # stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
@@ -77,6 +82,40 @@ S5_ROLES = {
     "nexus-dev": "app_dev",
     "nexus-prod": "app_prod",
 }  # each namespace's own DB role
+
+
+def s3_patch_files(path: str) -> list[str]:
+    """The files an S3 patch touches, read from its `diff --git` headers. Refuses a patch that names
+    none, touches a file outside S3_ALLOWED (LEVEL_FILE in particular), or renames or copies one."""
+    try:
+        text = pathlib.Path(path).read_text()
+    except OSError as e:
+        raise ValueError(f"cannot read the S3 patch {path}: {e.strerror}") from None
+    files: list[str] = []
+    for line in text.splitlines():
+        if line.startswith(("rename ", "copy ")):
+            raise ValueError("the S3 patch may not rename or copy files")
+        m = re.fullmatch(r"diff --git a/(\S+) b/(\S+)", line)
+        if m:
+            if m[1] != m[2]:
+                raise ValueError("the S3 patch may not rename files")
+            files.append(m[1])
+    if not files:
+        raise ValueError(f"the S3 patch {path} names no file")
+    bad = [
+        f
+        for f in files
+        if f == LEVEL_FILE
+        or not any(
+            fnmatch.fnmatchcase(f, a) and f.count("/") == a.count("/")
+            for a in S3_ALLOWED
+        )
+    ]
+    if bad:
+        raise ValueError(
+            f"the S3 patch touches {', '.join(bad)}: only {', '.join(S3_ALLOWED)} are allowed"
+        )
+    return sorted(set(files))
 
 
 def s5_sql(namespace: str) -> str:
@@ -284,11 +323,14 @@ class Runner:
         if sc == "S3":
             if not (self.git_dir and s3_patch):
                 raise ValueError("S3 needs --git-dir and --s3-patch")
+            # git runs in git_dir, so a relative patch path is read from there too
+            patch = str(pathlib.Path(self.git_dir) / s3_patch)
+            files = s3_patch_files(patch)
             return [
+                Step(("git", "apply", patch), True, "S3 bad config (fails readiness)"),
                 Step(
-                    ("git", "apply", s3_patch), True, "S3 bad config (fails readiness)"
+                    ("git", "add", "--", *files), True, "only the files the patch names"
                 ),
-                Step(("git", "add", "-A"), True),
                 Step(
                     ("git", "commit", "-m", "chore(exp): inject S3 bad rollout"), True
                 ),
@@ -556,7 +598,9 @@ def main(argv=None):
         "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
     )
     ap.add_argument("--git-dir")
-    ap.add_argument("--s3-patch")
+    ap.add_argument(
+        "--s3-patch", help=f"the S3 patch, relative to --git-dir ({S3_PATCH})"
+    )
     ap.add_argument("--baseline-ref")
     ap.add_argument(
         "--execute", action="store_true", help="actually run the steps (mode run only)"

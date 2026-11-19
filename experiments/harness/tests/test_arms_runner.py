@@ -3,11 +3,14 @@
 import contextlib
 import io
 import json
+import pathlib
 import unittest
 import urllib.parse
 from unittest import mock
 
 from .. import arms, runner
+
+PATCH = str(pathlib.Path(__file__).resolve().parents[3] / runner.S3_PATCH)
 
 
 class ArmsTest(unittest.TestCase):
@@ -111,9 +114,14 @@ class RunnerTest(unittest.TestCase):
 
     def test_s3_is_a_forward_push_only(self):
         r, _ = self.runner(git_dir="/g")
-        steps = r.plan_inject("S3", s3_patch="p.diff")
+        steps = r.plan_inject("S3", s3_patch=PATCH)
         flat = [" ".join(s.argv) for s in steps]
         self.assertEqual(flat[-1], "git push origin HEAD:experiment/dev-state")
+        # only the files the patch names are staged, never everything in the work tree
+        self.assertIn("git add -- overlays/dev/kustomization.yaml", flat)
+        self.assertFalse(
+            any(f.startswith("git add -A") or f == "git add ." for f in flat)
+        )
         self.assertFalse(any("force" in f or " -f" in f for f in flat))
         with self.assertRaises(ValueError):
             self.runner()[0].plan_inject("S3")
@@ -378,7 +386,7 @@ class ProdTargetTest(unittest.TestCase):
                 r.plan_inject(sc, users=5)
         r, _ = self.runner("0")
         with self.assertRaises(ValueError):
-            r.plan_inject("S3", s3_patch="p.diff")
+            r.plan_inject("S3", s3_patch=PATCH)
 
     def test_s5_alters_the_namespaces_own_role_only(self):
         for ns, level, role, other in (
