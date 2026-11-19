@@ -35,8 +35,10 @@ class Config:
 
 
 def _allowlist(raw: Any) -> dict[int, str]:
-    if not isinstance(raw, dict) or not raw:
-        raise ConfigError("allowlist must map at least one Telegram user ID to an approver username")
+    # Empty is valid: the bot then drops every update and logs only its IDs, which is how the owner
+    # finds their numeric user ID (README owner step 4). Missing is a mistake, and refused.
+    if not isinstance(raw, dict):
+        raise ConfigError("allowlist must map Telegram user IDs to approver usernames ({} for none)")
     out: dict[int, str] = {}
     for key, user in raw.items():
         text = str(key)

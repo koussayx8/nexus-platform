@@ -9,6 +9,22 @@ from nexus_bot.config import ConfigError, load, parse
 TOKEN = "123456789:" + "B" * 35
 
 
+def test_empty_allowlist_is_valid_and_admits_nobody() -> None:
+    from nexus_bot.auth import sender_of
+    from tests.fakes import message
+
+    cfg = parse({"allowlist": {}}, TOKEN)
+    assert cfg.allowlist == {} and sender_of(message("/status"), cfg.allowlist) is None
+
+
+def test_shipped_configmap_parses() -> None:
+    import yaml
+
+    cm = yaml.safe_load((Path(__file__).parents[1] / "k8s" / "configmap.yaml").read_text())
+    cfg = parse(yaml.safe_load(cm["data"]["config.yaml"]), TOKEN)
+    assert cfg.allowlist == {} and cfg.namespaces == ("nexus-dev", "nexus-prod")
+
+
 def test_parse_minimal() -> None:
     cfg = parse({"allowlist": {"424242": "koussay-approver"}}, TOKEN)
     assert cfg.allowlist == {424242: "koussay-approver"} and cfg.namespaces == ("nexus-dev", "nexus-prod")
@@ -16,7 +32,7 @@ def test_parse_minimal() -> None:
 
 
 @pytest.mark.parametrize("data", [
-    {}, {"allowlist": {}}, {"allowlist": {"abc": "koussay-approver"}}, {"allowlist": {"-5": "x"}},
+    {}, {"allowlist": None}, {"allowlist": []}, {"allowlist": {"abc": "koussay-approver"}}, {"allowlist": {"-5": "x"}},
     {"allowlist": {"1": "Not Valid"}}, {"allowlist": {"1": "a"}, "namespaces": ["kube-system"]},
     {"allowlist": {"1": "a"}, "pollSeconds": 0}, {"allowlist": {"1": "a"}, "approverGroup": "system:masters"},
     [],
