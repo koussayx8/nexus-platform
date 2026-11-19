@@ -35,7 +35,7 @@ def service(repos: Repos, gh: FakeGitHub, *items: dict[str, Any], **over: Any) -
 
 
 def test_opens_one_ready_pull_request_and_never_merges(repos: Repos) -> None:
-    bad = repos.commit("feat: S3", {"overlays/dev/patch.yaml": "readiness: broken\n"})
+    bad = repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     svc, notes = service(repos, gh, incident(bad))
     [o] = svc.tick()
@@ -53,7 +53,7 @@ def test_opens_one_ready_pull_request_and_never_merges(repos: Repos) -> None:
 
 
 def test_a1_pull_request_says_so(repos: Repos) -> None:
-    repos.commit("feat: S3", {"overlays/dev/patch.yaml": "readiness: broken\n"})
+    repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     svc, _ = service(repos, gh, incident())
     [o] = svc.tick()
@@ -62,7 +62,7 @@ def test_a1_pull_request_says_so(repos: Repos) -> None:
 
 
 def test_second_incident_on_the_same_branch_opens_no_second_pull_request(repos: Repos) -> None:
-    repos.commit("feat: S3", {"overlays/dev/patch.yaml": "readiness: broken\n"})
+    repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     svc, _ = service(repos, gh, incident(), incident(name="inc-ffff0000-1764585700"))
     first, second = svc.tick()
@@ -90,7 +90,8 @@ def test_other_incidents_trigger_nothing(repos: Repos, inc: dict[str, Any]) -> N
 
 def test_main_mapping_is_config_only(repos: Repos) -> None:
     gh = FakeGitHub(repos)
-    branches = {"nexus-prod": {"branch": "main", "overlay": "overlays/prod", "application": "sample-api-prod"}}
+    branches = {"nexus-prod": {"branch": "main", "overlay": "overlays/prod", "application": "sample-api-prod",
+                               "allow": ["overlays/prod/kustomization.yaml"]}}
     svc, _ = service(repos, gh, incident(ns="nexus-prod"), branches=branches)
     [o] = svc.tick()
     assert "check" in o.text  # attempted against main (and refused here: the fixture main is empty)
@@ -104,7 +105,7 @@ def test_old_incident_after_a_restart_is_not_attempted(repos: Repos) -> None:
 
 
 def test_compare_link_mode_outcome_c(repos: Repos) -> None:
-    repos.commit("feat: S3", {"overlays/dev/patch.yaml": "readiness: broken\n"})
+    repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     svc, _ = service(repos, gh, incident(), prMode="compare_link")
     [o] = svc.tick()
@@ -113,7 +114,7 @@ def test_compare_link_mode_outcome_c(repos: Repos) -> None:
 
 
 def test_refused_pull_request_falls_back_to_the_link(repos: Repos) -> None:
-    repos.commit("feat: S3", {"overlays/dev/patch.yaml": "readiness: broken\n"})
+    repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     gh.create_error = GitHubError("POST /repos/x/pulls: HTTP 403 Resource not accessible", 403)
     svc, _ = service(repos, gh, incident())
@@ -122,7 +123,7 @@ def test_refused_pull_request_falls_back_to_the_link(repos: Repos) -> None:
 
 
 def test_merge_is_recognised_after_the_owner_merges(repos: Repos) -> None:
-    repos.commit("feat: S3", {"overlays/dev/patch.yaml": "readiness: broken\n"})
+    repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     svc, notes = service(repos, gh, incident())
     svc.tick()

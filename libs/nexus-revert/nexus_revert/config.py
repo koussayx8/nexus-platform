@@ -19,6 +19,7 @@ _REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}")
 _LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,99}")
 _PATH = re.compile(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*")
+_GLOB = re.compile(r"[A-Za-z0-9._*-]+(?:/[A-Za-z0-9._*-]+)*")
 _NAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 _EMAIL = re.compile(r"[^\s@<>]+@[^\s@<>]+")
 MODES = ("pull_request", "compare_link")
@@ -33,7 +34,10 @@ class Target:
     branch: str  # the branch the namespace's Argo CD application tracks
     overlay: str  # the application's path; every file a reverted commit changes must be under it
     application: str
-    exclude: tuple[str, ...] = ()  # files a revert must never touch (the Namespace's level label)
+    # check 4b: every changed file must match one of `allow` (fnmatch, same path depth), and none may
+    # be in `exclude` (the Namespace and its autonomy level). Empty `allow` admits nothing.
+    allow: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,7 @@ class Config:
     branches: dict[str, Target]
     mode: str = "pull_request"
     fetch_depth: int = 50
+    max_age_hours: float = 24
     poll_seconds: float = 30
     merge_timeout_hours: float = 24
     catch_up_minutes: float = 60
@@ -73,11 +78,14 @@ def _target(ns: str, raw: Any) -> Target:
         raise ConfigError(f"branches.{ns} must be a mapping")
     overlay = _check(_PATH, raw.get("overlay"), f"branches.{ns}.overlay")
     exclude = tuple(_check(_PATH, p, f"branches.{ns}.exclude") for p in raw.get("exclude") or [])
-    if any(not p.startswith(overlay + "/") for p in exclude):
-        raise ConfigError(f"branches.{ns}.exclude entries must be under the overlay")
+    allow = tuple(_check(_GLOB, p, f"branches.{ns}.allow") for p in raw.get("allow") or [])
+    if not allow:
+        raise ConfigError(f"branches.{ns}.allow must list the workload files a revert may touch")
+    if any(not p.startswith(overlay + "/") for p in exclude + allow):
+        raise ConfigError(f"branches.{ns}.allow and exclude entries must be under the overlay")
     return Target(branch=_check(_BRANCH, raw.get("branch"), f"branches.{ns}.branch"), overlay=overlay,
                   application=_check(_NAME, raw.get("application"), f"branches.{ns}.application"),
-                  exclude=exclude)
+                  allow=allow, exclude=exclude)
 
 
 def parse(data: Any, token: str) -> Config:
@@ -102,6 +110,9 @@ def parse(data: Any, token: str) -> Config:
     depth = int(data.get("fetchDepth", 50))
     if not 2 <= depth <= 200:
         raise ConfigError("fetchDepth must be between 2 and 200")
+    max_age = float(data.get("maxAgeHours", 24))
+    if not 1 <= max_age <= 168:
+        raise ConfigError("maxAgeHours must be between 1 and 168")
     author = data.get("gitAuthor") or {}
     name = author.get("name", "nexus-revert")
     email = author.get("email", f"{machine}@users.noreply.github.com")
@@ -110,7 +121,7 @@ def parse(data: Any, token: str) -> Config:
     if not isinstance(email, str) or not _EMAIL.fullmatch(email):
         raise ConfigError("gitAuthor.email is not valid")
     return Config(upstream=upstream, machine=machine, fork=fork, branches=branches, mode=mode,
-                  fetch_depth=depth, poll_seconds=float(data.get("pollSeconds", 30)),
+                  fetch_depth=depth, max_age_hours=max_age, poll_seconds=float(data.get("pollSeconds", 30)),
                   merge_timeout_hours=float(data.get("mergeTimeoutHours", 24)),
                   catch_up_minutes=float(data.get("catchUpMinutes", 60)),
                   author_name=name, author_email=email, token=token)

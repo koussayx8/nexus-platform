@@ -7,7 +7,8 @@ from nexus_revert.trigger import request_for
 from tests.fixtures import MACHINE, TOKEN, incident
 
 CFG = parse({"machineAccount": MACHINE, "branches": {"nexus-dev": {
-    "branch": "experiment/dev-state", "overlay": "overlays/dev", "application": "sample-api-dev"}}}, TOKEN)
+    "branch": "experiment/dev-state", "overlay": "overlays/dev", "application": "sample-api-dev",
+    "allow": ["overlays/dev/kustomization.yaml"]}}}, TOKEN)
 SHA = "1234567890abcdef1234567890abcdef12345678"
 
 

@@ -75,7 +75,7 @@ class Service:
         work = Path(tempfile.mkdtemp(prefix="nexus-revert-", dir=self.scratch))
         try:
             git = self.git_factory(work)
-            result = prepare(req, self.cfg, git, self.gh)
+            result = prepare(req, self.cfg, git, self.gh, self.now())
             if isinstance(result, Refusal):
                 return Outcome(req.name, f"{req.name}: no revert pull request "
                                          f"(check {result.check}): {result.text}")

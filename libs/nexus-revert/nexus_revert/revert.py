@@ -6,8 +6,10 @@ message, the branch name or the title. Under rule A1 the newest overlay commit i
 candidate tried: if it fails a check, no older commit is.
 """
 
+import fnmatch
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from .config import Config
 from .gitcmd import Git, GitError
@@ -42,7 +44,12 @@ def _git_ok(git: Git, *args: str) -> bool:
     return git(list(args), check=False).rc == 0
 
 
-def prepare(req: Request, cfg: Config, git: Git, gh: GitHub) -> Prepared | Refusal:
+def allowed(path: str, patterns: tuple[str, ...]) -> bool:
+    """fnmatch, but `*` never crosses a `/`: the pattern and the path have the same depth."""
+    return any(fnmatch.fnmatchcase(path, p) and path.count("/") == p.count("/") for p in patterns)
+
+
+def prepare(req: Request, cfg: Config, git: Git, gh: GitHub, now: datetime) -> Prepared | Refusal:
     """Fetch, choose, check and commit the revert in the scratch repository. Pushes nothing."""
     t = req.target
     remote_ref = f"refs/remotes/upstream/{t.branch}"
@@ -70,6 +77,10 @@ def prepare(req: Request, cfg: Config, git: Git, gh: GitHub) -> Prepared | Refus
             git, "merge-base", "--is-ancestor", cand, tip):
         return Refusal("2", f"{cand} is not among the last {cfg.fetch_depth} commits of {t.branch}")
     try:
+        # 2, "recent": also committed within maxAgeHours (owner, 2026-11-19), by the committer date
+        committed = datetime.fromtimestamp(int(git(["log", "-1", "--format=%ct", cand]).out.strip()), UTC)
+        if now - committed > timedelta(hours=cfg.max_age_hours):
+            return Refusal("2", f"{cand} was committed more than {cfg.max_age_hours:g} h ago")
         parents = git(["rev-list", "--parents", "-n", "1", cand]).out.split()[1:]
         # 3. exactly one parent (a merge needs a chosen parent; the shallow boundary shows none)
         if len(parents) != 1:
@@ -82,10 +93,10 @@ def prepare(req: Request, cfg: Config, git: Git, gh: GitHub) -> Prepared | Refus
         outside = [f for f in files if not f.startswith(t.overlay + "/")]
         if outside:
             return Refusal("4", f"{cand} changes {len(outside)} file(s) outside {t.overlay}")
-        # 4b. and none of the excluded files (the Namespace's autonomy level; see the README)
-        if set(files) & set(t.exclude):
-            hit = ", ".join(sorted(set(files) & set(t.exclude)))
-            return Refusal("4b", f"{cand} changes an excluded file ({hit})")
+        # 4b. only the workload files `allow` names, never an excluded one (the Namespace's level)
+        hit = sorted(f for f in files if f in t.exclude or not allowed(f, t.allow))
+        if hit:
+            return Refusal("4b", f"{cand} changes a file a revert may not touch ({', '.join(hit)})")
         subject = git(["log", "-1", "--format=%s", cand]).out.strip()
         # 5. the revert applies cleanly and is not empty
         git(["checkout", "-q", "--detach", tip])
@@ -98,7 +109,7 @@ def prepare(req: Request, cfg: Config, git: Git, gh: GitHub) -> Prepared | Refus
              "commit", "-q", "--no-verify", "-m", f"revert({t.overlay}): revert {cand}",
              "-m", f"This reverts commit {cand}."])
         revert_commit = git(["rev-parse", "HEAD"]).out.strip()
-    except GitError as e:
+    except (GitError, ValueError) as e:
         return Refusal("git", str(e))
 
     # 6. one open revert pull request per branch, and a fresh working branch in the fork

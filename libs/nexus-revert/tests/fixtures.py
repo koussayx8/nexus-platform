@@ -17,8 +17,11 @@ UPSTREAM = "koussayx8/nexus-platform"
 BRANCH = "experiment/dev-state"
 
 
-def sh(cwd: Path, *args: str) -> str:
-    env = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "HOME": str(cwd), "PATH": "/usr/bin:/bin",
+COMMIT_DATE = "2026-12-01T09:30:00+00:00"  # half an hour before the tests' NOW
+
+
+def sh(cwd: Path, *args: str, date: str = COMMIT_DATE) -> str:
+    env = {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "HOME": str(cwd), "PATH": "/usr/bin:/bin",
            "GIT_AUTHOR_NAME": "Owner", "GIT_AUTHOR_EMAIL": "o@example.com", "GIT_COMMITTER_NAME": "Owner",
            "GIT_COMMITTER_EMAIL": "o@example.com"}
     return subprocess.run(["git", "-c", "protocol.file.allow=always", *args], cwd=cwd, env=env, check=True,
@@ -42,10 +45,11 @@ class Repos:
         sh(self.work, "remote", "add", "origin", self.upstream.as_uri())
         self.commit("chore: base", {"overlays/dev/kustomization.yaml": "resources: [namespace.yaml]\n",
                                     "overlays/dev/namespace.yaml": "level: 3\n",
-                                    "overlays/dev/patch.yaml": "readiness: ok\n",
+                                    "overlays/dev/sample-api-patch.yaml": "readiness: ok\n",
                                     "platform/x.yaml": "x: 1\n"})
 
-    def commit(self, msg: str, files: dict[str, str | None], branch: str = BRANCH) -> str:
+    def commit(self, msg: str, files: dict[str, str | None], branch: str = BRANCH,
+               date: str = COMMIT_DATE) -> str:
         for path, content in files.items():
             p = self.work / path
             if content is None:
@@ -54,7 +58,7 @@ class Repos:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(content)
         sh(self.work, "add", "-A")
-        sh(self.work, "commit", "-q", "--allow-empty", "-m", msg)
+        sh(self.work, "commit", "-q", "--allow-empty", "-m", msg, date=date)
         sh(self.work, "push", "-q", "origin", f"HEAD:refs/heads/{branch}")
         return sh(self.work, "rev-parse", "HEAD")
 
@@ -66,6 +70,7 @@ class Repos:
         data: dict[str, Any] = {
             "machineAccount": MACHINE, "upstream": UPSTREAM, "prMode": "pull_request", "fetchDepth": 50,
             "branches": {"nexus-dev": {"branch": BRANCH, "overlay": "overlays/dev", "application": "sample-api-dev",
+                                       "allow": ["overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml"],
                                        "exclude": ["overlays/dev/namespace.yaml"]}},
         } | over
         cfg = parse(data, TOKEN)

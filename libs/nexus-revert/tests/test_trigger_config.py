@@ -8,7 +8,8 @@ from nexus_revert.config import ConfigError, load, parse
 from nexus_revert.trigger import named_commit, request_for
 from tests.fixtures import MACHINE, TOKEN, incident
 
-BR = {"nexus-dev": {"branch": "experiment/dev-state", "overlay": "overlays/dev", "application": "sample-api-dev"}}
+BR = {"nexus-dev": {"branch": "experiment/dev-state", "overlay": "overlays/dev", "application": "sample-api-dev",
+                    "allow": ["overlays/dev/kustomization.yaml"]}}
 CFG = parse({"machineAccount": MACHINE, "branches": BR}, TOKEN)
 A = "a" * 40
 
@@ -45,6 +46,9 @@ def test_config_defaults_and_fork_owner() -> None:
     {"machineAccount": MACHINE, "branches": {"nexus-dev": {**BR["nexus-dev"], "branch": "-x"}}},
     {"machineAccount": MACHINE, "branches": {"nexus-dev": {**BR["nexus-dev"], "exclude": ["platform/x.yaml"]}}},
     {"machineAccount": "bad login!", "branches": BR},
+    {"machineAccount": MACHINE, "branches": {"nexus-dev": {**BR["nexus-dev"], "allow": []}}},
+    {"machineAccount": MACHINE, "branches": {"nexus-dev": {**BR["nexus-dev"], "allow": ["platform/*.yaml"]}}},
+    {"machineAccount": MACHINE, "branches": BR, "maxAgeHours": 0},
 ])
 def test_config_refuses(data: dict) -> None:  # type: ignore[type-arg]
     with pytest.raises(ConfigError):
@@ -63,3 +67,5 @@ def test_shipped_example_parses(tmp_path: Path) -> None:
     cfg = load({"NEXUS_REVERT_CONFIG": str(example), "NEXUS_REVERT_TOKEN_FILE": str(tmp_path / "t")})
     assert list(cfg.branches) == ["nexus-dev"]
     assert cfg.branches["nexus-dev"].exclude == ("overlays/dev/namespace.yaml",)
+    assert cfg.branches["nexus-dev"].allow == ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
+    assert cfg.max_age_hours == 24
