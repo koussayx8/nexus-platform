@@ -509,6 +509,43 @@ class Runner:
             self.sleep(poll_s)
 
 
+REPO = (
+    pathlib.Path(__file__).resolve().parents[2]
+)  # the checkout this runner's code comes from
+CODE_REFS = ("origin/dev", "origin/main")
+
+
+def code_guard(exec_=None, repo=REPO) -> str | None:
+    """Why the runner must not execute from this checkout, or None (owner, 2026-11-19).
+
+    A run's code must be reviewed code: no uncommitted change under experiments/ (the runner, the
+    harness, the fault files), and HEAD a commit on origin/dev or origin/main. Read-only: git
+    status, rev-parse and merge-base on the local remote-tracking refs (no fetch, so stale refs
+    refuse rather than pass). Any git failure refuses too."""
+    run = exec_ or _subprocess_exec
+    rc, out = run(["git", "status", "--porcelain", "--", "experiments/"], cwd=repo)
+    if rc != 0:
+        return f"cannot read git status in {repo} (rc {rc})"
+    dirty = [ln[3:] for ln in out.splitlines() if ln.strip()]
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (
+            f" and {len(dirty) - 5} more" if len(dirty) > 5 else ""
+        )
+        return f"uncommitted changes under experiments/: {shown}"
+    rc, head = run(["git", "rev-parse", "HEAD"], cwd=repo)
+    if rc != 0:
+        return f"cannot read HEAD in {repo} (rc {rc})"
+    head = head.strip()
+    for ref in CODE_REFS:
+        rc, _ = run(["git", "merge-base", "--is-ancestor", head, ref], cwd=repo)
+        if rc == 0:
+            return None
+    return (
+        f"HEAD {head[:12]} is not a commit on {' or '.join(CODE_REFS)} "
+        "(git fetch origin, or run from a merged commit)"
+    )
+
+
 def _subprocess_exec(argv, cwd=None, timeout=120):
     try:
         p = subprocess.run(
@@ -568,7 +605,7 @@ def _post_form(url, fields, opener=urllib.request.urlopen):
         )
 
 
-def main(argv=None):
+def main(argv=None, guard_exec=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["gate"]:  # read-only manual-run gate (gate.py)
         from . import gate
@@ -606,6 +643,11 @@ def main(argv=None):
         "--execute", action="store_true", help="actually run the steps (mode run only)"
     )
     a = ap.parse_args(argv)
+    if a.mode == "run" and a.execute:
+        why = code_guard(guard_exec)
+        if why:
+            print(f"runner: refusing to execute: {why}", file=sys.stderr)
+            return 2
     r = Runner(a.context, locust=a.locust, git_dir=a.git_dir, namespace=a.namespace)
     if a.op == "inject":
         if not a.scenario:

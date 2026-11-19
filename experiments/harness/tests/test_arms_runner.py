@@ -463,7 +463,11 @@ class ProdTargetTest(unittest.TestCase):
                         "--level",
                         "1",
                     ]
-                    + flags
+                    + flags,
+                    guard_exec=lambda argv, cwd=None, timeout=120: (
+                        0,
+                        "",
+                    ),  # clean code
                 )
             self.assertEqual(rc, 0)
             mutating = [c for c in calls if "exec" in c]  # the S1 kubectl exec
