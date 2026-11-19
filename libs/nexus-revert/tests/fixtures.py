@@ -17,6 +17,18 @@ UPSTREAM = "koussayx8/nexus-platform"
 BRANCH = "experiment/dev-state"
 
 
+KUSTOMIZATION = """namespace: nexus-dev
+resources:
+  - namespace.yaml
+  - ../../apps/sample-api/k8s/base
+images:
+  - name: ghcr.io/koussayx8/nexus-platform/sample-api
+    digest: sha256:1111
+patches:
+  - target: {kind: Deployment, name: sample-api}
+    patch: |-
+      readiness: ok
+"""
 COMMIT_DATE = "2026-12-01T09:30:00+00:00"  # half an hour before the tests' NOW
 
 
@@ -43,7 +55,7 @@ class Repos:
         self.work.mkdir()
         sh(self.work, "init", "-q", "-b", BRANCH)
         sh(self.work, "remote", "add", "origin", self.upstream.as_uri())
-        self.commit("chore: base", {"overlays/dev/kustomization.yaml": "resources: [namespace.yaml]\n",
+        self.commit("chore: base", {"overlays/dev/kustomization.yaml": KUSTOMIZATION,
                                     "overlays/dev/namespace.yaml": "level: 3\n",
                                     "overlays/dev/sample-api-patch.yaml": "readiness: ok\n",
                                     "platform/x.yaml": "x: 1\n"})

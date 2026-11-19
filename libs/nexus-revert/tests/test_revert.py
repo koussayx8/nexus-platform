@@ -2,12 +2,13 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from nexus_revert.revert import Prepared, Refusal, prepare, push
 from nexus_revert.trigger import request_for
-from tests.fixtures import BRANCH, FakeGitHub, Repos, incident, sh
+from tests.fixtures import BRANCH, KUSTOMIZATION, FakeGitHub, Repos, incident, sh
 
 NOW = datetime(2026, 12, 1, 10, 0, tzinfo=UTC)
 
@@ -123,10 +124,38 @@ def test_check4b_level_commit_is_never_reverted(repos: Repos) -> None:
     assert isinstance(p2, Refusal) and p2.check == "4b"
 
 
-def test_check4b_only_workload_files(repos: Repos) -> None:
-    ok = repos.commit("feat: S3 in the kustomization", {"overlays/dev/kustomization.yaml": "resources: [namespace.yaml]\nx: 1\n"})
-    p, _ = run(repos, incident(ok))
+def test_check4b_and_4c_a_patches_only_change_is_reverted(repos: Repos) -> None:
+    ok = repos.commit("feat: S3 in the kustomization", {"overlays/dev/kustomization.yaml": KUSTOMIZATION.replace(
+        "readiness: ok", "readiness: broken")})
+    p, work = run(repos, incident(ok))
     assert isinstance(p, Prepared)
+    assert "readiness: ok" in sh(work, "show", f"{p.revert_commit}:overlays/dev/kustomization.yaml")
+
+
+@pytest.mark.parametrize("edit, key", [
+    (lambda k: k.replace("  - namespace.yaml\n", ""), "resources"),          # drops the Namespace
+    (lambda k: k.replace("namespace: nexus-dev", "namespace: nexus-prod"), "namespace"),
+    (lambda k: k.replace("sha256:1111", "sha256:2222"), "images"),
+    (lambda k: k + "labels:\n  - pairs: {nexus.io/autonomy-level: '3'}\n", "labels"),
+])
+def test_check4c_any_key_but_patches_is_refused(repos: Repos, edit: Any, key: str) -> None:
+    c = repos.commit(f"chore: edit {key}", {"overlays/dev/kustomization.yaml": edit(KUSTOMIZATION)})
+    p, _ = run(repos, incident(c))
+    assert isinstance(p, Refusal) and p.check == "4c" and key in p.text
+    assert repos.fork_branches() == []
+
+
+def test_check4c_resources_edit_mixed_with_patches_is_refused(repos: Repos) -> None:
+    k = KUSTOMIZATION.replace("readiness: ok", "readiness: broken").replace("  - namespace.yaml\n", "")
+    c = repos.commit("feat: S3 plus a resources edit", {"overlays/dev/kustomization.yaml": k})
+    p, _ = run(repos, incident(c))
+    assert isinstance(p, Refusal) and p.check == "4c" and "resources" in p.text and "patches" not in p.text.split(":")[-1]
+
+
+def test_check4c_unparsable_kustomization_is_refused(repos: Repos) -> None:
+    c = repos.commit("chore: break yaml", {"overlays/dev/kustomization.yaml": "resources: [\n"})
+    p, _ = run(repos, incident(c))
+    assert isinstance(p, Refusal) and p.check == "4c"
 
 
 @pytest.mark.parametrize("path", ["overlays/dev/other.yaml", "overlays/dev/sample-api/x.yaml", "overlays/dev/README.md"])

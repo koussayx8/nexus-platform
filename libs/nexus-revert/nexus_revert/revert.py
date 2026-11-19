@@ -10,6 +10,9 @@ import fnmatch
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import yaml
 
 from .config import Config
 from .gitcmd import Git, GitError
@@ -18,6 +21,28 @@ from .trigger import Request
 
 SHA = re.compile(r"[0-9a-f]{40}")
 BRANCH_PREFIX = "nexus/revert-"
+KUSTOMIZATION = "kustomization.yaml"
+MUTABLE_KEYS = frozenset({"patches"})  # check 4c: the only kustomization key a revert may change
+
+
+def _kustomization(git: Git, rev: str, path: str) -> dict[str, Any] | None:
+    """The overlay's kustomization at `rev` ("" = the index), parsed; None if absent or not a mapping."""
+    res = git(["show", f"{rev}:{path}"], check=False)
+    if res.rc != 0:
+        return None
+    try:
+        doc = yaml.safe_load(res.out)
+    except yaml.YAMLError:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def kustomization_change(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[str]:
+    """The keys other than `patches` that differ (resources, namespace, labels, images, ...)."""
+    if before is None or after is None:
+        return ["<the whole file>"]
+    keys = (set(before) | set(after)) - MUTABLE_KEYS
+    return sorted(k for k in keys if before.get(k) != after.get(k))
 
 
 @dataclass(frozen=True)
@@ -105,6 +130,15 @@ def prepare(req: Request, cfg: Config, git: Git, gh: GitHub, now: datetime) -> P
             return Refusal("5", f"reverting {cand} conflicts with {t.branch}")
         if _git_ok(git, "diff", "--cached", "--quiet"):
             return Refusal("5", f"reverting {cand} changes nothing (already reverted?)")
+        # 4c. the overlay's kustomization keeps every key but `patches`, compared as YAML before
+        # and after the revert: resources (which lists the Namespace), namespace, labels, images...
+        kpath = f"{t.overlay}/{KUSTOMIZATION}"
+        if kpath in files:
+            changed = kustomization_change(_kustomization(git, tip, kpath), _kustomization(git, "", kpath))
+            if changed:
+                git(["revert", "--abort"], check=False)
+                return Refusal("4c", f"reverting {cand} would change {kpath} beyond patches: "
+                                     f"{', '.join(changed)}")
         git(["-c", f"user.name={cfg.author_name}", "-c", f"user.email={cfg.author_email}",
              "commit", "-q", "--no-verify", "-m", f"revert({t.overlay}): revert {cand}",
              "-m", f"This reverts commit {cand}."])
