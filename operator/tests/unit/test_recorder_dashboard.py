@@ -14,9 +14,15 @@ DASHBOARD = (
 )
 
 
+def query_panels(d: dict) -> list[dict]:
+    """The panels that run a query: a `row` panel only groups the ones below it, it has no
+    datasource and no targets (#257 added the Reasoner row)."""
+    return [p for p in d["panels"] if p.get("type") != "row"]
+
+
 def queries():
     d = json.loads(DASHBOARD.read_text())
-    out = [p["targets"][0]["rawSql"] for p in d["panels"]]
+    out = [p["targets"][0]["rawSql"] for p in query_panels(d)]
     out.append(d["templating"]["list"][0]["query"])
     return out
 
@@ -28,8 +34,10 @@ def to_plain_sql(sql: str) -> str:
 
 def test_dashboard_has_panels_and_uses_the_provisioned_datasource():
     d = json.loads(DASHBOARD.read_text())
-    assert len(d["panels"]) >= 6
-    assert {p["datasource"]["uid"] for p in d["panels"]} == {"nexus-flight-recorder"}
+    assert len(query_panels(d)) >= 6
+    assert {p["datasource"]["uid"] for p in query_panels(d)} == {
+        "nexus-flight-recorder"
+    }
 
 
 def test_every_query_runs_as_the_reader_role(pg):
