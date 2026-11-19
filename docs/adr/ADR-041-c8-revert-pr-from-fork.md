@@ -41,6 +41,7 @@ Facts this ADR builds on:
 | A2: the commit must touch **only** the overlay path | Accepted |
 | Fallback (outcome C): push to the fork and post the compare link | Accepted |
 | The token is in the bot, not the operator | **This ADR overrides spec:1005.** Added to the spec v1.1 list as X13 (`docs/plans/pfe-replan.md`) |
+| 2026-11-19 (#255): check 4b; "recent"; token test step 5; merge recording | 4b added (workload files only, never the Namespace). Recent = the last 50 commits **and** 24 hours. Step 5 makes no merge attempt. Merge recognition stays a notification (decision 10, limit 6): no Incident or Flight Recorder write. The S3 fault is committed as `experiments/faults/s3-bad-rollout.patch`, and the runner stages only its files (#256; settles U5 once merged) |
 
 ## Decisions
 
@@ -69,7 +70,7 @@ is merged; the test pull request is closed at the end.
 | 2 | Create the fine-grained token (decision 3). Store it in `~/.nexus/`, never in Git or in a command line | — |
 | 3 | With that token: push a branch `nexus/token-test` to the **fork**, holding one empty commit on top of `experiment/dev-state` | Accepted |
 | 4 | With that token: `POST /repos/koussayx8/nexus-platform/pulls` with `head: <machine>:nexus/token-test`, `base: experiment/dev-state` | **This is the question.** Expected to be refused: a fine-grained token reaches only the repositories it lists, and the upstream is not one of them (UNVERIFIED — recalled from GitHub's documentation, not tested) |
-| 5 | Negative checks with the same token: push `nexus/token-test` to the **upstream**; `PUT …/pulls/<N>/merge` on any open upstream pull request | Both refused. If either succeeds, stop: decision 3 is broken |
+| 5 | Negative checks with the same token, **no merge attempt** (owner, 2026-11-19): `GET /repos/koussayx8/nexus-platform` → `permissions.push`; `git push` of a throwaway ref (`nexus/token-test-throwaway`) to the **upstream** | `permissions.push` is `false` and the push gets `403`. If either does not hold, stop: decision 3 is broken. Steps 3 and 4 are the positive checks (fork push, upstream pull request) |
 | 6 | If step 4 was refused: create the classic token with `public_repo` only and repeat steps 3 to 5 | 3 and 4 accepted, 5 refused |
 | 7 | Close the test pull request; the owner deletes the test branch in the fork | — |
 
@@ -90,9 +91,10 @@ with one chat line naming the check.
 | # | Check | Why |
 |---|---|---|
 | 1 | The candidate is a full 40-hex SHA | No refs, no ranges, no option-like strings reach `git` |
-| 2 | The bot fetches the tracked branch from the **upstream** (anonymous, read-only, depth 50) and the candidate is an ancestor of its tip | "On the tracked branch": not a fork commit, not another branch, not older than 50 commits |
+| 2 | The bot fetches the tracked branch from the **upstream** (anonymous, read-only, depth 50), the candidate is an ancestor of its tip, **and its committer date is within 24 hours** (owner, 2026-11-19) | "On the tracked branch" and "recent": not a fork commit, not another branch, not older than 50 commits or 24 hours |
 | 3 | The candidate has exactly one parent | Reverting a merge needs a chosen parent; refuse instead |
 | 4 | The candidate changes at least one file, and **every** file it changes is under the target's overlay path (A2) | A commit that also touches `platform/` or `.github/` would have those changes reverted too |
+| 4b | **Every** file it changes is a sample-api workload file of the overlay (`overlays/dev/kustomization.yaml`, `overlays/dev/sample-api*.yaml`; the set the S3 runner may commit), and none is `overlays/dev/namespace.yaml` (owner, 2026-11-19) | The Namespace holds `nexus.io/autonomy-level`, and the runner commits levels to it (`experiments/harness/runner.py:58-60`): without 4b, rule A1 or a named SHA could open a pull request that changes `nexus-dev`'s level |
 | 5 | `git revert --no-edit <sha>` applies without conflict, and the resulting diff is not empty | A commit already reverted, or changed since, is not reverted blindly |
 | 6 | No open pull request from `<machine>:nexus/revert-*` targets that branch, and the working branch does not exist in the fork | Decision 11 |
 
