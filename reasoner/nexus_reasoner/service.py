@@ -156,12 +156,37 @@ class Reasoner:
             raise Rejected(
                 422, "invalid_request", "reasoningEffort must be low, medium or high"
             )
-        chunks = self.retriever.retrieve(bundle)
-        system, user = prompt.build(
-            bundle, chunks, level, str(ctx.get("catalogueVersion", ""))
-        )
+        chunks = self.retriever.retrieve(bundle)  # on the full bundle, as before
         try:
-            comp = adapter.complete(self.cfg, entry, system, user, effort, self.opener)
+            p = prompt.plan(
+                bundle,
+                chunks,
+                level,
+                str(ctx.get("catalogueVersion", "")),
+                output_tokens=self.cfg.max_output_tokens,
+            )
+        except (
+            prompt.TooLarge
+        ) as e:  # never send what the provider must refuse (ADR-042)
+            raise Rejected(
+                422,
+                "prompt_too_large",
+                str(e),
+                metadata={
+                    "mode": "llm",
+                    "arm": entry.name,
+                    "requestTokensEstimate": e.estimate,
+                },
+            ) from None
+        excerpt = {
+            "logSelection": p.selection,
+            "promptTrimLevel": p.level,
+            "promptTokensEstimate": p.tokens_estimate,
+        }
+        try:
+            comp = adapter.complete(
+                self.cfg, entry, p.system, p.user, effort, self.opener
+            )
         except adapter.AdapterError as e:
             code = (
                 503
@@ -170,7 +195,9 @@ class Reasoner:
                 if e.reason == "timeout"
                 else 502
             )
-            raise Rejected(code, "model_unavailable", e.reason) from None
+            raise Rejected(
+                code, "model_unavailable", e.reason, metadata=excerpt
+            ) from None
         meta = {
             "mode": "llm",
             "arm": entry.name,
@@ -180,6 +207,7 @@ class Reasoner:
             "usage": comp.usage,
             "retrievedChunks": [c["id"] for c in chunks],
             "noRunbook": not chunks,
+            **excerpt,
         }
         # From here the model has answered. Every rejection below carries the model's message
         # exactly as received (`raw`), the rejection reason (`error`, `detail`) and the metadata,

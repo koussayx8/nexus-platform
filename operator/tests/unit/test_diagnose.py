@@ -184,6 +184,12 @@ def test_the_bundle_carries_the_spec_fields_and_limits():
         "BackOff"
     }
     assert len(raw["logs"]["current"]) <= 200 * 3
+    # one row per pod read, in the order its lines were added
+    sources = raw["logs"]["sources"]
+    assert [s["pod"] for s in sources] == [p["name"] for p in raw["pods"][:3]]
+    for key in ("current", "previous"):
+        assert sum(s[key] for s in sources) == len(raw["logs"][key])
+        assert all(0 <= s[key] <= 200 for s in sources)
     assert raw["metrics"]["zscores"]["latencyP95"] == 4.0
     assert (
         raw["gitops"]["application"] == "sample-api-dev"
