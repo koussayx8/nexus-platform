@@ -70,6 +70,7 @@ class Status(_Model):
 class Metadata(_Model):
     name: str
     namespace: str | None = None
+    uid: str | None = None
     resourceVersion: str | None = None  # noqa: N815
     creationTimestamp: str | None = None  # noqa: N815
     labels: dict[str, str] = Field(default_factory=dict)
