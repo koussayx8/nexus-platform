@@ -48,6 +48,16 @@ def test_restart_does_not_resend_old_news() -> None:
     assert t.sent()[0]["text"].startswith("NEXUS Blocked")
 
 
+def test_restart_pushes_every_pending_approval_whatever_its_age() -> None:
+    stale = incident_dict(stamp="2026-11-28T06:00:00Z")  # entered AwaitingApproval 4 hours ago
+    no_stamp = incident_dict(name="inc-nostamp-1", uid="3" * 32, stamp=None)
+    c, t = FakeCluster(stale, no_stamp), FakeTransport()
+    p = pusher(c, t)
+    assert p.tick() == 2 and p.tick() == 0
+    assert all(m["text"].startswith("NEXUS AwaitingApproval") for m in t.sent())
+    assert all(len(m["reply_markup"]["inline_keyboard"][0]) == 3 for m in t.sent())
+
+
 def test_an_old_phase_seen_later_in_a_run_is_pushed() -> None:
     c, t = FakeCluster(), FakeTransport()
     p = pusher(c, t)

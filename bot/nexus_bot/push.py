@@ -1,10 +1,15 @@
 """Pushes for AwaitingApproval, Escalated, Resolved and Blocked (D9; ADR-040 step 4).
 
 One message per Incident and phase, to every allowlisted user's private chat. The bot keeps no
-persistent state: on the first scan after a start, an Incident whose current phase began more
-than `catch_up` ago is marked as already pushed, so a restart does not resend old news; one that
-entered its phase within the window is pushed (it may be a resend: a duplicate costs a message,
-a missed approval costs the approval). A failed send is retried on the next scan.
+persistent state. On the first scan after a start:
+
+- every Incident in AwaitingApproval is pushed, whatever its age, so a restart never loses a
+  pending approval's buttons (owner, #252 Q1);
+- an Incident in another push phase entered more than `catch_up` ago is marked as already pushed,
+  so a restart does not resend old news; one entered within the window is pushed (it may be a
+  resend). Phases missed while the bot was down for longer are visible in /status.
+
+A failed send is retried on the next scan.
 """
 
 import logging
@@ -71,7 +76,8 @@ class Pusher:
             if phase not in PUSH_PHASES:
                 continue
             started = phase_started(inc)
-            old = self._first and started is not None and now - started > self._catch_up
+            old = (self._first and phase != "AwaitingApproval" and started is not None
+                   and now - started > self._catch_up)
             for chat in self._chats:
                 key = (ident, phase, chat)
                 if key in self._sent:
