@@ -1,0 +1,7 @@
+# The Telegram bot's RBAC (ADR-040). NOT WIRED: built and kubeconform-checked by repo-checks on its
+# own; platform/rbac/kustomization.yaml does not list it until the Block 7 live step.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - nexus-bot.yaml
