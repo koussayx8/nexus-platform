@@ -48,7 +48,7 @@ def _truth(fault, correct, wrong, l3):
             "wrong_in_envelope": wrong, "expected_terminal": {"L3": l3}}  # fmt: skip
 
 
-# The shape of experiments/ground-truth.yaml (ground-truth/v2), as JSON: the export reads both.
+# The shape of experiments/ground-truth.json (ground-truth/v2); the export reads it with a YAML loader.
 TRUTH = {
     "S1": _truth("gray_failure", _RESTART, [_SCALE], "Resolved"),
     "S2": _truth("cpu_saturation", {"action": "scale_deployment", "replicas_delta": [1, 2]},

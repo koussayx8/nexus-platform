@@ -26,7 +26,9 @@ FROZEN = {
     "index_hash": INDEX,
 }
 P = sample_data.proposal
-REAL_TRUTH = ROOT / "experiments" / "ground-truth.yaml"
+REAL_TRUTH = (
+    ROOT / "experiments" / "ground-truth.json"
+)  # the one truth file (owner, 2026-11-20)
 
 
 def cell(cid, arm, scen, level=3, target=2, cap=4):
@@ -161,7 +163,7 @@ class ClassTest(unittest.TestCase):
             with self.assertRaises(EXPORT.ExportError):
                 EXPORT.load_truth(p)
 
-    @unittest.skipUnless(REAL_TRUTH.exists(), "experiments/ground-truth.yaml: PR #234")
+    @unittest.skipUnless(REAL_TRUTH.exists(), "experiments/ground-truth.json: PR #285")
     def test_the_pre_registered_file_classes_its_own_lists(self):
         truth, _ = EXPORT.load_truth(REAL_TRUTH)
         for scen, sc in truth["scenarios"].items():

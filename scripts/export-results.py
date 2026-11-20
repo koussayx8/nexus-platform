@@ -31,7 +31,8 @@ Inputs (the runner produces them on the host; this script never touches the clus
                            &start=<start-20m>&end=<end>&step=30"
                        (values of the first result's `values`, as floats). Validated and rewritten as
                        metrics.json (schema metrics-window/v1); optional, valid runs only
-  --ground-truth FILE  experiments/ground-truth.yaml (schema ground-truth/v2), hashed into the run row:
+  --ground-truth FILE  experiments/ground-truth.json (schema ground-truth/v2; read with a YAML loader, and
+                       JSON is YAML), hashed into the run row:
                        the pre-registered file (spec §20). It classes every proposal and mutation
   --incident FILE      the run's Incident object as JSON (kubectl get incident NAME -o json), for its
                        spec.approval; required for a valid L2 run, where the Flight Recorder keeps none
@@ -210,7 +211,7 @@ def load_truth(path) -> tuple[dict, str]:
 
 def action_class(p: dict, truth: dict, scenario: str) -> str:
     """The class of a proposal row of metrics.flatten, or of an admitted action in the same shape
-    (ground-truth.yaml): acceptable, wrong_in_envelope, incorrect, out_of_envelope; `invalid` for
+    (experiments/ground-truth.json): acceptable, wrong_in_envelope, incorrect, out_of_envelope; `invalid` for
     a proposal that did not validate."""
     if not p.get("schema_valid", True):
         return "invalid"
