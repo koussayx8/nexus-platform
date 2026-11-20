@@ -38,10 +38,11 @@ ERROR_PATTERN = re.compile(
     r"ERROR|WARN|Exception|Traceback|timeout|refused|OOMKilled|connection",
     re.IGNORECASE,
 )
-# prompt/v3 (ADR-045): the smallest ratio of bake-off round 3 (140 calls, the big prompt): Gemma 4 31B
-# 2.049 characters a provider token (Nemotron 3 Ultra 2.061, Kimi K3.1 Pro 2.454), rounded down. Was
-# 2.5 (the 2026-11-19 S1 R3 prompt on Groq, 13,211 chars / 5,134 tokens = 2.57, rounded down).
-CHARS_PER_TOKEN = 2.0
+# measured: the 2026-11-19 S1 R3 prompt, 13,211 chars / 5,134 provider tokens = 2.57, rounded down.
+# Kept for prompt/v3 (ADR-045 decision 4): bake-off round 3's medians are above it (Gemma 4 31B 2.659,
+# Nemotron 3 Ultra 2.792, Kimi K3.1 Pro 3.169); on NIM it only sizes the excerpt, and the worst call
+# measured (2.049) still fits the request guard.
+CHARS_PER_TOKEN = 2.5
 PROMPT_BUDGET_TOKENS = (
     16_000  # what the excerpt aims for, prompt only; one budget for every model
 )

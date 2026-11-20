@@ -72,29 +72,31 @@ def excerpt_lines(user: str, key: str) -> list[str]:
 
 
 class Budget(unittest.TestCase):
-    def test_a_live_size_bundle_fits_at_150_lines_a_pod(self):
-        # prompt/v3 at 2.0 chars a token (ADR-045): two full pods (200 lines each, the collector's
-        # maximum) with the three largest chunks take level 1, 150 lines a pod
+    def test_a_live_size_bundle_fits_whole_at_level_0(self):
+        # prompt/v3 at 2.5 chars a token (ADR-045): two full pods (200 lines each, the collector's
+        # maximum) with the three largest chunks fit the 16K budget whole, as round 3's big prompt
         b = live_bundle()
         p = prompt.plan(b, largest_chunks(), "L3", "1")
-        self.assertEqual(p.level, 1)
+        self.assertEqual(p.level, 0)
         self.assertLessEqual(p.tokens_estimate, prompt.PROMPT_BUDGET_TOKENS)
         self.assertLessEqual(p.tokens_estimate + 16384, prompt.REQUEST_GUARD_TOKENS)
         self.assertEqual(
             p.selection["pods"],
             [
-                {"pod": pod, "lines": 200, "kept_error_lines": 0, "kept_recent_lines": 150, "dropped": 50}
+                {"pod": pod, "lines": 200, "kept_error_lines": 0, "kept_recent_lines": 200, "dropped": 0}
                 for pod in PODS
             ],
         )  # fmt: skip
-        # three full pods still fit, three levels down (90 lines a pod)
+        # three full pods still fit, two levels down (120 lines a pod)
         three = live_bundle(pods=PODS + ("sample-api-8577d7dd4d-ccccc",))
-        self.assertEqual(prompt.plan(three, largest_chunks(), "L3", "1").level, 3)
+        self.assertEqual(prompt.plan(three, largest_chunks(), "L3", "1").level, 2)
 
     def test_the_most_recent_lines_of_each_pod_are_kept_with_their_bundle_index(self):
-        b = live_bundle(per_pod=400)  # level 1: the 150 most recent lines of each pod
+        b = live_bundle(
+            per_pod=400
+        )  # more than a pod's 200 lines, so some are left out
         lines = excerpt_lines(prompt.plan(b, [], "L3", "1").user, "current")
-        want = [i for start in (0, 400) for i in range(start + 250, start + 400)]
+        want = [i for start in (0, 400) for i in range(start + 200, start + 400)]
         self.assertEqual([int(re.match(r"\[(\d+)\]", ln)[1]) for ln in lines], want)
         for ln in lines:  # the index names the same line in the full bundle
             i = int(ln[1 : ln.index("]")])
@@ -111,7 +113,7 @@ class Budget(unittest.TestCase):
         p = prompt.plan(b, [], "L3", "1")
         self.assertIn(f"[50] {err}", excerpt_lines(p.user, "current"))
         self.assertEqual(p.selection["pods"][0]["kept_error_lines"], 1)
-        self.assertEqual(p.selection["pods"][0]["kept_recent_lines"], 149)
+        self.assertEqual(p.selection["pods"][0]["kept_recent_lines"], 199)
         lines = excerpt_lines(p.user, "current")
         self.assertEqual(
             lines, sorted(lines, key=lambda ln: int(ln[1 : ln.index("]")]))
@@ -162,13 +164,13 @@ class Budget(unittest.TestCase):
         self.assertIn(
             "[0] Traceback (most recent call last):", excerpt_lines(p.user, "previous")
         )
-        self.assertEqual(s["kept_error_lines"] + s["kept_recent_lines"], 150)
+        self.assertEqual(s["kept_error_lines"] + s["kept_recent_lines"], 200)
 
     def test_a_bundle_without_sources_is_one_slice_with_the_pods_budget(self):
         p = prompt.plan(live_bundle(sources=False), [], "L3", "1")
         [s] = p.selection["pods"]
         self.assertEqual(
-            (s["pod"], s["lines"], s["kept_recent_lines"]), (None, 400, 300)
+            (s["pod"], s["lines"], s["kept_recent_lines"]), (None, 400, 400)
         )
 
     def test_sources_that_do_not_add_up_are_ignored(self):
@@ -189,8 +191,8 @@ class Budget(unittest.TestCase):
             for i in range(50)
         ]
         p = prompt.plan(b, [], "L3", "1")
-        # the 50 events take this bundle to level 2: 120 lines a pod, 300 characters a line
-        self.assertEqual(p.level, 2)
+        # the 50 events take this bundle to level 1: 150 lines a pod, 300 characters a line
+        self.assertEqual(p.level, 1)
         [cut] = [
             ln for ln in excerpt_lines(p.user, "current") if ln.endswith(" [line cut]")
         ]
@@ -258,11 +260,9 @@ class Service(unittest.TestCase):
             sent[arm] = op.calls[0]["body"]["messages"]
             m = out["metadata"]
             self.assertEqual(m["promptVersion"], "prompt/v3")
-            self.assertEqual(m["promptTrimLevel"], 1)
+            self.assertEqual(m["promptTrimLevel"], 0)
             self.assertLessEqual(m["promptTokensEstimate"], prompt.PROMPT_BUDGET_TOKENS)
-            self.assertEqual(
-                [s["dropped"] for s in m["logSelection"]["pods"]], [50, 50]
-            )
+            self.assertEqual([s["dropped"] for s in m["logSelection"]["pods"]], [0, 0])
         self.assertEqual(sent["R2"], sent["R3"])
 
     def test_a_ref_to_a_kept_line_is_accepted_against_the_full_bundle(self):
