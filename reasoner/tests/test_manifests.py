@@ -6,7 +6,7 @@ import re
 import textwrap
 import unittest
 
-from nexus_reasoner import config
+from nexus_reasoner import config, prompt
 
 from .helpers import REPO
 
@@ -83,20 +83,53 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(cfg.resolve("R3").model, "openai/gpt-oss-120b")
         self.assertEqual(cfg.resolve("openai/gpt-oss-20b").name, "r2-groq")
         self.assertEqual(cfg.resolve("openai/gpt-oss-120b").name, "r3-groq")
-        # No H1: the Haiku arm was cut (TASKS.md D3, D10).
+        # No H1: the Haiku arm was cut (TASKS.md D3, D10). NIM only, one backup per arm (ADR-045);
+        # the two Groq entries stay until the round-4 commit switches `active`.
         self.assertEqual(
             set(cfg.models),
-            {"r2-groq", "r2-primary", "r2-backup-1", "r2-backup-2",
-             "r3-groq", "r3-primary", "r3-backup-1", "r3-backup-2", "demo"},
-        )  # fmt: skip
-        for name in ("r2-primary", "r2-backup-1", "r2-backup-2",
-                     "r3-primary", "r3-backup-1", "r3-backup-2"):  # fmt: skip
+            {
+                "r2-groq",
+                "r2-primary",
+                "r2-backup",
+                "r3-groq",
+                "r3-primary",
+                "r3-backup",
+                "demo",
+            },
+        )
+        want = {  # name: (model id, timeoutSeconds, maxOutputTokens, extraBody)
+            "r2-primary": ("nvidia/nemotron-3-ultra-550b-a55b", 120.0, 8192, {}),
+            "r2-backup": ("nvidia/nemotron-3.5-super-vl-120b-a12b", 120.0, 8192, {}),
+            "r3-primary": ("google/gemma-4-31b-it", 300.0, 16384,
+                           {"chat_template_kwargs": {"enable_thinking": True}}),
+            "r3-backup": ("moonshotai/kimi-k3.1-pro", 300.0, 8192, {}),
+        }  # fmt: skip
+        for name, (model, timeout, cap, extra) in want.items():
             e = cfg.models[name]
             self.assertEqual((e.provider, e.api_key_env), ("nvidia", "NVIDIA_API_KEY"))
             self.assertEqual(e.base_url, "https://integrate.api.nvidia.com/v1")
             self.assertEqual(
+                (e.model, e.timeout_s, e.max_output_tokens), (model, timeout, cap)
+            )
+            self.assertEqual(dict(e.extra_body), extra)
+            self.assertEqual(
                 e.response_format, "none"
             )  # json_schema on NIM: UNVERIFIED
+            # the request guard holds the 16K budget plus this model's own output cap
+            self.assertLessEqual(
+                prompt.PROMPT_BUDGET_TOKENS + cap, prompt.REQUEST_GUARD_TOKENS
+            )
+        self.assertIn("PREVIEW", text.split("r2-backup", 1)[1].split("\n", 1)[0])
+        # the round-4 switch parses: active may name the NIM configs
+        doc = json.loads(textwrap.dedent(block))
+        doc["active"] = {"R2": "r2-primary", "R3": "r3-primary"}
+        for groq in ("r2-groq", "r3-groq"):
+            doc["models"].pop(groq)
+        switched = config.parse(doc)
+        self.assertEqual(switched.resolve("R3").model, "google/gemma-4-31b-it")
+        self.assertEqual(
+            switched.resolve("R2").model, "nvidia/nemotron-3-ultra-550b-a55b"
+        )
         self.assertEqual(cfg.models["demo"].provider, "ollama")
         self.assertEqual((cfg.timeout_s, cfg.max_output_tokens), (30.0, 1024))
         results = json.loads((REPO / "experiments/retrieval/results.json").read_text())

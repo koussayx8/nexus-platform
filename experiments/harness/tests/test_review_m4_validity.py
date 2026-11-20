@@ -655,3 +655,29 @@ class StrictArmCheckTest(unittest.TestCase):
             {"modelId": "x/y"},
         ):
             self.assertIsNotNone(batch.arm_mismatch("R2", ok | other), other)
+
+
+NIM_R3 = {
+    "model": "R3",
+    "model_config": "r3-primary",
+    "model_id": "google/gemma-4-31b-it",
+}
+
+
+class NimArmCheckTest(unittest.TestCase):
+    """ADR-045: once arms.py expects the NIM configs (after bake-off round 4), the same strict check
+    holds a Gemma-served R3 to r3-primary and refuses its backup, Groq, or another model id."""
+
+    def test_the_round_4_expectation_is_checked_strictly(self):
+        from unittest import mock
+
+        st = {"mode": "llm", "modelConfig": "r3-primary", "modelId": "google/gemma-4-31b-it",
+              "fallbackUsed": False}  # fmt: skip
+        with mock.patch.dict(arms.ARMS, {"R3": arms.ARMS["R3"] | NIM_R3}):
+            self.assertIsNone(batch.arm_mismatch("R3", st))
+            for other in ({"modelConfig": "r3-backup", "modelId": "moonshotai/kimi-k3.1-pro"},
+                          {"modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b"},
+                          {"modelId": "google/gemma-4-31b-it-preview"}):  # fmt: skip
+                self.assertIsNotNone(batch.arm_mismatch("R3", st | other), other)
+            fb = {"mode": "rules", "fallbackUsed": True, "modelConfig": "r3-backup"}
+            self.assertIsNotNone(batch.arm_mismatch("R3", fb))
