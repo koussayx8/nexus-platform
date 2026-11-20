@@ -29,7 +29,9 @@ estimate and trim level with what the live call recorded.
 
 **Decision expansion ("(a)") is now on `dev`** (38f8f30, "send the expanded Decision chunks").
 Rounds 1 and 4 call the Reasoner's own retrieval, so a run from today's checkout includes those chunks.
-The 2026-11-20 rounds 1–3 ran before that commit.
+Rounds 1 and 2 (2026-11-20) ran before that commit. Round 3 ran after it, at f016d33, but its `big`
+prompt uses its own chunks (the top 5 plus every Decision section among them), so the expansion does
+not affect it.
 
 **Round 4 (the checkout's Reasoner prompt)** sends exactly what the Reasoner builds in this checkout:
 its retrieval, then `prompt.plan` with its own version and its own excerpt budget. The bake-off does
@@ -318,14 +320,23 @@ Run it from the checkout whose prompt you want to measure (`dev` today, or the `
 Check the dry run first: it must say `prompt prompt/v…` with the version you expect.
 
 ```bash
-python -m experiments.bakeoff.bakeoff run --round 4 --bundles $BO/bundles --out $BO/round4 --only nemotron-3-ultra gemma-4-31b gemma-4-31b-think kimi-k3.1-pro --dry-run
+python -u -m experiments.bakeoff.bakeoff run --round 4 --bundles $BO/bundles --out $BO/round4 --timeout 300 --only nemotron-3-ultra gemma-4-31b gemma-4-31b-think kimi-k3.1-pro --dry-run
 ```
 
 ```bash
-python -m experiments.bakeoff.bakeoff run --round 4 --bundles $BO/bundles --out $BO/round4 --only nemotron-3-ultra gemma-4-31b gemma-4-31b-think kimi-k3.1-pro
+python -u -m experiments.bakeoff.bakeoff run --round 4 --bundles $BO/bundles --out $BO/round4 --timeout 300 --only nemotron-3-ultra gemma-4-31b gemma-4-31b-think kimi-k3.1-pro
 ```
 
-That is 4 × 10 × 2 = 80 calls, each with its model's own deadline (no `--timeout`).
+That is 4 × 10 × 2 = 80 calls.
+
+- **`--timeout 300`** overrides the 180 s default in `models.yaml`. Round 3 ran at 300 s (`timeout_s`
+  in its `calls.csv`). The R3 configs proposed in #279 also use 300 s, which is the Reasoner's cap
+  (`MAX_TIMEOUT_S`, `reasoner/nexus_reasoner/config.py`). Without it, a call that would answer
+  between 180 and 300 s counts as a hang.
+- **`python -u`** turns off output buffering, so a log you `tee` or `tail -f` updates after each call.
+
+The round 4 results and the final R2/R3 choice are recorded in ADR-045
+(`docs/adr/ADR-045-prompt-v3-budget-references-nim.md`, proposed in #279).
 
 `gemma-4-31b-think` is the same `google/gemma-4-31b-it` with its reasoning turned on:
 `chat_template_kwargs: {enable_thinking: true}`, 16,384 output tokens and a 300 s deadline. On NIM,
