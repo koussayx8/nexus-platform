@@ -13,9 +13,9 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Images | the digests at the `v0.6.0` tag. Today: operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`); the operator and the Reasoner are rebuilt before the tag (#242), so these two change | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
 | Score floor, prompt | 3.1739; `prompt/v2` (ADR-042), with `CHARS_PER_TOKEN` set to the ratio measured on the 2026-11-19 S1 R3 call (TBD, from the owner's Flight Recorder export; ADR-042 addendum) | by hand at each queue start (§4) |
-| Models | R2 `openai/gpt-oss-20b`, R3 `openai/gpt-oss-120b`; effort low, temperature 0, seed 0, one attempt | the arm check; `proposals.model_id` |
+| Models | R2 `openai/gpt-oss-20b`; R3 **pending the bake-off** (#271; today `openai/gpt-oss-120b` on Groq); effort low, temperature 0, seed 0, one attempt | the arm check; `proposals.model_id` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
-| Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace | pre-check |
+| Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace; `ProdUser` has `fixed_count = 80`, so every user above 160 goes to `nexus-dev` (#273) | pre-check |
 
 The index hash pins the runbooks, not the query builder; the Reasoner digest pins both (ADR-039). The owner verified
 live on 2026-11-15 at 20:05 that the Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`; the
@@ -40,8 +40,8 @@ About 59 live runs, all injected in `nexus-dev`. Not run: S2 and S4 live, R2 liv
 The suite runs after #233's must-fix items 2–5 (L2 compensation, K3 cells, `nexus-baseline`, request shapes), a
 separate change due on 2026-11-17 (Q10).
 
-**TODO (Q6), from the calibration and the Block 5 trial runs, before the freeze:** `clean_stddev` per signal; S6's
-`users` and `spawn_rate`; S3's patch and `baseline_ref`.
+**TODO (Q6), from the calibration and the Block 5 trial runs, before the freeze:** `clean_stddev` per signal; S3's
+patch and `baseline_ref`. S4/S6's load: **TBD** after the calibration (§9).
 
 ## 3. Run order
 
@@ -86,8 +86,10 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 | The run's Incident reaches a terminal phase | valid, with that phase, whatever it is |
 | The run's Incident is still open after 1,200 s | valid, `terminal` null, `timed_out` true |
 
-- **The run's Incident** is the first one created after the injection that targets `nexus-dev`, is not a smoke
-  Incident, and whose alert started at or after `injection_at`. Every other Incident is kept beside it.
+- **Only the first Incident per run counts** (owner, 2026-11-20). The run's Incident is the first one created after
+  the injection that targets `nexus-dev`, is not a smoke Incident, and whose alert started at or after
+  `injection_at`. Every other Incident (the other namespace, a second alert, an absorbed alert raised again after
+  the first Incident ended) is kept beside it and decides nothing: not the phase, not the action, not the metrics.
 - **`injection_at`** is the wall clock just before the first injection step; for S3, Argo CD's `deployedAt`.
 - **Every attempt counts toward the cap** (V7); a cell at its cap is reported `exhausted`.
 - **After the run, not in the batch (V9):** the audit join must be complete (1.0) and clean, or the run is
@@ -137,3 +139,13 @@ requests/day, 8,000 tokens/min, 200,000 tokens/day. At about 3,000 tokens per ca
 
 Replay calls are at least 35 s apart and every response is saved; an HTTP 429 is a pause, then the same call again.
 Live, the Reasoner makes one attempt, so a 429 becomes an R1 fallback: provider-caused, re-run in Block 12 (Q7). No `/ask` and no Note flow on run days.
+
+## 9. Owner's decisions after the Block 5 trial runs (2026-11-20)
+
+| Item | Decision |
+|---|---|
+| Q6: S4/S6's load | **TBD.** Calibrated after the fix round's promotion (#273: `ProdUser` `fixed_count = 80`), with plain resizes of the running swarm to totals 165, 168 and 170 (`nexus-dev` at 85, 88 and 90 req/s), about 5 minutes each, back to 160 between steps, the owner asked before each change. S4/S6's total is 80 + the highest `nexus-dev` rate where `NexusTrafficAnomaly` fires and `NexusCpuAnomaly` does not. Evidence so far: at 240 users split 120/120 (S6, 2026-11-20) `NexusCpuAnomaly` fired in both namespaces and R3 scaled `nexus-dev` 2 → 4; at `DevUser`-only 90 (step 1, 2026-11-20, with the `/stop` gap) it fired at CPU z 3.0–3.3 and R3 scaled 2 → 3. |
+| S2's injection | **A spike beyond capacity:** Locust total 220, spawn rate 4 (`nexus-dev` at 140 req/s, above the 120 where CPU saturated in S6), as a plain resize of the running swarm. Expected: `cpu_saturation`, `scale_deployment`. Spec v1.1 note: §20's S2 row ("Locust ramp to twice per-pod capacity on `/work/cpu` for 10 min") is replaced by this; `/work/cpu` and #190's `DevCpuUser` are no longer S2's load. |
+| The run's Incident | Only the first Incident per run counts (§5). |
+| Limitation | **NEXUS must not scale a workload managed by an HPA.** `scale_deployment` writes the Deployment's scale subresource; an HPA on the same Deployment would fight it. `sample-api` has no HPA (none in the repository, none on the cluster on 2026-11-20); the thesis states this as a limitation of the action catalogue, not a tested property. |
+| R3's model | **Pending the bake-off** (#271). Until then R3 is `openai/gpt-oss-120b` on Groq. The chosen model, its provider and its timeout are frozen with the rest at `v0.6.0`. |
