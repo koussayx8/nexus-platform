@@ -52,3 +52,13 @@ by hand in the ConfigMap, then an operator restart.
 Consequences: the prompt's request guard still reserves the file-level `maxOutputTokens` (1,024): an 8K cap on a
 thinking model is sent to the provider but not budgeted, until prompt/v3 (owner: after the bake-off). The owner adds
 `nvidia-api-key` to the Secret; without it the NIM configs answer 503 and nothing else changes.
+
+## Addendum C (2026-11-20, owner): the model's reasoning trace is stored as untrusted text
+
+Amends spec §16 ("reasoning traces … are never read or stored") until spec v1.1 (#203 should carry it).
+
+| # | Decision | Why |
+| --- | --- | --- |
+| C1 | **Passed on, never parsed.** A trace the provider returns (NIM's `message.reasoning_content`) goes into the Reasoner's response metadata as `reasoning` (cut to 16,000 characters) and `reasoningLength` (as received), on a success and on a 422 after the model answered. Groq is still asked to hide it (`include_reasoning: false`). Nothing in the Reasoner or the operator reads it: the proposal is the answer in `message.content`, validated as before. | The thesis needs to show what a thinking model did with the evidence (S6 especially) without giving that text any authority. |
+| C2 | **Stored in its own column.** `proposals.reasoning text`, nullable, on the row of the call (the Reasoner's proposal, or the failed attempt before an R1 fallback; never the R1 row). The writer checks for the column; until it exists the trace is not stored and one warning per process says so; everything else is recorded as before. No existing column ever holds it. Owner's migration, on the live volume, as the database owner: `ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reasoning text;` (also in `05-schema.sql`, so a new volume has it). Grants are table-level: no GRANT needed. | Same pattern as `usage` (Block 3): a new image works against an old volume. |
+| C3 | **Shown as plain text, labelled untrusted.** `status.reasoner.reasoningExcerpt` (first 300 characters) and `reasoningLength`; `nexusctl explain` shows the excerpt in its own `UNTRUSTED: MODEL REASONING` box, sanitised and flagged when it reads like an instruction; the Flight Recorder dashboard's latest-calls panel shows its first 400 characters (read through `to_jsonb`, so the query runs before the column exists). The bot's Explain button (#252, not on `dev`) must show it the same way. | One label everywhere: model text, never a decision. |
