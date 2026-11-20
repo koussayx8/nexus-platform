@@ -77,6 +77,10 @@ class Reasoner:
             "corpusHash": self.retriever.corpus_hash,
             "promptVersion": prompt.VERSION,
             "scoreFloor": self.cfg.score_floor,
+            "active": {
+                arm: {"modelConfig": name, "model": self.cfg.models[name].model}
+                for arm, name in sorted(self.cfg.active.items())
+            },
         }
 
     def propose(self, req) -> dict:
@@ -146,11 +150,15 @@ class Reasoner:
         level = ctx.get("level")
         if level not in LEVELS:
             raise Rejected(422, "invalid_request", f"level must be one of {LEVELS}")
-        entry = self.cfg.entry_for_model(ctx.get("model") or "")
+        # "R3" through `active`, a config name, or a model id (config.resolve)
+        requested = ctx.get("model") or ""
+        entry = self.cfg.resolve(requested)
         if entry is None:
             raise Rejected(
                 422, "unknown_model", "model id is not in the Reasoner configuration"
             )
+        # "arm" stays the name the operator asked for (R3), the config that served it is modelConfig
+        arm = requested if requested in self.cfg.active else entry.name
         effort = ctx.get("reasoningEffort")
         if effort is not None and effort not in ("low", "medium", "high"):
             raise Rejected(
@@ -174,11 +182,14 @@ class Reasoner:
                 str(e),
                 metadata={
                     "mode": "llm",
-                    "arm": entry.name,
+                    "arm": arm,
+                    "modelConfig": entry.name,
+                    "model": entry.model,
                     "requestTokensEstimate": e.estimate,
                 },
             ) from None
         excerpt = {
+            "modelConfig": entry.name,  # every call records the config it used, failed or not
             "logSelection": p.selection,
             "promptTrimLevel": p.level,
             "promptTokensEstimate": p.tokens_estimate,
@@ -200,7 +211,7 @@ class Reasoner:
             ) from None
         meta = {
             "mode": "llm",
-            "arm": entry.name,
+            "arm": arm,
             "provider": entry.provider,
             "model": comp.model,
             "settings": comp.settings,

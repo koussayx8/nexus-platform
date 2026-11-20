@@ -12,8 +12,12 @@ MIN_ATTEMPT_S of the budget would remain for the second attempt. A timeout is ne
 used the budget. A 429 without Retry-After is not retried. Anything else fails at once, and the
 operator falls back to R1 as before.
 
-Providers: groq (R2, R3; OpenAI-compatible) and ollama (offline demo fallback, not an
-experimental arm). The anthropic provider served the Haiku arm only and went with it (TASKS.md D3,
+Providers: groq (R2, R3 today) and nvidia (NVIDIA NIM, the R3 candidates of the bake-off), both
+OpenAI-compatible /chat/completions, and ollama (offline demo fallback, not an experimental arm).
+Groq gets `reasoning_effort`, `include_reasoning: false` and `max_completion_tokens`; NIM gets
+`max_tokens` and none of Groq's options. The answer is `message.content`; a NIM thinking model's
+trace is `message.reasoning_content`, returned beside it as untrusted text (Completion.reasoning)
+and never parsed. The anthropic provider served the Haiku arm only and went with it (TASKS.md D3,
 D10). Everything provider-specific (URL, model id, key variable, effort) comes from config. The key is read from the environment when a call is made and appears
 nowhere else: not in errors, logs or results.
 """
@@ -86,6 +90,9 @@ class Completion:
     model: str
     usage: dict
     settings: dict
+    reasoning: str | None = (
+        None  # untrusted model text, never parsed or used for a decision
+    )
 
 
 # Sent on every provider call. Without it urllib sends "Python-urllib/3.x", which Groq's edge
@@ -167,34 +174,45 @@ def _attempt(
     attempt: int,
 ) -> Completion:
     effort = effort or entry.reasoning_effort
-    if not entry.base_url:
+    if not entry.base_url or not entry.configured:
         raise AdapterError("not_configured")
     base = entry.base_url.rstrip("/")
     settings = {
         "temperature": 0,
-        "max_output_tokens": cfg.max_output_tokens,
+        "max_output_tokens": entry.max_output_tokens,
         "seed": cfg.seed,
         "timeout_s": entry.timeout_s,
         "attempts": attempt,
     }
     try:
-        if entry.provider == "groq":
-            body = {
+        if entry.provider in ("groq", "nvidia"):
+            body: dict = {
                 "model": entry.model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
                 "temperature": 0,
-                "max_completion_tokens": cfg.max_output_tokens,
                 "seed": cfg.seed,
-                "reasoning_effort": effort,
-                "include_reasoning": False,
-                "response_format": {
+            }
+            if entry.provider == "groq":
+                body |= {
+                    "max_completion_tokens": entry.max_output_tokens,
+                    "reasoning_effort": effort,
+                    "include_reasoning": False,
+                }
+                settings["reasoning_effort"] = effort
+            else:  # no include_reasoning or reasoning_effort outside Groq
+                body["max_tokens"] = entry.max_output_tokens
+                settings["reasoning_effort"] = None
+            if entry.response_format == "json_schema":
+                body["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {"name": "proposal_v1", "schema": PROPOSAL_SCHEMA},
-                },
-            }
+                }
+            elif entry.response_format == "json_object":
+                body["response_format"] = {"type": "json_object"}
+            settings["response_format"] = entry.response_format
             doc = _post(
                 f"{base}/chat/completions",
                 {"Authorization": f"Bearer {_key(entry)}"},
@@ -202,9 +220,10 @@ def _attempt(
                 timeout,
                 opener,
             )
-            text = doc["choices"][0]["message"]["content"]
+            message = doc["choices"][0]["message"]
+            text = message["content"]
+            reasoning = message.get("reasoning_content")
             usage = doc.get("usage") or {}
-            settings["reasoning_effort"] = effort
         elif entry.provider == "ollama":
             body = {
                 "model": entry.model,
@@ -217,12 +236,13 @@ def _attempt(
                 "options": {
                     "temperature": 0,
                     "seed": cfg.seed,
-                    "num_predict": cfg.max_output_tokens,
+                    "num_predict": entry.max_output_tokens,
                 },
             }
             doc = _post(f"{base}/api/chat", {}, body, timeout, opener)
             text = doc["message"]["content"]
             usage = {k: doc[k] for k in ("prompt_eval_count", "eval_count") if k in doc}
+            reasoning = None
             settings["reasoning_effort"] = None
         else:  # parse() rejects other providers
             raise AdapterError("not_configured")
@@ -230,7 +250,15 @@ def _attempt(
         raise AdapterError("bad_response") from None
     if not isinstance(text, str):
         raise AdapterError("bad_response")
-    return Completion(text=text, model=entry.model, usage=usage, settings=settings)
+    if not isinstance(reasoning, str):
+        reasoning = None
+    return Completion(
+        text=text,
+        model=entry.model,
+        usage=usage,
+        settings=settings,
+        reasoning=reasoning,
+    )
 
 
 def parse_json(text: str):
