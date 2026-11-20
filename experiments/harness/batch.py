@@ -1042,7 +1042,7 @@ def _status(queue: Queue) -> dict:
     }
 
 
-def main(argv=None) -> int:
+def main(argv=None, guard_exec=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("mode", choices=("init", "status", "run", "clear-halt"))
     ap.add_argument("--state", required=True)
@@ -1091,6 +1091,10 @@ def main(argv=None) -> int:
                 )
             )
             return 0
+        # ADR-047: the batch runs reviewed code only, as the runner does (#266)
+        why = runner_mod.code_guard(guard_exec)
+        if why:
+            raise Refused(f"refusing to execute: {why}")
         live = LiveRun(
             runner_mod.Runner(a.context, locust=a.locust, git_dir=a.git_dir),
             queue.doc["precheck"],
