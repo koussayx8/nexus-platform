@@ -1,11 +1,12 @@
 # ADR-041: C8 — The Ready Revert PR, Opened from a Machine-Account Fork
 
-**Status:** Proposed (accepted when its pull request merges). Owner answers of 2026-11-17 are recorded below;
-the pull request stays draft until Block 6.
+**Status:** Proposed (accepted when its pull request, #237, merges). Owner answers of 2026-11-17 and 2026-11-19 are
+recorded below. Aligned on 2026-11-21 with C8 as built in #255 (draft until Block 6); "As built" below lists every
+point where the build differs from the first draft.
 **Date:** 2026-11-16
 **Spec:** §13 (GitOps boundary, spec:1005), §19 (rulesets), §20 (configuration C8, spec:1788), AD-16. C8 moves
-from SHOULD to in scope, recorded for spec v1.1 (#203). `docs/architecture/final-spec.md` does not change with
-this ADR.
+from SHOULD to in scope. Spec v1.1 (#203, ADR-048) states the decision (rows D8, D15 and X13) and names this ADR as
+pending; its detail enters spec §13 and §18 when it is accepted.
 **Decisions it implements:** `TASKS.md` D8 (C8 in), D15 (fork, machine account, the token test).
 **Built in:** Block 6.
 
@@ -47,16 +48,16 @@ Facts this ADR builds on:
 
 | # | Decision |
 |---|---|
-| 1 | **The bot pod opens the pull request, not the operator.** The bot (ADR-040) already watches Incidents and has outbound access. The operator keeps no Git credential and no public egress, so "NEXUS never writes desired state" holds for the component that holds cluster rights. |
+| 1 | **The bot pod opens the pull request, not the operator.** Built as the library `libs/nexus-revert` (#255), which the bot's loop calls (`Service.tick`); until the bot core (#252) is merged it also runs alone, log only (`python -m nexus_revert.main`). The bot (ADR-040) already lists Incidents and has outbound access. The operator keeps no Git credential and no public egress, so "NEXUS never writes desired state" holds for the component that holds cluster rights. |
 | 2 | **From a fork owned by a GitHub machine account.** The account owns one repository, a fork of `koussayx8/nexus-platform`. It is **not** a collaborator on the upstream repository and is in no team. The bot pushes a branch to the fork and opens a pull request against the upstream branch. |
 | 3 | **The token has no write access to `koussayx8/nexus-platform`.** First choice: a fine-grained token, repository access "only the fork", Contents read/write, Pull requests read/write, Metadata read. If that token cannot open the upstream pull request: a classic token with `public_repo` only. **No ruleset change** (D15). |
 | 4 | **The 10-minute token test runs first**, before any Block 6 code (below). Its result picks the token type, or the fallback. |
-| 5 | **Branch map, static, in the bot's ConfigMap in Git:** `nexus-dev` → `experiment/dev-state`, overlay `overlays/dev`; `nexus-prod` → `main`, overlay `overlays/prod`. Any other namespace: no pull request. |
+| 5 | **Branch map, static, in the bot's ConfigMap in Git** (key `revert.yaml`, `revert.example.yaml`): `nexus-dev` → `experiment/dev-state`, overlay `overlays/dev`, application `sample-api-dev`. `nexus-prod` → `main`, overlay `overlays/prod` is **config only and commented out** (cut first; limit 4). Any other namespace: no pull request. |
 | 6 | **The commit to revert must be on the tracked branch and touch only the target's overlay** (A2). A SHA named by the Reasoner is untrusted and is accepted only if it passes these checks (below). When the Reasoner names none, the bot takes the newest commit on the tracked branch that touches the overlay (A1), and the pull request body says so. If no check-passing SHA exists, no pull request is opened and the chat says why. |
 | 7 | **The diff is a mechanical revert computed by the bot** (`git revert`). No Reasoner output is ever in the diff, the commit message, the branch name or the title. |
 | 8 | **The pull request is ready, not draft**, titled and described from a fixed template filled with validated fields (below). |
 | 9 | **NEXUS never merges.** The token cannot merge (no upstream write). The bot calls no merge endpoint, enables no auto-merge, and sets `maintainer_can_modify: false`. The owner merges under CLAUDE.md rule 11. |
-| 10 | **The human merge is recognised by polling the pull request.** The Incident stays `Escalated`, which is terminal. Recovery is ordinary: ArgoCD syncs, the rollout completes, the alert resolves. |
+| 10 | **The human merge is recognised by polling the pull request** (every 30 s, 24 h timeout; after a restart, open pull requests are found again by author and head prefix). It is a notification only: the log, then the chat after #252. The Incident stays `Escalated`, which is terminal, and nothing is written to it or to the Flight Recorder. Recovery is ordinary: ArgoCD syncs, the rollout completes, the alert resolves. |
 | 11 | **One pull request per Incident, and at most one open revert pull request per tracked branch.** Working branch `nexus/revert-<incident-name>`; the bot pushes only branches under `nexus/`, only to the fork. |
 
 ## The 10-minute token test
@@ -193,8 +194,9 @@ required check; report those minutes with the human time, not as NEXUS latency.
    touches the right overlay; they do not guarantee it is the cause.
 3. **The pull request is a second output channel besides the four catalogue actions.** It ends at a human
    merge. The thesis claim is about cluster mutations and is unchanged; the channel is named in the trust model.
-4. **`main` is mapped but unused.** At level 1, S3 ends `Recommended`, not `Escalated` (spec:1801), and
-   `nexus-prod` is at level 1. The `main` mapping is the first thing to cut (`TASKS.md` Block 6).
+4. **`main` is not mapped.** Spec v1.1 (the L1 item) records that at level 1 a proposed `escalate` ends
+   `Escalated`, so an S3-like fault in `nexus-prod` (level 1) would trigger C8 against `main` if it were mapped.
+   The mapping is commented out in the configuration (#255), the first thing cut (`TASKS.md` Block 6).
 5. **The bot pod now holds this token and the approver impersonation right together** (ADR-040 limit 6). Two
    Deployments with two ServiceAccounts would separate them; that split is not planned before the defense.
 6. **Merge recognition is a chat message, not a record in the Flight Recorder.** The export reads the times
@@ -253,6 +255,21 @@ Incident whose named SHA is not on the branch opens no pull request.
 Secret script; merging the revert pull request; deleting test branches in the fork.
 
 **Cut first:** the `main` mapping; then the export step (times can be read by hand for three C8 runs).
+
+## As built in #255 (2026-11-21)
+
+| Point | First draft | Built |
+| --- | --- | --- |
+| Where the code lives | `bot/nexus_bot/{watch,revert,gitcmd,github,prwatch}.py` | `libs/nexus-revert/nexus_revert/` (`config`, `trigger`, `revert`, `gitcmd`, `github`, `template`, `prwatch`, `service`, `main`), called by the bot's loop (decision 1) |
+| Trigger | A watch | The bot's Incident scan: phase `Escalated`, `actionId: escalate`, `git_revert`, a Deployment in a mapped namespace |
+| `nexus-prod` → `main` | Mapped | Commented out (decision 5, limit 4) |
+| The token | An askpass helper or an HTTP header | An `http.<fork URL>.extraHeader` in `GIT_CONFIG_*` environment variables, sent only on the push; never in argv, a URL or a log line. Secret `nexus-bot/nexus-bot-github`, file `/var/run/secrets/nexus-bot/github/token` |
+| Git | Hooks disabled, empty scratch | No system or global config, `core.hooksPath=/dev/null`, https only, no prompts, no credential helper, a fresh scratch directory (`emptyDir` at `/tmp`) deleted after each attempt |
+| Check 5 | `git revert --no-edit` | `git revert --no-commit`, then the fixed message |
+| Checks 4b, 4c | Owner, 2026-11-19 | Built as written: workload files only, never `overlays/dev/namespace.yaml`; the kustomization's keys except `patches` unchanged, except the sample-api `images` entry's `newName`, `newTag`, `digest` |
+| Outcome C | Post the compare link | `prMode: compare_link`, also used when the create is refused |
+| Merge recognition | Poll | As decision 10: every 30 s, 24 h, restart recovery by author and head prefix; a notification only |
+| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test (steps 0, owner) has not run: its outcome (A, B or C) is still to be recorded here |
 
 ## Consequences
 
