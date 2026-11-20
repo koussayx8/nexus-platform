@@ -1,4 +1,11 @@
-"""The Evidence Collector (spec §4, §16): build the evidence/v1.1 bundle for one Incident.
+"""The Evidence Collector (spec §4, §16): build the evidence/v1.2 bundle for one Incident.
+
+evidence/v1.2 (ADR-044) is evidence/v1.1 plus three read-only additions, all untrusted and capped:
+`workload.podSpec` (a short summary of the current pod template: image, ports, probes, resources,
+env var NAMES), `workload.rolloutDiff` (what changed from the previous ReplicaSet's template, in
+the same terms; null with no previous revision), and `cluster.activeAlerts` (the other firing
+Nexus alerts at collection time: alert name and target only). Env var values, commands and
+arguments are never read into it; nothing comes from Git or commit messages (blinding, ADR-022).
 
 evidence/v1.1 (ADR-039) is evidence/v1 plus one Z-score, `metrics.zscores.inflight`, the in-flight
 request count against its 15 min baseline: under a hang requests stop completing, so the p95 of the
@@ -19,6 +26,7 @@ the bundle: evidence/v1.1 is unchanged.
 """
 
 import datetime
+import json
 
 from .gate import ready_replicas, rollout_in_progress, selector_of
 from .kube import TRANSPORT_ERRORS, ApiError, KubeApi
@@ -40,7 +48,12 @@ ZSCORES = {
     "requestRate": "namespace:nexus_sample_api_requests:zscore15m",
     "inflight": "namespace:nexus_sample_api_inflight:zscore15m",  # evidence/v1.1 (ADR-039)
 }
-SCHEMA = "evidence/v1.1"
+SCHEMA = "evidence/v1.2"
+MAX_DIFF_ENTRIES = 20  # workload.rolloutDiff
+MAX_FIELD_CHARS = 300  # one podSpec value or one diff entry
+MAX_ENV_NAMES = 40  # per container
+MAX_ACTIVE_ALERTS = 10  # cluster.activeAlerts
+ACTIVE_ALERTS_QUERY = 'ALERTS{alertstate="firing", alertname=~"Nexus.*"}'
 ERROR_RATIO = "namespace:nexus_sample_api_error_ratio:rate2m"
 # status.evidence.baseline: signal (its key in ZSCORES) -> the prefix of its baseline rules
 BASELINES = {
@@ -74,6 +87,122 @@ def _container_state(status: dict) -> dict:
     }
 
 
+def _cut(value) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+    return text if len(text) <= MAX_FIELD_CHARS else text[:MAX_FIELD_CHARS] + " [cut]"
+
+
+def _probe(p) -> str | None:
+    """httpGet /ready :8000, period 5s, failures 3, delay 0s; tcp and grpc by port; exec without
+    its command (a command line may carry a secret)."""
+    if not isinstance(p, dict):
+        return None
+    if isinstance(p.get("httpGet"), dict):
+        h = p["httpGet"]
+        how = f"httpGet {h.get('path', '/')} :{h.get('port')}"
+    elif isinstance(p.get("tcpSocket"), dict):
+        how = f"tcpSocket :{p['tcpSocket'].get('port')}"
+    elif isinstance(p.get("grpc"), dict):
+        how = f"grpc :{p['grpc'].get('port')}"
+    elif "exec" in p:
+        how = "exec (command not shown)"
+    else:
+        how = "unknown"
+    timing = ", ".join(
+        f"{label} {p[key]}{unit}"
+        for key, label, unit in (
+            ("periodSeconds", "period", "s"),
+            ("failureThreshold", "failures", ""),
+            ("initialDelaySeconds", "delay", "s"),
+            ("timeoutSeconds", "timeout", "s"),
+        )
+        if key in p
+    )
+    return _cut(f"{how}, {timing}" if timing else how)
+
+
+def template_summary(rs: dict | None) -> list[dict] | None:
+    """Per container of a ReplicaSet's pod template: name, image, ports, the three probes,
+    resources and env var NAMES (sorted, capped; values are never read). None without one."""
+    if not rs:
+        return None
+    spec = (((rs.get("spec") or {}).get("template") or {}).get("spec")) or {}
+    out = []
+    for c in spec.get("containers") or []:
+        if not isinstance(c, dict):
+            continue
+        names = sorted(
+            {
+                e["name"]
+                for e in c.get("env") or []
+                if isinstance(e, dict) and isinstance(e.get("name"), str)
+            }
+        )
+        refs = sorted(
+            f"{kind}:{(src.get(kind) or {}).get('name')}"
+            for src in c.get("envFrom") or []
+            if isinstance(src, dict)
+            for kind in ("configMapRef", "secretRef")
+            if kind in src
+        )
+        out.append(
+            {
+                "name": _cut(c.get("name") or "?"),
+                "image": _cut(c.get("image") or "?"),
+                "ports": sorted(
+                    p.get("containerPort")
+                    for p in c.get("ports") or []
+                    if isinstance(p, dict) and isinstance(p.get("containerPort"), int)
+                ),
+                "readinessProbe": _probe(c.get("readinessProbe")),
+                "livenessProbe": _probe(c.get("livenessProbe")),
+                "startupProbe": _probe(c.get("startupProbe")),
+                "resources": _cut(c.get("resources") or {}),
+                "envNames": [_cut(n) for n in names[:MAX_ENV_NAMES]],
+                "envFrom": [_cut(r) for r in refs[:MAX_ENV_NAMES]],
+            }
+        )
+    return out
+
+
+def template_diff(
+    previous: list[dict] | None, current: list[dict] | None
+) -> list[str] | None:
+    """What changed from the previous template to the current one, one short line each, at most
+    MAX_DIFF_ENTRIES. None without a previous revision; [] when nothing in these terms changed."""
+    if previous is None or current is None:
+        return None
+    before = {c["name"]: c for c in previous}
+    after = {c["name"]: c for c in current}
+    out: list[str] = []
+    for name in sorted(set(before) | set(after)):
+        b, a = before.get(name), after.get(name)
+        if b is None:
+            out.append(_cut(f"{name}: container added"))
+            continue
+        if a is None:
+            out.append(_cut(f"{name}: container removed"))
+            continue
+        for key in (
+            "image",
+            "ports",
+            "readinessProbe",
+            "livenessProbe",
+            "startupProbe",
+            "resources",
+        ):
+            if b.get(key) != a.get(key):
+                out.append(_cut(f"{name}.{key}: {b.get(key)} -> {a.get(key)}"))
+        for key in ("envNames", "envFrom"):
+            added = sorted(set(a.get(key) or []) - set(b.get(key) or []))
+            removed = sorted(set(b.get(key) or []) - set(a.get(key) or []))
+            if added:
+                out.append(_cut(f"{name}.{key} added: {', '.join(added)}"))
+            if removed:
+                out.append(_cut(f"{name}.{key} removed: {', '.join(removed)}"))
+    return out[:MAX_DIFF_ENTRIES]
+
+
 class EvidenceCollector:
     def __init__(self, api: KubeApi, metrics, clock) -> None:
         self.api = api
@@ -91,7 +220,7 @@ class EvidenceCollector:
             return None
 
     async def collect(self, incident: dict) -> tuple[dict, dict]:
-        """(the raw evidence/v1.1 bundle without its hash, the baseline for status.evidence)."""
+        """(the raw evidence/v1.2 bundle without its hash, the baseline for status.evidence)."""
         spec = incident["spec"]
         target = spec["target"]
         ns, name = target["namespace"], target["name"]
@@ -135,6 +264,12 @@ class EvidenceCollector:
             },
             "previousRevisions": [r["metadata"]["name"] for r in revisions[1:4]],
         }
+        # evidence/v1.2 (ADR-044): the current template in short, and what changed from the last
+        summary = template_summary(current)
+        workload["podSpec"] = summary
+        workload["rolloutDiff"] = template_diff(
+            template_summary(revisions[1]) if len(revisions) > 1 else None, summary
+        )
         pod_rows = []
         for p in pods:
             st = p.get("status") or {}
@@ -171,6 +306,11 @@ class EvidenceCollector:
                 "logs": await self._logs(ns, pod_rows),
                 "metrics": await self._metrics(ns),
                 "gitops": await self._gitops(ns),
+                "cluster": {
+                    "activeAlerts": await self._active_alerts(
+                        (spec.get("source") or {}).get("alertname"), f"{ns}/{name}"
+                    )
+                },
                 "collectedAt": iso(now),
             },
             await self._baseline(ns, now),
@@ -227,6 +367,36 @@ class EvidenceCollector:
                     source[key] = len(lines)
             logs["sources"].append(source)
         return logs
+
+    async def _active_alerts(
+        self, own: str | None, own_target: str
+    ) -> list[dict] | None:
+        """The other firing Nexus alerts in the cluster (evidence/v1.2): {alertname, target},
+        sorted, at most MAX_ACTIVE_ALERTS; the Incident's own alert on its own target is left
+        out. None when Prometheus is not configured or does not answer."""
+        query = getattr(self.metrics, "vector", None)
+        if query is None:
+            return None
+        try:
+            series = await query(ACTIVE_ALERTS_QUERY)
+        except (ApiError, *TRANSPORT_ERRORS, ValueError):
+            return None
+        if series is None:
+            return None
+        seen = set()
+        for labels in series:
+            if not isinstance(labels, dict):
+                continue
+            alert = labels.get("alertname")
+            target = labels.get("nexus_target") or labels.get("namespace")
+            if not isinstance(alert, str) or not isinstance(target, str):
+                continue
+            if (alert, target) == (own, own_target):
+                continue
+            seen.add((_cut(alert), _cut(target)))
+        return [
+            {"alertname": a, "target": t} for a, t in sorted(seen)[:MAX_ACTIVE_ALERTS]
+        ]
 
     async def _metrics(self, ns: str) -> dict:
         zscores = {k: await self._scalar(q, ns) for k, q in ZSCORES.items()}

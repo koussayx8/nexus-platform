@@ -426,10 +426,10 @@ def wrong_schema() -> dict:
         (forged("peer 10.42.7.19"), "unredacted content found: ip"),
         (tampered(), "hash does not match"),
         (no_counts(), "redaction.counts missing"),
-        (wrong_schema(), "not an evidence/v1 or evidence/v1.1 bundle"),
+        (wrong_schema(), "not an evidence/v1, v1.1 or v1.2 bundle"),
         ({"schema": "evidence/v1"}, "redaction.counts missing"),
         ({"schema": "evidence/v1.1"}, "redaction.counts missing"),
-        ("a string", "not an evidence/v1 or evidence/v1.1 bundle"),
+        ("a string", "not an evidence/v1, v1.1 or v1.2 bundle"),
     ],
 )
 def test_an_unredacted_bundle_is_refused_and_nothing_is_sent(bundle, why):

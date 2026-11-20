@@ -212,7 +212,7 @@ class Budget(unittest.TestCase):
         self.assertGreater(cm.exception.estimate, prompt.REQUEST_GUARD_TOKENS)
 
     def test_the_prompt_says_the_logs_are_an_excerpt_and_to_abstain_when_short(self):
-        self.assertEqual(prompt.VERSION, "prompt/v2")
+        self.assertEqual(prompt.VERSION, "prompt/v2.1")
         self.assertIn("excerpt", prompt.RULES)
         self.assertIn("escalate or abstain", prompt.RULES)
 
@@ -249,7 +249,7 @@ class Service(unittest.TestCase):
             out = reasoner(op).propose({"bundle": b, "context": self.ctx(model)})
             sent[arm] = op.calls[0]["body"]["messages"]
             m = out["metadata"]
-            self.assertEqual(m["promptVersion"], "prompt/v2")
+            self.assertEqual(m["promptVersion"], "prompt/v2.1")
             self.assertEqual(m["promptTrimLevel"], 1)
             self.assertLessEqual(m["promptTokensEstimate"], prompt.PROMPT_BUDGET_TOKENS)
             self.assertEqual(

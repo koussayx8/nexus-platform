@@ -170,7 +170,7 @@ def test_the_bundle_carries_the_spec_fields_and_limits():
     collector = EvidenceCollector(rig.api, rig.metrics, rig.clock)
     detected(rig)
     raw, baseline = rig.call(collector.collect(rig.inc()))
-    assert raw["schema"] == "evidence/v1.1"
+    assert raw["schema"] == "evidence/v1.2"
     assert set(raw["metrics"]["zscores"]) == {
         "cpu", "latencyP95", "errorRatio", "requestRate", "inflight"
     }  # fmt: skip
