@@ -70,6 +70,26 @@ def cut(text: str, limit: int = MAX_TEXT) -> str:
     return text if len(text) <= limit else text[: limit - 1] + ELLIPSIS
 
 
+def _units(text: str) -> int:
+    """Length in UTF-16 code units: never less than the character count, so a text that fits by
+    this measure fits Telegram's cap whichever way it counts (characters or UTF-16 units)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def fit(text: str, limit: int = MAX_TEXT) -> str:
+    """The whole text when it fits one message; otherwise its start and a last line saying how much
+    was shown. The full model text stays in the Flight Recorder (proposals.reasoning)."""
+    if _units(text) <= limit:
+        return text
+    total = shown = len(text)
+    while True:
+        note = f"\n(truncated: {shown} of {total} characters; the full text is in the Flight Recorder)"
+        over = _units(text[:shown]) + _units(note) - limit
+        if over <= 0:
+            return text[:shown] + note
+        shown = max(0, shown - over)  # each character is at least one unit
+
+
 def keyboard(buttons: list[tuple[str, str]]) -> dict[str, Any]:
     """One row of inline buttons: (label, callback_data)."""
     for _label, data in buttons:
@@ -99,7 +119,7 @@ class TelegramClient:
 
     def send_message(self, chat_id: int, text: str,
                      buttons: list[tuple[str, str]] | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"chat_id": chat_id, "text": cut(text),
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": fit(text),
                                    "link_preview_options": {"is_disabled": True}}
         if buttons:
             payload["reply_markup"] = keyboard(buttons)

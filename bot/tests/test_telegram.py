@@ -89,9 +89,13 @@ def test_no_request_carries_parse_mode_and_previews_are_off(server: str) -> None
     assert send["text"].startswith("*bold* <b>x</b>")  # sent as is, interpreted as nothing
 
 
-def test_text_is_cut_at_4096(server: str) -> None:
+def test_text_is_cut_at_4096_with_a_truncation_line(server: str) -> None:
     client(server).send_message(1, "x" * 10000)
-    assert len(FakeBotApi.calls[0][1]["text"]) == MAX_TEXT
+    text = FakeBotApi.calls[0][1]["text"]
+    assert MAX_TEXT - 5 <= len(text) <= MAX_TEXT  # the count's digits may shrink by one
+    shown = text.index("\n")
+    assert text.endswith(f"(truncated: {shown} of 10000 characters; the full text is in the Flight Recorder)")
+    assert text.startswith("x" * shown + "\n(truncated")
 
 
 def test_callback_data_over_64_bytes_is_refused() -> None:

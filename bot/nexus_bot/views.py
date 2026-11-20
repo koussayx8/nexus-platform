@@ -3,6 +3,12 @@ render every untrusted value (ADR-040 decision 11), so there is no second render
 
 Above the buttons, the fields K5 binds (target, action, parameters, hash) and the level come
 first, outside the untrusted box; the Reasoner's text is inside it.
+
+Explain is nexusctl's explain view, so it shows what `nexusctl explain` shows: the model's reasoning
+excerpt (ADR-035 addendum C) and the escalation's suggestedChange and runbookGap (ADR-044), each in
+an UNTRUSTED box, sanitized, instruction-like text flagged, never a decision or a button. The
+message is sent with no parse_mode and is capped at 4,096 characters with a "(truncated: N of M
+characters)" line (telegram.fit); the full text stays in the Flight Recorder.
 """
 
 from nexus_client.models import Incident
