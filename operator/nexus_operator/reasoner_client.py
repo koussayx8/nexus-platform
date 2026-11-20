@@ -163,6 +163,7 @@ def _error_excerpt(raw: str) -> dict:
 
 
 EXCERPT_KEYS = (
+    "modelConfig",  # the Reasoner config that served the call (r3-groq, r3-primary, ...); also on a failure
     "logSelection",
     "promptTrimLevel",
     "promptTokensEstimate",
@@ -182,6 +183,9 @@ def _excerpt_meta(meta: dict) -> dict:
     estimate and, per pod, the line counts kept and dropped. Counts are non-negative integers, a pod
     name a short string or null, at most 10 pods; anything else is dropped. {} when none is given."""
     out: dict = {}
+    name = meta.get("modelConfig")
+    if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+        out["modelConfig"] = name
     for key in ("promptTrimLevel", "promptTokensEstimate", "requestTokensEstimate"):
         v = _count(meta.get(key))
         if v is not None:

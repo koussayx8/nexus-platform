@@ -519,3 +519,27 @@ def test_a_longer_reasoner_timeout_moves_the_diagnosing_limit():
     assert rig.status()["phase"] == "Diagnosing"
     rig.tick(seconds=90)
     assert ended(rig) == ("Escalated", "reasoner_unavailable")
+
+
+def test_the_model_config_is_recorded_in_status_and_on_the_row():
+    """Owner, 2026-11-20: every call records the config that served it (r3-groq, r3-primary...)
+    beside the model id, in status.reasoner and in the call row's usage, not in usage's tokens."""
+    rig = make(FakeReasoner(answer(modelConfig="r3-primary")))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert (s["modelConfig"], s["modelId"]) == ("r3-primary", MODEL)
+    assert "modelConfig" not in s["usage"]
+    [row] = rows(rig).values()
+    assert row["usage"]["modelConfig"] == "r3-primary"
+
+
+def test_a_failed_call_keeps_its_model_config():
+    result = failure(
+        "http_503",
+        errors=["model_unavailable: no_credentials"],
+        meta={"modelConfig": "r3-primary"},
+    )
+    rig = make(FakeReasoner(result))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert s["fallbackUsed"] is True and s["modelConfig"] == "r3-primary"

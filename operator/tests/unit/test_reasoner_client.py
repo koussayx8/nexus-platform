@@ -542,3 +542,21 @@ def test_a_422_prompt_too_large_keeps_the_request_estimate():
     r = run(refuse, call)
     assert r.reason == "rejected" and r.meta["rejection"] == "prompt_too_large"
     assert r.meta["requestTokensEstimate"] == 7400
+
+
+def test_the_model_config_name_is_kept_only_when_it_is_a_short_name():
+    for given, kept in (
+        ("r3-primary", "r3-primary"),
+        ("x" * 65, None),
+        ("a b", None),
+        (7, None),
+    ):
+
+        async def answer(request, body, given=given):
+            return json_response(good_answer(modelConfig=given))
+
+        async def call(client, server):
+            return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+        r = run(answer, call)
+        assert r.meta.get("modelConfig") == kept, given
