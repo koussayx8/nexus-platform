@@ -36,3 +36,12 @@ shell globbed (finding in `docs/demo/manual-scenarios.md`).
 - Manual resets must now name the baseline: `runner.py run reset --level 3 --context default --git-dir ~/nexus-exp
   --baseline-ref <commit> --execute`, the form the Block 5 notes already used.
 - #234's frozen values are unchanged (they are updated once, at the freeze).
+
+## Addendum (2026-11-20, owner): the open points decided
+
+| Point | Decision |
+| --- | --- |
+| The pause-gap threshold | **Stays 1.0 s** (`MAX_PAUSE_GAP_S`, the M2-1 void rule V2). The 30 s in the overnight item was not a measured value; stricter is fine. |
+| A mid-run Locust poll | **None.** Instead a protocol rule: **nobody touches Locust during a run.** The end check (`locust_end_check`) and the pause gap stay as they are. |
+| The batch cells' `baseline_ref` | **`batch.py init` refuses every cell without one**: one rule for all cells, the same as the runner's reset (decision 1). The value must be a commit-ish with no whitespace that cannot read as a git option. #234's TODO "S3's patch and `baseline_ref`" is answered by this rule for `baseline_ref`; #234 itself is not edited (its values change once, at the freeze). |
+| The new isolation probe's live run | **At the promotion**, by the owner (`bash scripts/isolation-probe.sh`). |
