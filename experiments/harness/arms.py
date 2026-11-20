@@ -1,8 +1,9 @@
 """Arm configurations (spec sections 16, 20).
 
 Reasoner arms R0-R3 as frozen in the spec, and nothing else: the Haiku arm (H1) and the effort
-sweep, kept in scope on 2026-11-02, were cut on 2026-11-12 (TASKS.md decisions D3 and D10; no new
-LLM provider). `phases` lists where each arm may run, and arms_for_phase() is the only selector.
+sweep, kept in scope on 2026-11-02, were cut on 2026-11-12 (TASKS.md decisions D3 and D10). D10's
+"no new LLM provider" is overridden by the owner (ADR-035 addendum B): R2 and R3 run on NVIDIA NIM,
+chosen by bake-off round 4 (ADR-045). `phases` lists where each arm may run, and arms_for_phase() is the only selector.
 Model ids live here, in configuration, and are recorded with every proposal.
 
 R2 and R3 are asked for by their arm names: the Reasoner serves each with the config its `active`
@@ -26,9 +27,13 @@ COMMON = {
 ARMS = {
     "R0": {"mode": "adversarial", "model": None, "provider": None, "phases": ("B", "D"), "purpose": "worst case, seeded generator"},
     "R1": {"mode": "rules", "model": None, "provider": None, "phases": ("A", "B", "C"), "purpose": "deterministic baseline"},
-    # model_config / model_id: r2-groq and r3-groq until the bake-off picks r2-/r3-primary and ids
-    "R2": {"mode": "llm", "model": "R2", "model_config": "r2-groq", "model_id": "openai/gpt-oss-20b", "provider": "groq", "reasoning_effort": "low", "phases": ("B",), "purpose": "small model"},
-    "R3": {"mode": "llm", "model": "R3", "model_config": "r3-groq", "model_id": "openai/gpt-oss-120b", "provider": "groq", "reasoning_effort": "low", "phases": ("A", "B"), "purpose": "large model"},
+    # Final after bake-off round 4 (ADR-045). reasoning_effort is Groq's option only: None, so the
+    # operator sends none (batch.operator_reasoner writes reasonerEffort ""). The model settings are
+    # the configs' own (reasoner/k8s/configmap.yaml): NIM gets no JSON-schema output format.
+    "R2": {"mode": "llm", "model": "R2", "model_config": "r2-primary", "model_id": "nvidia/nemotron-3.5-super-vl-120b-a12b", "provider": "nvidia", "reasoning_effort": None,
+           "max_output_tokens": 8192, "timeout_s": 120, "json_schema_output": False, "phases": ("B",), "purpose": "small model"},
+    "R3": {"mode": "llm", "model": "R3", "model_config": "r3-primary", "model_id": "nvidia/nemotron-3-ultra-550b-a55b", "provider": "nvidia", "reasoning_effort": None,
+           "max_output_tokens": 8192, "timeout_s": 300, "json_schema_output": False, "phases": ("A", "B"), "purpose": "large model"},
 }  # fmt: skip
 
 

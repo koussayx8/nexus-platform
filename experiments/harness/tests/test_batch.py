@@ -681,8 +681,8 @@ class FakeCluster:
             return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
         # as the Reasoner serves the name it is sent (reasoner/k8s/configmap.yaml), through `active`
         served = {
-            "R2": ("r2-groq", "openai/gpt-oss-20b"),
-            "R3": ("r3-groq", "openai/gpt-oss-120b"),
+            "R2": ("r2-primary", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
+            "R3": ("r3-primary", "nvidia/nemotron-3-ultra-550b-a55b"),
         }
         config, model_id = served.get(
             cfg["reasonerModel"], (None, cfg["reasonerModel"] or None)

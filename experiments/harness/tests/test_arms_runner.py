@@ -8,7 +8,7 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-from .. import arms, runner
+from .. import arms, batch, runner
 
 PATCH = str(pathlib.Path(__file__).resolve().parents[3] / runner.S3_PATCH)
 
@@ -17,19 +17,21 @@ class ArmsTest(unittest.TestCase):
     def test_the_arms_are_the_specs_four(self):
         self.assertEqual(sorted(arms.ARMS), ["R0", "R1", "R2", "R3"])
         r2 = arms.arm_config("R2")
-        self.assertEqual((r2["model"], r2["model_config"], r2["model_id"]),
-                         ("R2", "r2-groq", "openai/gpt-oss-20b"))  # fmt: skip
+        self.assertEqual((r2["model"], r2["model_config"], r2["model_id"], r2["provider"]),
+                         ("R2", "r2-primary", "nvidia/nemotron-3.5-super-vl-120b-a12b", "nvidia"))  # fmt: skip
         r3 = arms.arm_config("R3")
-        # asked for as "R3"; expected served by r3-groq's gpt-oss-120b until the bake-off
-        self.assertEqual((r3["model"], r3["model_config"], r3["model_id"]),
-                         ("R3", "r3-groq", "openai/gpt-oss-120b"))  # fmt: skip
+        # asked for as "R3"; final after bake-off round 4 (ADR-045)
+        self.assertEqual((r3["model"], r3["model_config"], r3["model_id"], r3["provider"]),
+                         ("R3", "r3-primary", "nvidia/nemotron-3-ultra-550b-a55b", "nvidia"))  # fmt: skip
+        self.assertEqual((r2["purpose"], r3["purpose"]), ("small model", "large model"))
         for a in ("R0", "R1"):
             self.assertIsNone(arms.arm_config(a)["model"])
         with self.assertRaises(KeyError):
             arms.arm_config("R9")
 
     def test_common_settings_frozen(self):
-        for a in ("R2", "R3"):
+        # the configs' own settings (reasoner/k8s/configmap.yaml): r2-primary 120 s, r3-primary 300 s
+        for a, timeout in (("R2", 120), ("R3", 300)):
             c = arms.arm_config(a)
             self.assertEqual(
                 (
@@ -37,10 +39,16 @@ class ArmsTest(unittest.TestCase):
                     c["max_output_tokens"],
                     c["timeout_s"],
                     c["max_attempts"],
+                    c["seed"],
+                    c["json_schema_output"],
                 ),
-                (0, 1024, 30, 2),
+                (0, 8192, timeout, 2, 0, False),
             )
-            self.assertEqual(c["reasoning_effort"], "low")  # the spec's one effort
+            # reasoning_effort is Groq's option: none for a NIM arm, so the operator sends none
+            self.assertIsNone(c["reasoning_effort"])
+            self.assertEqual(
+                batch.operator_reasoner(a, "http://r")["reasonerEffort"], ""
+            )
 
     def test_the_haiku_arm_and_the_effort_sweep_are_gone(self):
         # Cut on 2026-11-12 (TASKS.md D3, D10): no H1, no per-effort arm, in any phase.
@@ -48,7 +56,7 @@ class ArmsTest(unittest.TestCase):
             with self.assertRaises(KeyError, msg=name):
                 arms.arm_config(name)
         self.assertFalse(hasattr(arms, "sweep"))
-        self.assertTrue(all(c["provider"] in (None, "groq") for c in arms.ARMS.values()))  # fmt: skip
+        self.assertTrue(all(c["provider"] in (None, "nvidia") for c in arms.ARMS.values()))  # fmt: skip
 
     def test_arms_per_phase(self):
         self.assertEqual(arms.arms_for_phase("A"), ["R1", "R3"])  # C1 and C2
