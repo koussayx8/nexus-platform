@@ -51,7 +51,10 @@ class Bot:
             log.info("dropped malformed payload from %s", sender.user_id)
             self.tg.answer_callback(cq_id)
             return
-        self.tg.answer_callback(cq_id, "Working…")
+        try:  # a late answer (e.g. after downtime) is refused by Telegram; the press still runs
+            self.tg.answer_callback(cq_id, "Working…")
+        except TelegramError as e:
+            log.warning("cannot answer callback: %s", e)
         outcome = handle_press(press, sender, reader=self.reader, approver_for=self.approver_for,
                                group=self.cfg.approver_group, now=self.now)
         log.info("press %s from %s: wrote=%s", press.action, sender.user_id, outcome.wrote)
