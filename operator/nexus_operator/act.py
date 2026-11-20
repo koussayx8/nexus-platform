@@ -726,7 +726,10 @@ class ActPath:
         if action["id"] == "scale_deployment":
             scale = await self.api.get_scale(ns, name)
             if scale is None:
-                await self._move(incident, "Blocked", "precondition_failed", gate=gate)
+                note = {"detail": "the scale subresource was not found"}
+                await self._move(
+                    incident, "Blocked", "precondition_failed", gate=gate | note
+                )
                 return
             plan |= {"replicas": action["parameters"]["replicas"]}
             plan["previous"] = (scale.get("spec") or {}).get("replicas", 1)

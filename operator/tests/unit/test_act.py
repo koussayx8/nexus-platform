@@ -741,3 +741,47 @@ def test_the_placeholder_recorder_means_nothing_is_ever_sent():
     rig.run()
     assert rig.api.mutations() == []
     assert rig.api.replicas == 2
+
+
+# ---- status.gate.detail (Block 5 finding (b)): the Incident says which check refused it ----
+
+
+def test_the_rollout_branch_is_named_on_the_incident():
+    # S3 (2026-11-19): Blocked at stage 6 with no word of which of its checks failed.
+    rig = Rig()
+    rig.api.rolling = True
+    rig.proposed(proposal_doc("restart_workload"))
+    rig.run()
+    gate = rig.status()["gate"]
+    assert (gate["firstFailingStage"], gate["reason"]) == (6, "precondition_failed")
+    assert gate["detail"] == "a rollout is in progress"
+
+
+def test_the_kill_switch_state_is_named_on_the_incident():
+    rig = Rig(killswitch={"data": {"state": "halted"}})
+    rig.proposed(proposal_doc())
+    rig.run()
+    assert rig.status()["gate"]["detail"] == "kill switch is halted"
+
+
+def test_a_bounds_failure_names_the_value():
+    rig = Rig()
+    rig.proposed(proposal_doc("scale_deployment", 6))
+    rig.run()
+    assert rig.status()["gate"]["detail"] == "replicas 6 outside [1, 5]"
+
+
+def test_a_passed_gate_has_no_detail():
+    rig = Rig()
+    rig.proposed(proposal_doc("scale_deployment", 3))
+    rig.run(ticks=1)
+    gate = rig.status()["gate"]
+    assert gate["verdict"] == "allowed" and "detail" not in gate
+
+
+def test_the_detail_is_cut_to_its_maximum():
+    from nexus_operator.gate import DETAIL_MAX, GateResult
+
+    st = GateResult(False, "dry_run_denied", 7, "x" * 5000).status()
+    assert st["detail"] == "x" * DETAIL_MAX
+    assert "detail" not in GateResult(False, "killswitch", 5, "").status()
