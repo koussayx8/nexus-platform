@@ -542,3 +542,18 @@ def test_a_422_prompt_too_large_keeps_the_request_estimate():
     r = run(refuse, call)
     assert r.reason == "rejected" and r.meta["rejection"] == "prompt_too_large"
     assert r.meta["requestTokensEstimate"] == 7400
+
+
+def test_expanded_chunks_are_kept_like_retrieved_chunks():
+    """ADR-043: expandedChunks is cleaned as retrievedChunks is: strings only, 100 chars, 20 ids."""
+    meta = {"expandedChunks": ["rb-a#3", 7, "x" * 300] + ["rb-b#3"] * 30}
+
+    async def answer(request, body):
+        return json_response(good_answer(**meta))
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(answer, call)
+    got = r.meta["expandedChunks"]
+    assert got[:2] == ["rb-a#3", "x" * 100] and len(got) == 20
