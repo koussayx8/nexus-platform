@@ -1,0 +1,41 @@
+# The four trial bundles and their ground truth (owner, 2026-11-20). Export each bundle from the
+# Flight Recorder (README, "Export the bundles") to <bundles dir>/<scenario>.json; the tool checks
+# the file's canonical hash against `hash` before any call.
+#
+# recorded: what the live R3 call on that Incident recorded (status.reasoner), so a dry run shows
+# that the bake-off's round-1 prompt is the Reasoner's: same chunks, same estimate, same trim level.
+# S1 predates the excerpt record (#253): no estimate or trim level was recorded.
+
+bundles:
+  - scenario: S1
+    hash: sha256:094a929344399a1ec671b0854ce9b1bf0a76718d7978812edb4de3956cd4e6a6
+    incident: inc-669532275a7b73d2-1795079469
+    incident_uid: effa8f59-f93e-4e47-a31c-68b43958bd39
+    source: ~/nexus-evidence/block3-2026-11-19/S1-R3-RECORD.md
+    truth: {action: restart_workload, fault_class: gray_failure}
+    recorded: {chunks: [rb-gray-failure#1, rb-gray-failure#2], prompt_tokens: 5134}
+
+  - scenario: S3
+    hash: sha256:9ba11d72ad9dfaee5430b1b6c0a4ac7af642e022c324617d20826cad8e5b6520
+    incident: inc-ac15ee36af8a7a62-1795120098
+    incident_uid: baf1f3be-c7ba-45cf-bf98-4a85a4ca774e
+    source: ~/nexus-evidence/block5-2026-11-19/S3-RECORD.md
+    truth: {action: escalate, kind: git_revert, fault_class: bad_rollout}
+    recorded: {chunks: [rb-bad-rollout#1, rb-image-pull#1, rb-traffic-spike#1], estimate: 4786, trim_level: 2, prompt_tokens: 4487}
+
+  - scenario: S5
+    hash: sha256:691f7ace56f9bcdc56124e13e86e9cde8778034ae4f5588e55fc6eb421a48cfa
+    incident: inc-8419006b8da738fc-1795121529
+    incident_uid: fd17a90a-3848-4627-b455-e2c74bea6cc7
+    source: ~/nexus-evidence/block5-2026-11-19/S5-RECORD.md
+    truth: {action: escalate, kind: dependency_investigation, fault_class: dependency_failure}
+    recorded: {chunks: [], estimate: 3949, trim_level: 3, prompt_tokens: 3550}
+
+  # The dev NexusTrafficAnomaly Incident that ended Dismissed, not the CPU one (load over capacity).
+  - scenario: S6
+    hash: sha256:8f4d3818e9065d4c481f14930449e403e666855ea84e20e990c415dd0a650d09
+    incident: inc-e213565dc8513b1f-1795156089
+    incident_uid: eef1d61f-d45a-4d33-9b02-c2f100f82032
+    source: ~/nexus-evidence/block5-2026-11-19/S6-RECORD.md
+    truth: {action: no_action, fault_class: traffic_spike, injected: true}
+    recorded: {chunks: [rb-traffic-spike#1, rb-traffic-spike#2], estimate: 4190, trim_level: 0, prompt_tokens: 3775}
