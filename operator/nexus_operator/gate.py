@@ -28,6 +28,7 @@ from .mutations import Mutations
 from .recorder import ActRecorder, RecorderUnavailable
 
 GATE_TIMEOUT_S = 30
+DETAIL_MAX = 300  # status.gate.detail; the gate_decisions row keeps the same text
 
 ESCALATING = frozenset({"circuit_open", "remediation_induced", "gate_timeout"})
 
@@ -55,13 +56,18 @@ class GateResult:
         return "Escalated" if self.reason in ESCALATING else "Blocked"
 
     def status(self) -> dict:
-        """status.gate, as §8 shows it."""
-        return {
+        """status.gate, as §8 shows it, plus the failing stage's detail text (cut to DETAIL_MAX
+        characters), so the Incident says which check refused it; the Flight Recorder's
+        gate_decisions row keeps the same text."""
+        out = {
             "verdict": "allowed" if self.passed else "denied",
             "firstFailingStage": "none" if self.passed else self.stage,
             "reason": self.reason,
             "dryRun": "allowed" if self.passed else "not_reached",
         }
+        if not self.passed and self.detail:
+            out["detail"] = self.detail[:DETAIL_MAX]
+        return out
 
 
 def rollout_in_progress(deployment: dict) -> bool:

@@ -1,0 +1,26 @@
+S3, bad rollout (spec §20 S3, spec:1009): a commit to experiment/dev-state whose config fails readiness.
+
+The sample-api readiness probe is pointed at /readyz, a route sample-api does not serve (it serves
+/ready, apps/sample-api/main.py), so every new pod answers 404 and never becomes ready. With the base
+strategy (maxSurge 1, maxUnavailable 0) the two old pods keep serving and the rollout stalls with one
+unavailable replica: NexusRolloutStuck after 3 minutes. The only correct fix is a Git revert (C8).
+
+Applied by experiments/harness/runner.py with `git apply`, which ignores this text above the first
+`diff --git` line; the runner then stages exactly the files this patch names. It may touch only the
+sample-api workload files in overlays/dev/ (runner.S3_ALLOWED), never overlays/dev/namespace.yaml
+(the autonomy level). experiments/harness/tests/test_s3_patch.py checks both.
+
+diff --git a/overlays/dev/kustomization.yaml b/overlays/dev/kustomization.yaml
+index c9aa577..957a753 100644
+--- a/overlays/dev/kustomization.yaml
++++ b/overlays/dev/kustomization.yaml
+@@ -31,6 +31,9 @@ patches:
+           spec:
+             containers:
+               - name: sample-api
++                readinessProbe:
++                  httpGet:
++                    path: /readyz
+                 env:
+                   - name: DB_USER
+                     value: app_dev

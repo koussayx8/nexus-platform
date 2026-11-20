@@ -352,9 +352,9 @@ def test_diagnosing_records_the_four_baselines_and_leaves_the_bundle_alone():
         "requestRate": {"mean": 80.0, "stddev": 1.0},
     }
     assert evidence["anomalous"] == ["inflight", "requestRate"]
-    # evidence/v1.1 is unchanged: neither the baseline nor the list is in the bundle
+    # neither the baseline nor the list is in the bundle (evidence/v1.2 adds only `cluster`)
     _, bundle, _ = rig.rec.bundles[evidence["bundleHash"]]
-    assert bundle["schema"] == "evidence/v1.1"
+    assert bundle["schema"] == "evidence/v1.2"
     assert set(bundle) == {
         "schema",
         "incident",
@@ -364,6 +364,7 @@ def test_diagnosing_records_the_four_baselines_and_leaves_the_bundle_alone():
         "logs",
         "metrics",
         "gitops",
+        "cluster",
         "collectedAt",
         "redaction",
         "hash",

@@ -78,6 +78,30 @@ class AdapterTest(unittest.TestCase):
         self.assertNotIn("gsk-test-secret", json.dumps(body))
         self.assertEqual(adapter.parse_json(c.text)["action"]["id"], "restart_workload")
 
+    def test_every_provider_call_names_its_user_agent(self):
+        """Groq's edge answers 403 to urllib's default "Python-urllib/3.x" (2026-11-17)."""
+        op = FakeOpener(groq_reply(good_proposal(self.b)))
+        adapter.complete(CFG, CFG.models["R3"], "S", "U", opener=op)
+        headers = {k.lower(): v for k, v in op.calls[0]["headers"].items()}
+        self.assertEqual(headers["user-agent"], "nexus-reasoner/1.0")
+        self.assertNotIn("python-urllib", headers["user-agent"].lower())
+
+    def test_the_user_agent_reaches_the_wire(self):
+        """The header survives urllib's opener: build_opener() adds its default only when absent."""
+        import urllib.request
+
+        seen = {}
+
+        class Capture(urllib.request.HTTPHandler):
+            def http_open(self, req):
+                seen.update({k.lower(): v for k, v in req.header_items()})
+                raise urllib.error.URLError("captured")
+
+        opener = urllib.request.build_opener(Capture)
+        with self.assertRaises(adapter.AdapterError):
+            adapter._post("http://g.test/x", {}, {}, 1.0, opener.open)
+        self.assertEqual(seen["user-agent"], "nexus-reasoner/1.0")
+
     def test_effort_override_for_the_sweep(self):
         op = FakeOpener(groq_reply(good_proposal(self.b)))
         adapter.complete(CFG, CFG.models["R3"], "S", "U", effort="high", opener=op)
@@ -105,19 +129,27 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(call["body"]["options"]["temperature"], 0)
         self.assertEqual(call["body"]["format"]["type"], "object")
 
-    def test_failures_are_one_attempt_and_leak_no_key(self):
+    def test_failures_leak_no_key_and_only_transient_ones_retry(self):
         cases = [
-            (urllib.error.HTTPError("u", 429, "x", {}, None), "http_429"),
-            (urllib.error.URLError(TimeoutError()), "timeout"),
-            (TimeoutError(), "timeout"),
-            (urllib.error.URLError("refused"), "transport"),
+            (
+                urllib.error.HTTPError("u", 429, "x", {}, None),
+                "http_429",
+                1,
+            ),  # no Retry-After
+            (urllib.error.URLError(TimeoutError()), "timeout", 1),
+            (TimeoutError(), "timeout", 1),
+            (urllib.error.HTTPError("u", 401, "x", {}, None), "http_401", 1),
+            (urllib.error.URLError("refused"), "transport", 2),
+            (urllib.error.HTTPError("u", 503, "x", {}, None), "http_503", 2),
         ]
-        for exc, reason in cases:
+        for exc, reason, calls in cases:
             op = FakeOpener(exc=exc)
             with self.assertRaises(adapter.AdapterError) as cm:
-                adapter.complete(CFG, CFG.models["R2"], "S", "U", opener=op)
+                adapter.complete(
+                    CFG, CFG.models["R2"], "S", "U", opener=op, sleep=lambda s: None
+                )
             self.assertEqual(cm.exception.reason, reason)
-            self.assertEqual(len(op.calls), 1)  # no retry
+            self.assertEqual(len(op.calls), calls, reason)
             self.assertNotIn("gsk-test-secret", str(cm.exception))
 
     def test_missing_key_and_missing_url(self):

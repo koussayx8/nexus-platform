@@ -180,3 +180,21 @@ users per pod). The last step's cause is UNVERIFIED (ADR-027's note).
   `NexusTrafficAnomaly` (and CPU or latency) alerts. The result: an L0 `Recorded` Incident in `nexus-dev`, an L1
   `Escalated` one in `nexus-prod`. The 20-min warm-up follows (plan §3).
 - To fill in: the 60-min clean-baseline results. The S5 first-fire time is recorded (+119.5 s, ADR-025 addendum).
+
+## Addendum (2026-11-20, owner): ProdUser `fixed_count = 80`; a spike lands in nexus-dev only
+- **Change.** `ProdUser.fixed_count = 80` in `platform/load/locustfile.py`. Locust gives it exactly 80 users whatever
+  the total, and every other user is a `DevUser`. The baseline stays `--users 160` = 80 + 80 (B unchanged). A spike
+  is a plain user-count change on the running swarm (`POST /swarm user_count=N`, no `/stop`, no class field):
+  N = 80 + the nexus-dev rate. S2 = 220 (dev 140, beyond the 120 req/s where CPU saturated in S6); S4/S6 = 80 + the
+  calibrated dev rate (TBD, Block 5 calibration after this change is promoted).
+- **Why.** At 240 users with equal weights, S6 (2026-11-20) spiked both namespaces: two Incidents in the same second
+  and a provider 429 for the prod call. A DevUser-only spike needs `/stop` first (ADR-027: a `/swarm` on a running
+  test keeps the old classes), which drops both namespaces to 0 and puts the dip into the 15 min baseline (Block 5
+  calibration step 1).
+- **Checked** on Locust 2.46.7 (PyPI, master + worker with the cluster's flags): autostart 160 → dev 80 / prod 80;
+  220 → 140/80; 170 → 90/80; 220 with both classes named → 140/80; 160 → 80/80.
+- **Consequences.** `ramp.py --classes ProdUser` cannot go above 80 users any more (DevUser-only ramps are
+  unchanged: with only DevUser selected the fixed count does not apply). The runner refuses a spike total of 80 or
+  less (`runner.PROD_USERS`, checked against the locustfile by a test). The change rolls both Locust pods (generated
+  ConfigMap) when the `platform` Application syncs it from `main`; the master's `--autostart` brings the baseline
+  back, then the usual warm-up.

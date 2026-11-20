@@ -409,20 +409,21 @@ ACCESS_PATHS = [
 ]
 
 
-def test_access_log_drops_the_fault_routes_under_uvicorns_logging_config():
+def _access_lines(lines: list) -> str:
     """As `uvicorn main:app` does: configure logging first, then import the app, then log
-    one access line per path with uvicorn's own format and args."""
+    one access line per (path, status) with uvicorn's own format and args."""
     code = (
         "import json, logging, sys, uvicorn\n"
         "config = uvicorn.Config('main:app')\n"
         "config.load()\n"
         "access = logging.getLogger('uvicorn.access')\n"
-        "for path in json.loads(sys.argv[1]):\n"
-        "    access.info('%s - \"%s %s HTTP/%s\" %d', '10.0.0.1:1', 'POST', path, '1.1', 200)\n"
+        "for path, status in json.loads(sys.argv[1]):\n"
+        "    access.info('%s - \"%s %s HTTP/%s\" %d', '10.0.0.1:1', 'POST', path, '1.1', status)\n"
+        "logging.getLogger('sample_api').info('app line kept')\n"
     )
     env = {**os.environ, "NEXUS_FAULTS_ENABLED": "true"}
     done = subprocess.run(
-        [sys.executable, "-c", code, json.dumps(ACCESS_PATHS)],
+        [sys.executable, "-c", code, json.dumps(lines)],
         cwd=HERE,
         env=env,
         capture_output=True,
@@ -430,10 +431,38 @@ def test_access_log_drops_the_fault_routes_under_uvicorns_logging_config():
         check=True,
         timeout=60,
     )
-    out = done.stdout + done.stderr
-    assert "/fault" not in out
+    return done.stdout + done.stderr
+
+
+def test_access_log_drops_the_fault_routes_under_uvicorns_logging_config():
+    out = _access_lines([[p, s] for p in ACCESS_PATHS for s in (200, 500)])
+    assert "/fault" not in out  # whatever the status
     for path in ["/items", "/work/cpu", "/health"]:
-        assert f'"POST {path} HTTP/1.1" 200' in out
+        assert f'"POST {path} HTTP/1.1" 500' in out
+
+
+def test_access_log_keeps_only_non_2xx_responses():
+    """ADR-042 addendum (2026-11-19): 2xx lines crowded every application line out of the bundle."""
+    statuses = [200, 201, 204, 299, 301, 404, 499, 500, 503]
+    out = _access_lines([["/items", s] for s in statuses])
+    for s in (200, 201, 204, 299):
+        assert f'"POST /items HTTP/1.1" {s}' not in out
+    for s in (301, 404, 499, 500, 503):
+        assert f'"POST /items HTTP/1.1" {s}' in out
+    assert "app line kept" in out  # application logs are unchanged
+
+
+def test_access_filter_keeps_what_it_cannot_read():
+    f = main.AccessLogFilter()
+    rec = lambda args: logging.LogRecord(
+        "uvicorn.access", logging.INFO, "", 0, "%s", args, None
+    )
+    assert (
+        f.filter(rec(("c", "GET", "/items", "1.1", "200"))) is True
+    )  # status not an int
+    assert f.filter(rec(("c", "GET", "/items"))) is True  # no status
+    assert f.filter(rec(("c", "GET", "/fault/hang"))) is False
+    assert f.filter(rec(("c", "GET", "/items", "1.1", 200))) is False
 
 
 def test_fault_routes_have_no_metric_series(hung):

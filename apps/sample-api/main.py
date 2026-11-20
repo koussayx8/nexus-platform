@@ -92,23 +92,31 @@ logger = logging.getLogger("sample_api")
 FAULT_ROUTE_PREFIX = "/fault/"
 
 
-class FaultRouteAccessFilter(logging.Filter):
-    """Drop uvicorn access-log records for the fault routes.
+class AccessLogFilter(logging.Filter):
+    """Keep only the uvicorn access-log records worth reading as evidence.
+
+    * The fault routes leave no line, whatever their status (blinding, above).
+    * A 2xx response leaves no line (owner, 2026-11-19, ADR-042 addendum): at the baseline load one
+      access line per request filled the 200 lines a pod the Evidence Collector reads in about 5 s,
+      so any application line (S6's injected ones included) was gone before evidence was collected.
+      Non-2xx responses, and a record whose status cannot be read, are kept.
 
     uvicorn.access logs with args (client, method, path with query, http version, status).
+    Application logs (logger "sample_api" and the rest) are not touched.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
-        return not (
-            isinstance(args, tuple)
-            and len(args) >= 3
-            and str(args[2]).startswith(FAULT_ROUTE_PREFIX)
-        )
+        if not (isinstance(args, tuple) and len(args) >= 3):
+            return True
+        if str(args[2]).startswith(FAULT_ROUTE_PREFIX):
+            return False
+        status = args[4] if len(args) >= 5 else None
+        return not (isinstance(status, int) and 200 <= status < 300)
 
 
 # uvicorn configures its loggers before it imports the app, and dictConfig keeps filters.
-logging.getLogger("uvicorn.access").addFilter(FaultRouteAccessFilter())
+logging.getLogger("uvicorn.access").addFilter(AccessLogFilter())
 
 
 def _one_line(text: str) -> str:

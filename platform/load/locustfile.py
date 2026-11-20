@@ -3,6 +3,15 @@
 One user class per environment. Each user sends one request per second
 (constant_throughput(1)), so the request rate of a class equals its user count.
 
+ProdUser has fixed_count = PROD_USERS (80): Locust gives it exactly 80 users
+whatever the total, and every other user is a DevUser. The baseline (160)
+stays 80 + 80; a spike is a plain user-count change on the running swarm
+(POST /swarm user_count=N, no /stop, no class change) and lands in nexus-dev
+only: N = 80 + the dev rate (S2: 220, so dev 140; S4/S6: 80 + the calibrated
+dev rate). Checked on Locust 2.46.7 (master + worker): 160 -> 80/80,
+220 -> 140/80, 170 -> 90/80, back to 160 -> 80/80 (Block 5 calibration notes,
+2026-11-20).
+
 The mix is fixed, not random: every user cycles "/", "/", "/", "/", "/items",
 so /items is exactly 20 % of the requests. That is the S5 error share in the
 promtool tests (platform/observability/tests/nexus-detection.test.yaml, case
@@ -63,6 +72,7 @@ class DevUser(_Mix):
 
 
 class ProdUser(_Mix):
+    fixed_count = 80  # PROD_USERS: nexus-prod stays at the baseline in every spike
     env = "prod"
     host = os.environ.get(
         "NEXUS_PROD_HOST", "http://sample-api.nexus-prod.svc.cluster.local"
