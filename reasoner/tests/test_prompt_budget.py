@@ -1,4 +1,7 @@
-"""prompt/v2 (ADR-042): the log excerpt, the request budget and the guard.
+"""prompt/v2 (ADR-042) and prompt/v3 (ADR-045): the log excerpt, the request budget and the guard.
+
+prompt/v3: one 16,000-token budget for every model, up to 200 lines a pod and every event at level 0,
+and a guard of prompt + the model's own output cap.
 
 A live bundle of 2026-11-17 carried 200 log lines a pod (about 11,000 characters each) and Groq's
 free tier refused the request with 413. The excerpt keeps error lines first, then the most recent
@@ -69,30 +72,31 @@ def excerpt_lines(user: str, key: str) -> list[str]:
 
 
 class Budget(unittest.TestCase):
-    def test_a_live_size_bundle_fits_the_budget_at_30_lines_a_pod(self):
-        # at the measured 2.5 chars a token (ADR-042 addendum) two full pods take level 1
+    def test_a_live_size_bundle_fits_whole_at_level_0(self):
+        # prompt/v3 at 2.5 chars a token (ADR-045): two full pods (200 lines each, the collector's
+        # maximum) with the three largest chunks fit the 16K budget whole, as round 3's big prompt
         b = live_bundle()
         p = prompt.plan(b, largest_chunks(), "L3", "1")
-        self.assertEqual(p.level, 1)
+        self.assertEqual(p.level, 0)
         self.assertLessEqual(p.tokens_estimate, prompt.PROMPT_BUDGET_TOKENS)
-        self.assertLessEqual(p.tokens_estimate + 1024, prompt.REQUEST_GUARD_TOKENS)
+        self.assertLessEqual(p.tokens_estimate + 16384, prompt.REQUEST_GUARD_TOKENS)
         self.assertEqual(
             p.selection["pods"],
             [
-                {"pod": pod, "lines": 200, "kept_error_lines": 0, "kept_recent_lines": 30, "dropped": 170}
+                {"pod": pod, "lines": 200, "kept_error_lines": 0, "kept_recent_lines": 200, "dropped": 0}
                 for pod in PODS
             ],
         )  # fmt: skip
-        # v1 sent all 400 lines: several times the budget
-        v1 = len(json.dumps(b, sort_keys=True, indent=1))
-        self.assertGreater(
-            prompt.estimate_tokens("x" * v1), prompt.PROMPT_BUDGET_TOKENS
-        )
+        # three full pods still fit, two levels down (120 lines a pod)
+        three = live_bundle(pods=PODS + ("sample-api-8577d7dd4d-ccccc",))
+        self.assertEqual(prompt.plan(three, largest_chunks(), "L3", "1").level, 2)
 
     def test_the_most_recent_lines_of_each_pod_are_kept_with_their_bundle_index(self):
-        b = live_bundle()
+        b = live_bundle(
+            per_pod=400
+        )  # more than a pod's 200 lines, so some are left out
         lines = excerpt_lines(prompt.plan(b, [], "L3", "1").user, "current")
-        want = [i for start in (0, 200) for i in range(start + 160, start + 200)]
+        want = [i for start in (0, 400) for i in range(start + 200, start + 400)]
         self.assertEqual([int(re.match(r"\[(\d+)\]", ln)[1]) for ln in lines], want)
         for ln in lines:  # the index names the same line in the full bundle
             i = int(ln[1 : ln.index("]")])
@@ -103,13 +107,13 @@ class Budget(unittest.TestCase):
         err = "2026-11-18 12:31:02 ERROR sample_api db_error type=OperationalError message=connection refused"
 
         def edit(per):
-            per[PODS[0]][50] = err  # 150 lines before the end of pod 0
+            per[PODS[0]][50] = err  # 350 lines before the end of pod 0
 
-        b = live_bundle(edit=edit)
+        b = live_bundle(per_pod=400, edit=edit)
         p = prompt.plan(b, [], "L3", "1")
         self.assertIn(f"[50] {err}", excerpt_lines(p.user, "current"))
         self.assertEqual(p.selection["pods"][0]["kept_error_lines"], 1)
-        self.assertEqual(p.selection["pods"][0]["kept_recent_lines"], 39)
+        self.assertEqual(p.selection["pods"][0]["kept_recent_lines"], 199)
         lines = excerpt_lines(p.user, "current")
         self.assertEqual(
             lines, sorted(lines, key=lambda ln: int(ln[1 : ln.index("]")]))
@@ -142,7 +146,8 @@ class Budget(unittest.TestCase):
 
         p = prompt.plan(live_bundle(edit=edit), [], "L3", "1")
         s = p.selection["pods"][0]
-        self.assertEqual((s["kept_error_lines"], s["kept_recent_lines"]), (30, 10))
+        # error lines take at most 3/4 of the pod's 200: 150, then the 50 most recent others
+        self.assertEqual((s["kept_error_lines"], s["kept_recent_lines"]), (150, 50))
 
     def test_previous_container_lines_count_against_the_same_pod(self):
         b = live_bundle()
@@ -159,13 +164,13 @@ class Budget(unittest.TestCase):
         self.assertIn(
             "[0] Traceback (most recent call last):", excerpt_lines(p.user, "previous")
         )
-        self.assertEqual(s["kept_error_lines"] + s["kept_recent_lines"], 40)
+        self.assertEqual(s["kept_error_lines"] + s["kept_recent_lines"], 200)
 
     def test_a_bundle_without_sources_is_one_slice_with_the_pods_budget(self):
         p = prompt.plan(live_bundle(sources=False), [], "L3", "1")
         [s] = p.selection["pods"]
         self.assertEqual(
-            (s["pod"], s["lines"], s["kept_recent_lines"]), (None, 400, 80)
+            (s["pod"], s["lines"], s["kept_recent_lines"]), (None, 400, 400)
         )
 
     def test_sources_that_do_not_add_up_are_ignored(self):
@@ -186,10 +191,15 @@ class Budget(unittest.TestCase):
             for i in range(50)
         ]
         p = prompt.plan(b, [], "L3", "1")
-        last = excerpt_lines(p.user, "current")[29]  # level 1: 30 lines a pod
-        self.assertTrue(last.endswith(" [line cut]") and len(last) < 400)
+        # the 50 events take this bundle to level 1: 150 lines a pod, 300 characters a line
+        self.assertEqual(p.level, 1)
+        [cut] = [
+            ln for ln in excerpt_lines(p.user, "current") if ln.endswith(" [line cut]")
+        ]
+        self.assertTrue(cut.startswith("[199] ERROR ") and len(cut) < 330)
+        # every event is shown down to level 5 (the collector keeps at most 50)
         self.assertEqual(
-            (p.selection["eventsShown"], p.selection["eventsTotal"]), (15, 50)
+            (p.selection["eventsShown"], p.selection["eventsTotal"]), (50, 50)
         )
 
     def test_three_full_pods_of_long_error_lines_are_trimmed_and_recorded(self):
@@ -206,13 +216,13 @@ class Budget(unittest.TestCase):
         self.assertLessEqual(p.tokens_estimate, prompt.PROMPT_BUDGET_TOKENS)
 
     def test_nothing_is_sent_over_the_guard(self):
-        huge = [{"id": "x#1", "runbook": "x", "version": 1, "text": "y" * 30000}]
+        huge = [{"id": "x#1", "runbook": "x", "version": 1, "text": "y" * 120000}]
         with self.assertRaises(prompt.TooLarge) as cm:
             prompt.plan(live_bundle(), huge, "L3", "1")
         self.assertGreater(cm.exception.estimate, prompt.REQUEST_GUARD_TOKENS)
 
     def test_the_prompt_says_the_logs_are_an_excerpt_and_to_abstain_when_short(self):
-        self.assertEqual(prompt.VERSION, "prompt/v2.1")
+        self.assertEqual(prompt.VERSION, "prompt/v3")
         self.assertIn("excerpt", prompt.RULES)
         self.assertIn("escalate or abstain", prompt.RULES)
 
@@ -249,12 +259,10 @@ class Service(unittest.TestCase):
             out = reasoner(op).propose({"bundle": b, "context": self.ctx(model)})
             sent[arm] = op.calls[0]["body"]["messages"]
             m = out["metadata"]
-            self.assertEqual(m["promptVersion"], "prompt/v2.1")
-            self.assertEqual(m["promptTrimLevel"], 1)
+            self.assertEqual(m["promptVersion"], "prompt/v3")
+            self.assertEqual(m["promptTrimLevel"], 0)
             self.assertLessEqual(m["promptTokensEstimate"], prompt.PROMPT_BUDGET_TOKENS)
-            self.assertEqual(
-                [s["dropped"] for s in m["logSelection"]["pods"]], [170, 170]
-            )
+            self.assertEqual([s["dropped"] for s in m["logSelection"]["pods"]], [0, 0])
         self.assertEqual(sent["R2"], sent["R3"])
 
     def test_a_ref_to_a_kept_line_is_accepted_against_the_full_bundle(self):
@@ -279,7 +287,7 @@ class Service(unittest.TestCase):
             FakeOpener(lambda url, body: self.fail("the provider was called"))
         )
         rs.retriever.retrieve = lambda bundle: [
-            {"id": "x#1", "runbook": "x", "version": 1, "text": "y" * 30000}
+            {"id": "x#1", "runbook": "x", "version": 1, "text": "y" * 120000}
         ]
         with self.assertRaises(service.Rejected) as cm:
             rs.propose({"bundle": b, "context": self.ctx("openai/gpt-oss-120b")})

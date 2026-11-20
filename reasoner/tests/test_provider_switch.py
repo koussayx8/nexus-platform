@@ -251,3 +251,100 @@ class ReasoningTraceTest(ServiceSwitchTest):
         answer = json.dumps(good_proposal(self.b))
         m = self.call(self.rs("r3-groq", FakeOpener(nim_reply(answer))))["metadata"]
         self.assertNotIn("reasoning", m)
+
+
+THINK = {"chat_template_kwargs": {"enable_thinking": True}}
+
+
+class ExtraBodyTest(unittest.TestCase):
+    """ADR-045: an nvidia entry's extraBody is merged into the request body; it may never override
+    the request's own fields, and no other provider may set it."""
+
+    def entry_doc(self, extra, provider="nvidia"):
+        d = doc()
+        d["models"]["r3-primary"]["extraBody"] = extra
+        d["models"]["r3-primary"]["provider"] = provider
+        if provider != "nvidia":
+            d["models"]["r3-primary"].pop("maxOutputTokens")
+        return d
+
+    def setUp(self):
+        self.env = dict(os.environ)
+        os.environ["T_NIM_KEY"] = "nvapi-test-secret"
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.env)
+
+    def test_gemma_thinking_is_turned_on_and_its_trace_is_kept(self):
+        cfg = config.parse(self.entry_doc(THINK))
+        op = FakeOpener(nim_reply("{}", reasoning="thinking..."))
+        c = adapter.complete(cfg, cfg.models["r3-primary"], "S", "U", opener=op)
+        body = op.calls[0]["body"]
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": True})
+        self.assertEqual(
+            (body["model"], body["max_tokens"], body["temperature"]),
+            ("vendor/thinker-1", 8192, 0),
+        )
+        self.assertEqual(c.reasoning, "thinking...")
+        self.assertEqual(c.settings["extra_body"], ["chat_template_kwargs"])
+
+    def test_no_extra_body_sends_nothing_extra(self):
+        cfg = config.parse(doc())
+        op = FakeOpener(nim_reply("{}"))
+        adapter.complete(cfg, cfg.models["r3-primary"], "S", "U", opener=op)
+        self.assertNotIn("chat_template_kwargs", op.calls[0]["body"])
+
+    def test_reserved_keys_other_providers_and_non_objects_are_refused(self):
+        for key in sorted(config.EXTRA_BODY_RESERVED):
+            with self.assertRaises(config.ConfigError, msg=key):
+                config.parse(self.entry_doc({key: "x"}))
+        with self.assertRaises(config.ConfigError):
+            config.parse(self.entry_doc(THINK, provider="groq"))
+        for bad in (["chat_template_kwargs"], "enable_thinking", 1):
+            with self.assertRaises(config.ConfigError, msg=repr(bad)):
+                config.parse(self.entry_doc(bad))
+
+    def test_the_parsed_extra_body_cannot_be_changed_afterwards(self):
+        cfg = config.parse(self.entry_doc(THINK))
+        with self.assertRaises(TypeError):
+            cfg.models["r3-primary"].extra_body["model"] = "other"
+
+
+class AmbiguousModelIdTest(unittest.TestCase):
+    """Two configs with one model id (r2-backup and r3-primary, ADR-045): a request by that id
+    resolves to nothing rather than to whichever comes first; by arm or config name it is exact."""
+
+    def cfg(self):
+        d = doc()
+        d["models"]["r3-backup-1"]["model"] = (
+            "vendor/thinker-1"  # now shared with r3-primary
+        )
+        return config.parse(d)
+
+    def test_a_shared_id_is_ambiguous_and_resolves_to_none(self):
+        cfg = self.cfg()
+        self.assertIsNone(cfg.entry_for_model("vendor/thinker-1"))
+        self.assertIsNone(cfg.resolve("vendor/thinker-1"))
+        self.assertEqual(cfg.resolve("r3-primary").name, "r3-primary")
+        self.assertEqual(cfg.resolve("r3-backup-1").name, "r3-backup-1")
+        self.assertEqual(
+            config.parse(doc(active="r3-primary")).resolve("R3").name, "r3-primary"
+        )
+
+    def test_a_unique_id_still_resolves(self):
+        self.assertEqual(
+            self.cfg().entry_for_model("openai/gpt-oss-120b").name, "r3-groq"
+        )
+
+    def test_a_request_by_an_ambiguous_id_is_unknown_model(self):
+        rs = service.Reasoner(
+            self.cfg(), retriever(), FakeOpener(lambda u, b: self.fail("called"))
+        )
+        ctx = {"incidentUid": "u", "level": "L3", "catalogueVersion": "1", "mode": "llm",
+               "model": "vendor/thinker-1"}  # fmt: skip
+        with self.assertRaises(service.Rejected) as cm:
+            rs.propose({"bundle": bundle(), "context": ctx})
+        self.assertEqual(
+            (cm.exception.status, cm.exception.error), (422, "unknown_model")
+        )

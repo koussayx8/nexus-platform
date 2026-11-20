@@ -207,6 +207,10 @@ def _attempt(
             else:  # no include_reasoning or reasoning_effort outside Groq
                 body["max_tokens"] = entry.max_output_tokens
                 settings["reasoning_effort"] = None
+                # the entry's provider options (config: never one of the request's own fields)
+                body |= {k: v for k, v in entry.extra_body.items() if k not in body}
+                if entry.extra_body:
+                    settings["extra_body"] = sorted(entry.extra_body)
             if entry.response_format == "json_schema":
                 body["response_format"] = {
                     "type": "json_schema",

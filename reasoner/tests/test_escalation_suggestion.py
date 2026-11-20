@@ -32,7 +32,7 @@ class SchemaAndRuleTest(unittest.TestCase):
             "8. When you escalate, also fill escalation.suggestedChange", prompt.RULES
         )
         self.assertIn("never applied", prompt.RULES)
-        self.assertEqual(prompt.VERSION, "prompt/v2.1")
+        self.assertEqual(prompt.VERSION, "prompt/v3")
 
 
 class ServiceTest(unittest.TestCase):
@@ -67,7 +67,7 @@ class ServiceTest(unittest.TestCase):
             "incidentUid": "u-1", "level": "L3", "catalogueVersion": "1", "mode": "llm",
             "model": "openai/gpt-oss-120b"}})  # fmt: skip
         self.assertEqual(out["proposal"]["escalation"], p["escalation"])
-        self.assertEqual(out["metadata"]["promptVersion"], "prompt/v2.1")
+        self.assertEqual(out["metadata"]["promptVersion"], "prompt/v3")
 
     def test_a_non_string_suggestion_is_an_invalid_proposal(self):
         p = good_proposal(self.b)

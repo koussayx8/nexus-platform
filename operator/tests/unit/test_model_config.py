@@ -151,3 +151,13 @@ def test_the_reasoner_timeout_sets_the_client_and_diagnosing_limits():
 def test_the_reasoner_timeout_is_bounded(raw):
     with pytest.raises(config.ConfigError):
         config.parse(cm(alertmanagerURL=URL, reasonerTimeoutSeconds=raw))
+
+
+def test_a_300_s_model_gets_a_330_s_diagnosing_limit():
+    """ADR-045: the NIM R3 configs take 300 s; the operator's setting at the cap gives 305 / 330."""
+    c = config.parse(cm(alertmanagerURL=URL, reasonerTimeoutSeconds="300"))
+    assert (
+        c.reasoner_timeout_s,
+        c.reasoner_client_timeout_s,
+        c.diagnosing_timeout_s,
+    ) == (300, 305, 330)

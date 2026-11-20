@@ -431,7 +431,7 @@ ENDPOINT = (
     "http://nexus-reasoner.nexus-reasoner.svc:8080"  # precheck's reasoner defaults
 )
 R3_KEYS = {"reasonerEndpoint": ENDPOINT, "reasonerMode": "llm",
-           "reasonerModel": "R3", "reasonerEffort": "low"}  # fmt: skip
+           "reasonerModel": "R3", "reasonerEffort": ""}  # fmt: skip
 R1_KEYS = {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
 
 
@@ -461,7 +461,7 @@ class ArmTest(Live):
             {
                 "name": "R3",
                 "written": R3_KEYS,
-                "observed": {"mode": "llm", "modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b",
+                "observed": {"mode": "llm", "modelConfig": "r3-primary", "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
                              "fallbackUsed": False},
                 "mismatch": None,
             },
@@ -507,10 +507,14 @@ class ArmTest(Live):
         self.assertIsNone(r["arm"]["mismatch"])
 
     def test_the_arms_mode_with_another_model_is_a_mismatch(self):
-        small = {"mode": "llm", "modelId": "openai/gpt-oss-20b", "fallbackUsed": False}
+        small = {
+            "mode": "llm",
+            "modelId": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+            "fallbackUsed": False,
+        }
         r = self.run_one(answers(small)(self.ft))
         self.assertEqual(r["discard_reason"], "arm_mismatch")
-        self.assertIn("openai/gpt-oss-20b", r["arm"]["mismatch"])
+        self.assertIn("nvidia/nemotron-3.5-super-vl-120b-a12b", r["arm"]["mismatch"])
 
     def test_an_incident_that_ended_before_any_proposal_contradicts_no_arm(self):
         # e.g. Escalated / evidence_error from Detected: a failed run, and still a run.
@@ -619,39 +623,53 @@ if __name__ == "__main__":
 
 class StrictArmCheckTest(unittest.TestCase):
     """Owner, 2026-11-20: the arm names the config and model id it expects; a call recorded with
-    anything else is a mismatch, so a switch of the Reasoner's `active` never mixes two models."""
+    anything else is a mismatch, so a switch of the Reasoner's `active` never mixes two models.
+    Final arms (ADR-045): R2 r2-primary nvidia/nemotron-3.5-super-vl-120b-a12b, R3 r3-primary nvidia/nemotron-3-ultra-550b-a55b."""
 
     def st(self, **kw):
-        return {"mode": "llm", "modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b",
+        return {"mode": "llm", "modelConfig": "r3-primary", "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
                 "fallbackUsed": False, **kw}  # fmt: skip
 
     def test_the_expected_config_and_model_pass(self):
         self.assertIsNone(batch.arm_mismatch("R3", self.st()))
 
     def test_another_config_or_model_is_a_mismatch(self):
-        for kw in ({"modelConfig": "r3-primary"}, {"modelConfig": "r3-backup-1"},
-                   {"modelId": "vendor/other"}, {"modelConfig": None}):  # fmt: skip
+        for kw in (
+            {"modelConfig": "r3-backup", "modelId": "google/gemma-4-31b-it"},
+            # r2-backup runs the same model id as r3-primary: the config still decides
+            {"modelConfig": "r2-backup"},
+            {"modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b"},
+            {"modelId": "vendor/other"},
+            {"modelConfig": None},
+        ):
             why = batch.arm_mismatch("R3", self.st(**kw))
             self.assertIsNotNone(why, kw)
-            self.assertIn("the arm's is 'r3-groq' 'openai/gpt-oss-120b'", why)
+            self.assertIn(
+                "the arm's is 'r3-primary' 'nvidia/nemotron-3-ultra-550b-a55b'", why
+            )
 
     def test_a_fallback_from_another_config_is_a_mismatch(self):
         fb = {"mode": "rules", "fallbackUsed": True}
         self.assertIsNone(
             batch.arm_mismatch("R3", fb)
         )  # the failed call named no config
-        self.assertIsNone(batch.arm_mismatch("R3", fb | {"modelConfig": "r3-groq"}))
-        self.assertIn(
-            "r3-primary", batch.arm_mismatch("R3", fb | {"modelConfig": "r3-primary"})
-        )
+        self.assertIsNone(batch.arm_mismatch("R3", fb | {"modelConfig": "r3-primary"}))
+        for other in ("r3-backup", "r2-backup"):
+            self.assertIn(other, batch.arm_mismatch("R3", fb | {"modelConfig": other}))
 
     def test_r2_is_checked_the_same_way(self):
-        ok = {"mode": "llm", "modelConfig": "r2-groq", "modelId": "openai/gpt-oss-20b",
+        ok = {"mode": "llm", "modelConfig": "r2-primary", "modelId": "nvidia/nemotron-3.5-super-vl-120b-a12b",
               "fallbackUsed": False}  # fmt: skip
         self.assertIsNone(batch.arm_mismatch("R2", ok))
         for other in (
-            {"modelConfig": "r3-groq"},
-            {"modelConfig": "r2-primary"},
+            {
+                "modelConfig": "r2-backup",
+                "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
+            },
+            {
+                "modelConfig": "r3-primary",
+                "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
+            },
             {"modelId": "x/y"},
         ):
             self.assertIsNotNone(batch.arm_mismatch("R2", ok | other), other)
