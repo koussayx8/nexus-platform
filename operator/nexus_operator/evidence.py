@@ -7,7 +7,8 @@ completed ones can stay flat while in-flight requests pile up. Nothing else chan
 Read-only: pods, Deployment, ReplicaSets, events, logs, the Argo CD Application and Prometheus.
 The collector returns the RAW bundle and the raw pre-fault baseline; the caller redacts before
 anything is hashed, stored or handed on (redact.py, Q1). Limits are the spec's: events from the
-last 15 minutes, at most 50; at most 200 log lines per pod for at most 3 pods; metric windows of
+last 15 minutes, at most 50; at most 200 log lines per pod, written in the same last 15 minutes,
+for at most 3 pods; metric windows of
 30 minutes (the recording rules' own 15 min baseline plus the 3 min lag, ADR-024).
 
 Any value the cluster or Prometheus cannot give is null, never invented; R1 treats a missing
@@ -24,6 +25,10 @@ from .kube import TRANSPORT_ERRORS, ApiError, KubeApi
 from .model import iso, parse_time
 
 EVENT_WINDOW = datetime.timedelta(minutes=15)
+# Logs share the events' window (Block 5 finding (e)): tailLines alone reached back hours on a
+# quiet pod, whose access log keeps only non-2xx lines (ADR-042 amendment), so a bundle carried
+# 10-hour-old db_slots_exhausted errors as if they were current.
+LOG_WINDOW = EVENT_WINDOW
 MAX_EVENTS = 50
 MAX_LOG_LINES = 200
 MAX_LOG_PODS = 3
@@ -198,7 +203,8 @@ class EvidenceCollector:
         return out[:MAX_EVENTS]
 
     async def _logs(self, ns: str, pod_rows: list[dict]) -> dict:
-        """current and previous: each pod's last lines, appended pod after pod. sources: how
+        """current and previous: each pod's last lines of the last LOG_WINDOW (for previous, the
+        terminated container's lines written in that window), appended pod after pod. sources: how
         many lines each pod gave, in that order, so a reader can split the lists per pod
         (the Reasoner's per-pod excerpt, ADR-042). Additive: evidence/v1.1 is unchanged."""
         logs: dict[str, list] = {"current": [], "previous": [], "sources": []}
@@ -207,7 +213,11 @@ class EvidenceCollector:
             for key, previous in (("current", False), ("previous", True)):
                 try:
                     text = await self.api.pod_log(
-                        ns, row["name"], previous=previous, tail=MAX_LOG_LINES
+                        ns,
+                        row["name"],
+                        previous=previous,
+                        tail=MAX_LOG_LINES,
+                        since_seconds=int(LOG_WINDOW.total_seconds()),
                     )
                 except (ApiError, *TRANSPORT_ERRORS):
                     text = None

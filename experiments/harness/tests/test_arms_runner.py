@@ -109,9 +109,9 @@ class RunnerTest(unittest.TestCase):
             r.plan_inject("S4")
         with self.assertRaises(ValueError):
             r.plan_inject("S4", users=15)  # Locust refuses a swarm without spawn_rate
-        s6 = r.plan_inject("S6", users=15, spawn_rate=4)
+        s6 = r.plan_inject("S6", users=170, spawn_rate=4)
         self.assertEqual(
-            s6[0].argv, ("POST", "http://l/swarm", "user_count=15&spawn_rate=4")
+            s6[0].argv, ("POST", "http://l/swarm", "user_count=170&spawn_rate=4")
         )
         self.assertTrue(any("/fault/inject-logs" in s.argv[-1] for s in s6[1:]))
 

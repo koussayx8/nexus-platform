@@ -5,6 +5,7 @@ Ingestion: strip Markdown syntax, keep Kubernetes tokens (CrashLoopBackOff, OOMK
 whole, chunk at second-level headings, never splitting Decision or Action sections.
 Chunk id `rb-<id>#<n>`. The index carries a SHA-256 corpus hash. Retrieval returns the
 top 3 above a score floor, ties broken by chunk id; no hit above the floor is `no_runbook`.
+expand_decisions() then adds the Decision chunk of the first 2 runbooks hit (ADR-043).
 
 The query is built from evidence fields only, never from text a model wrote.
 """
@@ -21,6 +22,9 @@ from pathlib import Path
 K1 = 1.5
 B = 0.75
 TOP_K = 3
+# Decision expansion (ADR-043): after the top 3, the Decision chunk of the first 2 runbooks hit.
+EXPAND_RUNBOOKS = 2
+DECISION_HEADING = "decision"
 MAX_CHUNK_TOKENS = 200  # "about"; Decision and Action sections are never split.
 NEVER_SPLIT = ("decision", "action")
 REQUIRED_FIELDS = (
@@ -231,6 +235,31 @@ class Index:
             for cid, s in ranked[:TOP_K]
             if s >= floor and s > 0
         ]
+
+    def expand_decisions(self, hits: list[dict]) -> list[dict]:
+        """The hits, then the Decision chunk of each of the first EXPAND_RUNBOOKS distinct runbooks
+        among them (rank order) that the hits do not already hold, marked `expanded` with no score
+        (ADR-043). The hits keep their order, so the top chunk and its runbook are unchanged; no hit
+        adds nothing, so `no_runbook` stays `no_runbook`. A runbook with no Decision section adds
+        nothing."""
+        held = {h["id"] for h in hits}
+        runbooks: list[str] = []
+        for h in hits:
+            if h["runbook"] not in runbooks:
+                runbooks.append(h["runbook"])
+        extra = []
+        for rb in runbooks[:EXPAND_RUNBOOKS]:
+            for c in self.chunks:
+                if (
+                    c["runbook"] == rb
+                    and c["heading"].lower() == DECISION_HEADING
+                    and c["id"] not in held
+                ):
+                    extra.append(
+                        {"id": c["id"], "score": None, "runbook": rb, "expanded": True}
+                    )
+                    held.add(c["id"])
+        return list(hits) + extra
 
 
 # An anomalous metric (|Z| > 3) adds words from the runbooks' own vocabulary, chosen by the sign of

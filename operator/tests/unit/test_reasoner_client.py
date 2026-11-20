@@ -590,3 +590,18 @@ def test_the_reasoning_trace_is_kept_as_text_and_capped():
         assert got == want, (
             given if isinstance(given, str) and len(given) < 30 else type(given)
         )
+
+
+def test_expanded_chunks_are_kept_like_retrieved_chunks():
+    """ADR-043: expandedChunks is cleaned as retrievedChunks is: strings only, 100 chars, 20 ids."""
+    meta = {"expandedChunks": ["rb-a#3", 7, "x" * 300] + ["rb-b#3"] * 30}
+
+    async def answer(request, body):
+        return json_response(good_answer(**meta))
+
+    async def call(client, server):
+        return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+    r = run(answer, call)
+    got = r.meta["expandedChunks"]
+    assert got[:2] == ["rb-a#3", "x" * 100] and len(got) == 20
