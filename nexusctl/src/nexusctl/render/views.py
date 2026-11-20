@@ -105,6 +105,15 @@ def explain_text(inc: Incident, max_chars: int = 400) -> str:
         if r:
             items += [("model", r.get("modelId", "-")), ("prompt", r.get("promptVersion", "-"))]
         rows += [""] + untrusted_box("PROPOSAL", items, n)
+    trace = r.get("reasoningExcerpt") if r else None
+    if isinstance(trace, str) and trace:
+        # the model's thinking trace (ADR-035 addendum C): plain text, shown, never a decision
+        rows += [""] + untrusted_box(
+            "MODEL REASONING",
+            [("excerpt", trace), ("length", f"{r.get('reasoningLength', len(trace))} characters; "
+                                            "the full text is in the Flight Recorder")],
+            n,
+        )
     return "\n".join(rows)
 
 
