@@ -105,6 +105,12 @@ def explain_text(inc: Incident, max_chars: int = 400) -> str:
         if r:
             items += [("model", r.get("modelId", "-")), ("prompt", r.get("promptVersion", "-"))]
         rows += [""] + untrusted_box("PROPOSAL", items, n)
+        esc = p.escalation if isinstance(p.escalation, dict) else {}
+        extra = [(k, esc[k]) for k in ("suggestedChange", "runbookGap")
+                 if isinstance(esc.get(k), str) and esc[k]]
+        if extra:
+            # ADR-044: the model's suggested change and runbook gap, for a human; never applied
+            rows += [""] + untrusted_box("ESCALATION SUGGESTION (never applied)", extra, max(n, 2000))
     trace = r.get("reasoningExcerpt") if r else None
     if isinstance(trace, str) and trace:
         # the model's thinking trace (ADR-035 addendum C): plain text, shown, never a decision

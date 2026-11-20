@@ -590,6 +590,88 @@
           "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  p.reasoner_mode AS mode,\n  coalesce((CASE WHEN jsonb_typeof(p.usage -> 'promptTrimLevel') = 'number' THEN (p.usage ->> 'promptTrimLevel')::numeric END)::text, '-') AS trim_level,\n  coalesce(sel.per_pod, '-') AS log_selection,\n  coalesce(length(to_jsonb(p) ->> 'reasoning')::text, '-') AS reasoning_chars,\n  coalesce(left(to_jsonb(p) ->> 'reasoning', 400), '-') AS reasoning\nFROM proposals p JOIN incidents i USING (incident_uid)\nLEFT JOIN LATERAL (\n  SELECT string_agg(\n      coalesce(e ->> 'pod', '?') || ': kept '\n        || coalesce(((CASE WHEN jsonb_typeof(e -> 'kept_error_lines') = 'number' THEN (e ->> 'kept_error_lines')::int ELSE 0 END)\n                   + (CASE WHEN jsonb_typeof(e -> 'kept_recent_lines') = 'number' THEN (e ->> 'kept_recent_lines')::int ELSE 0 END))::text, '?')\n        || ' (' || coalesce(e ->> 'kept_error_lines', '?') || ' error, ' || coalesce(e ->> 'kept_recent_lines', '?') || ' recent)'\n        || ', dropped ' || coalesce(e ->> 'dropped', '?') || ' of ' || coalesce(e ->> 'lines', '?'),\n      '; ' ORDER BY n) AS per_pod\n  FROM jsonb_array_elements(\n      CASE WHEN jsonb_typeof(p.usage #> '{logSelection,pods}') = 'array' THEN p.usage #> '{logSelection,pods}' ELSE '[]'::jsonb END\n    ) WITH ORDINALITY AS pods(e, n)\n  WHERE jsonb_typeof(e) = 'object'\n) sel ON true\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
         }
       ]
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Escalations: the model's suggested change and runbook gap (untrusted, never applied)",
+      "description": "From proposals.parsed_proposal -> escalation (ADR-044): suggestedChange (first 1,000 characters) and runbookGap, as the Reasoner sent them. Untrusted model text for a human to read, plain text; nothing applies it. '-' where a proposal has none.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "suggested_change"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 700
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "runbook_gap"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 400
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  coalesce(left(p.parsed_proposal #>> '{escalation,reason}', 300), '-') AS reason,\n  coalesce(left(p.parsed_proposal #>> '{escalation,suggestedChange}', 1000), '-') AS suggested_change,\n  coalesce(left(p.parsed_proposal #>> '{escalation,runbookGap}', 500), '-') AS runbook_gap\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE p.parsed_proposal #>> '{action,id}' = 'escalate'\n  AND (p.parsed_proposal #>> '{escalation,suggestedChange}' IS NOT NULL\n       OR p.parsed_proposal #>> '{escalation,runbookGap}' IS NOT NULL)\n  AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
+        }
+      ]
     }
   ]
 }
