@@ -206,6 +206,7 @@ class Reasoner:
             "settings": comp.settings,
             "usage": comp.usage,
             "retrievedChunks": [c["id"] for c in chunks],
+            "expandedChunks": [c["id"] for c in chunks if c.get("expanded")],
             "noRunbook": not chunks,
             **excerpt,
         }
