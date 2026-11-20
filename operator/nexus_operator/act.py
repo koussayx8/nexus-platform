@@ -222,6 +222,17 @@ def _excerpt(result: ReasonerResult | None) -> dict:
     return {k: result.meta[k] for k in EXCERPT_KEYS if k in result.meta}
 
 
+def _shown_escalation(esc: dict) -> dict:
+    """The escalation as the Incident shows it: its optional suggestedChange and runbookGap
+    (ADR-044) cut to their caps. Untrusted model text for a human to read; nothing applies it.
+    The Flight Recorder keeps the whole proposal as the Reasoner sent it."""
+    out = dict(esc)
+    for key, cap in proposal.ESCALATION_TEXT.items():
+        if isinstance(out.get(key), str) and len(out[key]) > cap:
+            out[key] = out[key][:cap] + " [cut]"
+    return out
+
+
 def _level(status: dict) -> int:
     v = status.get("autonomyLevel")
     return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 3 else 0
@@ -648,7 +659,10 @@ class ActPath:
                 "Escalated",
                 "proposed_escalation",
                 gate=gate,
-                proposal={"escalation": doc["escalation"], "recommendation": rec},
+                proposal={
+                    "escalation": _shown_escalation(doc["escalation"]),
+                    "recommendation": rec,
+                },
             )
         elif action["id"] == "no_action":
             if level == 1:

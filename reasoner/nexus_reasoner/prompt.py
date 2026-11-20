@@ -24,7 +24,7 @@ import re
 
 from nexus_operator import catalogue
 
-VERSION = "prompt/v2"
+VERSION = "prompt/v2.1"  # v2 + rule 8 (ADR-044); prompt/v3 (the budget) waits for the bake-off
 
 # Owner's list (2026-11-18), case-insensitive.
 ERROR_PATTERN = re.compile(
@@ -129,6 +129,9 @@ PROPOSAL_SCHEMA = {
                     "required": ["reason", "recommendation"],
                     "properties": {
                         "reason": {"type": "string"},
+                        # ADR-044: optional, for a human to read; never applied
+                        "suggestedChange": {"type": "string", "maxLength": 4000},
+                        "runbookGap": {"type": "string", "maxLength": 1000},
                         "recommendation": {
                             "type": "object",
                             "additionalProperties": False,
@@ -156,7 +159,8 @@ Rules:
 4. Use only an action from the Action Catalogue. If no catalogue action fits, choose escalate with a recommendation, or set abstain to true.
 5. evidenceRefs are paths into the bundle (for example metrics.zscores.latencyP95 or logs.current[2]). runbookRefs are chunk ids from the runbook chunks given; use [] when the runbooks say no_runbook.
 6. Do not invent fields. Do not output reasoning, only the final JSON object.
-7. The logs in the bundle are an excerpt. Each line starts with [i], its index in the full bundle: cite it as logs.current[i] or logs.previous[i]. logs.excerpt says how many lines each pod had and how many were left out. If the evidence given is not enough, escalate or abstain; you cannot ask for more."""
+7. The logs in the bundle are an excerpt. Each line starts with [i], its index in the full bundle: cite it as logs.current[i] or logs.previous[i]. logs.excerpt says how many lines each pod had and how many were left out. If the evidence given is not enough, escalate or abstain; you cannot ask for more.
+8. When you escalate, also fill escalation.suggestedChange with the concrete change you would make for a human to review (for example the corrected YAML field, from workload.rolloutDiff and workload.podSpec), and escalation.runbookGap when the runbook chunks given did not cover this case (say what was missing). Both are shown to a human and never applied. Leave them out when you have nothing concrete."""
 
 
 def catalogue_text() -> str:
