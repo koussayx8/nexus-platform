@@ -3,7 +3,9 @@
 It transports the two prompt strings to the configured provider and returns the final message
 text. Settings are the spec's: temperature 0, at most 1,024 output tokens, JSON-schema output where
 the provider supports it, a seed where supported. Reasoning traces are requested hidden where the
-provider has the option and are never read or stored.
+provider has the option (Groq). A trace the provider returns anyway (NIM's `reasoning_content`) is
+passed on as untrusted text, for the record only (ADR-035 addendum C): never parsed, never used
+for a decision.
 
 Time (ADR-035 addendum, 2026-11-20): the model's `timeoutSeconds` (default 30 s, at most 180 s) is
 the whole call's budget. A transient failure (a network error, HTTP 5xx, or HTTP 429 with a

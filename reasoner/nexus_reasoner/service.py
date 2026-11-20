@@ -28,6 +28,17 @@ LEVELS = ("L0", "L1", "L2", "L3")
 EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
 
 
+REASONING_MAX_CHARS = 16000  # the trace kept for the record (ADR-035 addendum C)
+
+
+def _reasoning_meta(text: str | None) -> dict:
+    """The model's thinking trace, untrusted text for the record only: never parsed, never used
+    for a decision. Cut to REASONING_MAX_CHARS; reasoningLength is the length as received."""
+    if not isinstance(text, str) or not text:
+        return {}
+    return {"reasoning": text[:REASONING_MAX_CHARS], "reasoningLength": len(text)}
+
+
 class Rejected(Exception):
     def __init__(self, status: int, error: str, detail: str = "", **extra):
         super().__init__(error)
@@ -210,6 +221,7 @@ class Reasoner:
                 code, "model_unavailable", e.reason, metadata=excerpt
             ) from None
         meta = {
+            **_reasoning_meta(comp.reasoning),
             "mode": "llm",
             "arm": arm,
             "provider": entry.provider,
