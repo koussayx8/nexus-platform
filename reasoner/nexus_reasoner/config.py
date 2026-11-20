@@ -5,9 +5,9 @@ it: an entry names the environment variable that holds its key (`apiKeyEnv`), wh
 owner creates provides. A missing key makes that provider unavailable (503), it never falls back
 to another provider.
 
-Named model configs and one switch (owner, 2026-11-20): `models` holds named entries (R2, r3-groq,
-r3-primary, r3-backup-1, r3-backup-2, demo) and `active` maps an arm name the operator sends to the
-entry that serves it, e.g. {"R3": "r3-groq"}. Switching R3 is a one-line, reviewed change to
+Named model configs and one switch (owner, 2026-11-20; ADR-045): `models` holds named entries
+(r2-primary, r2-backup, r3-primary, r3-backup, demo) and `active` maps an arm name the operator sends
+to the entry that serves it, e.g. {"R3": "r3-primary"}. Switching R3 is a one-line, reviewed change to
 `active` and a Reasoner restart; nothing switches by itself. An entry whose `model` is "" is not
 filled in yet: it can be listed, never made active, and a call to it is `not_configured`. Each
 entry may set its own `timeoutSeconds`, `maxOutputTokens` (a thinking model needs about 8K) and
@@ -75,10 +75,12 @@ class Config:
     active: dict[str, str] = field(default_factory=dict)  # arm name -> entry name
 
     def entry_for_model(self, model_id: str) -> ModelEntry | None:
-        for e in self.models.values():
-            if e.configured and e.model == model_id:
-                return e
-        return None
+        """The one configured entry with this model id; None when there is none, or when more than
+        one has it (r2-backup and r3-primary share an id): an ambiguous id never picks a config."""
+        found = [
+            e for e in self.models.values() if e.configured and e.model == model_id
+        ]
+        return found[0] if len(found) == 1 else None
 
     def resolve(self, requested: str) -> ModelEntry | None:
         """The entry a request's `model` names: an arm of `active` (R3), an entry's name, or a

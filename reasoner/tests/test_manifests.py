@@ -77,32 +77,24 @@ class ManifestTest(unittest.TestCase):
         text = (K8S / "configmap.yaml").read_text()
         block = text.split("reasoner.json: |\n", 1)[1]
         cfg = config.parse(json.loads(textwrap.dedent(block)))
-        # R2 and R3 are served by the configs `active` names (owner, 2026-11-20); today Groq's
-        self.assertEqual(cfg.active, {"R2": "r2-groq", "R3": "r3-groq"})
-        self.assertEqual(cfg.resolve("R2").model, "openai/gpt-oss-20b")
-        self.assertEqual(cfg.resolve("R3").model, "openai/gpt-oss-120b")
-        self.assertEqual(cfg.resolve("openai/gpt-oss-20b").name, "r2-groq")
-        self.assertEqual(cfg.resolve("openai/gpt-oss-120b").name, "r3-groq")
-        # No H1: the Haiku arm was cut (TASKS.md D3, D10). NIM only, one backup per arm (ADR-045);
-        # the two Groq entries stay until the round-4 commit switches `active`.
+        # Final after bake-off round 4 (ADR-045): NIM only, one backup per arm, no Groq entry.
+        self.assertEqual(cfg.active, {"R2": "r2-primary", "R3": "r3-primary"})
+        self.assertEqual(
+            cfg.resolve("R2").model, "nvidia/nemotron-3.5-super-vl-120b-a12b"
+        )
+        self.assertEqual(cfg.resolve("R3").model, "nvidia/nemotron-3-ultra-550b-a55b")
+        # No H1: the Haiku arm was cut (TASKS.md D3, D10).
         self.assertEqual(
             set(cfg.models),
-            {
-                "r2-groq",
-                "r2-primary",
-                "r2-backup",
-                "r3-groq",
-                "r3-primary",
-                "r3-backup",
-                "demo",
-            },
+            {"r2-primary", "r2-backup", "r3-primary", "r3-backup", "demo"},
         )
+        self.assertFalse([e for e in cfg.models.values() if e.provider == "groq"])
         want = {  # name: (model id, timeoutSeconds, maxOutputTokens, extraBody)
-            "r2-primary": ("nvidia/nemotron-3-ultra-550b-a55b", 120.0, 8192, {}),
-            "r2-backup": ("nvidia/nemotron-3.5-super-vl-120b-a12b", 120.0, 8192, {}),
-            "r3-primary": ("google/gemma-4-31b-it", 300.0, 16384,
-                           {"chat_template_kwargs": {"enable_thinking": True}}),
-            "r3-backup": ("moonshotai/kimi-k3.1-pro", 300.0, 8192, {}),
+            "r2-primary": ("nvidia/nemotron-3.5-super-vl-120b-a12b", 120.0, 8192, {}),
+            "r2-backup": ("nvidia/nemotron-3-ultra-550b-a55b", 120.0, 8192,
+                          {"chat_template_kwargs": {"enable_thinking": False}}),
+            "r3-primary": ("nvidia/nemotron-3-ultra-550b-a55b", 300.0, 8192, {}),
+            "r3-backup": ("google/gemma-4-31b-it", 300.0, 8192, {}),
         }  # fmt: skip
         for name, (model, timeout, cap, extra) in want.items():
             e = cfg.models[name]
@@ -119,17 +111,17 @@ class ManifestTest(unittest.TestCase):
             self.assertLessEqual(
                 prompt.PROMPT_BUDGET_TOKENS + cap, prompt.REQUEST_GUARD_TOKENS
             )
-        self.assertIn("PREVIEW", text.split("r2-backup", 1)[1].split("\n", 1)[0])
-        # the round-4 switch parses: active may name the NIM configs
-        doc = json.loads(textwrap.dedent(block))
-        doc["active"] = {"R2": "r2-primary", "R3": "r3-primary"}
-        for groq in ("r2-groq", "r3-groq"):
-            doc["models"].pop(groq)
-        switched = config.parse(doc)
-        self.assertEqual(switched.resolve("R3").model, "google/gemma-4-31b-it")
-        self.assertEqual(
-            switched.resolve("R2").model, "nvidia/nemotron-3-ultra-550b-a55b"
+        header = text.split("apiVersion:", 1)[0]
+        r2_note = header.split("r2-primary", 1)[1].split("r2-backup", 1)[0]
+        self.assertIn("PREVIEW", r2_note)
+        self.assertIn(
+            "UNTESTED", header.split("r2-backup", 1)[1].split("r3-primary", 1)[0]
         )
+        # r2-backup and r3-primary share a model id: by id it resolves to nothing, by name exactly
+        self.assertIsNone(cfg.resolve("nvidia/nemotron-3-ultra-550b-a55b"))
+        self.assertEqual(cfg.resolve("r2-backup").name, "r2-backup")
+        # the operator's Diagnosing limit covers the R3 configs: 300 s + 30 s
+        self.assertEqual(max(e.timeout_s for e in cfg.models.values()), 300.0)
         self.assertEqual(cfg.models["demo"].provider, "ollama")
         self.assertEqual((cfg.timeout_s, cfg.max_output_tokens), (30.0, 1024))
         results = json.loads((REPO / "experiments/retrieval/results.json").read_text())

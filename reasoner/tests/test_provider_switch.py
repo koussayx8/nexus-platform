@@ -309,3 +309,42 @@ class ExtraBodyTest(unittest.TestCase):
         cfg = config.parse(self.entry_doc(THINK))
         with self.assertRaises(TypeError):
             cfg.models["r3-primary"].extra_body["model"] = "other"
+
+
+class AmbiguousModelIdTest(unittest.TestCase):
+    """Two configs with one model id (r2-backup and r3-primary, ADR-045): a request by that id
+    resolves to nothing rather than to whichever comes first; by arm or config name it is exact."""
+
+    def cfg(self):
+        d = doc()
+        d["models"]["r3-backup-1"]["model"] = (
+            "vendor/thinker-1"  # now shared with r3-primary
+        )
+        return config.parse(d)
+
+    def test_a_shared_id_is_ambiguous_and_resolves_to_none(self):
+        cfg = self.cfg()
+        self.assertIsNone(cfg.entry_for_model("vendor/thinker-1"))
+        self.assertIsNone(cfg.resolve("vendor/thinker-1"))
+        self.assertEqual(cfg.resolve("r3-primary").name, "r3-primary")
+        self.assertEqual(cfg.resolve("r3-backup-1").name, "r3-backup-1")
+        self.assertEqual(
+            config.parse(doc(active="r3-primary")).resolve("R3").name, "r3-primary"
+        )
+
+    def test_a_unique_id_still_resolves(self):
+        self.assertEqual(
+            self.cfg().entry_for_model("openai/gpt-oss-120b").name, "r3-groq"
+        )
+
+    def test_a_request_by_an_ambiguous_id_is_unknown_model(self):
+        rs = service.Reasoner(
+            self.cfg(), retriever(), FakeOpener(lambda u, b: self.fail("called"))
+        )
+        ctx = {"incidentUid": "u", "level": "L3", "catalogueVersion": "1", "mode": "llm",
+               "model": "vendor/thinker-1"}  # fmt: skip
+        with self.assertRaises(service.Rejected) as cm:
+            rs.propose({"bundle": bundle(), "context": ctx})
+        self.assertEqual(
+            (cm.exception.status, cm.exception.error), (422, "unknown_model")
+        )
