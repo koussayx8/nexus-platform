@@ -4,6 +4,12 @@ Reasoner arms R0-R3 as frozen in the spec, and nothing else: the Haiku arm (H1) 
 sweep, kept in scope on 2026-11-02, were cut on 2026-11-12 (TASKS.md decisions D3 and D10; no new
 LLM provider). `phases` lists where each arm may run, and arms_for_phase() is the only selector.
 Model ids live here, in configuration, and are recorded with every proposal.
+
+R3 is asked for by its arm name, "R3": the Reasoner serves it with the config its `active` names
+(reasoner/k8s/configmap.yaml, owner 2026-11-20). `model_config` and `model_id` are what this arm
+EXPECTS that call to record; batch.arm_mismatch refuses a run whose call recorded anything else, so
+a switch of `active` mid-batch can never mix two models in one arm. R2 is asked for by its model
+id, which the Reasoner resolves to its config "R2".
 Experiment configurations C1-C9 are listed with their level and phase.
 """
 
@@ -13,7 +19,7 @@ COMMON = {
     "temperature": 0,
     "max_output_tokens": 1024,
     "timeout_s": 30,
-    "attempts": 1,
+    "max_attempts": 2,  # a second only after a transient failure, inside timeout_s (ADR-035 addendum)
     "json_schema_output": True,
     "seed": 0,
 }
@@ -21,8 +27,9 @@ COMMON = {
 ARMS = {
     "R0": {"mode": "adversarial", "model": None, "provider": None, "phases": ("B", "D"), "purpose": "worst case, seeded generator"},
     "R1": {"mode": "rules", "model": None, "provider": None, "phases": ("A", "B", "C"), "purpose": "deterministic baseline"},
-    "R2": {"mode": "llm", "model": "openai/gpt-oss-20b", "provider": "groq", "reasoning_effort": "low", "phases": ("B",), "purpose": "small model"},
-    "R3": {"mode": "llm", "model": "openai/gpt-oss-120b", "provider": "groq", "reasoning_effort": "low", "phases": ("A", "B"), "purpose": "large model"},
+    "R2": {"mode": "llm", "model": "openai/gpt-oss-20b", "model_config": "R2", "model_id": "openai/gpt-oss-20b", "provider": "groq", "reasoning_effort": "low", "phases": ("B",), "purpose": "small model"},
+    # model_config / model_id: r3-groq until the bake-off picks r3-primary and its model id
+    "R3": {"mode": "llm", "model": "R3", "model_config": "r3-groq", "model_id": "openai/gpt-oss-120b", "provider": "groq", "reasoning_effort": "low", "phases": ("A", "B"), "purpose": "large model"},
 }  # fmt: skip
 
 

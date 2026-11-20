@@ -563,19 +563,31 @@ def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
     * fallbackUsed: R1 answered once for a Reasoner call that failed (spec §17). That is the arm's
       own run, counted against it, so it is no contradiction, except on an arm that calls no
       Reasoner: R1 cannot fall back, so the operator was running something else.
-    * Otherwise the mode is the arm's, and so is the model id when the arm has one."""
+      A failed call that recorded the config it used must still have used the arm's config.
+    * Otherwise the mode is the arm's, and for an arm with a model, the call recorded exactly the
+      config and the model id the arm expects (arms.py): a switch of the Reasoner's `active` while
+      a batch runs is a mismatch, never a run of another model under this arm's name."""
     a = arms.ARMS[arm]
     if not reasoner_status:
         return None
+    config = reasoner_status.get("modelConfig")
     if reasoner_status.get("fallbackUsed"):
         if a["mode"] == "rules":
             return "fallbackUsed on an arm that calls no Reasoner"
+        if a.get("model_config") and config is not None and config != a["model_config"]:
+            return f"the failed call used config {config!r}, the arm's is {a['model_config']!r}"
         return None
     mode, model_id = reasoner_status.get("mode"), reasoner_status.get("modelId")
     if mode != a["mode"]:
         return f"mode {mode!r}, the arm's is {a['mode']!r}"
-    if a.get("model") is not None and model_id != a["model"]:
-        return f"model {model_id!r}, the arm's is {a['model']!r}"
+    if a.get("model") is not None and (config, model_id) != (
+        a["model_config"],
+        a["model_id"],
+    ):
+        return (
+            f"config {config!r} model {model_id!r}, "
+            f"the arm's is {a['model_config']!r} {a['model_id']!r}"
+        )
     return None
 
 
@@ -999,7 +1011,7 @@ class LiveRun:
         # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
         seen = st.get("reasoner")
         rec["arm"]["observed"] = (
-            {k: seen.get(k) for k in ("mode", "modelId", "fallbackUsed")}
+            {k: seen.get(k) for k in ("mode", "modelConfig", "modelId", "fallbackUsed")}
             if isinstance(seen, dict)
             else None
         )

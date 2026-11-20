@@ -17,7 +17,10 @@ class ArmsTest(unittest.TestCase):
     def test_the_arms_are_the_specs_four(self):
         self.assertEqual(sorted(arms.ARMS), ["R0", "R1", "R2", "R3"])
         self.assertEqual(arms.arm_config("R2")["model"], "openai/gpt-oss-20b")
-        self.assertEqual(arms.arm_config("R3")["model"], "openai/gpt-oss-120b")
+        r3 = arms.arm_config("R3")
+        # asked for as "R3"; expected served by r3-groq's gpt-oss-120b until the bake-off
+        self.assertEqual((r3["model"], r3["model_config"], r3["model_id"]),
+                         ("R3", "r3-groq", "openai/gpt-oss-120b"))  # fmt: skip
         for a in ("R0", "R1"):
             self.assertIsNone(arms.arm_config(a)["model"])
         with self.assertRaises(KeyError):
@@ -31,9 +34,9 @@ class ArmsTest(unittest.TestCase):
                     c["temperature"],
                     c["max_output_tokens"],
                     c["timeout_s"],
-                    c["attempts"],
+                    c["max_attempts"],
                 ),
-                (0, 1024, 30, 1),
+                (0, 1024, 30, 2),
             )
             self.assertEqual(c["reasoning_effort"], "low")  # the spec's one effort
 
