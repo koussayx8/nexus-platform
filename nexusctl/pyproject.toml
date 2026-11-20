@@ -39,3 +39,6 @@ ignore_missing_imports = true
 [tool.ruff.lint.isort]
 known-first-party = ["nexusctl"]
 known-third-party = ["nexus_client"]
+
+[tool.setuptools.package-data]
+nexusctl = ["py.typed"]
