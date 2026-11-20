@@ -13,7 +13,7 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Images | the digests at the `v0.6.0` tag. Today: operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`); the operator and the Reasoner are rebuilt before the tag (#242), so these two change | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
 | Score floor, prompt | 3.1739; `prompt/v2` (ADR-042), with `CHARS_PER_TOKEN` set to the ratio measured on the 2026-11-19 S1 R3 call (TBD, from the owner's Flight Recorder export; ADR-042 addendum) | by hand at each queue start (§4) |
-| Models | R2 `openai/gpt-oss-20b`; R3 **pending the bake-off** (#271; today `openai/gpt-oss-120b` on Groq); effort low, temperature 0, seed 0, one attempt | the arm check; `proposals.model_id` |
+| Models | R2 and R3 **pending the bake-off** (#271). Today R2 = config `r2-groq` (`openai/gpt-oss-20b`), R3 = `r3-groq` (`openai/gpt-oss-120b`), both on Groq, chosen by the Reasoner's `active` (ADR-035 addenda B, D). Effort low, temperature 0, seed 0. Each model has its own `timeoutSeconds` (default 30 s, at most 300 s), the whole call's budget; inside it **one retry** after a network error, an HTTP 5xx, or a 429 with `Retry-After`, only when 5 s of the budget remain (ADR-035 addendum A) | the strict arm check: each call's `modelConfig` and `proposals.model_id` against `arms.py` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
 | Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace; `ProdUser` has `fixed_count = 80`, so every user above 160 goes to `nexus-dev` (#273) | pre-check |
 
@@ -138,7 +138,8 @@ requests/day, 8,000 tokens/min, 200,000 tokens/day. At about 3,000 tokens per ca
 | Replay R2 | bundles × 4 levels | Its own 60 a day: 15 bundles |
 
 Replay calls are at least 35 s apart and every response is saved; an HTTP 429 is a pause, then the same call again.
-Live, the Reasoner makes one attempt, so a 429 becomes an R1 fallback: provider-caused, re-run in Block 12 (Q7). No `/ask` and no Note flow on run days.
+Live, the Reasoner retries a 429 once when its `Retry-After` fits the model's budget (ADR-035 addendum A); a 429
+without `Retry-After`, or one that does not fit, becomes an R1 fallback: provider-caused, re-run in Block 12 (Q7). No `/ask` and no Note flow on run days.
 
 ## 9. Owner's decisions after the Block 5 trial runs (2026-11-20)
 
