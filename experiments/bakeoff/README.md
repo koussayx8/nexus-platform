@@ -104,7 +104,7 @@ gains from them. They apply to every model and every round once rescored (`resco
 | Bundle | Was | Now | Why |
 | --- | --- | --- | --- |
 | S6-cpu | `scale_deployment` / `cpu_saturation` | `no_action` / `traffic_spike` \| `cpu_saturation` | rb-cpu-saturation's Decision scales only when the CPU **and** p95 latency z-scores are both above 3. This bundle has CPU 6.6 but latency 0.49 and no errors, so the runbook answer is `no_action` (rb-traffic-spike's Decision). The old truth copied what the live R3 did (2 → 4), which broke the runbook. The injection rules are unchanged. |
-| S5, N3, N4 | kind `dependency_investigation` (S5) or `investigate` (N3, N4) | kind `dependency_investigation` \| `investigate` | These bundles retrieve no runbook chunk: the BM25 query is built from the metric z-scores, not from the log text. So the model cannot know which of the two escalate-for-investigation kinds a runbook would name, and both send the same thing to a human. The fault classes are unchanged; N3 stays `dns_failure` only. |
+| S5, N3, N4 | kind `dependency_investigation` (S5) or `investigate` (N3, N4) | kind `dependency_investigation` \| `investigate` | These bundles retrieve no runbook chunk. The BM25 query adds up to ten log tokens, but only error-type words (those containing `error`, `fail`, `refused`, `timeout`, `denied` or `oom`; `bm25.build_query`), and the DNS and TLS words match none of them. So the model cannot know which of the two escalate-for-investigation kinds a runbook would name, and both send the same thing to a human. The fault classes are unchanged; N3 stays `dns_failure` only. |
 
 No other truth changed.
 
@@ -413,7 +413,8 @@ python -m experiments.bakeoff.bakeoff rank --out $BO/round1
 - **Round 2 on small bundles.** Round 2 reaches ~16K only on bundles with enough lines. S1 comes out
   at 14,490 tokens with every line kept.
 - **No runbook retrieved for S5, N3 and N4.** BM25 at the score floor returns no chunk for the
-  database bundles: the query is built from the metric z-scores, not from the log text. So N3 and N4
+  database bundles: the query adds up to ten log tokens, error-type words only, and the DNS and TLS
+  words (`name resolution`, `certificate`) match none of them. So N3 and N4
   are judged without rb-dns-failure or rb-cert-expiry in the prompt (dry runs, 2026-11-20). That is
   the live retrieval, unchanged here, and it is why their kind accepts either investigation kind.
 - **Rounds 1 and 2 now include S6-cpu.** The 2026-11-20 runs had four bundles; a rerun has five.
