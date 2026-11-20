@@ -877,7 +877,7 @@ its outlines stay as the record.
 | D20 | Thesis framing: "bounded harm". The wrong-action rate per arm goes into the export. All six light improvements are in: backup video, architecture figure, one command per demo scenario, wrong-action rate, the "denied" demo beat, and the Grafana Incident-timeline panel last |
 | D21 | The bot (Block 7) also gets read-only commands: `/status` (open Incidents, levels, Kill Switch), `/pods <ns>` (ready count, restarts), `/incident <name>` (same as Explain) |
 | D22 | `/ask`: the bot collects one fixed read-only snapshot, makes ONE LLM call, and shows plain-text advice marked "advice only"; it never acts on it. Built after the Note flow; cut first if late. Not on run days (Groq tokens). CLAUDE.md rule 8 stays: no agent loop |
-| D23 | Runbooks: no new ones. Before the Block 9 freeze, polish `rb-bad-rollout` (own words, source cited: runbooks.prometheus-operator.dev, KubePodCrashLooping) and the `rb-gray-failure` Diagnosis line, then re-check retrieval once |
+| D23 | Runbooks: no new ones. Before the Block 9 freeze, polish `rb-bad-rollout` (own words, source cited: runbooks.prometheus-operator.dev, KubePodCrashLooping) and the `rb-gray-failure` Diagnosis line, then re-check retrieval once. **Done:** polish in #224 (`d61a0ba`, 2026-11-15: `rb-bad-rollout` v2, `rb-gray-failure` v3, floor 3.1739, corpus hash `fad76a74…`); re-checked unchanged 2026-11-20 (ADR-046) |
 | D24 | ITBench: no runs. One desk table in the thesis mapping ITBench fault types to what NEXUS would do (fix, escalate, not seen) |
 
 ### Blocks

@@ -331,8 +331,8 @@ class RunIdentityTest(Live):
 
 
 S3_CELL = [
-    {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": "bad.diff",
-     "tier": 1, "valid_target": 1, "max_attempts": 2},
+    {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": str(ROOT / runner.S3_PATCH),
+     "tier": 1, "valid_target": 1, "max_attempts": 2, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 REVISION = "c0ffee" * 6 + "c0ff"
 OLD_REVISION = "0" * 40
@@ -423,7 +423,7 @@ class S3InjectionTimeTest(Live):
 
 R3_CELL = [
     {"cell": "C2/S1/L3", "scenario": "S1", "reasoner": "R3", "level": 3,
-     "tier": 1, "valid_target": 1, "max_attempts": 2},
+     "tier": 1, "valid_target": 1, "max_attempts": 2, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 
 
@@ -431,7 +431,7 @@ ENDPOINT = (
     "http://nexus-reasoner.nexus-reasoner.svc:8080"  # precheck's reasoner defaults
 )
 R3_KEYS = {"reasonerEndpoint": ENDPOINT, "reasonerMode": "llm",
-           "reasonerModel": "openai/gpt-oss-120b", "reasonerEffort": "low"}  # fmt: skip
+           "reasonerModel": "R3", "reasonerEffort": ""}  # fmt: skip
 R1_KEYS = {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
 
 
@@ -461,7 +461,8 @@ class ArmTest(Live):
             {
                 "name": "R3",
                 "written": R3_KEYS,
-                "observed": {"mode": "llm", "modelId": "openai/gpt-oss-120b", "fallbackUsed": False},
+                "observed": {"mode": "llm", "modelConfig": "r3-primary", "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
+                             "fallbackUsed": False},
                 "mismatch": None,
             },
         )  # fmt: skip
@@ -496,15 +497,24 @@ class ArmTest(Live):
         self.assertEqual((r["status"], r["fallbackUsed"]), ("valid", True))
         self.assertEqual(
             r["arm"]["observed"],
-            {"mode": "rules", "modelId": None, "fallbackUsed": True},
+            {
+                "mode": "rules",
+                "modelConfig": None,
+                "modelId": None,
+                "fallbackUsed": True,
+            },
         )
         self.assertIsNone(r["arm"]["mismatch"])
 
     def test_the_arms_mode_with_another_model_is_a_mismatch(self):
-        small = {"mode": "llm", "modelId": "openai/gpt-oss-20b", "fallbackUsed": False}
+        small = {
+            "mode": "llm",
+            "modelId": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+            "fallbackUsed": False,
+        }
         r = self.run_one(answers(small)(self.ft))
         self.assertEqual(r["discard_reason"], "arm_mismatch")
-        self.assertIn("openai/gpt-oss-20b", r["arm"]["mismatch"])
+        self.assertIn("nvidia/nemotron-3.5-super-vl-120b-a12b", r["arm"]["mismatch"])
 
     def test_an_incident_that_ended_before_any_proposal_contradicts_no_arm(self):
         # e.g. Escalated / evidence_error from Detected: a failed run, and still a run.
@@ -609,3 +619,57 @@ class MetricsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StrictArmCheckTest(unittest.TestCase):
+    """Owner, 2026-11-20: the arm names the config and model id it expects; a call recorded with
+    anything else is a mismatch, so a switch of the Reasoner's `active` never mixes two models.
+    Final arms (ADR-045): R2 r2-primary nvidia/nemotron-3.5-super-vl-120b-a12b, R3 r3-primary nvidia/nemotron-3-ultra-550b-a55b."""
+
+    def st(self, **kw):
+        return {"mode": "llm", "modelConfig": "r3-primary", "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
+                "fallbackUsed": False, **kw}  # fmt: skip
+
+    def test_the_expected_config_and_model_pass(self):
+        self.assertIsNone(batch.arm_mismatch("R3", self.st()))
+
+    def test_another_config_or_model_is_a_mismatch(self):
+        for kw in (
+            {"modelConfig": "r3-backup", "modelId": "google/gemma-4-31b-it"},
+            # r2-backup runs the same model id as r3-primary: the config still decides
+            {"modelConfig": "r2-backup"},
+            {"modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b"},
+            {"modelId": "vendor/other"},
+            {"modelConfig": None},
+        ):
+            why = batch.arm_mismatch("R3", self.st(**kw))
+            self.assertIsNotNone(why, kw)
+            self.assertIn(
+                "the arm's is 'r3-primary' 'nvidia/nemotron-3-ultra-550b-a55b'", why
+            )
+
+    def test_a_fallback_from_another_config_is_a_mismatch(self):
+        fb = {"mode": "rules", "fallbackUsed": True}
+        self.assertIsNone(
+            batch.arm_mismatch("R3", fb)
+        )  # the failed call named no config
+        self.assertIsNone(batch.arm_mismatch("R3", fb | {"modelConfig": "r3-primary"}))
+        for other in ("r3-backup", "r2-backup"):
+            self.assertIn(other, batch.arm_mismatch("R3", fb | {"modelConfig": other}))
+
+    def test_r2_is_checked_the_same_way(self):
+        ok = {"mode": "llm", "modelConfig": "r2-primary", "modelId": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+              "fallbackUsed": False}  # fmt: skip
+        self.assertIsNone(batch.arm_mismatch("R2", ok))
+        for other in (
+            {
+                "modelConfig": "r2-backup",
+                "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
+            },
+            {
+                "modelConfig": "r3-primary",
+                "modelId": "nvidia/nemotron-3-ultra-550b-a55b",
+            },
+            {"modelId": "x/y"},
+        ):
+            self.assertIsNotNone(batch.arm_mismatch("R2", ok | other), other)

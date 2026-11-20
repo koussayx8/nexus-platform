@@ -367,6 +367,57 @@ def replay_matrix(ky: Kyverno) -> list[str]:
     return problems
 
 
+PAST = "2000-01-01T00:00:00Z"
+
+
+def k3_isolation_incident(case: dict) -> dict:
+    """The one mocked Incident of a K3-only case (matrix.yaml `k3_isolation`)."""
+    inc = case["incident"]
+    return {
+        "spec": {
+            "target": {
+                "namespace": mx.K3_ISOLATION_CELL["namespace"],
+                "kind": "Deployment",
+                "name": NAME if inc["target"] == "same" else f"{NAME}-other",
+            },
+            "approval": {
+                "decision": inc["decision"],
+                "actionId": "scale_deployment",
+                "proposalHash": "sha256:ab12",
+                "expiresAt": FUTURE if inc["expiry"] == "future" else PAST,
+                "parameters": {"replicas": inc["replicas"]},
+            },
+        },
+        "status": {"proposal": {"hash": "sha256:ab12"}},
+    }
+
+
+def replay_k3_isolation(ky: Kyverno) -> list[str]:
+    """Replay the K3-only cases; return the disagreements. A case agrees only when the set of
+    refusing policies is exactly the declared one: K3 and nothing else, or nothing for the control."""
+    ident = mx.DATA["identities"]["operator"]
+    user = {"username": ident["username"], "groups": ident["groups"]}
+    problems: list[str] = []
+    for case in mx.k3_isolation():
+        got = request_layers(
+            ky,
+            user,
+            "scale",
+            mx.K3_ISOLATION_CELL["namespace"],
+            mx.K3_ISOLATION_CELL["level"],
+            "active",
+            case["replicas"],
+            mx.K3_ISOLATION_FROM,
+            [k3_isolation_incident(case)],
+        )
+        want = case["declared"]
+        if got != want.layers:
+            problems.append(
+                f"{case['id']}: Kyverno CLI refuses by {sorted(got)}, declared {want}"
+            )
+    return problems
+
+
 def approval_incident(
     replicas: int = 3,
     expires: str = "2000-01-01T00:00:00Z",

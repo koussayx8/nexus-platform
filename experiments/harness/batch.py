@@ -70,6 +70,9 @@ What it adds to runner.py (which plans and executes single operations):
   that did not finish, never a discard. The wait ran out with no Incident of the run's own:
   discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
   not go in.
+* The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
+  operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
+  index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
 * The injection time is on every run record that injected (`injection_at`, null before that): the
   wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
   push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
@@ -187,7 +190,9 @@ def _utc(t: float | None = None) -> str:
 
 
 def validate_cells(cells) -> list[dict]:
-    """Every cell names its scenario, arm, level, tier, valid-run target and attempt cap."""
+    """Every cell names its scenario, arm, level, tier, valid-run target, attempt cap and the
+    `baseline_ref` its reset restores (ADR-047 addendum: one rule for every cell, the runner's
+    reset rule; a commit-ish with no whitespace that cannot read as a git option)."""
     if not isinstance(cells, list) or not cells:
         raise Refused("cells must be a non-empty list")
     ids = [c.get("cell") if isinstance(c, dict) else None for c in cells]
@@ -201,9 +206,18 @@ def validate_cells(cells) -> list[dict]:
             "tier",
             "valid_target",
             "max_attempts",
+            "baseline_ref",
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        ref = c["baseline_ref"]
+        if not isinstance(ref, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._/^~-]*", ref
+        ):
+            raise Refused(
+                f"cell {c['cell']!r}: baseline_ref must be the experiment/dev-state commit its "
+                "reset restores (a commit-ish: no whitespace, not starting with '-')"
+            )
         if c["reasoner"] not in arms.ARMS:
             raise Refused(
                 f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
@@ -560,20 +574,73 @@ def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
     * fallbackUsed: R1 answered once for a Reasoner call that failed (spec §17). That is the arm's
       own run, counted against it, so it is no contradiction, except on an arm that calls no
       Reasoner: R1 cannot fall back, so the operator was running something else.
-    * Otherwise the mode is the arm's, and so is the model id when the arm has one."""
+      A failed call that recorded the config it used must still have used the arm's config.
+    * Otherwise the mode is the arm's, and for an arm with a model, the call recorded exactly the
+      config and the model id the arm expects (arms.py): a switch of the Reasoner's `active` while
+      a batch runs is a mismatch, never a run of another model under this arm's name."""
     a = arms.ARMS[arm]
     if not reasoner_status:
         return None
+    config = reasoner_status.get("modelConfig")
     if reasoner_status.get("fallbackUsed"):
         if a["mode"] == "rules":
             return "fallbackUsed on an arm that calls no Reasoner"
+        if a.get("model_config") and config is not None and config != a["model_config"]:
+            return f"the failed call used config {config!r}, the arm's is {a['model_config']!r}"
         return None
     mode, model_id = reasoner_status.get("mode"), reasoner_status.get("modelId")
     if mode != a["mode"]:
         return f"mode {mode!r}, the arm's is {a['mode']!r}"
-    if a.get("model") is not None and model_id != a["model"]:
-        return f"model {model_id!r}, the arm's is {a['model']!r}"
+    if a.get("model") is not None and (config, model_id) != (
+        a["model_config"],
+        a["model_id"],
+    ):
+        return (
+            f"config {config!r} model {model_id!r}, "
+            f"the arm's is {a['model_config']!r} {a['model_id']!r}"
+        )
     return None
+
+
+OPERATOR_DEPLOYMENT = "nexus-operator"
+REASONER_DEPLOYMENT = "nexus-reasoner"
+
+
+def image_digest(deployment: dict | None, name: str) -> str | None:
+    """`sha256:<64 hex>` of the Deployment's container `name` (its first container when none has
+    that name), from the image reference in its spec; None when the image is not pinned by digest."""
+    try:
+        containers = deployment["spec"]["template"]["spec"]["containers"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(containers, list) or not containers:
+        return None
+    c = next(
+        (c for c in containers if isinstance(c, dict) and c.get("name") == name),
+        containers[0],
+    )
+    image = c.get("image") if isinstance(c, dict) else None
+    m = re.search(r"@(sha256:[0-9a-f]{64})$", image) if isinstance(image, str) else None
+    return m.group(1) if m else None
+
+
+def frozen_from(operator: dict | None, reasoner: dict | None, healthz) -> dict:
+    """The frozen values one run ran with (m4-protocol §1, E8): the operator and Reasoner image
+    digests and what the Reasoner's /healthz served. A value that could not be read is None; the
+    export's frozen-values check decides what that means, this record only keeps it."""
+    h = healthz if isinstance(healthz, dict) else {}
+    floor = h.get("scoreFloor")
+    return {
+        "operator_image": image_digest(operator, OPERATOR_DEPLOYMENT),
+        "reasoner_image": image_digest(reasoner, REASONER_DEPLOYMENT),
+        "score_floor": floor
+        if isinstance(floor, int | float) and not isinstance(floor, bool)
+        else None,
+        "prompt_version": h.get("promptVersion")
+        if isinstance(h.get("promptVersion"), str)
+        else None,
+        "index_hash": precheck._bare_hash(h.get("corpusHash")),
+    }
 
 
 def incident_brief(incident: dict) -> dict:
@@ -648,6 +715,22 @@ class LiveRun:
         # True from a load injection (S2, S4, S6) until a reset has touched Locust. A new process
         # starts False: what an earlier one left shows in Locust's user count (_locust_touch).
         self.load_changed = False
+
+    def _deployment(self, namespace: str, name: str) -> dict | None:
+        rc, out = self.r.exec(
+            [runner_mod.CLI, "--context", self.r.context, "-n", namespace]
+            + ["get", "deployment", name, "-o", "json"]
+        )
+        return precheck._json(out) if rc == 0 else None
+
+    def frozen(self) -> dict:
+        """Read-only: the two Deployments and the Reasoner's /healthz, as frozen_from keeps them."""
+        _, healthz = precheck.reasoner_healthz(self.r, self.cfg)
+        return frozen_from(
+            self._deployment(model.NAMESPACE, OPERATOR_DEPLOYMENT),
+            self._deployment(self.cfg["reasoner"]["namespace"], REASONER_DEPLOYMENT),
+            healthz,
+        )
 
     def incidents(self) -> list[dict]:
         rc, out = self.r.exec(
@@ -828,6 +911,9 @@ class LiveRun:
             cell.get("s3_patch"),
             cell.get("users"),
             cell.get("spawn_rate"),
+            level=int(
+                cell["level"]
+            ),  # read again at the injection: the cell's level or no fault
         )
         if cell["scenario"].upper() in LOAD_SCENARIOS:
             self.load_changed = True  # from here on Locust is not at the baseline
@@ -886,6 +972,7 @@ class LiveRun:
             "waited_s": pc.waited_s,
             "failures": pc.failures,
         }
+        rec["frozen"] = self.frozen()  # on every run record, discarded or not (E8)
         if pc.stop_reason:
             raise StopBatch(pc.stop_reason)
         if not pc.ok:
@@ -935,7 +1022,7 @@ class LiveRun:
         # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
         seen = st.get("reasoner")
         rec["arm"]["observed"] = (
-            {k: seen.get(k) for k in ("mode", "modelId", "fallbackUsed")}
+            {k: seen.get(k) for k in ("mode", "modelConfig", "modelId", "fallbackUsed")}
             if isinstance(seen, dict)
             else None
         )
@@ -966,7 +1053,7 @@ def _status(queue: Queue) -> dict:
     }
 
 
-def main(argv=None) -> int:
+def main(argv=None, guard_exec=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("mode", choices=("init", "status", "run", "clear-halt"))
     ap.add_argument("--state", required=True)
@@ -1015,6 +1102,10 @@ def main(argv=None) -> int:
                 )
             )
             return 0
+        # ADR-047: the batch runs reviewed code only, as the runner does (#266)
+        why = runner_mod.code_guard(guard_exec)
+        if why:
+            raise Refused(f"refusing to execute: {why}")
         live = LiveRun(
             runner_mod.Runner(a.context, locust=a.locust, git_dir=a.git_dir),
             queue.doc["precheck"],

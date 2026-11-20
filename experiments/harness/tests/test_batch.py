@@ -13,12 +13,15 @@ import urllib.parse
 from .. import batch, metrics, precheck, runner
 
 REF = "G16/pre-registration#approval-1"
+BASELINE_REF = (
+    "0123456789abcdef0123456789abcdef01234567"  # the dev-state commit a reset restores
+)
 # Targets, caps and tiers are G16 configuration; these are test values (Tier 1 = a small target).
 CELLS = [
     {"cell": "C1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
     {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 INDEX_HASH = (
     "ab" * 32
@@ -350,6 +353,7 @@ class TierTest(Base):
             "cell": n,
             "scenario": "S1",
             "reasoner": "R1",
+            "baseline_ref": BASELINE_REF,
             "level": 3,
             **kw,
         }
@@ -420,7 +424,8 @@ class TierTest(Base):
 
     def test_targets_caps_and_tiers_are_required_configuration(self):
         with tempfile.TemporaryDirectory() as d:
-            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3}
+            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3,
+                    "baseline_ref": BASELINE_REF}  # fmt: skip
             bad = [
                 base,  # no tier, target or cap
                 {**base, "tier": 1, "valid_target": 5},  # no cap
@@ -665,6 +670,10 @@ class FakeCluster:
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
         self.detected_at = None  # spec.detectedAt of the injected fault's Incident, set when it appears
         self.operator_config = {}  # nexus-operator-config data, as the reset's patches leave it
+        self.images = {  # the image of each Deployment's container; None: the read fails
+            "nexus-operator": f"ghcr.io/x/nexus-operator@sha256:{'a' * 64}",
+            "nexus-reasoner": f"ghcr.io/x/nexus-reasoner@sha256:{'b' * 64}",
+        }
 
     def reasoner_status(self):
         """status.reasoner as the operator writes it (act.py) for the arm in its ConfigMap: R1 only
@@ -675,7 +684,15 @@ class FakeCluster:
             return {"mode": "rules", "fallbackUsed": False}
         if self.fallback:
             return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
-        return {"mode": cfg["reasonerMode"], "modelId": cfg["reasonerModel"] or None, "fallbackUsed": False}  # fmt: skip
+        # as the Reasoner serves the name it is sent (reasoner/k8s/configmap.yaml), through `active`
+        served = {
+            "R2": ("r2-primary", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
+            "R3": ("r3-primary", "nvidia/nemotron-3-ultra-550b-a55b"),
+        }
+        config, model_id = served.get(
+            cfg["reasonerModel"], (None, cfg["reasonerModel"] or None)
+        )
+        return {"mode": cfg["reasonerMode"], "modelConfig": config, "modelId": model_id, "fallbackUsed": False}  # fmt: skip
 
     def vector(self, value):
         return json.dumps(
@@ -715,6 +732,12 @@ class FakeCluster:
             return (
                 (0, json.dumps(self.reasoner)) if self.reasoner is not None else (1, "")
             )
+        for dep, image in self.images.items():
+            if line.endswith(f"get deployment {dep} -o json"):
+                if image is None:
+                    return 1, ""
+                return 0, json.dumps({"spec": {"template": {"spec": {"containers": [
+                    {"name": "sidecar", "image": "busybox"}, {"name": dep, "image": image}]}}}})  # fmt: skip
         if line.endswith("-n nexus-dev get deployment sample-api -o json"):
             d, r_, u = self.sample
             return 0, json.dumps(
@@ -729,6 +752,10 @@ class FakeCluster:
                 if self.killswitch is not None
                 else (1, "")
             )
+        if (
+            "get namespace nexus-dev -o jsonpath=" in line
+        ):  # the runner's level check at inject
+            return 0, self.level_label or ""
         if line.endswith("get namespace nexus-dev -o json"):
             labels = (
                 {"nexus.io/autonomy-level": self.level_label}
@@ -991,6 +1018,43 @@ class LiveRunTest(Base):
         self.assertTrue(all("--context ctx" in x for x in j if x.startswith("kubectl")))
         self.assertFalse(any(" delete " in x for x in j))  # Incidents are never deleted
         self.assertEqual(out["ran"], 1)
+
+    def test_every_run_record_keeps_the_frozen_values(self):
+        """m4-protocol §1, E8: the operator and Reasoner digests and /healthz's floor, read-only."""
+        c = FakeCluster(self.ft)
+        self.drive(self.live(c), max_runs=1)
+        self.assertEqual(self.q.runs[0]["frozen"], {
+            "operator_image": "sha256:" + "a" * 64, "reasoner_image": "sha256:" + "b" * 64,
+            "score_floor": 2.9584, "prompt_version": "prompt/v1", "index_hash": INDEX_HASH,
+        })  # fmt: skip
+        j = self.joined(c)
+        self.assertIn(
+            "kubectl --context ctx -n nexus-system get deployment nexus-operator -o json",
+            j,
+        )
+        self.assertIn(
+            "kubectl --context ctx -n nexus-reasoner get deployment nexus-reasoner -o json",
+            j,
+        )
+
+    def test_a_discarded_run_keeps_the_frozen_values_too(self):
+        c = FakeCluster(self.ft)
+        c.z = 2.0  # the pre-check never passes
+        self.drive(self.live(c), max_runs=1)
+        r = self.q.runs[0]
+        self.assertEqual(r["discard_reason"], "precheck_timeout")
+        self.assertEqual(r["frozen"]["score_floor"], 2.9584)
+
+    def test_what_cannot_be_read_is_recorded_as_null(self):
+        c = FakeCluster(self.ft)
+        c.images["nexus-operator"] = None  # the read fails
+        c.images["nexus-reasoner"] = (
+            "ghcr.io/x/nexus-reasoner:latest"  # not pinned by digest
+        )
+        c.reasoner = dict(c.reasoner, scoreFloor=True, corpusHash="nope")
+        f = self.live(c).frozen()
+        self.assertEqual(f, {"operator_image": None, "reasoner_image": None, "score_floor": None,
+                             "prompt_version": "prompt/v1", "index_hash": None})  # fmt: skip
 
     def test_order_reset_then_config_then_sync_then_prechecks_then_injection(self):
         c = FakeCluster(self.ft)
@@ -1597,6 +1661,16 @@ class SevenPrechecksTest(unittest.TestCase):
         f = self.failing(lambda c: None, level=2)  # the label says 3, the cell wants 2
         self.assertIn("namespace_level:3!=2", f)
 
+    def test_the_window_records_the_level_read_beside_the_cells(self):
+        """Boundary review F1: every run record says which level the namespace carried."""
+        ok = self.pc(FakeCluster(self.ft), level=3)
+        self.assertEqual(ok.window["namespace_level"], {"observed": "3", "cell": "3"})
+        c = FakeCluster(self.ft)
+        c.level_label = "2"
+        bad = self.pc(c, level=3)
+        self.assertFalse(bad.ok)
+        self.assertEqual(bad.window["namespace_level"], {"observed": "2", "cell": "3"})
+
     def test_a_missing_level_label_is_l0(self):
         c = FakeCluster(self.ft)
         c.level_label = None
@@ -1726,7 +1800,7 @@ class SevenPrechecksTest(unittest.TestCase):
         cfg = rcfg.parse({"indexPath": "x", "scoreFloor": 1.0, "models": {}})
         body = Reasoner(cfg, Retriever(index, 1.0), None).health()
         self.assertEqual(
-            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor"}
+            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor", "active"}
         )
         self.assertEqual(body["status"], "ready")
         self.assertRegex(

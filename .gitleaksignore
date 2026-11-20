@@ -8,3 +8,7 @@
 # quoted that line.
 bfddecacfd671a707f28bb8af33d038ce37bb9d1:operator/tests/unit/test_poller.py:generic-api-key:148
 e4e133470bc8a41933553214130ff87060064998:.gitleaksignore:generic-api-key:5
+#
+# PR #271 (R3 bake-off), rule generic-api-key: the fake provider key of the bake-off tests, a literal
+# in the first commit (built at run time since the next commit).
+6264cff927ed016893a122e3332fd57980fd2c6b:experiments/bakeoff/tests/test_bakeoff.py:generic-api-key:26
