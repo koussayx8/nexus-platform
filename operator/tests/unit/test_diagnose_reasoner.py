@@ -507,3 +507,24 @@ def test_without_an_excerpt_nothing_is_added():
     assert not set(EXCERPT) & set(s)
     [row] = rows(rig).values()
     assert not set(EXCERPT) & set(row["usage"])
+
+
+def test_expanded_chunks_are_marked_in_status_and_on_the_row():
+    """ADR-043: status.reasoner.chunks keeps every id sent; expandedChunks names the Decision
+    chunks added after the top 3; the row's usage records them; status.reasoner.usage does not."""
+    chunks = ["rb-bad-rollout#1", "rb-image-pull#1", "rb-bad-rollout#3"]
+    rig = make(FakeReasoner(answer(retrievedChunks=chunks, expandedChunks=chunks[2:])))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert s["chunks"] == chunks and s["expandedChunks"] == ["rb-bad-rollout#3"]
+    assert "expandedChunks" not in s["usage"]
+    [row] = rows(rig).values()
+    assert row["usage"]["expandedChunks"] == ["rb-bad-rollout#3"]
+
+
+def test_no_expansion_adds_no_key():
+    rig = make(FakeReasoner(answer(expandedChunks=[])))
+    run_until_proposed(rig)
+    assert "expandedChunks" not in rig.status()["reasoner"]
+    [row] = rows(rig).values()
+    assert "expandedChunks" not in row["usage"]

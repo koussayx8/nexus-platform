@@ -180,6 +180,9 @@ def _call_usage(result: ReasonerResult) -> dict | None:
     usage.update(
         _excerpt(result)
     )  # what was sent, on the call's row (ADR-042 decision 6)
+    # which of the chunk ids were expanded (ADR-043)
+    if result.meta.get("expandedChunks"):
+        usage["expandedChunks"] = list(result.meta["expandedChunks"])
     return usage or None
 
 
@@ -187,7 +190,11 @@ def _tokens(usage: dict | None) -> dict | None:
     """status.reasoner.usage: the call's tokens and latency; the excerpt has its own keys."""
     if usage is None:
         return None
-    return {k: v for k, v in usage.items() if k not in EXCERPT_KEYS} or None
+    return {
+        k: v
+        for k, v in usage.items()
+        if k not in EXCERPT_KEYS and k != "expandedChunks"
+    } or None
 
 
 def _excerpt(result: ReasonerResult | None) -> dict:
@@ -463,6 +470,7 @@ class ActPath:
             "promptVersion": meta.get("promptVersion"),
             "indexHash": meta.get("corpusHash"),
             "chunks": meta.get("retrievedChunks"),
+            "expandedChunks": meta.get("expandedChunks") or None,  # ADR-043
             "latencyMs": answer.latency_ms,
             "requestId": answer.request_id,
             "fallbackUsed": answer.fallback_used,

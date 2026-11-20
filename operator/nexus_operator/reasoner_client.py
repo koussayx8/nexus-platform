@@ -139,9 +139,10 @@ def _clean_meta(meta: Any) -> dict:
             out[key] = v
         elif isinstance(v, str):
             out[key] = v[:200]
-    chunks = meta.get("retrievedChunks")
-    if isinstance(chunks, list):
-        out["retrievedChunks"] = [c[:100] for c in chunks if isinstance(c, str)][:20]
+    for key in ("retrievedChunks", "expandedChunks"):  # expandedChunks: ADR-043
+        chunks = meta.get(key)
+        if isinstance(chunks, list):
+            out[key] = [c[:100] for c in chunks if isinstance(c, str)][:20]
     usage = _usage(meta.get("usage"))
     if usage:
         out["usage"] = usage
