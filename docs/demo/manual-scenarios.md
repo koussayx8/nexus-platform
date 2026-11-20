@@ -636,20 +636,21 @@ live, use the backup video (Block 14).
    Optional, with the Kill Switch halted: the in-bounds scale to 3 above, refused by K4 (§3). With
    `nexus-dev` at L2 and no approval: the same scale, refused by K3.
 3. **The Reasoner's isolation** (no token, no RBAC, no route to the API server or the cluster's
-   services; Groq reachable as the control). The probe is
-   `~/nexus-evidence/block3-2026-11-17/isolation-probe.sh`, which is not in Git. It makes one
+   services; the NIM endpoint reachable as the control). The probe is `scripts/isolation-probe.sh`
+   (ADR-047; until 2026-11-20 it lived only in `~/nexus-evidence/block3-2026-11-17/`). It makes one
    `kubectl exec` into the Reasoner pod and otherwise only reads:
 
    ```bash
-   bash ~/nexus-evidence/block3-2026-11-17/isolation-probe.sh
+   bash scripts/isolation-probe.sh
    ```
 
    Expected, as on 2026-11-17 (`isolation-probe-run.txt`): `ok` for R1 (`can-i --list` equals a
    never-bound identity's), T0 (`automountServiceAccountToken=false`), T1 (no token), T2 (no
-   credentials in the environment), N (every cluster target refused) and the Groq control. **Known
-   probe bug:** the `* *` question is unquoted, so the shell globs it and the line shows FAIL. The
-   quoted re-check answered `no` (`isolation-probe-wildcard-recheck.txt`). Fix the quoting before the
-   defense, or say this aloud. Faster single beats, all reads:
+   credentials in the environment), N (every cluster target refused) and the control, now
+   `integrate.api.nvidia.com:443` (it was Groq on 2026-11-17). The `* *` question is quoted in the
+   `scripts/` version; on 2026-11-17 it was not, the shell globbed it and that line showed FAIL,
+   while the quoted re-check answered `no` (`isolation-probe-wildcard-recheck.txt`). The `scripts/`
+   version has not been run live yet. Faster single beats, all reads:
 
    ```bash
    kubectl --context default -n nexus-reasoner auth can-i --list --as=system:serviceaccount:nexus-reasoner:nexus-reasoner
