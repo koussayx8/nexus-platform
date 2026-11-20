@@ -28,3 +28,9 @@
 
 - With the Secret present and `recorderHost` set, the image after the next digest bump records for real; **live check pending** for the DB, `Audit-Id` on a live API server, the ServiceMonitor target, Kyverno and the PDB.
 - `Diagnosing` writes to the Incident status and to the recorder; it never mutates a workload.
+
+## Addendum (2026-11-20)
+The 60 s Diagnosing timeout of decision 6 is now `reasonerTimeoutSeconds` + 30 s: 60 s with the default 30, at most
+210 s (ADR-035 addendum A3).
+
+Amended again (2026-11-20, ADR-035 addendum D): the cap is 300 s, so Diagnosing ends at most at 330 s.

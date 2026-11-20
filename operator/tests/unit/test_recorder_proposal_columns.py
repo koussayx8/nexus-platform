@@ -115,3 +115,55 @@ def test_the_schema_adds_the_column_the_writer_looks_for():
     ).read_text()
     line = r"^ALTER TABLE proposals ADD COLUMN IF NOT EXISTS usage\s+jsonb;$"
     assert re.search(line, sql, re.MULTILINE)
+
+
+# ---- proposals.reasoning (ADR-035 addendum C, 2026-11-20) ------------------------------------
+
+
+class ReasoningPool(Pool):
+    def __init__(self, has_reasoning: bool):
+        super().__init__(True, has_usage=True)
+        self.has_reasoning, self.reasoning_probes = has_reasoning, 0
+
+    async def fetchval(self, sql, *args):
+        if "'reasoning'" in sql:
+            self.reasoning_probes += 1
+            return 1 if self.has_reasoning else 0
+        return await super().fetchval(sql, *args)
+
+
+def test_the_trace_goes_in_its_own_column_when_it_exists():
+    pool = ReasoningPool(True)
+    assert record(PostgresRecorder(pool), usage=USAGE, reasoning="I think...") is True
+    sql, args = pool.inserts[0]
+    assert "usage, reasoning" in sql and "$15::jsonb, $16)" in sql
+    assert args[-1] == "I think..." and json.loads(args[-2]) == USAGE
+
+
+def test_without_the_column_the_row_is_stored_and_the_trace_is_not_with_one_warning(
+    caplog,
+):
+    from nexus_operator.recorder import writer
+
+    writer._WARNED["reasoning"] = False
+    pool = ReasoningPool(False)
+    rec = PostgresRecorder(pool)
+    with caplog.at_level("WARNING", logger="nexus.recorder"):
+        assert record(rec, reasoning="I think...") is True
+        assert record(PostgresRecorder(pool), reasoning="again") is True  # a reconnect
+    for sql, args in pool.inserts:
+        assert (
+            "reasoning" not in sql and "I think..." not in args and "again" not in args
+        )
+    warnings = [
+        r for r in caplog.records if "proposals.reasoning is missing" in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert "ADD COLUMN IF NOT EXISTS reasoning text" in warnings[0].getMessage()
+
+
+def test_no_trace_asks_no_question():
+    pool = ReasoningPool(False)
+    record(PostgresRecorder(pool), reasoning=None)
+    record(PostgresRecorder(pool), reasoning="")
+    assert pool.reasoning_probes == 0
