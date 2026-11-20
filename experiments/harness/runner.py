@@ -64,6 +64,9 @@ LEVEL_FILE = (
 S3_ALLOWED = ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
 S3_PATCH = "experiments/faults/s3-bad-rollout.patch"  # the committed S3 fault
 APP_PORT = 8000
+# ProdUser's fixed_count in platform/load/locustfile.py: a spike's total minus this is nexus-dev's
+# rate (S2: 220 -> 140; S4/S6: 80 + the calibrated dev rate). A test reads the locustfile.
+PROD_USERS = 80
 # Locust's master answers /stop only when its user count is 0, and waits for its workers up to
 # stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
 LOCUST_STOP_TIMEOUT_S = 75
@@ -294,6 +297,16 @@ class Runner:
             if not self.locust or users is None or spawn_rate is None:
                 raise ValueError(
                     f"{sc} needs --locust URL, --users and --spawn-rate (from the calibrated capacity)"
+                )
+            # users is Locust's total: ProdUser keeps PROD_USERS, the rest go to nexus-dev
+            if (
+                isinstance(users, bool)
+                or not isinstance(users, int)
+                or users <= PROD_USERS
+            ):
+                raise ValueError(
+                    f"{sc}: users is the total, {PROD_USERS} (ProdUser) + the nexus-dev rate; "
+                    f"it must be an integer above {PROD_USERS}"
                 )
             if (
                 isinstance(spawn_rate, bool)
@@ -630,7 +643,11 @@ def main(argv=None, guard_exec=None):
         "reset: the level to commit (default 3)",
     )
     ap.add_argument("--locust")
-    ap.add_argument("--users", type=int)
+    ap.add_argument(
+        "--users",
+        type=int,
+        help=f"Locust's total for S2, S4, S6: {PROD_USERS} (ProdUser) + the nexus-dev rate",
+    )
     ap.add_argument(
         "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
     )
