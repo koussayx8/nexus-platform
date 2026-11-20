@@ -164,11 +164,20 @@ class KubeApi:
         )
 
     async def pod_log(
-        self, namespace: str, pod: str, *, previous: bool, tail: int
+        self,
+        namespace: str,
+        pod: str,
+        *,
+        previous: bool,
+        tail: int,
+        since_seconds: int | None = None,
     ) -> str | None:
-        """The last `tail` log lines of a pod's containers' log, or None (no log, e.g. no previous)."""
+        """The last `tail` log lines of a pod's containers' log, written in the last
+        `since_seconds` when given, or None (no log, e.g. no previous)."""
         headers = {"Authorization": f"Bearer {self._credentials().token}"}
         params = {"tailLines": str(tail), "previous": "true" if previous else "false"}
+        if since_seconds is not None:
+            params["sinceSeconds"] = str(since_seconds)
         url = f"{self._server}/api/v1/namespaces/{namespace}/pods/{pod}/log"
         async with self._session.get(url, headers=headers, params=params) as r:
             if r.status in (400, 404):
