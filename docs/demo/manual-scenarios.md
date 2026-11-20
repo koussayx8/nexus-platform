@@ -5,10 +5,12 @@ injected, what NEXUS does and how long it takes, the exact commands, what to say
 The last section is the defense plan with an evidence index.
 
 **Sources.** Scenario table and ground truth: `docs/architecture/final-spec.md` §20 (lines 1797–1806).
-Alerts: spec lines 296–303. Runbooks: `runbooks/`. Commands: `experiments/harness/runner.py` and `gate.py`
-on `dev` at `aa948f7`, `nexusctl/src/nexusctl/app.py`, `platform/policies/`. Measured timings: the
-evidence folders named in each table (`~/nexus-evidence/…`, not in Git). Anything not measured yet is
-marked **TBD after Block 5**; anything not confirmed by a run is marked UNVERIFIED.
+Alerts: spec lines 296–303. Runbooks: `runbooks/`. Commands: `experiments/harness/runner.py`, `batch.py`
+and `gate.py` on `dev` at `a0d3fcd` (2026-11-20), `nexusctl/src/nexusctl/app.py`, `platform/policies/`.
+Measured timings: the evidence folders named in each table (`~/nexus-evidence/…`, not in Git). **Every
+live timing and token figure so far was measured with R3 = `openai/gpt-oss-120b` on Groq** (prompt/v2);
+the NIM models (ADR-045) are re-measured in the trial reruns: those cells are marked
+**[NIM: TBD after the trial reruns]**. Anything not confirmed by a run is marked UNVERIFIED.
 
 **A demo run is not a measured run.** The standing rule in `TASKS.md` (no Grafana dashboard or
 port-forward open during a timed run) applies to measured cells only. Never count a demo run in a cell.
@@ -17,6 +19,56 @@ port-forward open during a timed run) applies to measured cells only. Never coun
 a cluster write or an exec in the sense of CLAUDE.md rule 3, so it runs only with the owner's approval.
 One approval may cover the demo as a batch. Reads (`get`, `auth can-i`, `-w`, `nexusctl list` and
 `explain`, `runner.py plan`, `runner.py gate`) need none.
+
+## The loop at a glance
+
+```mermaid
+flowchart LR
+    A["Alert<br/>Prometheus z-score rule<br/>(NexusLatencyAnomaly, NexusRolloutStuck, ...)"] --> I["Incident<br/>(CRD, nexus-system)"]
+    I --> E["Evidence bundle<br/>evidence/v1.2: pods, events, logs,<br/>z-scores, rollout diff, other alerts;<br/>redacted, hashed, stored"]
+    E --> R["Retrieval<br/>BM25 top 3 above the floor,<br/>+ Decision chunk of the top 2 runbooks"]
+    R --> M["Reasoner (untrusted)<br/>R1 rules, or R2/R3 on NVIDIA NIM;<br/>one proposal/v1"]
+    M --> G{"Safety Gate<br/>1 schema, 2 catalogue, 3 bounds,<br/>4 autonomy, 5 kill switch / breaker,<br/>6 preconditions, 7 server dry-run"}
+    G -- "escalate" --> X["Escalated<br/>recommendation for a human<br/>(e.g. git_revert)"]
+    G -- "no_action" --> D["Dismissed"]
+    G -- "refused" --> B["Blocked<br/>status.gate.detail names the check"]
+    G -- "L0 / L1" --> Rec["Recorded / Recommended"]
+    G -- "L2" --> AP["AwaitingApproval<br/>K5-pinned human approval"]
+    AP --> K
+    G -- "L3" --> K["Action<br/>restart (evictions) or scale,<br/>admitted by Kyverno K1-K4 and RBAC"]
+    K --> V["Verification<br/>restart / scale criteria<br/>against the recorded baseline"]
+    V --> OK["Resolved"]
+    V --> NO["Escalated (not verified)"]
+```
+
+**Read it aloud.** The alert opens an Incident; the operator collects and redacts the evidence; retrieval picks
+runbook chunks; the Reasoner, which holds no credentials, returns one proposal; the operator's Safety Gate checks
+it in seven stages; only then does the operator act, and Kyverno and RBAC decide again at admission whatever
+the gate said. Every step is a phase on the Incident and a row in the Flight Recorder.
+
+## The models (ADR-045, final after bake-off round 4)
+
+| Arm | Config | Model | Timeout | Note |
+| --- | --- | --- | --- | --- |
+| R1 | (embedded rules) | none | — | the deterministic baseline; also the fallback for every LLM call |
+| R2 | `r2-primary` | `nvidia/nemotron-3.5-super-vl-120b-a12b` | 120 s | a **preview** model (the owner's choice: 0 hangs, 0 errors in round 4) |
+| R2 backup | `r2-backup` | `nvidia/nemotron-3-ultra-550b-a55b`, thinking off | 120 s | untested; only if NIM retires 3.5 Super |
+| R3 | `r3-primary` | `nvidia/nemotron-3-ultra-550b-a55b`, thinking on | 300 s | the only model that passed the R3 rule (live-effective, at most 2 hangs of 20, not a preview, median ≤ 300 s) |
+| R3 backup | `r3-backup` | `google/gemma-4-31b-it`, thinking off | 300 s | |
+
+The Reasoner config's `active` line picks the config for each arm; a switch is a reviewed commit and a Reasoner
+restart, never automatic, and the batch's arm check refuses a run served by another config (ADR-035 B5).
+
+**Time while the model thinks.** The operator waits `reasonerTimeoutSeconds` + 5 s for the Reasoner (300 + 5 for
+R3), and Diagnosing ends at most 330 s after it starts (ADR-035 addendum D). One retry happens only for a
+network error, a 5xx, or a 429 with a `Retry-After` that fits the budget. If the call fails, R1 answers once
+(`fallbackUsed: true`) and the loop goes on. **What the jury sees meanwhile:** the Incident sits in
+`Diagnosing` on the watch terminal; `nexusctl explain` shows the evidence and retrieval rows but no proposal yet;
+when the answer arrives, `status.reasoner` shows the model id, the config, the tokens and, for a thinking model,
+`reasoningExcerpt` (the first 300 characters of the trace, untrusted text, never used for a decision), which
+`nexusctl explain` prints in an `UNTRUSTED: MODEL REASONING` box. Bake-off round 4 (offline, on the trial bundles,
+`~/nexus-evidence/bakeoff-2026-11-20/round4-r2/ranking-round4.md` and `round4/ranking-round4.md`): median call
+latency 18 s (R2) and 22 s (R3). Live latency on NIM: **[NIM: TBD after the trial reruns]**.
 
 ## 0. Setup, once per session
 
@@ -113,20 +165,35 @@ curl -s -X POST http://127.0.0.1:18090/swarm -d user_count=160 -d spawn_rate=4 -
 Then wait for the z-scores to settle (the gate's `baseline` check) before injecting. A traffic step
 opens its own Incidents: on 2026-11-14 the restart opened four (`NexusTrafficAnomaly`, `NexusCpuAnomaly`).
 
-### Runner rules that matter on stage
+### Runner rules that matter on stage (ADR-047)
 
 - `plan` prints the steps and runs nothing. Without `--execute`, `run` also only prints. Rehearse every
   injection with `plan` first.
 - `inject` needs `--level`, and the namespace label must equal it, otherwise it refuses. The level
   changes only through Git (`reset --level N --git-dir …`): a `kubectl label` is reverted by selfHeal
   within about 30 s.
-- `reset` without `--baseline-ref` does **not** undo an S3 commit. It restores only the level, the pods
-  and the DB roles.
-- `reset --locust URL` stops Locust and leaves it **idle**: the CLI passes no baseline swarm. For the
-  demo, leave `--locust` off `reset` and restore the baseline swarm by hand.
-- Not yet on `dev`: commit `dc209e6`, on branch `claude/runner-code-guard`. Once merged, `--execute`
-  exits 2 from a checkout with uncommitted changes under `experiments/` or a HEAD that is not on
-  `origin/dev` or `origin/main`. Run from a clean, fetched checkout.
+- **`reset` refuses without `--baseline-ref` and `--git-dir`** (the S3 lesson). Before every injection,
+  record the `experiment/dev-state` commit, and reset to it. The experiment worktree is `~/nexus-exp`
+  (detached; the reset leaves it detached):
+
+  ```bash
+  cd ~/nexus-exp && git fetch origin experiment/dev-state && git rev-parse origin/experiment/dev-state
+  ```
+
+  ```bash
+  python3 -m experiments.harness.runner run reset --level 3 --context default --git-dir /home/azure/nexus-exp --baseline-ref <recorded commit> --execute
+  ```
+
+- **`reset --locust URL` now restarts the baseline load**: it stops Locust, then posts the frozen baseline
+  swarm (160 users, spawn 4, `DevUser` and `ProdUser`; ProdUser stays at 80 by `fixed_count`). Use it after
+  S2, S4 or S6. Without `--locust` the reset leaves Locust as it is.
+- `--execute` exits 2 from a checkout with uncommitted changes under `experiments/` or a HEAD that is not
+  on `origin/dev` or `origin/main` (#266); the batch driver has the same guard. Run from a clean,
+  fetched checkout.
+- **Nobody touches Locust during a run** (ADR-047 addendum). A spike is the runner's plain resize of the
+  running swarm; everything else waits for the reset.
+- A measured run (the batch) is void when the wall clock jumps against the monotonic clock by more than
+  1 s (a PC sleep or a VM pause), when the boot changes, or when Locust is not running at the end.
 
 ### What to read on an Incident
 
