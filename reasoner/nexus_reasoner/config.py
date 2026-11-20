@@ -27,9 +27,9 @@ PROVIDERS = ("groq", "nvidia", "ollama")
 RESPONSE_FORMATS = ("json_schema", "json_object", "none")
 MAX_OUTPUT_TOKENS_MAX = 32768
 # A model's call budget, retries included (ADR-035 addendum 2026-11-20): 30 s by default, at most
-# 180 s, the operator's own reasonerTimeoutSeconds bound.
+# 300 s (owner, 2026-11-20; was 180), the operator's own reasonerTimeoutSeconds bound.
 DEFAULT_TIMEOUT_S = 30.0
-MAX_TIMEOUT_S = 180.0
+MAX_TIMEOUT_S = 300.0
 EFFORTS = ("low", "medium", "high")
 MODES = ("rules", "llm", "adversarial")
 
