@@ -13,12 +13,15 @@ import urllib.parse
 from .. import batch, metrics, precheck, runner
 
 REF = "G16/pre-registration#approval-1"
+BASELINE_REF = (
+    "0123456789abcdef0123456789abcdef01234567"  # the dev-state commit a reset restores
+)
 # Targets, caps and tiers are G16 configuration; these are test values (Tier 1 = a small target).
 CELLS = [
     {"cell": "C1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
     {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 INDEX_HASH = (
     "ab" * 32
@@ -350,6 +353,7 @@ class TierTest(Base):
             "cell": n,
             "scenario": "S1",
             "reasoner": "R1",
+            "baseline_ref": BASELINE_REF,
             "level": 3,
             **kw,
         }
@@ -420,7 +424,8 @@ class TierTest(Base):
 
     def test_targets_caps_and_tiers_are_required_configuration(self):
         with tempfile.TemporaryDirectory() as d:
-            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3}
+            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3,
+                    "baseline_ref": BASELINE_REF}  # fmt: skip
             bad = [
                 base,  # no tier, target or cap
                 {**base, "tier": 1, "valid_target": 5},  # no cap

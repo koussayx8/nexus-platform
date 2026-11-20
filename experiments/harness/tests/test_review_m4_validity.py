@@ -332,7 +332,7 @@ class RunIdentityTest(Live):
 
 S3_CELL = [
     {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": str(ROOT / runner.S3_PATCH),
-     "tier": 1, "valid_target": 1, "max_attempts": 2},
+     "tier": 1, "valid_target": 1, "max_attempts": 2, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 REVISION = "c0ffee" * 6 + "c0ff"
 OLD_REVISION = "0" * 40
@@ -423,7 +423,7 @@ class S3InjectionTimeTest(Live):
 
 R3_CELL = [
     {"cell": "C2/S1/L3", "scenario": "S1", "reasoner": "R3", "level": 3,
-     "tier": 1, "valid_target": 1, "max_attempts": 2},
+     "tier": 1, "valid_target": 1, "max_attempts": 2, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 
 
