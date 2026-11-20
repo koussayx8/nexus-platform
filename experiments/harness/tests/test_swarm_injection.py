@@ -3,6 +3,7 @@ and a swarm that Locust refuses (HTTP 200, success false) is a failure, never a 
 
 import io
 import json
+import re
 import unittest
 import urllib.parse
 
@@ -151,3 +152,35 @@ class BatchTest(tb.Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpikeTotalTest(unittest.TestCase):
+    """A spike's users is Locust's total: ProdUser keeps its fixed_count, the rest go to nexus-dev
+    (locustfile.py; owner, 2026-11-20). S2 is 220 (dev 140)."""
+
+    def test_the_runner_constant_is_the_locustfiles_fixed_count(self):
+        src = (runner.REPO / "platform/load/locustfile.py").read_text()
+        body = src.split("class ProdUser(_Mix):", 1)[1].split("\nclass ", 1)[0]
+        (n,) = re.findall(r"^\s+fixed_count = (\d+)", body, flags=re.MULTILINE)
+        self.assertEqual(int(n), runner.PROD_USERS)
+        dev = src.split("class DevUser(_Mix):", 1)[1].split("\nclass ", 1)[0]
+        self.assertNotIn("fixed_count", dev)  # DevUser takes every other user
+
+    def test_s2_is_a_plain_resize_to_220(self):
+        r = PlanTest.runner(self)
+        (step,) = r.plan_inject("S2", users=220, spawn_rate=4)
+        self.assertEqual(
+            step.argv, ("POST", "http://l/swarm", "user_count=220&spawn_rate=4")
+        )
+        # no /stop and no class field: the running swarm keeps both classes
+        self.assertNotIn("user_classes", step.argv[2])
+
+    def test_a_total_that_leaves_dev_nothing_is_refused(self):
+        r = PlanTest.runner(self)
+        for sc in ("S2", "S4", "S6"):
+            for bad in (runner.PROD_USERS, 40, 0, True, 170.0):
+                with self.assertRaises(ValueError, msg=f"{sc} {bad!r}"):
+                    r.plan_inject(sc, users=bad, spawn_rate=4)
+            self.assertTrue(
+                r.plan_inject(sc, users=runner.PROD_USERS + 1, spawn_rate=4)
+            )

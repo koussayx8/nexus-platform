@@ -42,6 +42,7 @@ class Rig:
         recorder=None,
         collector=False,
         reasoner=None,
+        diagnosing_timeout_s=60,
     ):
         self.loop = asyncio.new_event_loop()
         self.api = FakeCluster(replicas, level, killswitch)
@@ -64,6 +65,7 @@ class Rig:
             if collector
             else None,
             reasoner,
+            diagnosing_timeout_s=diagnosing_timeout_s,
         )
 
     def call(self, coro):

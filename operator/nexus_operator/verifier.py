@@ -73,6 +73,20 @@ class Prometheus:
         value = float(result[0]["value"][1])
         return None if math.isnan(value) else value
 
+    async def vector(self, query: str) -> list[dict] | None:
+        """The label sets of an instant vector query (evidence/v1.2's active alerts), or None."""
+        async with self._session.get(
+            f"{self.url}/api/v1/query", params={"query": query}
+        ) as r:
+            body = await r.json()
+        if body.get("status") != "success":
+            return None
+        return [
+            x.get("metric") or {}
+            for x in (body.get("data") or {}).get("result") or []
+            if isinstance(x, dict)
+        ]
+
     async def close(self) -> None:
         await self._session.close()
 

@@ -20,10 +20,13 @@ import asyncio
 import dataclasses
 import datetime
 import json
+import logging
 from collections.abc import Sequence
 from typing import Any, Protocol
 
 DEFAULT_TIMEOUT_S = 3.0
+logger = logging.getLogger("nexus.recorder")
+_WARNED = {"reasoning": False}
 
 
 class RecorderUnavailable(Exception):
@@ -96,6 +99,7 @@ class Recorder(Protocol):
         request_id: str | None = None,
         reject_reason: str | None = None,
         usage: dict | None = None,
+        reasoning: str | None = None,
     ) -> bool: ...
 
     async def record_gate_decision(
@@ -150,6 +154,9 @@ class PostgresRecorder:
             False  # proposals.request_id / reject_reason exist (see record_proposal)
         )
         self._usage = False  # proposals.usage exists (05-schema.sql, Block 3)
+        self._reasoning = (
+            False  # proposals.reasoning exists (05-schema.sql, 2026-11-20)
+        )
 
     async def _run(self, call):
         try:
@@ -243,11 +250,14 @@ class PostgresRecorder:
         request_id=None,
         reject_reason=None,
         usage=None,
+        reasoning=None,
     ) -> bool:
         """request_id and reject_reason are two columns added to `proposals` after ADR-031, and
         usage (jsonb) one added in Block 3 (05-schema.sql, ADD COLUMN IF NOT EXISTS). Until a
         database has them, they are left out of the INSERT, so a new image against an old volume
-        still records everything else. The usage column is looked for only when there is one."""
+        still records everything else. The usage column is looked for only when there is one.
+        reasoning (text, the model's thinking trace, untrusted; 2026-11-20) the same way: until the
+        owner adds the column, the trace is not stored and one warning says so."""
         columns = (
             "proposal_hash, incident_uid, reasoner_mode, model_id, prompt_version, index_hash,"
             " retrieved_chunk_ids, raw_output, parsed_proposal, schema_valid, latency_ms,"
@@ -276,6 +286,17 @@ class PostgresRecorder:
             columns += ", usage"
             values += f", ${len(args) + 1}::jsonb"
             args.append(_j(usage))
+        if reasoning:
+            if await self._has_reasoning_column():
+                columns += ", reasoning"
+                values += f", ${len(args) + 1}"
+                args.append(reasoning)
+            elif not _WARNED["reasoning"]:
+                _WARNED["reasoning"] = True  # once per process, across reconnects
+                logger.warning(
+                    "proposals.reasoning is missing: model reasoning is not stored until the "
+                    "column exists (ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reasoning text)"
+                )
         return await self._insert(
             f"INSERT INTO proposals ({columns}) VALUES ({values})"
             " ON CONFLICT (incident_uid, proposal_hash) DO NOTHING",
@@ -293,6 +314,17 @@ class PostgresRecorder:
             )
             self._extras = int(found) == 2  # only a True answer is kept
         return self._extras
+
+    async def _has_reasoning_column(self) -> bool:
+        if not self._reasoning:
+            found = await self._run(
+                self._pool.fetchval(
+                    "SELECT count(*) FROM information_schema.columns"
+                    " WHERE table_name = 'proposals' AND column_name = 'reasoning'"
+                )
+            )
+            self._reasoning = int(found) == 1  # only a True answer is kept
+        return self._reasoning
 
     async def _has_usage_column(self) -> bool:
         if not self._usage:

@@ -31,6 +31,7 @@ the tests run the plans against a fake `exec`.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import pathlib
 import re
@@ -58,7 +59,14 @@ LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
+# The files an S3 patch may touch: the sample-api workload files in overlays/dev/, never LEVEL_FILE.
+# The same set is C8's allow-list (libs/nexus-revert, check 4b): a revert of an S3 commit stays inside it.
+S3_ALLOWED = ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
+S3_PATCH = "experiments/faults/s3-bad-rollout.patch"  # the committed S3 fault
 APP_PORT = 8000
+# ProdUser's fixed_count in platform/load/locustfile.py: a spike's total minus this is nexus-dev's
+# rate (S2: 220 -> 140; S4/S6: 80 + the calibrated dev rate). A test reads the locustfile.
+PROD_USERS = 80
 # Locust's master answers /stop only when its user count is 0, and waits for its workers up to
 # stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
 LOCUST_STOP_TIMEOUT_S = 75
@@ -77,6 +85,40 @@ S5_ROLES = {
     "nexus-dev": "app_dev",
     "nexus-prod": "app_prod",
 }  # each namespace's own DB role
+
+
+def s3_patch_files(path: str) -> list[str]:
+    """The files an S3 patch touches, read from its `diff --git` headers. Refuses a patch that names
+    none, touches a file outside S3_ALLOWED (LEVEL_FILE in particular), or renames or copies one."""
+    try:
+        text = pathlib.Path(path).read_text()
+    except OSError as e:
+        raise ValueError(f"cannot read the S3 patch {path}: {e.strerror}") from None
+    files: list[str] = []
+    for line in text.splitlines():
+        if line.startswith(("rename ", "copy ")):
+            raise ValueError("the S3 patch may not rename or copy files")
+        m = re.fullmatch(r"diff --git a/(\S+) b/(\S+)", line)
+        if m:
+            if m[1] != m[2]:
+                raise ValueError("the S3 patch may not rename files")
+            files.append(m[1])
+    if not files:
+        raise ValueError(f"the S3 patch {path} names no file")
+    bad = [
+        f
+        for f in files
+        if f == LEVEL_FILE
+        or not any(
+            fnmatch.fnmatchcase(f, a) and f.count("/") == a.count("/")
+            for a in S3_ALLOWED
+        )
+    ]
+    if bad:
+        raise ValueError(
+            f"the S3 patch touches {', '.join(bad)}: only {', '.join(S3_ALLOWED)} are allowed"
+        )
+    return sorted(set(files))
 
 
 def s5_sql(namespace: str) -> str:
@@ -256,6 +298,16 @@ class Runner:
                 raise ValueError(
                     f"{sc} needs --locust URL, --users and --spawn-rate (from the calibrated capacity)"
                 )
+            # users is Locust's total: ProdUser keeps PROD_USERS, the rest go to nexus-dev
+            if (
+                isinstance(users, bool)
+                or not isinstance(users, int)
+                or users <= PROD_USERS
+            ):
+                raise ValueError(
+                    f"{sc}: users is the total, {PROD_USERS} (ProdUser) + the nexus-dev rate; "
+                    f"it must be an integer above {PROD_USERS}"
+                )
             if (
                 isinstance(spawn_rate, bool)
                 or not isinstance(spawn_rate, int | float)
@@ -284,11 +336,14 @@ class Runner:
         if sc == "S3":
             if not (self.git_dir and s3_patch):
                 raise ValueError("S3 needs --git-dir and --s3-patch")
+            # git runs in git_dir, so a relative patch path is read from there too
+            patch = str(pathlib.Path(self.git_dir) / s3_patch)
+            files = s3_patch_files(patch)
             return [
+                Step(("git", "apply", patch), True, "S3 bad config (fails readiness)"),
                 Step(
-                    ("git", "apply", s3_patch), True, "S3 bad config (fails readiness)"
+                    ("git", "add", "--", *files), True, "only the files the patch names"
                 ),
-                Step(("git", "add", "-A"), True),
                 Step(
                     ("git", "commit", "-m", "chore(exp): inject S3 bad rollout"), True
                 ),
@@ -380,7 +435,10 @@ class Runner:
         if self.git_dir:
             steps += [
                 Step(("git", "fetch", "origin", BRANCH), False),
-                Step(("git", "checkout", BRANCH), True),
+                # Detached at the fetched branch, never a local branch: the experiment worktree
+                # stays as it was created (git worktree add --detach), and a commit here reaches
+                # the remote only through the forward push below (Block 5 finding (i)).
+                Step(("git", "checkout", "--detach", f"origin/{BRANCH}"), True),
             ]
             if baseline_ref:
                 # Forward commit restoring the baseline tree; skipped when there is no diff.
@@ -467,6 +525,43 @@ class Runner:
             self.sleep(poll_s)
 
 
+REPO = (
+    pathlib.Path(__file__).resolve().parents[2]
+)  # the checkout this runner's code comes from
+CODE_REFS = ("origin/dev", "origin/main")
+
+
+def code_guard(exec_=None, repo=REPO) -> str | None:
+    """Why the runner must not execute from this checkout, or None (owner, 2026-11-19).
+
+    A run's code must be reviewed code: no uncommitted change under experiments/ (the runner, the
+    harness, the fault files), and HEAD a commit on origin/dev or origin/main. Read-only: git
+    status, rev-parse and merge-base on the local remote-tracking refs (no fetch, so stale refs
+    refuse rather than pass). Any git failure refuses too."""
+    run = exec_ or _subprocess_exec
+    rc, out = run(["git", "status", "--porcelain", "--", "experiments/"], cwd=repo)
+    if rc != 0:
+        return f"cannot read git status in {repo} (rc {rc})"
+    dirty = [ln[3:] for ln in out.splitlines() if ln.strip()]
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (
+            f" and {len(dirty) - 5} more" if len(dirty) > 5 else ""
+        )
+        return f"uncommitted changes under experiments/: {shown}"
+    rc, head = run(["git", "rev-parse", "HEAD"], cwd=repo)
+    if rc != 0:
+        return f"cannot read HEAD in {repo} (rc {rc})"
+    head = head.strip()
+    for ref in CODE_REFS:
+        rc, _ = run(["git", "merge-base", "--is-ancestor", head, ref], cwd=repo)
+        if rc == 0:
+            return None
+    return (
+        f"HEAD {head[:12]} is not a commit on {' or '.join(CODE_REFS)} "
+        "(git fetch origin, or run from a merged commit)"
+    )
+
+
 def _subprocess_exec(argv, cwd=None, timeout=120):
     try:
         p = subprocess.run(
@@ -526,7 +621,7 @@ def _post_form(url, fields, opener=urllib.request.urlopen):
         )
 
 
-def main(argv=None):
+def main(argv=None, guard_exec=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["gate"]:  # read-only manual-run gate (gate.py)
         from . import gate
@@ -551,17 +646,28 @@ def main(argv=None):
         "reset: the level to commit (default 3)",
     )
     ap.add_argument("--locust")
-    ap.add_argument("--users", type=int)
+    ap.add_argument(
+        "--users",
+        type=int,
+        help=f"Locust's total for S2, S4, S6: {PROD_USERS} (ProdUser) + the nexus-dev rate",
+    )
     ap.add_argument(
         "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
     )
     ap.add_argument("--git-dir")
-    ap.add_argument("--s3-patch")
+    ap.add_argument(
+        "--s3-patch", help=f"the S3 patch, relative to --git-dir ({S3_PATCH})"
+    )
     ap.add_argument("--baseline-ref")
     ap.add_argument(
         "--execute", action="store_true", help="actually run the steps (mode run only)"
     )
     a = ap.parse_args(argv)
+    if a.mode == "run" and a.execute:
+        why = code_guard(guard_exec)
+        if why:
+            print(f"runner: refusing to execute: {why}", file=sys.stderr)
+            return 2
     r = Runner(a.context, locust=a.locust, git_dir=a.git_dir, namespace=a.namespace)
     if a.op == "inject":
         if not a.scenario:

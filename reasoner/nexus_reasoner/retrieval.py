@@ -26,6 +26,14 @@ class Retriever:
         return cls(bm25.Index.from_artifact(art), floor)
 
     def retrieve(self, bundle: dict) -> list[dict]:
-        """Top 3 chunks (full records) at or above the floor; [] is `no_runbook`."""
+        """Top 3 chunks (full records) at or above the floor, then the Decision chunk of the first
+        2 runbooks hit, marked `expanded` (ADR-043); [] is `no_runbook`."""
         hits = self.index.retrieve(bm25.build_query(bundle), self.floor)
-        return [{**self._by_id[h["id"]], "score": h["score"]} for h in hits]
+        return [
+            {
+                **self._by_id[h["id"]],
+                "score": h["score"],
+                "expanded": bool(h.get("expanded")),
+            }
+            for h in self.index.expand_decisions(hits)
+        ]
