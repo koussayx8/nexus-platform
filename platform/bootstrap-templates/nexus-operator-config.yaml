@@ -16,7 +16,7 @@
 #   reasonerModel           the model id the Reasoner's configuration lists (required for llm)
 #   reasonerEffort          low | medium | high, or empty
 #   reasonerTimeoutSeconds  the Reasoner's budget for one proposal, its one provider retry included
-#                           (default 30, at most 180; set it to the active model's timeoutSeconds).
+#                           (default 30, at most 300; set it to the active model's timeoutSeconds).
 #                           The client waits 5 s more; Diagnosing ends 30 s after it (ADR-035)
 #   prometheusURL           Prometheus HTTP API, for the Evidence Collector and the Verifier
 #   recorderHost            Flight Recorder DB Service (ADR-031); empty: no Writer, every mutation

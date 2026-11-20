@@ -62,3 +62,13 @@ Amends spec §16 ("reasoning traces … are never read or stored") until spec v1
 | C1 | **Passed on, never parsed.** A trace the provider returns (NIM's `message.reasoning_content`) goes into the Reasoner's response metadata as `reasoning` (cut to 16,000 characters) and `reasoningLength` (as received), on a success and on a 422 after the model answered. Groq is still asked to hide it (`include_reasoning: false`). Nothing in the Reasoner or the operator reads it: the proposal is the answer in `message.content`, validated as before. | The thesis needs to show what a thinking model did with the evidence (S6 especially) without giving that text any authority. |
 | C2 | **Stored in its own column.** `proposals.reasoning text`, nullable, on the row of the call (the Reasoner's proposal, or the failed attempt before an R1 fallback; never the R1 row). The writer checks for the column; until it exists the trace is not stored and one warning per process says so; everything else is recorded as before. No existing column ever holds it. Owner's migration, on the live volume, as the database owner: `ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reasoning text;` (also in `05-schema.sql`, so a new volume has it). Grants are table-level: no GRANT needed. | Same pattern as `usage` (Block 3): a new image works against an old volume. |
 | C3 | **Shown as plain text, labelled untrusted.** `status.reasoner.reasoningExcerpt` (first 300 characters) and `reasoningLength`; `nexusctl explain` shows the excerpt in its own `UNTRUSTED: MODEL REASONING` box, sanitised and flagged when it reads like an instruction; the Flight Recorder dashboard's latest-calls panel shows its first 400 characters (read through `to_jsonb`, so the query runs before the column exists). The bot's Explain button (#252, not on `dev`) must show it the same way. | One label everywhere: model text, never a decision. |
+
+## Addendum D (2026-11-20, owner): a 300 s cap, and R2 switched like R3
+
+- **Cap.** The upper bound of a model's `timeoutSeconds` and of the operator's `reasonerTimeoutSeconds` is 300 s
+  (was 180 s, A1 and A3). The client waits it + 5 s; Diagnosing ends at it + 30 s, so at most 330 s (ADR-034
+  addendum). The default stays 30 s.
+- **R2.** The same named-config switch as R3 (B1, B2, B5): `r2-groq` (gpt-oss-20b on Groq), `r2-primary`,
+  `r2-backup-1`, `r2-backup-2` (NIM, model ids "" until the bake-off); `active: {"R2": "r2-groq", "R3": "r3-groq"}`.
+  The operator sends `R2`; `arms.py` gives R2 its expected config and model id (`r2-groq`,
+  `openai/gpt-oss-20b`), and the same strict arm check refuses anything else. A model id still resolves directly.

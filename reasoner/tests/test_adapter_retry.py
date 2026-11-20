@@ -164,8 +164,8 @@ class ConfigTimeoutTest(unittest.TestCase):
     def test_default_override_and_bounds(self):
         self.assertEqual(self.parse().models["R3"].timeout_s, 30.0)
         self.assertEqual(self.parse(top=60).models["R3"].timeout_s, 60.0)
-        self.assertEqual(self.parse(top=60, model=180).models["R3"].timeout_s, 180.0)
-        for bad in (0, -1, 181, True, "30"):
+        self.assertEqual(self.parse(top=60, model=300).models["R3"].timeout_s, 300.0)
+        for bad in (0, -1, 301, True, "30"):
             with self.assertRaises(config.ConfigError, msg=repr(bad)):
                 self.parse(model=bad)
             with self.assertRaises(config.ConfigError, msg=repr(bad)):
