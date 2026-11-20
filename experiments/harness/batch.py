@@ -190,7 +190,9 @@ def _utc(t: float | None = None) -> str:
 
 
 def validate_cells(cells) -> list[dict]:
-    """Every cell names its scenario, arm, level, tier, valid-run target and attempt cap."""
+    """Every cell names its scenario, arm, level, tier, valid-run target, attempt cap and the
+    `baseline_ref` its reset restores (ADR-047 addendum: one rule for every cell, the runner's
+    reset rule; a commit-ish with no whitespace that cannot read as a git option)."""
     if not isinstance(cells, list) or not cells:
         raise Refused("cells must be a non-empty list")
     ids = [c.get("cell") if isinstance(c, dict) else None for c in cells]
@@ -204,9 +206,18 @@ def validate_cells(cells) -> list[dict]:
             "tier",
             "valid_target",
             "max_attempts",
+            "baseline_ref",
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        ref = c["baseline_ref"]
+        if not isinstance(ref, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._/^~-]*", ref
+        ):
+            raise Refused(
+                f"cell {c['cell']!r}: baseline_ref must be the experiment/dev-state commit its "
+                "reset restores (a commit-ish: no whitespace, not starting with '-')"
+            )
         if c["reasoner"] not in arms.ARMS:
             raise Refused(
                 f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
