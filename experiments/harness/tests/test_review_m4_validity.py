@@ -431,7 +431,7 @@ ENDPOINT = (
     "http://nexus-reasoner.nexus-reasoner.svc:8080"  # precheck's reasoner defaults
 )
 R3_KEYS = {"reasonerEndpoint": ENDPOINT, "reasonerMode": "llm",
-           "reasonerModel": "openai/gpt-oss-120b", "reasonerEffort": "low"}  # fmt: skip
+           "reasonerModel": "R3", "reasonerEffort": "low"}  # fmt: skip
 R1_KEYS = {"reasonerEndpoint": "", "reasonerMode": "rules", "reasonerModel": "", "reasonerEffort": ""}  # fmt: skip
 
 
@@ -461,7 +461,8 @@ class ArmTest(Live):
             {
                 "name": "R3",
                 "written": R3_KEYS,
-                "observed": {"mode": "llm", "modelId": "openai/gpt-oss-120b", "fallbackUsed": False},
+                "observed": {"mode": "llm", "modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b",
+                             "fallbackUsed": False},
                 "mismatch": None,
             },
         )  # fmt: skip
@@ -496,7 +497,12 @@ class ArmTest(Live):
         self.assertEqual((r["status"], r["fallbackUsed"]), ("valid", True))
         self.assertEqual(
             r["arm"]["observed"],
-            {"mode": "rules", "modelId": None, "fallbackUsed": True},
+            {
+                "mode": "rules",
+                "modelConfig": None,
+                "modelId": None,
+                "fallbackUsed": True,
+            },
         )
         self.assertIsNone(r["arm"]["mismatch"])
 
@@ -609,3 +615,42 @@ class MetricsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StrictArmCheckTest(unittest.TestCase):
+    """Owner, 2026-11-20: the arm names the config and model id it expects; a call recorded with
+    anything else is a mismatch, so a switch of the Reasoner's `active` never mixes two models."""
+
+    def st(self, **kw):
+        return {"mode": "llm", "modelConfig": "r3-groq", "modelId": "openai/gpt-oss-120b",
+                "fallbackUsed": False, **kw}  # fmt: skip
+
+    def test_the_expected_config_and_model_pass(self):
+        self.assertIsNone(batch.arm_mismatch("R3", self.st()))
+
+    def test_another_config_or_model_is_a_mismatch(self):
+        for kw in ({"modelConfig": "r3-primary"}, {"modelConfig": "r3-backup-1"},
+                   {"modelId": "vendor/other"}, {"modelConfig": None}):  # fmt: skip
+            why = batch.arm_mismatch("R3", self.st(**kw))
+            self.assertIsNotNone(why, kw)
+            self.assertIn("the arm's is 'r3-groq' 'openai/gpt-oss-120b'", why)
+
+    def test_a_fallback_from_another_config_is_a_mismatch(self):
+        fb = {"mode": "rules", "fallbackUsed": True}
+        self.assertIsNone(
+            batch.arm_mismatch("R3", fb)
+        )  # the failed call named no config
+        self.assertIsNone(batch.arm_mismatch("R3", fb | {"modelConfig": "r3-groq"}))
+        self.assertIn(
+            "r3-primary", batch.arm_mismatch("R3", fb | {"modelConfig": "r3-primary"})
+        )
+
+    def test_r2_is_checked_the_same_way(self):
+        ok = {
+            "mode": "llm",
+            "modelConfig": "R2",
+            "modelId": "openai/gpt-oss-20b",
+            "fallbackUsed": False,
+        }
+        self.assertIsNone(batch.arm_mismatch("R2", ok))
+        self.assertIsNotNone(batch.arm_mismatch("R2", ok | {"modelConfig": "r3-groq"}))

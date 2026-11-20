@@ -3,6 +3,14 @@
 # `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git). The arms are the
 # spec's R2 and R3 only: the Haiku arm (H1) was cut on 2026-11-12 (TASKS.md D3, D10).
 #
+# R3 is served by the named config `active.R3` points at (owner, 2026-11-20; ADR-035 addendum):
+# r3-groq (gpt-oss-120b on Groq) until the bake-off picks r3-primary; r3-backup-1 and r3-backup-2
+# are the manual fallbacks for a provider outage. Switching is this one line plus a Reasoner restart
+# (the ConfigMap is not generated, so nothing rolls by itself), and experiments/harness/arms.py
+# names the config the arm expects: a run served by another config is refused by the arm check.
+# The NIM entries' model ids are "" until the bake-off fills them; an empty entry cannot be active.
+# Their timeoutSeconds and maxOutputTokens are placeholders for thinking models (TBD, bake-off).
+#
 # scoreFloor 3.1739 is the value PROPOSED by experiments/retrieval/results.json (2.9584 in PR #147;
 # 3.0675 after rb-gray-failure v2, ADR-039; 3.1739 after the Block 3 polish of rb-gray-failure v3 and
 # rb-bad-rollout v2, TASKS.md D23); it is frozen only at G16. The Ollama demo fallback
@@ -27,7 +35,11 @@ data:
       "port": 8080,
       "models": {
         "R2": {"provider": "groq", "model": "openai/gpt-oss-20b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
-        "R3": {"provider": "groq", "model": "openai/gpt-oss-120b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
+        "r3-groq": {"provider": "groq", "model": "openai/gpt-oss-120b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
+        "r3-primary": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
+        "r3-backup-1": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
+        "r3-backup-2": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
         "demo": {"provider": "ollama", "model": "llama3.1:8b", "baseUrl": ""}
-      }
+      },
+      "active": {"R3": "r3-groq"}
     }

@@ -679,7 +679,16 @@ class FakeCluster:
             return {"mode": "rules", "fallbackUsed": False}
         if self.fallback:
             return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
-        return {"mode": cfg["reasonerMode"], "modelId": cfg["reasonerModel"] or None, "fallbackUsed": False}  # fmt: skip
+        # as the Reasoner serves the name it is sent (reasoner/k8s/configmap.yaml): R3 through
+        # `active`, R2 by its model id
+        served = {
+            "R3": ("r3-groq", "openai/gpt-oss-120b"),
+            "openai/gpt-oss-20b": ("R2", "openai/gpt-oss-20b"),
+        }
+        config, model_id = served.get(
+            cfg["reasonerModel"], (None, cfg["reasonerModel"] or None)
+        )
+        return {"mode": cfg["reasonerMode"], "modelConfig": config, "modelId": model_id, "fallbackUsed": False}  # fmt: skip
 
     def vector(self, value):
         return json.dumps(
@@ -1787,7 +1796,7 @@ class SevenPrechecksTest(unittest.TestCase):
         cfg = rcfg.parse({"indexPath": "x", "scoreFloor": 1.0, "models": {}})
         body = Reasoner(cfg, Retriever(index, 1.0), None).health()
         self.assertEqual(
-            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor"}
+            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor", "active"}
         )
         self.assertEqual(body["status"], "ready")
         self.assertRegex(

@@ -519,8 +519,8 @@
     {
       "id": 13,
       "type": "table",
-      "title": "Latest 20 Reasoner calls (trim level, log selection per pod)",
-      "description": "From proposals.usage: promptTrimLevel and logSelection.pods (kept = error + recent lines). '-' where the call predates these keys.",
+      "title": "Latest 20 Reasoner calls (trim level, log selection per pod, model reasoning)",
+      "description": "From proposals.usage: promptTrimLevel and logSelection.pods (kept = error + recent lines). '-' where the call predates these keys. reasoning: the first 400 characters of proposals.reasoning, the model's thinking trace as received (untrusted model text, plain text, never used for a decision; ADR-035 addendum C); '-' without a trace or before the column exists (read through to_jsonb, so the query runs either way).",
       "datasource": {
         "type": "postgres",
         "uid": "nexus-flight-recorder"
@@ -555,6 +555,25 @@
                 "value": 900
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reasoning"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 900
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
           }
         ]
       },
@@ -568,7 +587,7 @@
           "format": "table",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  p.reasoner_mode AS mode,\n  coalesce((CASE WHEN jsonb_typeof(p.usage -> 'promptTrimLevel') = 'number' THEN (p.usage ->> 'promptTrimLevel')::numeric END)::text, '-') AS trim_level,\n  coalesce(sel.per_pod, '-') AS log_selection\nFROM proposals p JOIN incidents i USING (incident_uid)\nLEFT JOIN LATERAL (\n  SELECT string_agg(\n      coalesce(e ->> 'pod', '?') || ': kept '\n        || coalesce(((CASE WHEN jsonb_typeof(e -> 'kept_error_lines') = 'number' THEN (e ->> 'kept_error_lines')::int ELSE 0 END)\n                   + (CASE WHEN jsonb_typeof(e -> 'kept_recent_lines') = 'number' THEN (e ->> 'kept_recent_lines')::int ELSE 0 END))::text, '?')\n        || ' (' || coalesce(e ->> 'kept_error_lines', '?') || ' error, ' || coalesce(e ->> 'kept_recent_lines', '?') || ' recent)'\n        || ', dropped ' || coalesce(e ->> 'dropped', '?') || ' of ' || coalesce(e ->> 'lines', '?'),\n      '; ' ORDER BY n) AS per_pod\n  FROM jsonb_array_elements(\n      CASE WHEN jsonb_typeof(p.usage #> '{logSelection,pods}') = 'array' THEN p.usage #> '{logSelection,pods}' ELSE '[]'::jsonb END\n    ) WITH ORDINALITY AS pods(e, n)\n  WHERE jsonb_typeof(e) = 'object'\n) sel ON true\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
+          "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  p.reasoner_mode AS mode,\n  coalesce((CASE WHEN jsonb_typeof(p.usage -> 'promptTrimLevel') = 'number' THEN (p.usage ->> 'promptTrimLevel')::numeric END)::text, '-') AS trim_level,\n  coalesce(sel.per_pod, '-') AS log_selection,\n  coalesce(length(to_jsonb(p) ->> 'reasoning')::text, '-') AS reasoning_chars,\n  coalesce(left(to_jsonb(p) ->> 'reasoning', 400), '-') AS reasoning\nFROM proposals p JOIN incidents i USING (incident_uid)\nLEFT JOIN LATERAL (\n  SELECT string_agg(\n      coalesce(e ->> 'pod', '?') || ': kept '\n        || coalesce(((CASE WHEN jsonb_typeof(e -> 'kept_error_lines') = 'number' THEN (e ->> 'kept_error_lines')::int ELSE 0 END)\n                   + (CASE WHEN jsonb_typeof(e -> 'kept_recent_lines') = 'number' THEN (e ->> 'kept_recent_lines')::int ELSE 0 END))::text, '?')\n        || ' (' || coalesce(e ->> 'kept_error_lines', '?') || ' error, ' || coalesce(e ->> 'kept_recent_lines', '?') || ' recent)'\n        || ', dropped ' || coalesce(e ->> 'dropped', '?') || ' of ' || coalesce(e ->> 'lines', '?'),\n      '; ' ORDER BY n) AS per_pod\n  FROM jsonb_array_elements(\n      CASE WHEN jsonb_typeof(p.usage #> '{logSelection,pods}') = 'array' THEN p.usage #> '{logSelection,pods}' ELSE '[]'::jsonb END\n    ) WITH ORDINALITY AS pods(e, n)\n  WHERE jsonb_typeof(e) = 'object'\n) sel ON true\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
         }
       ]
     }

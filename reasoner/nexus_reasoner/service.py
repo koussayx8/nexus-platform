@@ -28,6 +28,17 @@ LEVELS = ("L0", "L1", "L2", "L3")
 EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
 
 
+REASONING_MAX_CHARS = 16000  # the trace kept for the record (ADR-035 addendum C)
+
+
+def _reasoning_meta(text: str | None) -> dict:
+    """The model's thinking trace, untrusted text for the record only: never parsed, never used
+    for a decision. Cut to REASONING_MAX_CHARS; reasoningLength is the length as received."""
+    if not isinstance(text, str) or not text:
+        return {}
+    return {"reasoning": text[:REASONING_MAX_CHARS], "reasoningLength": len(text)}
+
+
 class Rejected(Exception):
     def __init__(self, status: int, error: str, detail: str = "", **extra):
         super().__init__(error)
@@ -77,6 +88,10 @@ class Reasoner:
             "corpusHash": self.retriever.corpus_hash,
             "promptVersion": prompt.VERSION,
             "scoreFloor": self.cfg.score_floor,
+            "active": {
+                arm: {"modelConfig": name, "model": self.cfg.models[name].model}
+                for arm, name in sorted(self.cfg.active.items())
+            },
         }
 
     def propose(self, req) -> dict:
@@ -146,11 +161,15 @@ class Reasoner:
         level = ctx.get("level")
         if level not in LEVELS:
             raise Rejected(422, "invalid_request", f"level must be one of {LEVELS}")
-        entry = self.cfg.entry_for_model(ctx.get("model") or "")
+        # "R3" through `active`, a config name, or a model id (config.resolve)
+        requested = ctx.get("model") or ""
+        entry = self.cfg.resolve(requested)
         if entry is None:
             raise Rejected(
                 422, "unknown_model", "model id is not in the Reasoner configuration"
             )
+        # "arm" stays the name the operator asked for (R3), the config that served it is modelConfig
+        arm = requested if requested in self.cfg.active else entry.name
         effort = ctx.get("reasoningEffort")
         if effort is not None and effort not in ("low", "medium", "high"):
             raise Rejected(
@@ -174,11 +193,14 @@ class Reasoner:
                 str(e),
                 metadata={
                     "mode": "llm",
-                    "arm": entry.name,
+                    "arm": arm,
+                    "modelConfig": entry.name,
+                    "model": entry.model,
                     "requestTokensEstimate": e.estimate,
                 },
             ) from None
         excerpt = {
+            "modelConfig": entry.name,  # every call records the config it used, failed or not
             "logSelection": p.selection,
             "promptTrimLevel": p.level,
             "promptTokensEstimate": p.tokens_estimate,
@@ -199,8 +221,9 @@ class Reasoner:
                 code, "model_unavailable", e.reason, metadata=excerpt
             ) from None
         meta = {
+            **_reasoning_meta(comp.reasoning),
             "mode": "llm",
-            "arm": entry.name,
+            "arm": arm,
             "provider": entry.provider,
             "model": comp.model,
             "settings": comp.settings,

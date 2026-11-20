@@ -58,7 +58,7 @@ from .metrics import (
 )
 from .model import iso, parse_time
 from .mutations import Mutations
-from .reasoner_client import EXCERPT_KEYS, ReasonerClient
+from .reasoner_client import EXCERPT_KEYS, REASONING_EXCERPT_CHARS, ReasonerClient
 from .reasoner_client import Result as ReasonerResult
 from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
 from .redact import redact_bundle
@@ -197,6 +197,23 @@ def _tokens(usage: dict | None) -> dict | None:
     } or None
 
 
+def _reasoning_text(result: ReasonerResult | None) -> str | None:
+    """The call's thinking trace for proposals.reasoning: untrusted text, stored and shown, never
+    read for a decision (ADR-035 addendum C)."""
+    return None if result is None else result.meta.get("reasoning")
+
+
+def _reasoning_status(result: ReasonerResult | None) -> dict:
+    """status.reasoner's view of the trace: its first REASONING_EXCERPT_CHARS and its length."""
+    text = _reasoning_text(result)
+    if not text:
+        return {}
+    return {
+        "reasoningExcerpt": text[:REASONING_EXCERPT_CHARS],
+        "reasoningLength": result.meta.get("reasoningLength", len(text)),
+    }
+
+
 def _excerpt(result: ReasonerResult | None) -> dict:
     """logSelection, promptTrimLevel and promptTokensEstimate of one call, each when the Reasoner
     gave it (the client has cleaned them); {} without a call."""
@@ -223,8 +240,12 @@ class ActPath:
         collector: EvidenceCollector | None = None,
         reasoner: ReasonerClient | None = None,
         approval_ttl_s: int = 900,
+        diagnosing_timeout_s: int = DIAGNOSING_TIMEOUT_S,
     ) -> None:
         self.approval_ttl_s = approval_ttl_s
+        self.diagnosing_timeout_s = (
+            diagnosing_timeout_s  # reasonerTimeoutSeconds + 30 s
+        )
         self.api, self.mutations, self.recorder, self.gate = (
             api,
             mutations,
@@ -363,11 +384,11 @@ class ActPath:
 
         Order matters (Q1): the raw bundle exists only inside the collection step; the redacted
         copy is what is hashed, stored, sent to the Reasoner and given to R1. The Reasoner call
-        (30 s, one attempt) runs as a task, so a slow Reasoner never stalls the reconcile loop or
+        (one attempt from here; the Reasoner may retry its provider once inside its budget) runs as a task, so a slow Reasoner never stalls the reconcile loop or
         its liveness probe; a later tick collects the answer. On a timeout, a provider error, a
         422 or an invalid proposal, R1 answers once with fallbackUsed = true, and an invalid R1
         proposal ends the Incident Blocked (§6 transitions 4-6). Failures before the answer retry
-        each tick until the 60 s Diagnosing timeout: an unreadable target ends Escalated /
+        each tick until the Diagnosing timeout (reasonerTimeoutSeconds + 30 s; 60 s by default): an unreadable target ends Escalated /
         evidence_error, an unreachable recorder ends Blocked / recorder_unavailable.
         """
         status = incident["status"]
@@ -376,7 +397,7 @@ class ActPath:
         started = parse_time(
             (status.get("timestamps") or {}).get("diagnosing") or iso(now)
         )
-        timed_out = (now - started).total_seconds() > DIAGNOSING_TIMEOUT_S
+        timed_out = (now - started).total_seconds() > self.diagnosing_timeout_s
         work = self._diagnoses.get(uid)
         if work is None:
             try:
@@ -407,7 +428,7 @@ class ActPath:
         if work.task is not None and not work.task.done():
             if (
                 timed_out
-            ):  # the client's own 30 s timeout should have fired long before this
+            ):  # the client's own timeout (reasonerTimeoutSeconds + 5 s) fires first
                 work.task.cancel()
                 self._diagnoses.pop(uid, None)
                 await self._move(incident, "Escalated", "reasoner_unavailable")
@@ -477,6 +498,7 @@ class ActPath:
             "fallbackReason": answer.fallback_reason,
             "usage": _tokens(answer.usage),
             **_excerpt(answer.result),  # also on a fallback: the call was made with it
+            **_reasoning_status(answer.result),
         }
         return {k: v for k, v in status.items() if v is not None}
 
@@ -554,6 +576,7 @@ class ActPath:
                 request_id=result.request_id,
                 reject_reason=reason[:500],
                 usage=_call_usage(result),  # the call's cost sits on the call's own row
+                reasoning=_reasoning_text(result),
             )
         meta = answer.meta
         answer.digest = proposal.hash_of(answer.doc)
@@ -574,6 +597,7 @@ class ActPath:
             reject_reason="; ".join(answer.errors)[:500] or None,
             # the R1 row of a fallback carries none: the call is counted once, on its own row
             usage=None if answer.fallback_used else answer.usage,
+            reasoning=None if answer.fallback_used else _reasoning_text(answer.result),
         )
 
     # ---- Proposed ------------------------------------------------------------------------

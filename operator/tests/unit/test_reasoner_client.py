@@ -544,6 +544,54 @@ def test_a_422_prompt_too_large_keeps_the_request_estimate():
     assert r.meta["requestTokensEstimate"] == 7400
 
 
+def test_the_model_config_name_is_kept_only_when_it_is_a_short_name():
+    for given, kept in (
+        ("r3-primary", "r3-primary"),
+        ("x" * 65, None),
+        ("a b", None),
+        (7, None),
+    ):
+
+        async def answer(request, body, given=given):
+            return json_response(good_answer(modelConfig=given))
+
+        async def call(client, server):
+            return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+        r = run(answer, call)
+        assert r.meta.get("modelConfig") == kept, given
+
+
+def test_the_reasoning_trace_is_kept_as_text_and_capped():
+    from nexus_operator.reasoner_client import REASONING_MAX_CHARS
+
+    for given, length, want in (
+        ("t" * 20000, 20000, ("t" * REASONING_MAX_CHARS, 20000)),
+        ("short", None, ("short", 5)),
+        ({"not": "text"}, 3, None),
+        ("", 0, None),
+    ):
+
+        async def answer(request, body, given=given, length=length):
+            meta = {"reasoning": given}
+            if length is not None:
+                meta["reasoningLength"] = length
+            return json_response(good_answer(**meta))
+
+        async def call(client, server):
+            return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+        r = run(answer, call)
+        got = (
+            (r.meta["reasoning"], r.meta["reasoningLength"])
+            if "reasoning" in r.meta
+            else None
+        )
+        assert got == want, (
+            given if isinstance(given, str) and len(given) < 30 else type(given)
+        )
+
+
 def test_expanded_chunks_are_kept_like_retrieved_chunks():
     """ADR-043: expandedChunks is cleaned as retrievedChunks is: strings only, 100 chars, 20 ids."""
     meta = {"expandedChunks": ["rb-a#3", 7, "x" * 300] + ["rb-b#3"] * 30}

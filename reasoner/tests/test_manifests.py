@@ -66,7 +66,7 @@ class ManifestTest(unittest.TestCase):
                     dep,
                 )
             ),
-            1,  # groq-api-key only: the anthropic key went with the Haiku arm
+            2,  # groq-api-key and nvidia-api-key: the anthropic key went with the Haiku arm
         )
         self.assertNotRegex(
             dep + (K8S / "configmap.yaml").read_text(), r"(gsk_|sk-ant|Bearer )"
@@ -78,9 +78,22 @@ class ManifestTest(unittest.TestCase):
         block = text.split("reasoner.json: |\n", 1)[1]
         cfg = config.parse(json.loads(textwrap.dedent(block)))
         self.assertEqual(cfg.models["R2"].model, "openai/gpt-oss-20b")
-        self.assertEqual(cfg.models["R3"].model, "openai/gpt-oss-120b")
+        # R3 is served by the config `active` names (owner, 2026-11-20); today gpt-oss-120b on Groq
+        self.assertEqual(cfg.active, {"R3": "r3-groq"})
+        self.assertEqual(cfg.resolve("R3").model, "openai/gpt-oss-120b")
+        self.assertEqual(cfg.resolve("openai/gpt-oss-120b").name, "r3-groq")
         # No H1: the Haiku arm was cut (TASKS.md D3, D10).
-        self.assertEqual(set(cfg.models), {"R2", "R3", "demo"})
+        self.assertEqual(
+            set(cfg.models),
+            {"R2", "r3-groq", "r3-primary", "r3-backup-1", "r3-backup-2", "demo"},
+        )
+        for name in ("r3-primary", "r3-backup-1", "r3-backup-2"):
+            e = cfg.models[name]
+            self.assertEqual((e.provider, e.api_key_env), ("nvidia", "NVIDIA_API_KEY"))
+            self.assertEqual(e.base_url, "https://integrate.api.nvidia.com/v1")
+            self.assertEqual(
+                e.response_format, "none"
+            )  # json_schema on NIM: UNVERIFIED
         self.assertEqual(cfg.models["demo"].provider, "ollama")
         self.assertEqual((cfg.timeout_s, cfg.max_output_tokens), (30.0, 1024))
         results = json.loads((REPO / "experiments/retrieval/results.json").read_text())
