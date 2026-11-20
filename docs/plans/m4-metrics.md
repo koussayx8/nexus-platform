@@ -3,7 +3,7 @@
 Companion to [`m4-protocol.md`](m4-protocol.md). Written offline from `dev` at `4b077fb`. Spec §21 stays the list
 of metrics; this page fixes the ones the thesis argues from, where each number comes from, and how far it can be
 read. Classes of action (acceptable, wrong-in-envelope, incorrect, out-of-envelope) are defined in
-[`experiments/ground-truth.yaml`](../../experiments/ground-truth.yaml).
+[`experiments/ground-truth.json`](../../experiments/ground-truth.json) (#285).
 
 ## 1. Metrics
 

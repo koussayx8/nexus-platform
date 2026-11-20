@@ -3,7 +3,7 @@
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
 version. Written offline from `dev` at `4b077fb`: nothing here was checked on the cluster. Metrics, claims, the
 export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metrics.md`](m4-metrics.md); the ground truth is
-[`experiments/ground-truth.yaml`](../../experiments/ground-truth.yaml).
+[`experiments/ground-truth.json`](../../experiments/ground-truth.json) (#285).
 
 ## 1. What is frozen
 
