@@ -38,3 +38,17 @@ Consequences: with the defaults nothing changes for a model that answers; a tran
 about 1 s or `Retry-After` more before the answer instead of a fallback. The runner does not write
 `reasonerTimeoutSeconds` (it keeps its value across resets); a bake-off model with a longer timeout needs it set
 by hand in the ConfigMap, then an operator restart.
+
+## Addendum B (2026-11-20, owner): R3's provider is switched by configuration
+
+| # | Decision | Why |
+| --- | --- | --- |
+| B1 | **Named model configs.** The Reasoner's `models` are named entries: `R2`, `r3-groq` (gpt-oss-120b on Groq), `r3-primary`, `r3-backup-1`, `r3-backup-2` (NVIDIA NIM, model ids "" until the bake-off fills them), `demo`. Each may set `timeoutSeconds`, `maxOutputTokens` (1–32768; about 8K for thinking models) and `responseFormat` (`json_schema` for Groq, `none` for NIM by default: whether a NIM model honours `json_schema` is UNVERIFIED, as in `experiments/bakeoff/models.yaml`). | The bake-off's candidates run on NIM; a provider outage needs a ready fallback that is not improvised. |
+| B2 | **One switch, manual only.** `active: {"R3": "<config>"}` in the Reasoner ConfigMap (in Git) picks the config that serves R3; it must name a config whose model id is filled in. The operator sends `model: "R3"`. A switch is a reviewed one-line change plus a Reasoner restart; nothing switches by itself, and there is no automatic failover. A model id or a config name still resolves directly (R2 is sent as its model id). | The experimental condition stays in Git and changes only by a reviewed commit. |
+| B3 | **NVIDIA NIM** (`provider: nvidia`) is OpenAI-compatible: `https://integrate.api.nvidia.com/v1/chat/completions`, key from `NVIDIA_API_KEY` (Secret `nexus-reasoner-keys`, key `nvidia-api-key`, optional). The body carries `max_tokens` and none of Groq's options (`include_reasoning`, `reasoning_effort`, `max_completion_tokens`). The answer is `message.content`; `message.reasoning_content` is kept apart as untrusted text, never parsed. Egress: the Reasoner's existing rule (TCP 443 to public addresses; name-based egress deferred, spec §18) already allows it. | Overrides TASKS.md D10's "no new LLM provider" (owner, 2026-11-20). |
+| B4 | **Every call records what served it.** The response metadata carries `modelConfig` beside `model` (the model id), on a failure too; the operator writes `status.reasoner.modelConfig` and puts it in the call row's `proposals.usage` (jsonb, no schema change). | A run's model is a measured fact, not an assumption. |
+| B5 | **The arm check is strict.** `experiments/harness/arms.py` gives R3 the config and model id it expects (`r3-groq`, `openai/gpt-oss-120b` until the bake-off); `batch.arm_mismatch` refuses a run whose call recorded another config or model id (and a fallback whose failed call recorded another config), as `arm_mismatch`, which halts the batch. | A switch of `active` mid-batch can never mix two models in one arm. |
+
+Consequences: the prompt's request guard still reserves the file-level `maxOutputTokens` (1,024): an 8K cap on a
+thinking model is sent to the provider but not budgeted, until prompt/v3 (owner: after the bake-off). The owner adds
+`nvidia-api-key` to the Secret; without it the NIM configs answer 503 and nothing else changes.
