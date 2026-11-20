@@ -55,6 +55,9 @@ REASONS = {
     "evidence_error",
     "gate_timeout",
 }
+# owner, 2026-11-20: at L2 a mutating action's phase follows the run's recorded approval decision
+L2_PHASE = {"approved": "Resolved", "rejected": "Rejected"}
+L2_REASON = {"approved": "remediation_verified", "rejected": "approval_rejected"}
 
 
 def load():
@@ -99,6 +102,9 @@ class LoadTest(unittest.TestCase):
         self.assertEqual(doc["schema"], "ground-truth/v2")  # #239 refuses any other
         self.assertTrue(doc["version"])
         self.assertIn("first Incident", doc["counted_incident"])
+        # the K8sGPT rubric is dropped (owner, 2026-11-20; ADR-037)
+        self.assertNotIn("k8sgpt", doc)
+        self.assertNotIn("k8sgpt_rubric", json.dumps(doc["scenarios"]))
         self.assertTrue(
             TRUTH_FILE.read_bytes().endswith(b"}\n")
         )  # stable bytes, one newline
@@ -240,9 +246,22 @@ class V2KeysTest(unittest.TestCase):
                 sc = truth[name]
                 self.assertEqual(tuple(sc["expected_terminal"]), LEVELS)
                 self.assertEqual(tuple(sc["expected_reason"]), LEVELS)
+                mutating = sc["correct_action"]["action"] in metrics.MUTATING_ACTIONS
                 for lv in LEVELS:
-                    self.assertIn(sc["expected_terminal"][lv], model.TERMINAL_PHASES)
-                    self.assertIn(sc["expected_reason"][lv], REASONS)
+                    phase, reason = (
+                        sc["expected_terminal"][lv],
+                        sc["expected_reason"][lv],
+                    )
+                    if (
+                        lv == "L2" and mutating
+                    ):  # keyed by spec.approval.decision (CRD enum)
+                        self.assertEqual(set(phase), {"approved", "rejected"})
+                        self.assertEqual(set(reason), {"approved", "rejected"})
+                        self.assertLessEqual(set(phase.values()), model.TERMINAL_PHASES)
+                        self.assertLessEqual(set(reason.values()), REASONS)
+                    else:
+                        self.assertIn(phase, model.TERMINAL_PHASES)
+                        self.assertIn(reason, REASONS)
 
 
 class OperatorPathTest(unittest.TestCase):
@@ -253,22 +272,12 @@ class OperatorPathTest(unittest.TestCase):
 
     EXPECTED: ClassVar[dict] = {
         "restart_workload": (
-            ("Recorded", "Recommended", "Resolved", "Resolved"),
-            (
-                "level_observe",
-                "level_recommend",
-                "remediation_verified",
-                "remediation_verified",
-            ),
+            ("Recorded", "Recommended", L2_PHASE, "Resolved"),
+            ("level_observe", "level_recommend", L2_REASON, "remediation_verified"),
         ),
         "scale_deployment": (
-            ("Recorded", "Recommended", "Resolved", "Resolved"),
-            (
-                "level_observe",
-                "level_recommend",
-                "remediation_verified",
-                "remediation_verified",
-            ),
+            ("Recorded", "Recommended", L2_PHASE, "Resolved"),
+            ("level_observe", "level_recommend", L2_REASON, "remediation_verified"),
         ),
         "escalate": (
             ("Recorded", "Escalated", "Escalated", "Escalated"),
@@ -333,12 +342,16 @@ class ContentTest(unittest.TestCase):
                     self.assertTrue(sc[key].strip(), key)
                 self.assertEqual(sc["measured_live"], name in LIVE)
                 self.assertTrue(sc["verification"]["criteria"])
-                self.assertTrue(sc["k8sgpt_rubric"]["correct_if"])
                 self.assertTrue(sc["expected_alerts"])
                 for alt in sc["fault_class_alternatives"]:
                     self.assertIn(alt["value"], catalogue.FAULT_CLASSES)
                     self.assertNotEqual(alt["value"], sc["fault_class"])
                     self.assertTrue(alt["when"] and alt["why"])
+                    # scored only for the counted Incident's alert (metrics.diagnosis_accuracy)
+                    self.assertTrue(alt["alertnames"])
+                    self.assertLessEqual(
+                        set(alt["alertnames"]), set(sc["expected_alerts"])
+                    )
 
     def test_the_runbook_named_exists(self):
         truth, _ = load()
@@ -367,6 +380,24 @@ class ContentTest(unittest.TestCase):
             set(s6["expected_alerts"]), {"NexusTrafficAnomaly", "NexusCpuAnomaly"}
         )
         self.assertIn("Only the first counts", s6["counted_incident_note"])
+        self.assertEqual(
+            s6["fault_class_alternatives"][0]["alertnames"], ["NexusCpuAnomaly"]
+        )
+
+    def test_s6_void_if_latency_is_anomalous(self):
+        truth, _ = load()
+        void = truth["S6"]["void_if"]  # owner, 2026-11-20 (Block 5 finding (c))
+        self.assertIn("metrics.zscores.latencyP95 > 3", void["condition"])
+        self.assertTrue(void["outcome"].startswith("void"))
+        self.assertEqual(
+            [n for n in SCENARIOS if "void_if" in truth[n]], ["S6"]
+        )  # S6 only
+
+    def test_s3_names_the_commit_by_hand(self):
+        v = load()[0]["S3"]["verification"]
+        self.assertIn("names the commit to revert", v["hand_checked"])
+        self.assertIn("previous image digest does not apply", v["hand_checked"])
+        self.assertNotIn("secondary_not_computed", v)
 
 
 if __name__ == "__main__":

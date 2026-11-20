@@ -3,7 +3,7 @@
 
 For each real bundle the action is the same, the accepted recommendation kinds are the same set,
 and the bundle's accepted fault classes are the ones the ground truth accepts for that Incident:
-its `fault_class`, plus an alternative whose `when` names the Incident's alert. S6 has two real
+its `fault_class`, plus an alternative whose `alertnames` hold the Incident's alert. S6 has two real
 bundles of one run (the traffic Incident and the CPU one); only the first Incident of a run counts,
 so the S6 truth must hold for each.
 """
@@ -33,7 +33,7 @@ REAL = {
 
 def accepted_faults(sc: dict, alert: str) -> set:
     return {sc["fault_class"]} | {
-        a["value"] for a in sc["fault_class_alternatives"] if alert in a["when"]
+        a["value"] for a in sc["fault_class_alternatives"] if alert in a["alertnames"]
     }
 
 
