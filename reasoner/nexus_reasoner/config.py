@@ -13,6 +13,10 @@ import os
 from dataclasses import dataclass, field
 
 PROVIDERS = ("groq", "ollama")  # no anthropic: the Haiku arm was cut (TASKS.md D3, D10)
+# A model's call budget, retries included (ADR-035 addendum 2026-11-20): 30 s by default, at most
+# 180 s, the operator's own reasonerTimeoutSeconds bound.
+DEFAULT_TIMEOUT_S = 30.0
+MAX_TIMEOUT_S = 180.0
 EFFORTS = ("low", "medium", "high")
 MODES = ("rules", "llm", "adversarial")
 
@@ -29,6 +33,7 @@ class ModelEntry:
     base_url: str
     api_key_env: str | None = None
     reasoning_effort: str = "low"
+    timeout_s: float = DEFAULT_TIMEOUT_S  # the call's whole budget, a retry included
 
 
 @dataclass(frozen=True)
@@ -37,7 +42,7 @@ class Config:
     score_floor: float
     host: str = "0.0.0.0"
     port: int = 8080
-    timeout_s: float = 30.0
+    timeout_s: float = DEFAULT_TIMEOUT_S  # the default for a model without its own
     max_output_tokens: int = 1024
     seed: int = 0
     models: dict[str, ModelEntry] = field(default_factory=dict)
@@ -49,6 +54,18 @@ class Config:
         return None
 
 
+def _timeout(value, where: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not 0 < value <= MAX_TIMEOUT_S
+    ):
+        raise ConfigError(
+            f"{where}: timeoutSeconds must be a number in (0, {MAX_TIMEOUT_S:g}]"
+        )
+    return float(value)
+
+
 def parse(doc: dict) -> Config:
     if not isinstance(doc, dict):
         raise ConfigError("config must be an object")
@@ -58,6 +75,7 @@ def parse(doc: dict) -> Config:
     floor = doc["scoreFloor"]
     if isinstance(floor, bool) or not isinstance(floor, int | float) or floor < 0:
         raise ConfigError("scoreFloor must be a number >= 0")
+    default_timeout = _timeout(doc.get("timeoutSeconds", DEFAULT_TIMEOUT_S), "config")
     models: dict[str, ModelEntry] = {}
     for name, m in doc["models"].items():
         if m.get("provider") not in PROVIDERS:
@@ -78,13 +96,14 @@ def parse(doc: dict) -> Config:
             m.get("baseUrl", ""),
             m.get("apiKeyEnv"),
             effort,
+            _timeout(m.get("timeoutSeconds", default_timeout), name),
         )
     return Config(
         index_path=doc["indexPath"],
         score_floor=float(floor),
         host=doc.get("host", "0.0.0.0"),
         port=int(doc.get("port", 8080)),
-        timeout_s=float(doc.get("timeoutSeconds", 30)),
+        timeout_s=default_timeout,
         max_output_tokens=int(doc.get("maxOutputTokens", 1024)),
         seed=int(doc.get("seed", 0)),
         models=models,
