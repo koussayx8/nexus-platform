@@ -21,3 +21,20 @@
 - The operator opens a connection to the Reasoner only when `reasonerEndpoint` is set; the NetworkPolicy `operator-egress` already allows `nexus-reasoner:8080`.
 - **Live check pending:** the Reasoner service on a cluster, the egress rule, the migration of an existing Flight Recorder volume (`psql -f 05-schema.sql` as the database owner), and an Incident that falls back after a real timeout.
 - Spec v1.1 note: §16 says the proposal's `evidenceRefs` and `runbookRefs` must point at fields in the bundle and chunks retrieved; the Reasoner service checks them (422 `invalid_refs`); the operator does not re-resolve them, because they are recorded and never used for a decision.
+
+## Addendum (2026-11-20, owner's fix round after the Block 5 trial runs): timeouts per model, one retry
+
+Amends decision 2 here and the 60 s Diagnosing timeout of ADR-034 decision 6; spec §16 ("one attempt, no
+retry, 30 s") until spec v1.1.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| A1 | **The Reasoner's budget is per model.** Each model in the Reasoner configuration may set `timeoutSeconds` (the file's `timeoutSeconds` is the default, 30 s); anything outside (0, 180] is a configuration error. The budget holds the whole provider call, a retry included. | Thinking models answer in more than 30 s; one fixed timeout would time them out or slow every other model's fallback. 180 s is the upper bound kept. |
+| A2 | **One retry, only for a transient failure, only if time remains.** The adapter retries once after a network error or HTTP 5xx (after 1 s), or an HTTP 429 that sent a `Retry-After` (after that many seconds, or until that date), and only when the wait leaves at least 5 s of the budget. A timeout is not retried (it used the budget); a 429 without `Retry-After`, a 4xx, or a bad response is not retried. `settings.attempts` records 1 or 2. | S6 (2026-11-20): two Incidents in the same second, and the second call got Groq's 429 and fell back to R1. A retry the provider asked for, inside the budget, removes that fallback; anything else keeps failing at once into the fallback. |
+| A3 | **The operator's side is derived from one setting.** `reasonerTimeoutSeconds` in `nexus-operator-config` (default 30, at most 180) is the Reasoner budget the operator expects; the owner sets it to the active model's `timeoutSeconds`. The client waits it + 5 s; the Diagnosing timeout is it + 30 s (30 + 30 = ADR-034's 60 s, unchanged by default). Still one call from the operator. | The operator owns its own deadline: an untrusted Reasoner cannot extend it. A Reasoner slower than this setting is cut by the operator, which falls back to R1, as before. |
+| A4 | **The fallback is unchanged.** On a timeout, a provider error after the retry, a 422 or an invalid proposal, R1 answers once with `fallbackUsed` true. | Safety does not depend on the Reasoner answering. |
+
+Consequences: with the defaults nothing changes for a model that answers; a transient Groq failure now costs
+about 1 s or `Retry-After` more before the answer instead of a fallback. The runner does not write
+`reasonerTimeoutSeconds` (it keeps its value across resets); a bake-off model with a longer timeout needs it set
+by hand in the ConfigMap, then an operator restart.
