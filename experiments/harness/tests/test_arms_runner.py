@@ -16,7 +16,9 @@ PATCH = str(pathlib.Path(__file__).resolve().parents[3] / runner.S3_PATCH)
 class ArmsTest(unittest.TestCase):
     def test_the_arms_are_the_specs_four(self):
         self.assertEqual(sorted(arms.ARMS), ["R0", "R1", "R2", "R3"])
-        self.assertEqual(arms.arm_config("R2")["model"], "openai/gpt-oss-20b")
+        r2 = arms.arm_config("R2")
+        self.assertEqual((r2["model"], r2["model_config"], r2["model_id"]),
+                         ("R2", "r2-groq", "openai/gpt-oss-20b"))  # fmt: skip
         r3 = arms.arm_config("R3")
         # asked for as "R3"; expected served by r3-groq's gpt-oss-120b until the bake-off
         self.assertEqual((r3["model"], r3["model_config"], r3["model_id"]),

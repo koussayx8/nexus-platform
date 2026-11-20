@@ -646,11 +646,12 @@ class StrictArmCheckTest(unittest.TestCase):
         )
 
     def test_r2_is_checked_the_same_way(self):
-        ok = {
-            "mode": "llm",
-            "modelConfig": "R2",
-            "modelId": "openai/gpt-oss-20b",
-            "fallbackUsed": False,
-        }
+        ok = {"mode": "llm", "modelConfig": "r2-groq", "modelId": "openai/gpt-oss-20b",
+              "fallbackUsed": False}  # fmt: skip
         self.assertIsNone(batch.arm_mismatch("R2", ok))
-        self.assertIsNotNone(batch.arm_mismatch("R2", ok | {"modelConfig": "r3-groq"}))
+        for other in (
+            {"modelConfig": "r3-groq"},
+            {"modelConfig": "r2-primary"},
+            {"modelId": "x/y"},
+        ):
+            self.assertIsNotNone(batch.arm_mismatch("R2", ok | other), other)

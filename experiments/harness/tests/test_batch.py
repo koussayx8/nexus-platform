@@ -679,11 +679,10 @@ class FakeCluster:
             return {"mode": "rules", "fallbackUsed": False}
         if self.fallback:
             return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
-        # as the Reasoner serves the name it is sent (reasoner/k8s/configmap.yaml): R3 through
-        # `active`, R2 by its model id
+        # as the Reasoner serves the name it is sent (reasoner/k8s/configmap.yaml), through `active`
         served = {
+            "R2": ("r2-groq", "openai/gpt-oss-20b"),
             "R3": ("r3-groq", "openai/gpt-oss-120b"),
-            "openai/gpt-oss-20b": ("R2", "openai/gpt-oss-20b"),
         }
         config, model_id = served.get(
             cfg["reasonerModel"], (None, cfg["reasonerModel"] or None)

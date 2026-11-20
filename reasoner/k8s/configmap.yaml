@@ -3,9 +3,10 @@
 # `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git). The arms are the
 # spec's R2 and R3 only: the Haiku arm (H1) was cut on 2026-11-12 (TASKS.md D3, D10).
 #
-# R3 is served by the named config `active.R3` points at (owner, 2026-11-20; ADR-035 addendum):
-# r3-groq (gpt-oss-120b on Groq) until the bake-off picks r3-primary; r3-backup-1 and r3-backup-2
-# are the manual fallbacks for a provider outage. Switching is this one line plus a Reasoner restart
+# R2 and R3 are served by the named configs `active` points at (owner, 2026-11-20; ADR-035
+# addenda B and D): r2-groq (gpt-oss-20b) and r3-groq (gpt-oss-120b) on Groq until the bake-off
+# picks r2-primary and r3-primary; the -backup-1 and -backup-2 configs are the manual fallbacks for
+# a provider outage. Switching is this one line plus a Reasoner restart
 # (the ConfigMap is not generated, so nothing rolls by itself), and experiments/harness/arms.py
 # names the config the arm expects: a run served by another config is refused by the arm check.
 # The NIM entries' model ids are "" until the bake-off fills them; an empty entry cannot be active.
@@ -34,12 +35,15 @@ data:
       "seed": 0,
       "port": 8080,
       "models": {
-        "R2": {"provider": "groq", "model": "openai/gpt-oss-20b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
+        "r2-groq": {"provider": "groq", "model": "openai/gpt-oss-20b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
+        "r2-primary": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
+        "r2-backup-1": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
+        "r2-backup-2": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
         "r3-groq": {"provider": "groq", "model": "openai/gpt-oss-120b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
         "r3-primary": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
         "r3-backup-1": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
         "r3-backup-2": {"provider": "nvidia", "model": "", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
         "demo": {"provider": "ollama", "model": "llama3.1:8b", "baseUrl": ""}
       },
-      "active": {"R3": "r3-groq"}
+      "active": {"R2": "r2-groq", "R3": "r3-groq"}
     }

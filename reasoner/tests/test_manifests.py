@@ -77,17 +77,20 @@ class ManifestTest(unittest.TestCase):
         text = (K8S / "configmap.yaml").read_text()
         block = text.split("reasoner.json: |\n", 1)[1]
         cfg = config.parse(json.loads(textwrap.dedent(block)))
-        self.assertEqual(cfg.models["R2"].model, "openai/gpt-oss-20b")
-        # R3 is served by the config `active` names (owner, 2026-11-20); today gpt-oss-120b on Groq
-        self.assertEqual(cfg.active, {"R3": "r3-groq"})
+        # R2 and R3 are served by the configs `active` names (owner, 2026-11-20); today Groq's
+        self.assertEqual(cfg.active, {"R2": "r2-groq", "R3": "r3-groq"})
+        self.assertEqual(cfg.resolve("R2").model, "openai/gpt-oss-20b")
         self.assertEqual(cfg.resolve("R3").model, "openai/gpt-oss-120b")
+        self.assertEqual(cfg.resolve("openai/gpt-oss-20b").name, "r2-groq")
         self.assertEqual(cfg.resolve("openai/gpt-oss-120b").name, "r3-groq")
         # No H1: the Haiku arm was cut (TASKS.md D3, D10).
         self.assertEqual(
             set(cfg.models),
-            {"R2", "r3-groq", "r3-primary", "r3-backup-1", "r3-backup-2", "demo"},
-        )
-        for name in ("r3-primary", "r3-backup-1", "r3-backup-2"):
+            {"r2-groq", "r2-primary", "r2-backup-1", "r2-backup-2",
+             "r3-groq", "r3-primary", "r3-backup-1", "r3-backup-2", "demo"},
+        )  # fmt: skip
+        for name in ("r2-primary", "r2-backup-1", "r2-backup-2",
+                     "r3-primary", "r3-backup-1", "r3-backup-2"):  # fmt: skip
             e = cfg.models[name]
             self.assertEqual((e.provider, e.api_key_env), ("nvidia", "NVIDIA_API_KEY"))
             self.assertEqual(e.base_url, "https://integrate.api.nvidia.com/v1")
