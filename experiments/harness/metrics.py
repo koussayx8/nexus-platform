@@ -85,10 +85,11 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
         for i in tables.get("incidents", [])
         if i.get("run_id") in runs
     }
-    desired = {}
+    desired, alert = {}, {}
     for b in tables.get("evidence_bundles", []):
-        w = (b.get("content") or {}).get("workload") or {}
-        desired[b["incident_uid"]] = w.get("desired")
+        content = b.get("content") or {}
+        desired[b["incident_uid"]] = (content.get("workload") or {}).get("desired")
+        alert[b["incident_uid"]] = _alertname(content)
 
     fell_back = {
         p["incident_uid"] for p in tables.get("proposals", []) if p.get("fallback_used")
@@ -126,6 +127,7 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
                 "catalogue_valid": bool(p["schema_valid"])
                 and action.get("id") in catalogue.CATALOGUE,
                 "fault_class": (parsed or {}).get("hypothesis", {}).get("faultClass"),
+                "alertname": alert.get(p["incident_uid"]),
                 "action_id": action.get("id"),
                 "replicas": replicas,
                 "replicas_delta": (replicas - d)
@@ -151,6 +153,7 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
                 "schema_valid": False,
                 "catalogue_valid": False,
                 "fault_class": None,
+                "alertname": alert.get(uid),
                 "action_id": None,
                 "replicas": None,
                 "replicas_delta": None,
@@ -202,13 +205,31 @@ def flatten(tables: dict, injections: dict | None = None, truth: dict | None = N
     return proposal_rows, run_rows
 
 
+def _alertname(content: dict) -> str | None:
+    """The alert that named the Incident: the bundle's first incident.alerts entry (evidence.py)."""
+    alerts = (content.get("incident") or {}).get("alerts") or []
+    return (alerts[0] or {}).get("name") if alerts else None
+
+
 # ---------------------------------------------------------------- ground truth
 
 
 def _accepted(rec) -> tuple:
-    """The recommendation kinds the ground truth accepts: one, or a list (S5 accepts both
-    dependency_investigation and investigate: R1's rule 6 is right on action, spec §16)."""
+    """The values the ground truth accepts: one, or a list, any of which counts (the bake-off's
+    rule). S5 accepts both dependency_investigation and investigate (R1's rule 6, spec §16)."""
     return tuple(rec) if isinstance(rec, list | tuple) else (rec,)
+
+
+def accepted_faults(scenario_truth: dict, alertname: str | None) -> tuple:
+    """The fault classes right for one Incident: `fault_class` (one value or a list), plus each
+    `fault_class_alternatives` entry whose `alertnames` hold the Incident's alert. An alternative
+    is right only for the alerts it names (S4/S6: cpu_saturation on a NexusCpuAnomaly Incident),
+    as the bake-off scores each bundle with its own truth (experiments/ground-truth.json)."""
+    out = _accepted(scenario_truth["fault_class"])
+    for alt in scenario_truth.get("fault_class_alternatives") or []:
+        if alertname is not None and alertname in (alt.get("alertnames") or []):
+            out += (alt["value"],)
+    return out
 
 
 def action_matches(p: dict, truth: dict) -> bool:
@@ -225,11 +246,16 @@ def action_matches(p: dict, truth: dict) -> bool:
 
 
 def diagnosis_accuracy(proposals, truth):
-    """Correct faultClass / non-abstaining proposals, per reasoner x scenario."""
+    """Correct faultClass / non-abstaining proposals, per reasoner x scenario. Correct: a class
+    accepted_faults() accepts for the proposal's Incident."""
     out = {}
     for (reasoner, scen), rows in _group(proposals, "reasoner", "scenario").items():
         rows = [r for r in rows if not r["abstain"]]
-        k = sum(1 for r in rows if r["fault_class"] == truth[scen]["fault_class"])
+        k = sum(
+            1
+            for r in rows
+            if r["fault_class"] in accepted_faults(truth[scen], r.get("alertname"))
+        )
         out[_key((reasoner, scen))] = proportion(k, len(rows))
     return out
 
@@ -268,7 +294,8 @@ def false_action_proposed(proposals):
 
 
 def correct_escalation_rate(proposals, truth):
-    """Escalations with the right recommendation kind on S3, S5 / proposals on S3, S5."""
+    """Escalations with the right recommendation kind on S3, S5 / proposals on S3, S5. Any kind
+    the truth lists counts, as in action_matches (V11)."""
     out = {}
     rows = [r for r in proposals if r["scenario"] in ("S3", "S5")]
     for (reasoner,), rs in _group(rows, "reasoner").items():
@@ -277,7 +304,7 @@ def correct_escalation_rate(proposals, truth):
             for r in rs
             if r["action_id"] == "escalate"
             and r["escalation_kind"]
-            == truth[r["scenario"]]["correct_action"]["recommendation"]
+            in _accepted(truth[r["scenario"]]["correct_action"]["recommendation"])
         )
         out[reasoner] = proportion(k, len(rs))
     return out

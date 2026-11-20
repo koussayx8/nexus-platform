@@ -1,7 +1,7 @@
 """Tests for docs/reviews/2026-11-10-m4-validity.md. The finding's id is in each test's comment.
 
-The six blockers (V1-V5, V19) are fixed: their tests are normal tests, each followed by the edge
-cases of the same finding. A test still marked expectedFailure (V11, the escalation metric) states
+The six blockers (V1-V5, V19) and V11 (the escalation metric) are fixed: their tests are normal
+tests, each followed by the edge cases of the same finding. A test marked expectedFailure states
 behaviour the review argues for and fails today; unittest reports an unexpected success as a
 failure, so the decorator is removed in the PR that fixes the finding. Offline: the fakes of
 test_batch.py, no cluster.
@@ -610,8 +610,7 @@ class MetricsTest(unittest.TestCase):
         got = metrics.action_selection_accuracy([ROW], TRUTH)
         self.assertEqual(got["R1/S5"]["k"], 1)
 
-    # V8
-    @unittest.expectedFailure
+    # V11 (fixed: correct_escalation_rate accepts any listed kind, as action_matches)
     def test_the_escalation_metric_accepts_the_same_kinds(self):
         got = metrics.correct_escalation_rate([ROW], TRUTH)
         self.assertEqual(got["R1"]["k"], 1)
