@@ -32,6 +32,10 @@ class Replay(unittest.TestCase):
         # 2 responders x (3 scale requests + evict) x 4 cells in nexus-dev and nexus-prod x 3 Kill Switch states
         self.assertEqual(self.ky.seen["kyverno"], 96)
 
+    def test_k3_alone_refuses_the_isolation_cases(self):
+        """Boundary review, must-fix 3: K3 and no other policy; the control is admitted."""
+        self.assertEqual(kr.replay_k3_isolation(self.ky), [])
+
     def test_the_approval_path_k5(self):
         self.assertEqual(kr.replay_approval_path(self.ky), [])
 

@@ -32,6 +32,10 @@ def _strings(v) -> bool:
     return isinstance(v, list) and all(isinstance(s, str) for s in v)
 
 
+# escalation's optional text fields (ADR-044) and the most of each the Incident shows
+ESCALATION_TEXT = {"suggestedChange": 4000, "runbookGap": 1000}
+
+
 def validate(doc) -> list[str]:
     """Every violation of proposal/v1 found in doc; empty means valid."""
     if not isinstance(doc, dict):
@@ -94,6 +98,11 @@ def validate(doc) -> list[str]:
             )
     elif esc is not None and not isinstance(esc, dict):
         errors.append("escalation must be an object or null")
+    if isinstance(esc, dict):
+        # ADR-044: optional, untrusted, display only; never applied by anything
+        for key in ESCALATION_TEXT:
+            if key in esc and not isinstance(esc[key], str):
+                errors.append(f"escalation.{key} must be a string")
     return errors
 
 
