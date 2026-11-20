@@ -422,7 +422,10 @@ class Runner:
         if self.git_dir:
             steps += [
                 Step(("git", "fetch", "origin", BRANCH), False),
-                Step(("git", "checkout", BRANCH), True),
+                # Detached at the fetched branch, never a local branch: the experiment worktree
+                # stays as it was created (git worktree add --detach), and a commit here reaches
+                # the remote only through the forward push below (Block 5 finding (i)).
+                Step(("git", "checkout", "--detach", f"origin/{BRANCH}"), True),
             ]
             if baseline_ref:
                 # Forward commit restoring the baseline tree; skipped when there is no diff.
