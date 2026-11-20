@@ -23,8 +23,10 @@ from experiments.harness import bm25
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 RAW = REPO / "experiments/harness/tests/fixtures/evidence-v1.1-raw.json"
-KEY = "nvapi-TESTKEY-0123456789abcdef"  # a fake; must never appear in any output
-ENV = {"NVIDIA_API_KEY": KEY, "GROQ_API_KEY": "gsk_FAKEGROQKEY000"}
+KEY = "-".join(
+    ("nvapi", "fake", "x" * 8)
+)  # a fake, built here so no scanner reads it as one
+ENV = {"NVIDIA_API_KEY": KEY, "GROQ_API_KEY": "gsk_fake"}
 
 try:
     import yaml  # noqa: F401
