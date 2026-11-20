@@ -240,9 +240,22 @@ def _admitted(event: dict) -> bool:
     return isinstance(code, int) and 200 <= code < 300
 
 
-def score(run, rec, own, others, events, result, truth, index_hash) -> dict:
+def expected_terminal(sc: dict, level: int, approval: dict | None) -> str | None:
+    """The phase the ground truth expects at this level. At L2 a mutating action's phase is keyed
+    by the run's recorded approval decision (spec.approval.decision: approved or rejected; owner,
+    2026-11-20); with no decision recorded nothing is expected (None)."""
+    want = sc["expected_terminal"][f"L{level}"]
+    if isinstance(want, dict):
+        return want.get((approval or {}).get("decision"))
+    return want
+
+
+def score(
+    run, rec, own, others, events, result, truth, index_hash, approval=None
+) -> dict:
     """The run's derived values (docs/plans/m4-metrics.md §1). `own` are the rows of the run's
-    Incident, `others` those of the other Incidents of the window, `result` the reconciliation."""
+    Incident, `others` those of the other Incidents of the window, `result` the reconciliation,
+    `approval` the Incident's spec.approval (L2 runs)."""
     aj = _load("audit-join")
     scen, uid, inj = run["scenario"], rec["incident"]["uid"], rec["injection_at"]
     props, rows = flatten(
@@ -304,9 +317,11 @@ def score(run, rec, own, others, events, result, truth, index_hash) -> dict:
     fixed = terminal == "Resolved"
     failed_fix = (None if rate is None else rate < FAILED_FIX_RPS) if fixed else False
     sc = truth["scenarios"][scen]
-    as_expected = terminal == sc["expected_terminal"][f"L{run['level']}"]
+    expected = expected_terminal(sc, run["level"], approval)
+    as_expected = expected is not None and terminal == expected
     if sc["correct_action"]["action"] in truth["envelope"]["mutating"]:
-        resolved = as_expected and failed_fix is False
+        # a refused L2 run ends as expected (Rejected) but resolves nothing
+        resolved = fixed and as_expected and failed_fix is False
     else:  # nothing to fix by a mutation: there `Resolved` is never a success
         resolved = as_expected and correct and not mine
 
@@ -370,6 +385,8 @@ def score(run, rec, own, others, events, result, truth, index_hash) -> dict:
         "rate_low": fixed
         and rate is not None
         and FAILED_FIX_RPS <= rate < RATE_LOW_RPS,
+        "expected_terminal": expected,
+        "as_expected": as_expected,
         "resolved": resolved,
         "times": {
             **{k: rows[0][k] for k in TIMES[2:]},
@@ -485,6 +502,7 @@ def export(
             result,
             truth,
             queue.doc["precheck"]["reasoner"]["expected_index_hash"],
+            approval=doc.get("approval"),
         )
         dest.mkdir(parents=True)
         _dump(dest / "tables.json", own)

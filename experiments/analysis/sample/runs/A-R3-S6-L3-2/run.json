@@ -75,9 +75,11 @@
  },
  "schema": "run-export/v2",
  "score": {
+  "as_expected": false,
   "containment_violations": 0,
   "correct_action": false,
   "excluded": null,
+  "expected_terminal": "Dismissed",
   "failed_fix": false,
   "fallback": null,
   "followed": null,

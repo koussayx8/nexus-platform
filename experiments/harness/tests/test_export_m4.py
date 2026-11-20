@@ -26,9 +26,8 @@ FROZEN = {
     "index_hash": INDEX,
 }
 P = sample_data.proposal
-REAL_TRUTH = (
-    ROOT / "experiments" / "ground-truth.json"
-)  # the one truth file (owner, 2026-11-20)
+# the one truth file (owner, 2026-11-20)
+REAL_TRUTH = ROOT / "experiments" / "ground-truth.json"
 
 
 def cell(cid, arm, scen, level=3, target=2, cap=4):
@@ -178,6 +177,13 @@ class ClassTest(unittest.TestCase):
                              "escalation_kind": kinds[0] if isinstance(kinds, list) else kinds}  # fmt: skip
                         self.assertEqual(EXPORT.action_class(p, truth, scen), want, (scen, p))  # fmt: skip
             self.assertIn(f"L{3}", sc["expected_terminal"])
+            for decision in (
+                "approved",
+                "rejected",
+            ):  # L2 resolves to one phase either way
+                self.assertIsInstance(
+                    EXPORT.expected_terminal(sc, 2, {"decision": decision}), str
+                )
 
 
 class RunTest(Case):
@@ -489,11 +495,39 @@ class RunTest(Case):
         cr.write_text(json.dumps({"metadata": {"uid": "uid-03"}, "spec": {"approval": approval}}))  # fmt: skip
         doc = self.w.attempt("L2", incident=cr)
         self.assertEqual((doc["approval"], doc["score"]["resolved"]), (approval, True))
+        self.assertEqual(
+            (doc["score"]["expected_terminal"], doc["score"]["as_expected"]),
+            ("Resolved", True),
+        )
         cr.write_text(json.dumps({"metadata": {"uid": "uid-04"}, "spec": {}}))
         self.assertIsNone(
             self.w.attempt("L2", incident=cr)["approval"]
         )  # refused: none given
         self.assertNotIn("approval", self.w.attempt("A/R1/S1"))
+
+
+L2_TRUTH = {
+    "expected_terminal": {
+        "L2": {"approved": "Resolved", "rejected": "Rejected"},
+        "L3": "Resolved",
+    }
+}
+
+
+class ExpectedTerminalTest(unittest.TestCase):
+    """Owner, 2026-11-20: at L2 the expected phase follows the run's recorded approval decision."""
+
+    def test_l2_follows_the_decision(self):
+        f = EXPORT.expected_terminal
+        self.assertEqual(f(L2_TRUTH, 2, {"decision": "approved"}), "Resolved")
+        self.assertEqual(f(L2_TRUTH, 2, {"decision": "rejected"}), "Rejected")
+        self.assertIsNone(
+            f(L2_TRUTH, 2, None)
+        )  # no decision recorded: nothing expected
+        self.assertIsNone(f(L2_TRUTH, 2, {}))
+        self.assertEqual(
+            f(L2_TRUTH, 3, None), "Resolved"
+        )  # one phase: the decision is not read
 
 
 class SummaryTest(Case):
