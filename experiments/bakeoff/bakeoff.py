@@ -3,18 +3,27 @@
   python -m experiments.bakeoff.bakeoff run --bundles DIR --out DIR [--dry-run] [--show-thinking]
   python -m experiments.bakeoff.bakeoff run --round 2 --from DIR --bundles DIR --out DIR
   python -m experiments.bakeoff.bakeoff run --round 3 --bundles DIR --out DIR --timeout 600 --only NAME ...
+  python -m experiments.bakeoff.bakeoff run --round 4 --bundles DIR --out DIR --only NAME ...
   python -m experiments.bakeoff.bakeoff rank --out DIR [--round N]
   python -m experiments.bakeoff.bakeoff review --out DIR [--round N]
+  python -m experiments.bakeoff.bakeoff rescore --out DIR --round N --bundles DIR
 
 Round 1 sends exactly the Reasoner's prompt: retrieval over the baked index (top 3 at the score
 floor, reasoner/nexus_reasoner/retrieval.py), then prompt.plan on the bundle with the Reasoner's
 own output reservation (1,024 tokens), level L3 and catalogue version "1", as the operator sends.
-The bake-off's larger budget (max_tokens) changes the call, never the prompt. Decision expansion
-("(a)") is not merged on dev: round 1 has none; round 2 adds it.
+The bake-off's larger budget (max_tokens) changes the call, never the prompt. The retrieval is the
+Reasoner's own, so it includes the Decision expansion (ADR-043) wherever the checkout has it.
 
 Round 2 is the top 2 of round 1 again with a big prompt (~16K tokens): more log lines per pod, all
 events, the top 5 chunks plus the Decision section of every runbook among them. It is NOT the
 Reasoner's prompt and is labelled `big` in every record.
+
+Round 4 is the Reasoner's own prompt exactly as this checkout builds it (prompt.plan with its own
+version and budget; no bake-off override) on every bundle, real and novel; its records carry the
+prompt version (prompt.VERSION) as prompt_variant.
+
+`rescore` re-scores a round from its saved answers with the current truths (bundles.yaml), with no
+model call; a truth may list alternatives for kind and fault_class.
 
 Round 3 is the big prompt again, on every bundle: the real ones and the SYNTHETIC "novel cases"
 (novel.py; set=novel in every record), for the latency split between R2 (fast) and R3 (quality).
@@ -36,10 +45,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import inspect
 import json
 import os
 import pathlib
 import re
+import shutil
 import statistics
 import sys
 import threading
@@ -77,9 +88,11 @@ BIG_BUDGET_TOKENS = 16_000
 BIG_TOP_K = 5
 # (log lines per pod, characters per line); every event is kept. The first that fits is used.
 BIG_TRIM_LEVELS = ((200, 400), (150, 300), (120, 300), (90, 300), (60, 300), (40, 300))
-VARIANTS = {1: "reasoner", 2: "big", 3: "big"}
+ROUNDS = (1, 2, 3, 4)
+# round 4 records the checkout's prompt version (prompt.VERSION) as its variant
+VARIANTS = {1: "reasoner", 2: "big", 3: "big", 4: prompt.VERSION}
 # the sets each round runs by default (--scenarios overrides): rounds 1 and 2 stay on the real bundles
-ROUND_SETS = {1: ("real",), 2: ("real",), 3: ("real", "novel")}
+ROUND_SETS = {1: ("real",), 2: ("real",), 3: ("real", "novel"), 4: ("real", "novel")}
 # S6's injected line asks for this replica count (apps/sample-api/main.py INJECT_TEXTS, SCALE)
 INJECTED_REPLICAS = 40
 FAST_MEDIAN_S = 30.0  # R2: the best live-effective model with a median below this
@@ -127,10 +140,35 @@ class Model:
 
 @dataclass(frozen=True)
 class Truth:
+    """kind and fault_class are one value or several (a tuple): any listed value counts as
+    correct. action is always one value."""
+
     action: str
-    fault_class: str
-    kind: str | None = None
+    fault_class: str | tuple[str, ...]
+    kind: str | tuple[str, ...] | None = None
     injected: bool = False
+
+
+def values(v) -> tuple:
+    """A truth field as a tuple of accepted values (() for None)."""
+    if v is None:
+        return ()
+    return tuple(v) if isinstance(v, list | tuple) else (v,)
+
+
+def show(v) -> str:
+    """A truth field for display: "a | b" for alternatives, "-" for none."""
+    return " | ".join(values(v)) or "-"
+
+
+def _truth_field(b: dict, t: dict, key: str, allowed, optional: bool):
+    v = t.get(key)
+    if v is None and optional:
+        return None
+    vs = values(v)
+    if not vs or any(x not in allowed for x in vs) or len(set(vs)) != len(vs):
+        raise ConfigError(f"{b.get('scenario')}: truth.{key} unknown or empty: {v!r}")
+    return vs[0] if isinstance(v, str) else vs
 
 
 @dataclass(frozen=True)
@@ -213,15 +251,15 @@ def parse_bundles(doc) -> list[Bundle]:
     out = []
     for b in doc["bundles"]:
         t = b.get("truth") or {}
-        if t.get("action") not in catalogue.CATALOGUE:
-            raise ConfigError(f"{b.get('scenario')}: truth.action not in the catalogue")
-        if t.get("fault_class") not in catalogue.FAULT_CLASSES:
-            raise ConfigError(f"{b.get('scenario')}: truth.fault_class unknown")
         if (
-            t.get("kind") is not None
-            and t["kind"] not in catalogue.RECOMMENDATION_KINDS
+            not isinstance(t.get("action"), str)
+            or t["action"] not in catalogue.CATALOGUE
         ):
-            raise ConfigError(f"{b.get('scenario')}: truth.kind unknown")
+            raise ConfigError(
+                f"{b.get('scenario')}: truth.action must be one catalogue action"
+            )
+        fault = _truth_field(b, t, "fault_class", catalogue.FAULT_CLASSES, False)
+        kind = _truth_field(b, t, "kind", catalogue.RECOMMENDATION_KINDS, True)
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(b.get("hash", ""))):
             raise ConfigError(f"{b.get('scenario')}: hash must be sha256:<64 hex>")
         if b.get("set", "real") not in ("real", "novel"):
@@ -231,7 +269,7 @@ def parse_bundles(doc) -> list[Bundle]:
         out.append(
             Bundle(
                 b["scenario"], b["hash"],
-                Truth(t["action"], t["fault_class"], t.get("kind"), bool(t.get("injected"))),
+                Truth(t["action"], fault, kind, bool(t.get("injected"))),
                 b.get("recorded") or {}, b.get("incident_uid", ""), b.get("set", "real"),
             )
         )  # fmt: skip
@@ -274,11 +312,14 @@ def load_index(path) -> Retriever:
 def reasoner_prompt(
     bundle: dict, retriever: Retriever
 ) -> tuple[prompt.Prompt, list[dict]]:
-    """Round 1: what the Reasoner sends for this bundle (service.Reasoner._llm)."""
+    """Rounds 1 and 4: what the Reasoner sends for this bundle (service.Reasoner._llm): its
+    retrieval, then prompt.plan with the Reasoner's own output reservation, nothing else. The
+    excerpt budget is the checkout's prompt.py's own; the bake-off never overrides it."""
     chunks = retriever.retrieve(bundle)
-    p = prompt.plan(
-        bundle, chunks, LEVEL, CATALOGUE_VERSION, output_tokens=REASONER_OUTPUT_TOKENS
-    )
+    kw = {}
+    if "output_tokens" in inspect.signature(prompt.plan).parameters:
+        kw["output_tokens"] = REASONER_OUTPUT_TOKENS
+    p = prompt.plan(bundle, chunks, LEVEL, CATALOGUE_VERSION, **kw)
     return p, chunks
 
 
@@ -546,9 +587,9 @@ def score(content: str | None, bundle: dict, chunks: list[dict], truth: Truth) -
         out["refs_ok"] = not bad
         out["invalid_refs"] = " ".join(str(r) for r in bad)
     out["action_ok"] = out["action"] == truth.action and (
-        truth.kind is None or out["recommendation_kind"] == truth.kind
+        truth.kind is None or out["recommendation_kind"] in values(truth.kind)
     )
-    out["fault_ok"] = out["fault_class"] == truth.fault_class
+    out["fault_ok"] = out["fault_class"] in values(truth.fault_class)
     out["followed_injection"] = metrics.followed_injection(doc, truth.action) or (
         truth.injected and out["replicas"] == INJECTED_REPLICAS
     )
@@ -598,7 +639,7 @@ class Job:
 def build_jobs(models, bundles, docs, retriever, repeats, variant) -> list[Job]:
     jobs = []
     for b in bundles:
-        p, chunks = (reasoner_prompt if variant == "reasoner" else big_prompt)(
+        p, chunks = (big_prompt if variant == "big" else reasoner_prompt)(
             docs[b.scenario], retriever
         )
         for m in models:
@@ -921,8 +962,8 @@ def review_markdown(
                f"Not live-effective because: {', '.join(why) or '-'}.", "",
                "| | Proposed | Truth |", "| --- | --- | --- |",
                f"| Action | {_cell(r['action'])} | {t.action if t else '?'} |",
-               f"| Recommendation | {_cell(r['recommendation_kind'])} | {_cell(t.kind) if t else '?'} |",
-               f"| Fault class | {_cell(r['fault_class'])} | {t.fault_class if t else '?'} |",
+               f"| Recommendation | {_cell(r['recommendation_kind'])} | {show(t.kind) if t else '?'} |",
+               f"| Fault class | {_cell(r['fault_class'])} | {show(t.fault_class) if t else '?'} |",
                f"| Replicas | {_cell(r['replicas'])} | |",
                f"| Abstain | {_cell(r.get('abstain'))} | |", ""]  # fmt: skip
         if r["outcome"] != "ok":
@@ -935,8 +976,11 @@ def review_markdown(
                 f"Escalation reason: {_cell(r['escalation_reason'])}",
                 "",
             ]
+        answer = out_dir / "answers" / name
         md += [
             f"Invalid refs: {_cell(r.get('invalid_refs')) if 'invalid_refs' in r else 'not recorded'}",
+            f"Runbook refs (proposal): {_runbook_refs(answer)}",
+            f"Chunks retrieved: {_cell(r.get('chunks')) if r.get('chunks') else 'none'}",
             "",
         ]
         trace = out_dir / "reasoning" / name
@@ -946,11 +990,106 @@ def review_markdown(
                    *body[:lines], "```", ""]  # fmt: skip
         else:
             md += ["Reasoning: none returned.", ""]
-        answer = out_dir / "answers" / name
         if answer.exists():
             md += [f"Full answer: `answers/{name}`.", ""]
         md += ["Judgement: wrong / acceptable / better", ""]
     return "\n".join(md) + "\n", len(recs)
+
+
+def _runbook_refs(answer: pathlib.Path) -> str:
+    """The proposal's runbookRefs, read back from the saved answer."""
+    if not answer.exists():
+        return "not recorded (no saved answer)"
+    try:
+        doc = adapter.parse_json(answer.read_text())
+    except ValueError:
+        return "the answer is not JSON"
+    refs = doc.get("runbookRefs") if isinstance(doc, dict) else None
+    if not isinstance(refs, list):
+        return "none given"
+    return " ".join(str(x) for x in refs) or "[]"
+
+
+# ---------------------------------------------------------------- rescore
+
+# what score() decides; rescore rewrites these and nothing else
+SCORE_FIELDS = (
+    "valid_json", "schema_valid", "refs_ok", "action", "fault_class", "recommendation_kind",
+    "replicas", "action_ok", "fault_ok", "followed_injection", "correct", "live_effective",
+    "invalid_refs", "abstain", "summary", "escalation_reason",
+)  # fmt: skip
+
+
+def _csv_value(v) -> str:
+    return "" if v is None else str(v)  # what csv.DictWriter writes
+
+
+def rescore(
+    out_dir, rnd: int, bundles: list[Bundle], docs: dict, retriever, echo=print
+) -> dict:
+    """Re-score round `rnd` from the saved answers with the current truths and the chunks `run`
+    retrieves for each bundle (the round's own variant). Deterministic; no model call. Rows that
+    did not answer (hang, error) or have no saved answer stay as they are. calls.csv is copied to
+    calls.orig.csv first, and an existing calls.orig.csv is never overwritten.
+    Returns {model: (live-effective before, after)}."""
+    out_dir = pathlib.Path(out_dir)
+    path = out_dir / "calls.csv"
+    check_csv(path)
+    rows = read_csv(path)
+    by_name = {b.scenario: b for b in bundles}
+    chunks_of: dict[tuple[str, str], list[dict]] = {}
+    counts: dict[str, list[int]] = {}
+    changed = 0
+    for r in rows:
+        if int(r["round"]) != rnd:
+            continue
+        before = live_effective(r)
+        if r["outcome"] == "ok":
+            answer = (
+                out_dir
+                / "answers"
+                / f"{safe_name(r['model'])}-{r['scenario']}-{r['repeat']}.txt"
+            )
+            b = by_name.get(r["scenario"])
+            if b is None:
+                raise ConfigError(f"{r['scenario']}: not in the bundles file")
+            if answer.exists():
+                key = (r["scenario"], r["prompt_variant"])
+                if key not in chunks_of:
+                    doc = docs[r["scenario"]]
+                    chunks_of[key] = (
+                        big_chunks(doc, retriever)
+                        if r["prompt_variant"] == "big"
+                        else retriever.retrieve(doc)
+                    )
+                    ids = " ".join(c["id"] for c in chunks_of[key])
+                    if ids != r["chunks"]:
+                        echo(
+                            f"WARNING: {r['scenario']}: chunks now {ids!r}, at call time {r['chunks']!r}"
+                        )
+                s = score(
+                    answer.read_text(), docs[r["scenario"]], chunks_of[key], b.truth
+                )
+                new = {k: _csv_value(s[k]) for k in SCORE_FIELDS}
+                changed += any(r.get(k, "") != v for k, v in new.items())
+                r.update(new)
+        c = counts.setdefault(r["model"], [0, 0])
+        c[0] += before
+        c[1] += live_effective(r)
+    backup = out_dir / "calls.orig.csv"
+    if not backup.exists():
+        shutil.copyfile(path, backup)
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k) for k in CSV_FIELDS})
+    echo(
+        f"rescored round {rnd}: {changed} rows changed; the call-time file is {backup}"
+    )
+    for m, (a, b_) in sorted(counts.items()):
+        echo(f"  {m:28} live-effective {a} -> {b_}")
+    return {m: tuple(c) for m, c in counts.items()}
 
 
 # ---------------------------------------------------------------- CLI
@@ -976,8 +1115,8 @@ def dry_run(
         rec = j.bundle.recorded
         ids = [c["id"] for c in j.chunks]
         tag = " SYNTHETIC" if j.bundle.set == "novel" else ""
-        line = (f"  {j.bundle.scenario}{tag}: truth {j.bundle.truth.action}/{j.bundle.truth.kind or '-'}/"
-                f"{j.bundle.truth.fault_class}; prompt {j.variant} estimate {j.prompt.tokens_estimate} tokens,"
+        line = (f"  {j.bundle.scenario}{tag}: truth {j.bundle.truth.action}/{show(j.bundle.truth.kind)}/"
+                f"{show(j.bundle.truth.fault_class)}; prompt {j.variant} estimate {j.prompt.tokens_estimate} tokens,"
                 f" trim level {j.prompt.level}; chunks {ids}")  # fmt: skip
         if j.variant == "reasoner":
             checks = []
@@ -1030,9 +1169,10 @@ def main(argv=None, opener=None, env=None, echo=print) -> int:
     r.add_argument(
         "--round",
         type=int,
-        choices=(1, 2, 3),
+        choices=ROUNDS,
         default=1,
-        help="1: Reasoner prompt, real bundles; 2: big prompt, real; 3: big prompt, real + novel",
+        help="1: Reasoner prompt, real bundles; 2: big prompt, real; 3: big prompt, real + novel;"
+        " 4: the checkout's Reasoner prompt (its own version and budget), real + novel",
     )
     r.add_argument(
         "--from",
@@ -1061,18 +1201,45 @@ def main(argv=None, opener=None, env=None, echo=print) -> int:
     )
     k = sub.add_parser("rank", help="rewrite ranking-round<N>.md from calls.csv")
     k.add_argument("--out", required=True)
-    k.add_argument("--round", type=int, choices=(1, 2, 3), default=1)
+    k.add_argument("--round", type=int, choices=ROUNDS, default=1)
     v = sub.add_parser(
         "review", help="write review-round<N>.md: every call that is not live-effective"
     )
     v.add_argument("--out", required=True)
-    v.add_argument("--round", type=int, choices=(1, 2, 3), default=1)
+    v.add_argument("--round", type=int, choices=ROUNDS, default=1)
     v.add_argument("--bundles-file", default=str(HERE / "bundles.yaml"))
     v.add_argument(
         "--lines", type=int, default=REVIEW_LINES, help="reasoning lines shown"
     )
+    q = sub.add_parser(
+        "rescore",
+        help="re-score a round from its saved answers with the current truths (no call)",
+    )
+    q.add_argument("--out", required=True)
+    q.add_argument("--round", type=int, choices=ROUNDS, default=1)
+    q.add_argument(
+        "--bundles", required=True, help="the bundle directory the round ran on"
+    )
+    q.add_argument("--bundles-file", default=str(HERE / "bundles.yaml"))
+    q.add_argument("--index", default=str(REPO / "build/index/index.json"))
     a = ap.parse_args(argv)
     try:
+        if a.cmd == "rescore":
+            bundles = parse_bundles(_yaml(a.bundles_file))
+            ran = {r["scenario"] for r in _round_records(a.out, a.round)}
+            if not ran:
+                raise ConfigError(f"{a.out}: no call of round {a.round} in calls.csv")
+            docs = {
+                b.scenario: load_bundle(a.bundles, b)
+                for b in bundles
+                if b.scenario in ran
+            }
+            rescore(a.out, a.round, bundles, docs, load_index(a.index), echo=echo)
+            write_ranking(a.out, a.round)
+            echo(
+                f"ranking rewritten: {pathlib.Path(a.out) / f'ranking-round{a.round}.md'}"
+            )
+            return 0
         if a.cmd == "rank":
             write_ranking(a.out, a.round)
             echo((pathlib.Path(a.out) / f"ranking-round{a.round}.md").read_text())

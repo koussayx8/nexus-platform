@@ -54,6 +54,15 @@ models:
     name: gemma-4-31b
     model: google/gemma-4-31b-it
     preview: false
+  # the same model with its reasoning on: on NIM, gemma-4-31b-it's thinking is off by default
+  - <<: *nim
+    name: gemma-4-31b-think
+    model: google/gemma-4-31b-it
+    preview: false
+    max_tokens: 16384
+    timeout_s: 300
+    extra:
+      chat_template_kwargs: {enable_thinking: true}
 
   # preview: backup only
   - <<: *nim
