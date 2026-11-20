@@ -73,6 +73,7 @@ class FakeCluster(FakeApi):
         self.deployments_missing = False
         self.logs_current: dict[str, str] = {}
         self.logs_previous: dict[str, str] = {}
+        self.log_reads: list[tuple] = []  # (pod, previous, tail, since_seconds)
 
     def _new_pod(self, ready: bool) -> dict:
         self.n_pod += 1
@@ -149,7 +150,8 @@ class FakeCluster(FakeApi):
     async def get_application(self, name):
         return copy.deepcopy(self.application)
 
-    async def pod_log(self, namespace, pod, *, previous, tail):
+    async def pod_log(self, namespace, pod, *, previous, tail, since_seconds=None):
+        self.log_reads.append((pod, previous, tail, since_seconds))
         return (self.logs_previous if previous else self.logs_current).get(pod)
 
     async def get_scale(self, namespace, name):
