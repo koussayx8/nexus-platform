@@ -34,7 +34,8 @@ bundles:
     source: ~/nexus-evidence/block5-2026-11-19/S5-RECORD.md
     # Corrected after round 3: either kind. This bundle retrieves no runbook chunk: the BM25 query
     # adds up to ten log tokens, but only error-type words (containing error, fail, refused, timeout,
-    # denied or oom; bm25.build_query), and the DNS and TLS words match none of them. So the model
+    # denied or oom; bm25.build_query): generic words such as error or failed get in, the DNS and TLS
+    # words (name resolution, certificate, expired) do not. So the model
     # cannot know which of the two escalate-for-investigation kinds a runbook would name; both send
     # the same thing to a human.
     truth: {action: escalate, kind: [dependency_investigation, investigate], fault_class: dependency_failure}
