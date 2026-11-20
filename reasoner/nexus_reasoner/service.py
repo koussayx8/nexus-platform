@@ -180,7 +180,7 @@ class Reasoner:
                 chunks,
                 level,
                 str(ctx.get("catalogueVersion", "")),
-                output_tokens=self.cfg.max_output_tokens,
+                output_tokens=entry.max_output_tokens,  # the model's own cap (prompt/v3)
             )
         except (
             prompt.TooLarge
