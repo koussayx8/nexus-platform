@@ -1,6 +1,8 @@
 """Safety Gate stages 1-7 (spec §9, D11): advisory checks in fixed order.
 
-Stage 8 (approval and revalidation) and everything at L2 are M3. Stages 9-11 (RBAC, Kyverno,
+Stage 8 (approval validation) is approval.py; at L2 this gate runs stages 4-6 before
+AwaitingApproval and 1-7 again once an approval is valid (the dry-run waits for the approval,
+because K3 refuses the request without one). Stages 9-11 (RBAC, Kyverno,
 PDB) are not here: they are the Trusted Enforcement Plane, and this gate only previews them with
 the stage-7 dry-run. Every stage here is a convenience that fails early with a clear reason; none
 is the reason a request is safe. With advisoryChecks off, stages 2-7 are skipped and recorded as
@@ -26,6 +28,7 @@ from .mutations import Mutations
 from .recorder import ActRecorder, RecorderUnavailable
 
 GATE_TIMEOUT_S = 30
+DETAIL_MAX = 300  # status.gate.detail; the gate_decisions row keeps the same text
 
 ESCALATING = frozenset({"circuit_open", "remediation_induced", "gate_timeout"})
 
@@ -53,13 +56,18 @@ class GateResult:
         return "Escalated" if self.reason in ESCALATING else "Blocked"
 
     def status(self) -> dict:
-        """status.gate, as §8 shows it."""
-        return {
+        """status.gate, as §8 shows it, plus the failing stage's detail text (cut to DETAIL_MAX
+        characters), so the Incident says which check refused it; the Flight Recorder's
+        gate_decisions row keeps the same text."""
+        out = {
             "verdict": "allowed" if self.passed else "denied",
             "firstFailingStage": "none" if self.passed else self.stage,
             "reason": self.reason,
             "dryRun": "allowed" if self.passed else "not_reached",
         }
+        if not self.passed and self.detail:
+            out["detail"] = self.detail[:DETAIL_MAX]
+        return out
 
 
 def rollout_in_progress(deployment: dict) -> bool:
@@ -121,20 +129,25 @@ class Gate:
         self.epoch = breaker_epoch
         self.clock = clock or (lambda: datetime.datetime.now(datetime.timezone.utc))
 
-    async def run(self, incident: dict, doc: dict, upto: int = 7) -> GateResult:
+    async def run(
+        self, incident: dict, doc: dict, upto: int = 7, level: int = 3
+    ) -> GateResult:
         """Stages 1..upto for one proposal/v1 document, bounded by the 30 s gate timeout.
 
-        upto=3 is for a namespace below L3, where nothing executes: the proposal is still
-        validated before it is recommended or handed off.
+        upto=3 is for a namespace below L2, where nothing executes: the proposal is still
+        validated before it is recommended or handed off. level is the namespace level the
+        stage-4 pre-check expects: 3 to act, 2 to ask for approval.
         """
         try:
             return await asyncio.wait_for(
-                self._run(incident, doc, upto), GATE_TIMEOUT_S
+                self._run(incident, doc, upto, level), GATE_TIMEOUT_S
             )
         except TimeoutError:
             return GateResult(False, "gate_timeout", None, "gate exceeded 30 s")
 
-    async def _run(self, incident: dict, doc: dict, upto: int) -> GateResult:
+    async def _run(
+        self, incident: dict, doc: dict, upto: int, level: int = 3
+    ) -> GateResult:
         res = GateResult(True)
 
         def fail(stage: int, reason: str, detail: str) -> GateResult:
@@ -202,8 +215,10 @@ class Gate:
             .get("labels", {})
             .get("nexus.io/autonomy-level")
         )
-        if label != "3":
-            return fail(4, "autonomy_denied", f"namespace level is {label!r}, L3 acts")
+        if label != str(level):
+            return fail(
+                4, "autonomy_denied", f"namespace level is {label!r}, L{level} expected"
+            )
         res.decisions.append(Decision(4, "pass"))
         # 5  kill switch, breaker, cool-down
         try:
@@ -236,6 +251,11 @@ class Gate:
         if action["id"] == "scale_deployment" and params["replicas"] == have:
             return fail(6, "precondition_failed", f"already at {have} replicas")
         res.decisions.append(Decision(6, "pass"))
+        if (
+            upto < 7
+        ):  # L2 before approval: K3 would refuse the dry-run, so stage 8 sends it
+            res.decisions.append(Decision(7, "skipped", "awaiting approval"))
+            return res
         # 7  server-side dry-run of the exact request
         try:
             if action["id"] == "scale_deployment":

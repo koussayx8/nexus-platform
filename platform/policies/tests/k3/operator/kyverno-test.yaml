@@ -83,6 +83,12 @@ results:
   kind: Scale
   result: skip
 - policy: nexus-l2-approval
+  rule: scale-needs-approval
+  resources:
+  - scale-back-to-previous
+  kind: Scale
+  result: fail
+- policy: nexus-l2-approval
   rule: eviction-needs-approval
   resources:
   - evict-ok-6d9f7c8b5-x2k4q

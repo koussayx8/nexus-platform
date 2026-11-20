@@ -59,9 +59,44 @@ class IndexTest(unittest.TestCase):
             (Path(__file__).parent / "fixtures" / "evidence-v1.1-raw.json").read_text()
         )
         q = bm25.build_query(raw)  # lastTermination is a string in evidence/v1
-        for tok in ("nexuslatencyanomaly", "oomkilled", "unhealthy", "latencyp95"):
+        for tok in ("nexuslatencyanomaly", "oomkilled", "unhealthy"):
             self.assertIn(tok, q)
         self.assertNotIn("cpu", q)  # Z 0.4: not anomalous
+        self.assertNotIn("latencyp95", q)  # an evidence field name is no query word
+
+    def test_a_null_zscore_adds_no_token_and_does_not_raise(self):
+        # 2026-11-07T07:19:39Z: latencyP95 was null; later in a hang p95 and the error ratio are too.
+        z = {"cpu": -6.77, "latencyP95": None, "errorRatio": None, "requestRate": -62.1, "inflight": 80.0}  # fmt: skip
+        q = bm25.build_query(bundle(metrics={"zscores": z}))
+        # The CPU drop adds nothing; the rate drop and the in-flight rise add their runbook words.
+        self.assertEqual(q, ["completed", "drops", "flight"])
+
+    def test_only_numbers_count_as_zscores(self):
+        z = {"cpu": True, "latencyP95": "9", "errorRatio": float("nan"), "requestRate": 3.0, "inflight": 3.01}  # fmt: skip
+        self.assertEqual(bm25.build_query(bundle(metrics={"zscores": z})), ["flight"])
+
+    def test_metric_words_follow_the_sign(self):
+        # ADR-039 addendum: words from the runbooks' vocabulary, by direction; |Z| <= 3 adds nothing.
+        cases = {
+            ("cpu", 5.0): ["cpu"], ("cpu", -6.8): [],
+            ("inflight", 80.0): ["flight"], ("inflight", -4.0): [],
+            ("requestRate", 4.2): ["rise"], ("requestRate", -57.0): ["completed", "drops"],
+            ("latencyP95", 5.1): [], ("latencyP95", -4.0): [],
+            ("errorRatio", 5.5): [], ("errorRatio", -4.0): [],
+            ("cpu", 3.0): [], ("requestRate", -3.0): [],
+            ("somethingNew", 9.0): [],  # a metric not in METRIC_TERMS adds nothing
+        }  # fmt: skip
+        for (name, z), want in cases.items():
+            self.assertEqual(
+                bm25.build_query(bundle(metrics={"zscores": {name: z}})),
+                want,
+                (name, z),
+            )
+
+    def test_a_bundle_with_null_zscores_still_retrieves(self):
+        hang = bundle(incident={"alerts": [{"name": "NexusLatencyAnomaly"}]},
+                      metrics={"zscores": {"latencyP95": None, "cpu": -6.77, "inflight": 80.0}})  # fmt: skip
+        self.assertEqual(self.top(hang)[0]["runbook"], "rb-gray-failure")
 
     def test_floor_gives_no_runbook(self):
         s5 = bundle(
@@ -118,6 +153,64 @@ class IndexTest(unittest.TestCase):
         self.assertEqual(
             [c["heading"] for c in cs], ["Symptoms", "Symptoms", "Decision"]
         )
+
+
+class DecisionExpansionTest(unittest.TestCase):
+    """ADR-043: after the top 3, the Decision chunk of the first 2 runbooks hit, marked expanded."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.idx = bm25.Index.from_dir(Path(__file__).resolve().parents[3] / "runbooks")
+
+    @staticmethod
+    def hit(cid, score):
+        return {"id": cid, "score": score, "runbook": cid.split("#")[0]}
+
+    def test_s3_hits_gain_the_bad_rollout_decision(self):
+        # status.reasoner.chunks of the 2026-11-19 S3 run: Symptoms only, no Decision.
+        hits = [self.hit("rb-bad-rollout#1", 9.0), self.hit("rb-image-pull#1", 5.0),
+                self.hit("rb-traffic-spike#1", 4.0)]  # fmt: skip
+        out = self.idx.expand_decisions(hits)
+        # the hits, their order and the top runbook unchanged
+        self.assertEqual(out[:3], hits)
+        self.assertEqual(
+            [(c["id"], c["score"], c["expanded"]) for c in out[3:]],
+            [("rb-bad-rollout#3", None, True), ("rb-image-pull#3", None, True)],
+        )
+        by_id = {c["id"]: c for c in self.idx.chunks}
+        self.assertEqual(by_id["rb-bad-rollout#3"]["heading"], "Decision")
+        self.assertIn("never restart", by_id["rb-bad-rollout#3"]["text"])
+        self.assertIn("git revert", by_id["rb-bad-rollout#3"]["text"])
+
+    def test_at_most_two_runbooks_in_rank_order(self):
+        hits = [self.hit("rb-traffic-spike#1", 9.0), self.hit("rb-traffic-spike#2", 8.0),
+                self.hit("rb-cpu-saturation#1", 7.0)]  # fmt: skip
+        out = self.idx.expand_decisions(hits)
+        self.assertEqual(
+            [c["id"] for c in out[3:]], ["rb-traffic-spike#3", "rb-cpu-saturation#3"]
+        )
+
+    def test_a_decision_already_hit_is_not_repeated(self):
+        hits = [self.hit("rb-bad-rollout#3", 9.0), self.hit("rb-bad-rollout#1", 8.0)]
+        self.assertEqual(self.idx.expand_decisions(hits), hits)
+
+    def test_no_hit_stays_no_runbook(self):
+        self.assertEqual(self.idx.expand_decisions([]), [])
+
+    def test_retrieve_and_top_k_unchanged(self):
+        self.assertEqual(bm25.TOP_K, 3)
+        q = bm25.tokenize("NexusRolloutStuck rollout")
+        hits = self.idx.retrieve(q, 0.0)
+        self.assertLessEqual(len(hits), 3)
+        self.assertTrue(all("expanded" not in h for h in hits))
+        self.assertLessEqual(len(self.idx.expand_decisions(hits)) - len(hits), 2)
+
+    def test_every_runbook_has_one_decision_chunk(self):
+        rbs = {c["runbook"] for c in self.idx.chunks}
+        dec = [
+            c for c in self.idx.chunks if c["heading"].lower() == bm25.DECISION_HEADING
+        ]
+        self.assertEqual(sorted(c["runbook"] for c in dec), sorted(rbs))
 
 
 if __name__ == "__main__":

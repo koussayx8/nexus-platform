@@ -1,5 +1,5 @@
 {
-  "_comment": "EXAMPLE of the `init --cells` file. The real targets, caps, tiers and clean baseline are fixed by the G16 pre-registration; these values only show the shape.",
+  "_comment": "EXAMPLE of the `init --cells` file. The real targets, caps, tiers and clean baseline are fixed by the G16 pre-registration; these values only show the shape. A load cell's users is Locust's total: 80 (ProdUser, fixed_count) + the nexus-dev rate. S2 = 220 (dev 140); S4/S6 = 80 + the calibrated dev rate, TBD (the 170 below is a placeholder).",
   "precheck": {
     "namespace": "nexus-dev",
     "cap_s": 1200,
@@ -40,6 +40,8 @@
       "scenario": "S4",
       "reasoner": "R1",
       "level": 3,
+      "users": 170,
+      "spawn_rate": 4,
       "tier": 1,
       "valid_target": 5,
       "max_attempts": 8

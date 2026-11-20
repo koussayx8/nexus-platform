@@ -9,6 +9,8 @@ on:
     branches: [main, dev]
     paths:
       - 'experiments/harness/**'
+      - 'experiments/faults/**'        # the committed S3 fault and its test
+      - 'experiments/bakeoff/**'       # the R3 model bake-off (offline tests, fake HTTP)
       - 'operator/nexus_operator/redact.py'
       - 'operator/nexus_operator/proposal.py'
       - 'operator/nexus_operator/catalogue.py'
@@ -31,6 +33,8 @@ on:
     branches: [main, dev]
     paths:
       - 'experiments/harness/**'
+      - 'experiments/faults/**'        # the committed S3 fault and its test
+      - 'experiments/bakeoff/**'       # the R3 model bake-off (offline tests, fake HTTP)
       - 'operator/nexus_operator/redact.py'
       - 'operator/nexus_operator/proposal.py'
       - 'operator/nexus_operator/catalogue.py'
@@ -68,12 +72,19 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install ruff==0.16.9
-      - run: ruff check experiments/harness experiments/analysis scripts/reconcile-audit.py scripts/export-results.py
-      - run: ruff format --check experiments/harness experiments/analysis scripts/reconcile-audit.py scripts/export-results.py
+      - run: ruff check experiments/harness experiments/analysis experiments/bakeoff scripts/reconcile-audit.py scripts/export-results.py
+      - run: ruff format --check experiments/harness experiments/analysis experiments/bakeoff scripts/reconcile-audit.py scripts/export-results.py
       - name: Unit tests (offline, no cluster, no network)
         env:
           KUBECONFIG: /nonexistent
         run: python -m unittest discover -s experiments/harness/tests -t . -v
+      - name: Bake-off tests (offline, fake HTTP; PyYAML reads the two YAML files)
+        env:
+          KUBECONFIG: /nonexistent
+        run: |
+          set -euo pipefail
+          pip install pyyaml==6.0.3
+          python -m unittest discover -s experiments/bakeoff/tests -t . -v
       - name: make results on the committed fixture runs, twice, and compare (spec section 19, 25)
         run: |
           set -euo pipefail

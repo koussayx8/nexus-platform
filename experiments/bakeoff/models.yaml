@@ -1,0 +1,98 @@
+# Bake-off candidates (owner-editable). Keys are NEVER here: key_env names the environment
+# variable that holds the key; the tool reads it at call time and never prints or logs it.
+#
+# Per model:
+#   name            short label used in the CSV and the reasoning file names (default: model id)
+#   provider        nim | groq (both OpenAI-compatible /chat/completions)
+#   base_url        https://.../v1
+#   model           the provider's model id
+#   key_env         environment variable holding the key
+#   max_tokens      output budget for one call
+#   timeout_s       hard deadline for one call; past it the call counts as a hang
+#   preview         true: may be picked as a backup, never as the principal
+#   reference       true: the current R3, measured for comparison, never picked
+#   response_format none | json_object | json_schema (the proposal schema, as the Reasoner sends to Groq)
+#   max_tokens_field  body field for the budget (default max_tokens)
+#   min_interval_s  seconds between two starts of this model's calls (default 0)
+#   extra           merged into the request body as is (provider-specific options)
+#
+# Every NIM default uses response_format none: whether each NIM model accepts json_schema is
+# UNVERIFIED. The prompt itself asks for the JSON object, as the Reasoner's does.
+
+defaults:
+  max_tokens: 8192
+  timeout_s: 180
+  repeats: 2
+  requests_per_minute: 40    # overall, every model together
+
+nim: &nim
+  provider: nim
+  base_url: https://integrate.api.nvidia.com/v1
+  key_env: NVIDIA_API_KEY
+  max_tokens: 8192
+  timeout_s: 180
+  response_format: none
+
+models:
+  - <<: *nim
+    name: nemotron-3-ultra
+    model: nvidia/nemotron-3-ultra-550b-a55b
+    preview: false
+  - <<: *nim
+    name: mistral-large-4
+    model: mistralai/mistral-large-4-1t-a52b
+    preview: false
+  - <<: *nim
+    name: minimax-m3.1-flash
+    model: minimaxai/minimax-m3.1-flash
+    preview: false
+  - <<: *nim
+    name: kimi-k3.1-pro
+    model: moonshotai/kimi-k3.1-pro
+    preview: false
+  - <<: *nim
+    name: gemma-4-31b
+    model: google/gemma-4-31b-it
+    preview: false
+  # the same model with its reasoning on: on NIM, gemma-4-31b-it's thinking is off by default
+  - <<: *nim
+    name: gemma-4-31b-think
+    model: google/gemma-4-31b-it
+    preview: false
+    max_tokens: 16384
+    timeout_s: 300
+    extra:
+      chat_template_kwargs: {enable_thinking: true}
+
+  # preview: backup only
+  - <<: *nim
+    name: nemotron-3.5-super-vl
+    model: nvidia/nemotron-3.5-super-vl-120b-a12b
+    preview: true
+  - <<: *nim
+    name: step-5-preview
+    model: stepfun-ai/step-5-preview
+    preview: true
+
+  # hung 120 s in the owner's availability check
+  # - <<: *nim
+  #   name: glm-5.3-flash
+  #   model: z-ai/glm-5.3-flash
+  #   preview: false
+
+  # reference: today's R3, with the live Reasoner's settings except the bake-off budget
+  - name: gpt-oss-120b-groq
+    provider: groq
+    base_url: https://api.groq.com/openai/v1
+    model: openai/gpt-oss-120b
+    key_env: GROQ_API_KEY         # the name reasoner/k8s/configmap.yaml uses; edit if keys.env differs
+    max_tokens: 8192
+    max_tokens_field: max_completion_tokens
+    timeout_s: 180
+    min_interval_s: 35            # Groq free tier: 8,000 tokens a minute; ~4.5K a call (TASKS.md: >= 35 s apart)
+    response_format: json_schema
+    preview: false
+    reference: true
+    extra:
+      reasoning_effort: low
+      include_reasoning: true     # the live Reasoner sends false; true only returns the trace

@@ -124,11 +124,27 @@ def test_rollout_in_progress_fails_the_precondition():
 
 
 def test_restart_needs_two_ready_replicas():
+    # One desired replica, Ready and not rolling: the only state that reaches this check, since
+    # an unready pod of a 2-replica Deployment reads as a rollout first (next test).
+    rig = Rig(replicas=1)
+    rig.proposed(proposal_doc())
+    rig.run()
+    assert ended(rig) == ("Blocked", "precondition_failed")
+    gate = rig.status()["gate"]
+    assert gate["firstFailingStage"] == 6
+    assert gate["detail"] == "fewer than 2 Ready replicas"
+    assert rig.api.requests == []
+
+
+def test_an_unready_pod_of_two_reads_as_a_rollout_in_progress():
+    # availableReplicas (1) < updatedReplicas (2): rollout_in_progress fires before the Ready
+    # check. Still Blocked at stage 6, by the earlier branch.
     rig = Rig(replicas=2)
     rig.api.pods[0]["status"]["conditions"][0]["status"] = "False"
     rig.proposed(proposal_doc())
     rig.run()
     assert ended(rig) == ("Blocked", "precondition_failed")
+    assert rig.status()["gate"]["detail"] == "a rollout is in progress"
 
 
 def test_dry_run_denial_blocks_and_sends_only_the_dry_run():
@@ -191,12 +207,14 @@ def test_l1_still_validates_the_proposal():
     assert ended(rig) == ("Blocked", "bounds_exceeded")
 
 
-def test_l2_stays_escalated_and_sends_nothing():
+def test_l2_waits_for_approval_and_sends_nothing():
     rig = Rig(level="2")
     rig.proposed(proposal_doc(), level=2)
-    rig.run()
-    assert ended(rig) == ("Escalated", "autonomy_denied")
-    assert rig.api.requests == []
+    rig.run(ticks=10)
+    st = rig.status()
+    assert st["phase"] == "AwaitingApproval"
+    assert st["gate"]["verdict"] == "requires_approval"
+    assert rig.api.requests == []  # not even the dry-run: K3 would refuse it unapproved
 
 
 def test_escalate_and_no_action_and_abstain():
@@ -527,7 +545,7 @@ def test_restart_is_verified_after_sixty_stable_seconds():
     assert rig.status()["phase"] == "Verifying"
     rig.tick(seconds=40)
     assert ended(rig) == ("Resolved", "remediation_verified")
-    assert rig.rec.verifications[("uid-inc", "restart_v1")][0] == "met"
+    assert rig.rec.verifications[("uid-inc", "restart_v2")][0] == "met"
 
 
 def test_a_new_container_restart_resets_the_restart_hold():
@@ -739,3 +757,47 @@ def test_the_placeholder_recorder_means_nothing_is_ever_sent():
     rig.run()
     assert rig.api.mutations() == []
     assert rig.api.replicas == 2
+
+
+# ---- status.gate.detail (Block 5 finding (b)): the Incident says which check refused it ----
+
+
+def test_the_rollout_branch_is_named_on_the_incident():
+    # S3 (2026-11-19): Blocked at stage 6 with no word of which of its checks failed.
+    rig = Rig()
+    rig.api.rolling = True
+    rig.proposed(proposal_doc("restart_workload"))
+    rig.run()
+    gate = rig.status()["gate"]
+    assert (gate["firstFailingStage"], gate["reason"]) == (6, "precondition_failed")
+    assert gate["detail"] == "a rollout is in progress"
+
+
+def test_the_kill_switch_state_is_named_on_the_incident():
+    rig = Rig(killswitch={"data": {"state": "halted"}})
+    rig.proposed(proposal_doc())
+    rig.run()
+    assert rig.status()["gate"]["detail"] == "kill switch is halted"
+
+
+def test_a_bounds_failure_names_the_value():
+    rig = Rig()
+    rig.proposed(proposal_doc("scale_deployment", 6))
+    rig.run()
+    assert rig.status()["gate"]["detail"] == "replicas 6 outside [1, 5]"
+
+
+def test_a_passed_gate_has_no_detail():
+    rig = Rig()
+    rig.proposed(proposal_doc("scale_deployment", 3))
+    rig.run(ticks=1)
+    gate = rig.status()["gate"]
+    assert gate["verdict"] == "allowed" and "detail" not in gate
+
+
+def test_the_detail_is_cut_to_its_maximum():
+    from nexus_operator.gate import DETAIL_MAX, GateResult
+
+    st = GateResult(False, "dry_run_denied", 7, "x" * 5000).status()
+    assert st["detail"] == "x" * DETAIL_MAX
+    assert "detail" not in GateResult(False, "killswitch", 5, "").status()

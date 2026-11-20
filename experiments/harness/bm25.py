@@ -5,6 +5,7 @@ Ingestion: strip Markdown syntax, keep Kubernetes tokens (CrashLoopBackOff, OOMK
 whole, chunk at second-level headings, never splitting Decision or Action sections.
 Chunk id `rb-<id>#<n>`. The index carries a SHA-256 corpus hash. Retrieval returns the
 top 3 above a score floor, ties broken by chunk id; no hit above the floor is `no_runbook`.
+expand_decisions() then adds the Decision chunk of the first 2 runbooks hit (ADR-043).
 
 The query is built from evidence fields only, never from text a model wrote.
 """
@@ -21,6 +22,9 @@ from pathlib import Path
 K1 = 1.5
 B = 0.75
 TOP_K = 3
+# Decision expansion (ADR-043): after the top 3, the Decision chunk of the first 2 runbooks hit.
+EXPAND_RUNBOOKS = 2
+DECISION_HEADING = "decision"
 MAX_CHUNK_TOKENS = 200  # "about"; Decision and Action sections are never split.
 NEVER_SPLIT = ("decision", "action")
 REQUIRED_FIELDS = (
@@ -232,11 +236,68 @@ class Index:
             if s >= floor and s > 0
         ]
 
+    def expand_decisions(self, hits: list[dict]) -> list[dict]:
+        """The hits, then the Decision chunk of each of the first EXPAND_RUNBOOKS distinct runbooks
+        among them (rank order) that the hits do not already hold, marked `expanded` with no score
+        (ADR-043). The hits keep their order, so the top chunk and its runbook are unchanged; no hit
+        adds nothing, so `no_runbook` stays `no_runbook`. A runbook with no Decision section adds
+        nothing."""
+        held = {h["id"] for h in hits}
+        runbooks: list[str] = []
+        for h in hits:
+            if h["runbook"] not in runbooks:
+                runbooks.append(h["runbook"])
+        extra = []
+        for rb in runbooks[:EXPAND_RUNBOOKS]:
+            for c in self.chunks:
+                if (
+                    c["runbook"] == rb
+                    and c["heading"].lower() == DECISION_HEADING
+                    and c["id"] not in held
+                ):
+                    extra.append(
+                        {"id": c["id"], "score": None, "runbook": rb, "expanded": True}
+                    )
+                    held.add(c["id"])
+        return list(hits) + extra
+
+
+# An anomalous metric (|Z| > 3) adds words from the runbooks' own vocabulary, chosen by the sign of
+# its Z-score (ADR-039 addendum, 2026-11-15). The evidence field names are no runbook word
+# (requestRate, inflight, latencyP95 and errorRatio never matched), and a sign-blind "cpu" made the
+# CPU *drop* of a full hang read as CPU saturation: the real S1 bundle (CPU Z -6.83, rate Z -57,
+# in-flight Z 80) ranked rb-cpu-saturation first, above the floor.
+#   cpu high          "cpu": only saturation raises it. A drop says nothing for any runbook.
+#   inflight high     "flight", as in rb-gray-failure's "the in-flight request count".
+#   requestRate high  "rise", as in rb-traffic-spike's "a rise in requests". Not "request rate":
+#                     rb-cpu-saturation has it too and would rise above the floor on a traffic step.
+#   requestRate low   "completed", "drops", as in rb-gray-failure's "the rate of completed requests
+#                     drops".
+#   latencyP95, errorRatio  no word in either direction: high latency is shared by rb-gray-failure
+#                     and rb-cpu-saturation, where CPU decides, and "error" pulls the queries that
+#                     have no runbook (q25-q27) toward rb-cert-expiry and rb-traffic-spike.
+# A metric not listed here adds nothing.
+METRIC_TERMS: dict[str, dict[str, tuple[str, ...]]] = {
+    "cpu": {"high": ("cpu",), "low": ()},
+    "inflight": {"high": ("flight",), "low": ()},
+    "requestRate": {"high": ("rise",), "low": ("completed", "drops")},
+    "latencyP95": {"high": (), "low": ()},
+    "errorRatio": {"high": (), "low": ()},
+}
+
+
+def metric_terms(name: str, z) -> list[str]:
+    """The query words for one Z-score: none unless it is a number beyond +-3 (a null is "no data",
+    never invented; a bool is not a number), then the words for its metric and direction."""
+    if not isinstance(z, int | float) or isinstance(z, bool) or not abs(z) > 3:
+        return []
+    return list(METRIC_TERMS.get(name, {}).get("high" if z > 0 else "low", ()))
+
 
 def build_query(bundle: dict) -> list[str]:
     """Query tokens from evidence fields only: alert names, waiting/termination reasons, event
-    reasons, up to ten log error tokens by frequency, anomalous metric names, rollout state.
-    No free text from a model is read."""
+    reasons, up to ten log error tokens by frequency, words for the anomalous metrics by direction
+    (METRIC_TERMS), rollout state. No free text from a model is read."""
     q: list[str] = []
     for a in bundle.get("incident", {}).get("alerts", []):
         q += tokenize(a["name"])
@@ -257,8 +318,9 @@ def build_query(bundle: dict) -> list[str]:
     )
     q += [t for t, _ in sorted(errs.items(), key=lambda x: (-x[1], x[0]))[:10]]
     for name, z in bundle.get("metrics", {}).get("zscores", {}).items():
-        if abs(z) > 3:
-            q += tokenize(name)
+        # A signal with no data is null in a real bundle (evidence.py: "null, never invented"),
+        # e.g. p95 once a hang lets no request complete. No value, no token.
+        q += metric_terms(name, z)
     if bundle.get("workload", {}).get("rolloutInProgress"):
         q += ["rollout"]
     return q

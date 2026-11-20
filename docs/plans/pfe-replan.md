@@ -121,6 +121,7 @@ Reported, not resolved here. The owner's decisions govern until spec v1.1.
 | X9 | "Quiet when healthy" is not a stated limitation in v1.0 | O5 makes it one |
 | X10 | C6 (K8sGPT, §20) is a required configuration; K8sGPT CLI is MUST (§22) | Owner 2026-11-04: C6 deferred, no experimental K8sGPT comparison; a theoretical study instead (ADR-037). Spec v1.1 records it |
 | X11 | §16 R1 rule 4: p95 latency Z > 3, CPU Z ≤ 1, all Ready, no rollout. §16 `evidence/v1` carries four Z-scores. §14 `proposals` is keyed by `proposal_hash` | Owner 2026-11-09, option A2 (ADR-039): rule 4 also fires on in-flight Z > 3 AND request-rate Z < −3, same guards; `evidence/v1.1` adds `metrics.zscores.inflight`; `proposals` is keyed by (`incident_uid`, `proposal_hash`); `rb-gray-failure` v2. Spec v1.1 records all three; `final-spec.md` changes at G17 |
+| X12 | §9 `restart_v1`: all replicas Ready within 180 s, triggering alert resolved, p95 back within baseline, no new restarts for 60 s. §7: Verifying timeout 180 s for a restart | Owner 2026-11-15 (ADR-039 addendum, #197 A2): `restart_v2` also requires every signal that was anomalous in the evidence bundle (in-flight, request rate, error ratio) back within its raw pre-fault baseline; unknown is not met. As a consequence the timeout becomes 300 s: the request rate is a 2 min rate. Spec v1.1 records both |
 
 ## Test policy (O7)
 

@@ -87,7 +87,7 @@ Design rules the diagram encodes:
 | **M0** — verify, stabilise, govern | Branch protection and required checks; the whole target state scripted from an empty node (`bootstrap.sh`) and asserted by `verify-state.sh`; ArgoCD, Kyverno, observability, `sample-api` in dev and prod | **Live** — [`v0.1.0`](CHANGELOG.md) |
 | **M1** — Dependency DB and `/items` | PostgreSQL `dependency-db`; `sample-api` `/items`, so that dependency failure (S5) is a gray failure: 5xx while readiness stays green | **Live** — [`v0.2.0`](CHANGELOG.md) |
 | **M1b** — detection and the operator skeleton | Z-score rules and four anomaly alerts; `sample-api` fault hooks; the Incident CRD; the `nexus` Application running the operator (Alert Poller, status-only reconciler, L0 → `Recorded`, L1–L3 → `Escalated`) | **In progress** — M1b-0 to M1b-8 live; M1b-9 (load calibration) and the S5 end-to-end demo remain, then `v0.3.0` |
-| **M2** — the operator acts | Mutation path through the Scale and Eviction subresources (RBAC grants none today), Safety Gate checks, autonomy level raised on `nexus-dev` | Planned |
+| **M2** — the operator acts | Mutation path through the Scale and Eviction subresources (granted in `nexus-dev` only), Safety Gate stages 1–7, the Flight Recorder with write-ahead intent rows and the `Audit-Id` join, `nexus-dev` at autonomy level 3 | **Exit run passed** 2026-11-11 ([record](docs/plans/m2-exit-record.md)); `v0.4.0` after promotion |
 | **M3** — enforcement plane | Kyverno policies K1–K6 in Enforce, NetworkPolicies, the L2 approval flow, image-signature admission (Audit first) | Planned |
 | **M4** — evaluation | Experiment Runner, reasoner arms, baselines, metrics and statistics | Planned |
 
@@ -204,7 +204,7 @@ demo: `NexusErrorRateAnomaly` fires for `nexus-dev` under baseline load and an I
 | --- | --- | --- |
 | **Reasoner isolation** | No Kubernetes credentials and no route to the API server; it can only return a proposal | Designed |
 | **Action Catalogue** | Four actions only. `restart_workload` and `scale_deployment` mutate; `escalate` and `no_action` do not. Rollback, config or limit changes, delete, exec, drain and Secret changes are not representable | Designed |
-| **RBAC** | The operator holds the minimum verbs; today it can create Incidents and write their status, and read what detection needs. Scale and eviction are granted only in M2 | **Live**, staged |
+| **RBAC** | The operator holds the minimum verbs; it can create Incidents and write their status, read what detection needs, and scale or evict in `nexus-dev` only. `nexus-prod` gets those rights in M3, with Kyverno | **Live**, staged |
 | **CRD validation** | CEL rules (C1–C4) reject invalid Incident transitions at the API server | **Live** |
 | **Kyverno admission** | K1–K6 deny operator mutations below the namespace's autonomy level, outside bounds, or without a matching approval | Kyverno installed; policies arrive in M3 |
 | **Autonomy levels** | `nexus.io/autonomy-level` on the Namespace, `0`–`3`, declared in Git; a missing label is L0 (fail closed). L0 observe, L1 recommend, L2 approval required, L3 restricted autonomous | **Live** as labels; enforced in M3 |

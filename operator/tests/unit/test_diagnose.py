@@ -170,7 +170,7 @@ def test_the_bundle_carries_the_spec_fields_and_limits():
     collector = EvidenceCollector(rig.api, rig.metrics, rig.clock)
     detected(rig)
     raw, baseline = rig.call(collector.collect(rig.inc()))
-    assert raw["schema"] == "evidence/v1.1"
+    assert raw["schema"] == "evidence/v1.2"
     assert set(raw["metrics"]["zscores"]) == {
         "cpu", "latencyP95", "errorRatio", "requestRate", "inflight"
     }  # fmt: skip
@@ -184,6 +184,12 @@ def test_the_bundle_carries_the_spec_fields_and_limits():
         "BackOff"
     }
     assert len(raw["logs"]["current"]) <= 200 * 3
+    # one row per pod read, in the order its lines were added
+    sources = raw["logs"]["sources"]
+    assert [s["pod"] for s in sources] == [p["name"] for p in raw["pods"][:3]]
+    for key in ("current", "previous"):
+        assert sum(s[key] for s in sources) == len(raw["logs"][key])
+        assert all(0 <= s[key] <= 200 for s in sources)
     assert raw["metrics"]["zscores"]["latencyP95"] == 4.0
     assert (
         raw["gitops"]["application"] == "sample-api-dev"
@@ -302,3 +308,19 @@ def test_the_leak_check_is_not_vacuous(monkeypatch):
     rig.run(ticks=3)
     blob = everything_stored(rig)
     assert any(secret in blob for secret in SECRETS)
+
+
+def test_every_log_read_is_limited_to_the_evidence_window():
+    """Block 5 finding (e): tailLines alone reached back hours on a quiet pod. Every read, current
+    and previous, asks for the last 200 lines written in the events' 15-minute window."""
+    from nexus_operator.evidence import EVENT_WINDOW, LOG_WINDOW, MAX_LOG_LINES
+
+    rig = Rig(collector=True, metrics=FakeMetrics(latencyP95=4.0))
+    rig.api.logs_current = {p["metadata"]["name"]: "line" for p in rig.api.pods}
+    collector = EvidenceCollector(rig.api, rig.metrics, rig.clock)
+    detected(rig)
+    rig.call(collector.collect(rig.inc()))
+    assert LOG_WINDOW == EVENT_WINDOW
+    reads = rig.api.log_reads
+    assert reads and {r[1] for r in reads} == {False, True}
+    assert {(r[2], r[3]) for r in reads} == {(MAX_LOG_LINES, 900)}

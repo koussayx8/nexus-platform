@@ -171,3 +171,19 @@ def test_the_deployment_mounts_only_the_writer_secret_at_the_configured_path():
     assert (
         pod["securityContext"]["fsGroup"] == 10001
     )  # the pod user can read the 0440 file
+
+
+def test_the_bootstrap_template_gives_the_r3_configs_their_300_s():
+    """ADR-045: the R3 configs take 300 s, so the template's reasonerTimeoutSeconds is 300 and
+    Diagnosing ends at 330 s (the value the owner applies by hand to the live ConfigMap)."""
+    [cm] = load("platform/bootstrap-templates/nexus-operator-config.yaml")
+    cfg = parse(cm)
+    assert (
+        cfg.reasoner_timeout_s,
+        cfg.reasoner_client_timeout_s,
+        cfg.diagnosing_timeout_s,
+    ) == (
+        300,
+        305,
+        330,
+    )

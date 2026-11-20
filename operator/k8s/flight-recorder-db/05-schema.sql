@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS proposals (
 -- volume that was initialised before: psql -f 05-schema.sql as the database owner.
 ALTER TABLE proposals ADD COLUMN IF NOT EXISTS request_id    text;
 ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reject_reason text;
+-- Added 2026-11-17 (Block 3, F-B): what one Reasoner call cost, on the row of that call (the
+-- Reasoner's proposal, or the failed attempt before an R1 fallback; never the R1 row):
+-- {"promptTokens", "completionTokens", "totalTokens", "latencyMs"}, each present when known.
+-- Additive and idempotent like the two above; the writer leaves it out until it exists.
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS usage         jsonb;
+-- Added 2026-11-20 (ADR-035 addendum C): the model's thinking trace (NIM reasoning_content), cut to
+-- 16,000 characters, on the row of that call. Untrusted model text, kept for the record only: never
+-- read for a decision. Additive and idempotent; the writer stores nothing (and warns once) until it
+-- exists.
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS reasoning     text;
 CREATE INDEX IF NOT EXISTS proposals_incident ON proposals (incident_uid);
 
 CREATE TABLE IF NOT EXISTS gate_decisions (

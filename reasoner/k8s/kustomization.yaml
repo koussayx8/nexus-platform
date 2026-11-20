@@ -1,6 +1,5 @@
-# The Reasoner's manifests (spec §16, §11; G9). NOT referenced by any ArgoCD Application: merged is
-# not deployed. The `nexus` Application (path operator/k8s) gains `reasoner/k8s` in M4, in its own
-# reviewed change; until then nothing synced contains these objects.
+# The Reasoner's manifests (spec §16, §11; G9). Deployed by the `nexus` Application: operator/k8s
+# includes this directory since Block 3. The objects set namespace nexus-reasoner themselves.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

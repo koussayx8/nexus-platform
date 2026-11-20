@@ -16,6 +16,9 @@
 # present (M17) and the Reasoner Ready with the expected index hash (M18). The default milestone is
 # m2, which runs M1-M15, M19 (nexus_operator_recorder_up = 1) and the informational I1.
 #
+# Every kubectl call names the cluster, `--context default`: the reads through k() (lib/readonly.sh),
+# the two port-forwards (M4, M10) and the audit probe (M7). None follows the kubeconfig's current context.
+#
 # Usage: scripts/verify-state.sh [--out PATH] [--milestone m2|m3]
 #   --out PATH        where the report is written (default: docs/CURRENT_STATE.md)
 #   --milestone M     m2 (default) runs M1-M15 and M19; m3 adds M16-M18 and needs
@@ -237,7 +240,7 @@ v_metrics_probe() {   # <namespace> — temporary port-forward, stopped after, t
   [[ -n $port ]] || { echo "$ns: no sample-api Service"; return 1; }
   lport=$(( 20000 + RANDOM % 20000 ))
   body=$(mktemp)
-  timeout 30 kubectl --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
+  timeout 30 kubectl --context default --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
   pid=$!
   trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' RETURN
   for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; curl -s -o /dev/null "http://127.0.0.1:$lport/metrics" && break; sleep 0.2; done
@@ -450,7 +453,7 @@ v_items_probe() {   # <namespace> — temporary port-forward, stopped after, tim
   [[ -n $port ]] || { echo "$ns: no sample-api Service"; return 1; }
   lport=$(( 20000 + RANDOM % 20000 ))
   body=$(mktemp)
-  timeout 30 kubectl --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
+  timeout 30 kubectl --context default --request-timeout=15s port-forward -n "$ns" svc/sample-api "$lport:$port" --address 127.0.0.1 >/dev/null 2>&1 &
   pid=$!
   trap '[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null' RETURN
   for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; curl -s -o /dev/null "http://127.0.0.1:$lport/health" && break; sleep 0.2; done
@@ -474,7 +477,7 @@ v_items_probe() {   # <namespace> — temporary port-forward, stopped after, tim
 v_fr_db() {
   local jf want ready
   jf=$(mktemp)
-  if ! k get statefulset flight-recorder-db -n nexus-system -o json --context default >"$jf" 2>/dev/null; then
+  if ! k get statefulset flight-recorder-db -n nexus-system -o json >"$jf" 2>/dev/null; then
     echo "nexus-system/flight-recorder-db: NOT FOUND"; rm -f "$jf"; return 1
   fi
   want=$(jq -r '.spec.replicas // 0' "$jf")
@@ -485,16 +488,34 @@ v_fr_db() {
 }
 
 # ---------------------------------------------------------------------------
-# M14. Staged RBAC (spec §11; M2): as the operator ServiceAccount, `auth can-i --list` shows scale
-# and eviction in nexus-dev and neither in nexus-prod or nexus-data. In the other two namespaces
-# any scale or eviction row, or a wildcard resource, fails. Verbs are the last bracket group of
-# each row.
+# M14. Staged RBAC (spec §11): as the operator ServiceAccount, `auth can-i --list` per namespace.
+# Verbs are the last bracket group of each row.
+#   m2: scale and eviction in nexus-dev; neither in nexus-prod or nexus-data.
+#   m3: platform/m3-live also binds the operator's nexus-prod grants (G8, plan D18), so scale and
+#       eviction are expected in nexus-dev and nexus-prod, guarded by K1 (nexus-autonomy-floor
+#       present, Ready, failurePolicy Fail, Enforce); still neither in nexus-data.
+# A namespace that must have no grant fails on any scale or eviction row; a wildcard resource fails
+# in nexus-prod and nexus-data.
 # ---------------------------------------------------------------------------
 OPERATOR_SA=system:serviceaccount:nexus-system:nexus-operator
 v_staged_rbac() {
-  local rc=0 ns list rows scale evict wild
+  local rc=0 ns list rows scale evict wild granted=" nexus-dev " k1
+  if [[ ${MILESTONE:-m2} == m3 ]]; then
+    granted=" nexus-dev nexus-prod "
+    if ! k1=$(k get clusterpolicy nexus-autonomy-floor -o json 2>/dev/null); then
+      echo "K1 nexus-autonomy-floor: NOT FOUND (the nexus-prod grants are unguarded)"; rc=1
+    else
+      k1=$(jq -r '
+        ((.spec.validationFailureAction // "Audit")) as $dflt
+        | [.spec.rules[]? | select(.validate != null) | (.validate.failureAction // $dflt)] as $acts
+        | ((.status.ready // false) or ([.status.conditions[]? | select(.type == "Ready" and .status == "True")] | length > 0)) as $ready
+        | "ready=\($ready) failurePolicy=\(.spec.failurePolicy // "-") ok=\($ready and (.spec.failurePolicy == "Fail") and ($acts | length > 0) and ($acts | all(. == "Enforce")))"' <<<"$k1")
+      echo "K1 nexus-autonomy-floor (guards the nexus-prod grants): $k1"
+      [[ $k1 == *"ok=true" ]] || rc=1
+    fi
+  fi
   for ns in nexus-dev nexus-prod nexus-data; do
-    if ! list=$(k auth can-i --list -n "$ns" --as="$OPERATOR_SA" --context default 2>&1); then
+    if ! list=$(k auth can-i --list -n "$ns" --as="$OPERATOR_SA" 2>&1); then
       echo "$ns: auth can-i --list failed"; rc=1; continue
     fi
     rows=$(awk 'NR>1 && NF {
@@ -504,8 +525,9 @@ v_staged_rbac() {
     evict=$(awk -F'\t' '$1 ~ /^pods\/eviction$/ {print $2}' <<<"$rows")
     wild=$(awk -F'\t' '$1 == "*" || $1 == "*.*" || $1 ~ /\/\*$/ {print $1}' <<<"$rows")
     echo "$ns: scale verbs=[${scale:--}] eviction verbs=[${evict:--}] wildcard resources=[${wild:--}]"
-    if [[ $ns == nexus-dev ]]; then
+    if [[ $granted == *" $ns "* ]]; then
       [[ " $scale " == *" patch "* && " $scale " == *" update "* && " $evict " == *" create "* ]] || rc=1
+      [[ $ns == nexus-dev || -z $wild ]] || rc=1
     else
       [[ -z $scale && -z $evict && -z $wild ]] || rc=1
     fi
@@ -533,7 +555,7 @@ v_rollout_strategy() {
   for pair in "nexus-dev experiment/dev-state" "nexus-prod main"; do
     read -r ns branch <<<"$pair"
     want=$(git_strategy "$branch")
-    got=$(k get deployment sample-api -n "$ns" -o json --context default 2>/dev/null \
+    got=$(k get deployment sample-api -n "$ns" -o json 2>/dev/null \
       | jq -r '.spec.strategy | select(. != null) | "\(.type) \(.rollingUpdate.maxSurge // "-") \(.rollingUpdate.maxUnavailable // "-")"')
     echo "$ns: Git (origin/$branch) = ${want:-NOT FOUND}; live = ${got:-NOT FOUND}"
     [[ -n $want && $want == "$got" ]] || rc=1
@@ -551,7 +573,7 @@ v_policies_enforce() {
   local rc=0 n pol line
   for n in "${!K_POLICIES[@]}"; do
     pol=${K_POLICIES[$n]}
-    if ! line=$(k get clusterpolicy "$pol" -o json --context default 2>/dev/null); then
+    if ! line=$(k get clusterpolicy "$pol" -o json 2>/dev/null); then
       echo "K$((n+1)) $pol: NOT FOUND"; rc=1; continue
     fi
     line=$(jq -r '
@@ -581,7 +603,7 @@ v_network_policies() {
   local rc=0 pair ns name missing=() present=0
   for pair in "${NETPOLS[@]}"; do
     read -r ns name <<<"$pair"
-    if k get networkpolicy "$name" -n "$ns" --context default >/dev/null 2>&1; then present=$((present+1)); else missing+=("$ns/$name"); fi
+    if k get networkpolicy "$name" -n "$ns" >/dev/null 2>&1; then present=$((present+1)); else missing+=("$ns/$name"); fi
   done
   echo "NetworkPolicies present: $present of ${#NETPOLS[@]}"
   if (( ${#missing[@]} )); then echo "missing: ${missing[*]}"; rc=1; fi
@@ -593,18 +615,25 @@ v_network_policies() {
 # through the API server's service proxy answers status=ready with corpusHash equal to
 # NEXUS_VERIFY_REASONER_INDEX_HASH (a bare 64-hex digest; an optional sha256: prefix is ignored on
 # both sides). Same probe as experiments/harness/precheck.py.
+#
+# The /healthz read does not go through k(): k() adds --request-timeout, which kubectl sends as
+# `?timeout=20s`; the service proxy passes the query string to the pod, and the Reasoner matches
+# its path exactly (reasoner/nexus_reasoner/service.py do_GET), so it answers 404 (Block 3,
+# 2026-11-17). The Reasoner image is frozen, so the probe changes: a fixed `get --raw`, bounded by
+# `timeout 45` instead, like the M7 probe.
 # ---------------------------------------------------------------------------
+REASONER_HEALTHZ=/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz
 v_reasoner() {
   local jf rc=0 want ready doc status got expected
   jf=$(mktemp)
-  if ! k get deployment nexus-reasoner -n nexus-reasoner -o json --context default >"$jf" 2>/dev/null; then
+  if ! k get deployment nexus-reasoner -n nexus-reasoner -o json >"$jf" 2>/dev/null; then
     echo "nexus-reasoner/nexus-reasoner: NOT FOUND"; rm -f "$jf"; return 1
   fi
   want=$(jq -r '.spec.replicas // 0' "$jf"); ready=$(jq -r '.status.readyReplicas // 0' "$jf")
   rm -f "$jf"
   echo "nexus-reasoner/nexus-reasoner: readyReplicas=$ready replicas=$want"
   [[ $want =~ ^[0-9]+$ && $ready =~ ^[0-9]+$ ]] && (( want > 0 && ready == want )) || rc=1
-  if ! doc=$(k get --raw "/api/v1/namespaces/nexus-reasoner/services/http:nexus-reasoner:8080/proxy/healthz" --context default 2>/dev/null); then
+  if ! doc=$(timeout 45 kubectl --context default get --raw "$REASONER_HEALTHZ" 2>/dev/null); then
     echo "/healthz: no answer through the service proxy"; return 1
   fi
   status=$(jq -r '.status // "-"' <<<"$doc" 2>/dev/null) || { echo "/healthz: unparsable"; return 1; }
@@ -624,7 +653,7 @@ v_reasoner() {
 # ---------------------------------------------------------------------------
 v_recorder_up() {
   local doc n v
-  if ! doc=$(k get --raw "/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up" --context default 2>/dev/null); then
+  if ! doc=$(k get --raw "/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/query?query=nexus_operator_recorder_up" 2>/dev/null); then
     echo "nexus_operator_recorder_up: no answer through the Prometheus service proxy"; return 1
   fi
   n=$(jq -r 'if .status == "success" then (.data.result | length) else "-" end' <<<"$doc" 2>/dev/null) \
@@ -669,7 +698,9 @@ verify M10 "sample-api /items reads the Dependency DB"   v_items
 verify M11 "Incident CRD: C1-C4, Prune=false,Delete=false" v_incident_crd
 verify M12 "NEXUS Operator Ready on its pinned digest"   v_operator
 verify M13 "Flight Recorder DB StatefulSet Ready"        v_fr_db
-verify M14 "Staged RBAC: scale and eviction in nexus-dev only" v_staged_rbac
+M14_DESC="Staged RBAC: scale and eviction in nexus-dev only"
+[[ $MILESTONE == m3 ]] && M14_DESC="Staged RBAC: scale and eviction in nexus-dev and nexus-prod (K1-guarded)"
+verify M14 "$M14_DESC" v_staged_rbac
 verify M15 "sample-api rollout strategy equals Git"      v_rollout_strategy
 verify M19 "Operator Flight Recorder link up (recorder_up = 1)" v_recorder_up
 if [[ $MILESTONE == m3 ]]; then

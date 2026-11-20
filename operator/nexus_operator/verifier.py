@@ -6,11 +6,19 @@ every check compares the RAW signal with the baseline recorded when the Incident
 (status.evidence.baseline), never an alert or a Z-score. A missing baseline or an unanswered
 query never verifies: unknown is "not met", and the criteria time out into compensation.
 
-  baseline = {"latencyP95": {"mean": s, "stddev": s}}     (seconds; from namespace:…_p95:2m)
-  within baseline  =  current p95 <= mean + 3 * max(stddev, 0.01)     (ε = 0.01 s, ADR-024)
+  baseline = {signal: {"mean": m, "stddev": s}} for latencyP95, inflight, errorRatio, requestRate
+  within baseline  =  current <= mean + 3 * max(stddev, ε), with ε the signal's own floor in the
+                      Z-score rules (ADR-024): p95 0.01 s, in-flight 1, error ratio 0.01,
+                      request rate 1/s. The request rate is two-sided (a drop is requests that
+                      do not complete, a rise is a spike that goes on): also >= mean - 3 * max(…).
 
-  restart_v1  every replica Ready within 180 s; then p95 within baseline and no new container
-              restarts for 60 s. (The spec's "triggering alert resolved" is not read: ADR-024.)
+  restart_v2  every replica Ready; then, for 60 s, no new container restart and every required
+              signal within baseline; all within 300 s. Required: p95 always, and each signal
+              whose Z-score in the evidence bundle was anomalous (Z > 3; |Z| > 3 for the
+              request rate) or missing: status.evidence.anomalous, written with the baseline.
+              When that list is absent every signal is required. (ADR-039 addendum 2026-11-15;
+              it replaces restart_v1, which read p95 only. The spec's "triggering alert
+              resolved" is not read: ADR-024.)
   scale_v1    new replicas Ready within 120 s; then CPU per pod below 70 % of the CPU limit and
               p95 within baseline for 2 consecutive minutes; all within 240 s.
 
@@ -29,12 +37,20 @@ from .kube import TRANSPORT_ERRORS, ApiError
 from .model import iso, parse_time
 
 EPSILON_S = 0.01
+Z_LIMIT = 3
 RESTART_STABLE_S = 60
 SCALE_READY_S = 120
 SCALE_STABLE_S = 120
 CPU_FRACTION = 0.7
 CPU_QUERY = "namespace:nexus_sample_api_cpu:rate2m"
 P95_QUERY = "namespace:nexus_sample_api_latency_p95:2m"
+# signal -> (its raw recording rule, ε, two-sided); the keys are evidence.BASELINES' keys
+SIGNALS: dict[str, tuple[str, float, bool]] = {
+    "latencyP95": (P95_QUERY, EPSILON_S, False),
+    "inflight": ("namespace:nexus_sample_api_inflight:sum", 1.0, False),
+    "errorRatio": ("namespace:nexus_sample_api_error_ratio:rate2m", 0.01, False),
+    "requestRate": ("namespace:nexus_sample_api_requests:rate2m", 1.0, True),
+}
 
 
 class Prometheus:
@@ -56,6 +72,20 @@ class Prometheus:
             return None
         value = float(result[0]["value"][1])
         return None if math.isnan(value) else value
+
+    async def vector(self, query: str) -> list[dict] | None:
+        """The label sets of an instant vector query (evidence/v1.2's active alerts), or None."""
+        async with self._session.get(
+            f"{self.url}/api/v1/query", params={"query": query}
+        ) as r:
+            body = await r.json()
+        if body.get("status") != "success":
+            return None
+        return [
+            x.get("metric") or {}
+            for x in (body.get("data") or {}).get("result") or []
+            if isinstance(x, dict)
+        ]
 
     async def close(self) -> None:
         await self._session.close()
@@ -82,16 +112,45 @@ def cpu_limit_cores(deployment: dict) -> float | None:
     return None
 
 
-def p95_within(baseline: dict | None, current: float | None) -> bool:
-    lat = (baseline or {}).get("latencyP95") or {}
-    mean, std = lat.get("mean"), lat.get("stddev")
-    if (
-        current is None
-        or not isinstance(mean, int | float)
-        or not isinstance(std, int | float)
-    ):
+def _number(v) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def within(baseline: dict | None, signal: str, current: float | None) -> bool:
+    """Is the raw value within its pre-fault baseline? Anything unknown is False."""
+    _, epsilon, two_sided = SIGNALS[signal]
+    recorded = (baseline or {}).get(signal)
+    recorded = recorded if isinstance(recorded, dict) else {}
+    mean, std = recorded.get("mean"), recorded.get("stddev")
+    if not (_number(current) and _number(mean) and _number(std)):
         return False
-    return current <= mean + 3 * max(std, EPSILON_S)
+    band = Z_LIMIT * max(std, epsilon)
+    return current <= mean + band and (not two_sided or current >= mean - band)
+
+
+def p95_within(baseline: dict | None, current: float | None) -> bool:
+    return within(baseline, "latencyP95", current)
+
+
+def anomalous(bundle: dict) -> list[str]:
+    """The signals whose Z-score in the evidence bundle was anomalous, or is missing (unknown
+    counts as anomalous): what restart_v2 must see back within baseline, besides p95."""
+    zscores = (bundle.get("metrics") or {}).get("zscores")
+    zscores = zscores if isinstance(zscores, dict) else {}
+    out = []
+    for signal, (_, _, two_sided) in SIGNALS.items():
+        z = zscores.get(signal)
+        if not _number(z) or z > Z_LIMIT or (two_sided and z < -Z_LIMIT):
+            out.append(signal)
+    return out
+
+
+def required_signals(evidence: dict | None) -> list[str]:
+    """p95 and the signals recorded as anomalous; all four when the record is absent."""
+    recorded = (evidence or {}).get("anomalous")
+    if not isinstance(recorded, list):
+        return list(SIGNALS)
+    return [s for s in SIGNALS if s == "latencyP95" or s in recorded]
 
 
 def _restarts(pods: list[dict]) -> int:
@@ -107,6 +166,14 @@ class Verifier:
         self.api = api
         self.metrics = metrics  # a Prometheus, or None when prometheusURL is unset
 
+    async def _raw(self, query: str, namespace: str) -> float | None:
+        if self.metrics is None:
+            return None
+        try:
+            return await self.metrics.scalar(query, namespace)
+        except (ApiError, *TRANSPORT_ERRORS):
+            return None
+
     async def check(
         self,
         criteria_id: str,
@@ -118,9 +185,8 @@ class Verifier:
     ) -> Verdict:
         target = incident["spec"]["target"]
         ns, name = target["namespace"], target["name"]
-        baseline = ((incident.get("status") or {}).get("evidence") or {}).get(
-            "baseline"
-        )
+        evidence = (incident.get("status") or {}).get("evidence") or {}
+        baseline = evidence.get("baseline")
         started = parse_time(state["startedAt"])
         elapsed = (now - started).total_seconds()
         next_state = dict(state)
@@ -142,20 +208,24 @@ class Verifier:
             and not rollout_in_progress(deployment)
         )
         obs["allReady"] = ready
-        p95 = None
-        if self.metrics is not None:
-            try:
-                p95 = await self.metrics.scalar(P95_QUERY, ns)
-            except (ApiError, *TRANSPORT_ERRORS):
-                p95 = None
+        signals = (
+            required_signals(evidence)
+            if criteria_id == "restart_v2"
+            else ["latencyP95"]
+        )
+        values = {s: await self._raw(SIGNALS[s][0], ns) for s in signals}
+        met = {s: within(baseline, s, values[s]) for s in signals}
         obs["p95"], obs["baselineP95"] = (
-            p95,
+            values["latencyP95"],
             ((baseline or {}).get("latencyP95") or {}).get("mean"),
         )
-        good = ready and p95_within(baseline, p95)
+        good = ready and all(met.values())
 
-        if criteria_id == "restart_v1":
+        if criteria_id == "restart_v2":
             hold = RESTART_STABLE_S
+            obs["signals"] = {
+                s: {"value": values[s], "within": met[s]} for s in signals
+            }
             restarts = _restarts(pods)
             obs["restarts"] = restarts
             if not good or restarts != state.get("restarts", restarts):

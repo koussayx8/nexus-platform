@@ -9,13 +9,19 @@ mutates). Without --execute the plan is printed and nothing runs. With --execute
 step runs through the injected `exec`. The cluster CLI is always called with the context
 named: `<cli> --context <CONTEXT> [-n <ns>] ...` (CLAUDE.md rule 12).
 
-  runner.py plan inject S1 --context C           print the steps
-  runner.py run  inject S1 --context C --execute
-  runner.py run  inject S1 --context C --namespace nexus-prod --execute   (level <= 1 only)
+  runner.py plan inject S1 --context C --level 3           print the steps
+  runner.py run  inject S1 --context C --level 3 --execute
+  runner.py run  inject S2 --context C --level 3 --locust URL --users N --spawn-rate R --execute
+  runner.py run  inject S1 --context C --level 1 --namespace nexus-prod --execute   (level <= 1 only)
+
+inject needs --level, the cell's autonomy level: the namespace label is read first and a fault is
+refused when it differs (a missing label is level 0). The level changes only through Git (reset).
   runner.py run  reset --level 3 --context C --git-dir DIR --execute
   runner.py run  refresh --context C --execute
-  runner.py gate --context C --namespace nexus-dev --locust URL --locust-users 160 \\
-      --locust-rate R --window 20m --config batch.json    read-only; exits 1 on any FAIL
+  python -m experiments.harness.runner gate --context C --namespace nexus-dev --locust URL \\
+      --locust-users 160 --locust-rate R --window 20m --config batch.json
+                                                 read-only; exits 1 on any FAIL. From the repository
+                                                 root, as a module: `runner.py gate` cannot import it
 
 Git is never force-pushed (ADR-013): reset is a forward commit on experiment/dev-state.
 Live behaviour is "live check pending": no cluster was available when this was written;
@@ -25,6 +31,7 @@ the tests run the plans against a fake `exec`.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import pathlib
 import re
@@ -43,13 +50,28 @@ INJECT_NAMESPACES = (NS_DEV, NS_PROD)
 PROD_MAX_LEVEL = 1  # nexus-prod takes a fault only at autonomy level 1 or lower
 NS_DATA = "nexus-data"
 NS_SYSTEM = "nexus-system"
-APPS = ("sample-api-dev", "dependency-db-dev")
+# The Applications a reset refreshes and waits for, by metadata.name in platform/argocd/applications/
+# (dependency-db has no -dev twin: one Application, tracking main).
+APPS = ("sample-api-dev", "dependency-db")
 BRANCH = "experiment/dev-state"
+S3_APP = "sample-api-dev"  # the Application that tracks BRANCH: S3's fault arrives through it
 LEVEL_LABEL = "nexus.io/autonomy-level"
 LEVEL_FILE = (
     "overlays/dev/namespace.yaml"  # the nexus-dev Namespace, tracked by sample-api-dev
 )
+# The files an S3 patch may touch: the sample-api workload files in overlays/dev/, never LEVEL_FILE.
+# The same set is C8's allow-list (libs/nexus-revert, check 4b): a revert of an S3 commit stays inside it.
+S3_ALLOWED = ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
+S3_PATCH = "experiments/faults/s3-bad-rollout.patch"  # the committed S3 fault
 APP_PORT = 8000
+# ProdUser's fixed_count in platform/load/locustfile.py: a spike's total minus this is nexus-dev's
+# rate (S2: 220 -> 140; S4/S6: 80 + the calibrated dev rate). A test reads the locustfile.
+PROD_USERS = 80
+# Locust's master answers /stop only when its user count is 0, and waits for its workers up to
+# stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
+LOCUST_STOP_TIMEOUT_S = 75
+# The nexus-operator-config keys that select the reasoner arm (operator/nexus_operator/config.py).
+REASONER_KEYS = ("reasonerEndpoint", "reasonerMode", "reasonerModel", "reasonerEffort")
 
 HANG_PY = (
     "import urllib.request as u;"
@@ -63,6 +85,40 @@ S5_ROLES = {
     "nexus-dev": "app_dev",
     "nexus-prod": "app_prod",
 }  # each namespace's own DB role
+
+
+def s3_patch_files(path: str) -> list[str]:
+    """The files an S3 patch touches, read from its `diff --git` headers. Refuses a patch that names
+    none, touches a file outside S3_ALLOWED (LEVEL_FILE in particular), or renames or copies one."""
+    try:
+        text = pathlib.Path(path).read_text()
+    except OSError as e:
+        raise ValueError(f"cannot read the S3 patch {path}: {e.strerror}") from None
+    files: list[str] = []
+    for line in text.splitlines():
+        if line.startswith(("rename ", "copy ")):
+            raise ValueError("the S3 patch may not rename or copy files")
+        m = re.fullmatch(r"diff --git a/(\S+) b/(\S+)", line)
+        if m:
+            if m[1] != m[2]:
+                raise ValueError("the S3 patch may not rename files")
+            files.append(m[1])
+    if not files:
+        raise ValueError(f"the S3 patch {path} names no file")
+    bad = [
+        f
+        for f in files
+        if f == LEVEL_FILE
+        or not any(
+            fnmatch.fnmatchcase(f, a) and f.count("/") == a.count("/")
+            for a in S3_ALLOWED
+        )
+    ]
+    if bad:
+        raise ValueError(
+            f"the S3 patch touches {', '.join(bad)}: only {', '.join(S3_ALLOWED)} are allowed"
+        )
+    return sorted(set(files))
 
 
 def s5_sql(namespace: str) -> str:
@@ -111,6 +167,10 @@ class Runner:
         self.git_dir = git_dir
         self.http_post = http_post or _post_form
         self.http_get = http_get or _get_text
+        # A GET that is a step: /stop answers only once the master counts no user (see below).
+        self.http_step_get = http_get or (
+            lambda url: _get_text(url, timeout=LOCUST_STOP_TIMEOUT_S)
+        )
 
     # ---------------------------------------------------------------- helpers
     def k(
@@ -148,11 +208,66 @@ class Runner:
                 f" (needs {PROD_MAX_LEVEL} or lower)"
             )
 
+    def require_level(self, level: int) -> str:
+        """Refuse a fault unless the target namespace carries the cell's autonomy level (boundary
+        review F1: a run reported at L2 that ran at L3 never passed through K3). Read-only. A
+        missing label is level 0, as the policies read it; an unreadable namespace refuses.
+        Returns the level read. The level itself changes only through Git (plan_reset)."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "get", "namespace", self.namespace, "-o",
+             "jsonpath={.metadata.labels.nexus\\.io/autonomy-level}"]
+        )  # fmt: skip
+        got = out.strip() or "0"
+        if rc != 0 or got != str(int(level)):
+            raise ValueError(
+                f"refusing to inject in {self.namespace}: autonomy level"
+                f" {got if rc == 0 else 'unreadable'!r}, the cell's level is {int(level)}"
+            )
+        return got
+
+    def head_revision(self) -> str:
+        """The commit the experiment clone's HEAD names (read-only): after an S3 injection, the
+        revision that was pushed."""
+        rc, out = self.exec(["git", "rev-parse", "HEAD"], cwd=self.git_dir)
+        rev = out.strip()
+        if rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", rev):
+            raise RuntimeError("cannot read the experiment clone's HEAD")
+        return rev
+
+    def applied_at(self, revision: str) -> str | None:
+        """When Argo CD finished applying `revision` to sample-api-dev (read-only): `deployedAt` of
+        the first status.history entry with that revision, as Argo CD wrote it. None while the
+        revision is not in the history, or when the Application cannot be read."""
+        rc, out = self.exec(
+            [CLI, "--context", self.context, "-n", "argocd", "get", "application"]
+            + [S3_APP, "-o", "json"]
+        )
+        try:
+            doc = json.loads(out) if rc == 0 else None
+        except ValueError:
+            doc = None
+        if not isinstance(doc, dict):
+            return None
+        for entry in (doc.get("status") or {}).get("history") or []:
+            if entry.get("revision") == revision and entry.get("deployedAt"):
+                return entry["deployedAt"]
+        return None
+
     # ---------------------------------------------------------------- plans
     def plan_inject(
-        self, scenario: str, s3_patch: str | None = None, users: int | None = None
+        self,
+        scenario: str,
+        s3_patch: str | None = None,
+        users: int | None = None,
+        spawn_rate: float | None = None,
+        level: int | None = None,
     ):
-        """Steps that start a fault. HTTP posts to Locust are Steps whose argv[0] is POST."""
+        """Steps that start a fault. HTTP calls to Locust are Steps whose argv[0] is POST or GET.
+        With `level` (the cell's autonomy level; the command line always gives it) the namespace's
+        label is read first and a mismatch refuses the fault (require_level).
+        A load scenario (S2, S4, S6) needs both the user count and the spawn rate: Locust 2.46.7
+        answers a /swarm without spawn_rate with HTTP 200 and {"success": false, "message": "Missing
+        or invalid user_count or spawn_rate from /swarm request"} (locust/web.py), and starts nothing."""
         sc = scenario.upper()
         if self.namespace == NS_PROD:
             if sc == "S3":
@@ -160,6 +275,8 @@ class Runner:
                     "S3 is a Git change to nexus-dev (experiment/dev-state); not for nexus-prod"
                 )
             self.require_prod_level()
+        if level is not None:
+            self.require_level(level)
         sample = "app.kubernetes.io/name=sample-api"
         if sc == "S1":
             return [
@@ -177,17 +294,30 @@ class Runner:
                 for p in self.pods(self.namespace, sample)
             ]
         if sc in ("S2", "S4", "S6"):
-            if not self.locust or users is None:
+            if not self.locust or users is None or spawn_rate is None:
                 raise ValueError(
-                    f"{sc} needs --locust URL and --users (from the calibrated capacity)"
+                    f"{sc} needs --locust URL, --users and --spawn-rate (from the calibrated capacity)"
                 )
-            steps = [
-                Step(
-                    ("POST", f"{self.locust}/swarm", f"user_count={users}"),
-                    True,
-                    f"{sc} load",
+            # users is Locust's total: ProdUser keeps PROD_USERS, the rest go to nexus-dev
+            if (
+                isinstance(users, bool)
+                or not isinstance(users, int)
+                or users <= PROD_USERS
+            ):
+                raise ValueError(
+                    f"{sc}: users is the total, {PROD_USERS} (ProdUser) + the nexus-dev rate; "
+                    f"it must be an integer above {PROD_USERS}"
                 )
-            ]
+            if (
+                isinstance(spawn_rate, bool)
+                or not isinstance(spawn_rate, int | float)
+                or not spawn_rate > 0
+            ):
+                raise ValueError(f"{sc}: spawn rate must be a positive number")
+            body = urllib.parse.urlencode(
+                [("user_count", users), ("spawn_rate", spawn_rate)]
+            )
+            steps = [Step(("POST", f"{self.locust}/swarm", body), True, f"{sc} load")]
             if sc == "S6":
                 steps += [
                     self.k(
@@ -206,11 +336,14 @@ class Runner:
         if sc == "S3":
             if not (self.git_dir and s3_patch):
                 raise ValueError("S3 needs --git-dir and --s3-patch")
+            # git runs in git_dir, so a relative patch path is read from there too
+            patch = str(pathlib.Path(self.git_dir) / s3_patch)
+            files = s3_patch_files(patch)
             return [
+                Step(("git", "apply", patch), True, "S3 bad config (fails readiness)"),
                 Step(
-                    ("git", "apply", s3_patch), True, "S3 bad config (fails readiness)"
+                    ("git", "add", "--", *files), True, "only the files the patch names"
                 ),
-                Step(("git", "add", "-A"), True),
                 Step(
                     ("git", "commit", "-m", "chore(exp): inject S3 bad rollout"), True
                 ),
@@ -228,6 +361,14 @@ class Runner:
             ]  # fmt: skip
         raise ValueError(f"unknown scenario {scenario}")
 
+    def swarm_step(self, b: dict, note: str = "") -> Step:
+        """POST /swarm with b = {users, spawn_rate, classes}: the exact baseline, one user_classes field per class."""
+        body = urllib.parse.urlencode(
+            [("user_count", b["users"]), ("spawn_rate", b["spawn_rate"])]
+            + [("user_classes", c) for c in b["classes"]]
+        )
+        return Step(("POST", f"{self.locust}/swarm", body), True, note)
+
     def plan_refresh(self):
         """ArgoCD hard refresh by annotation: no sync (selfHeal syncs by itself)."""
         return [
@@ -236,24 +377,36 @@ class Runner:
             for app in APPS
         ]  # fmt: skip
 
-    def plan_operator_config(self, advisory: str, breaker_epoch: int):
+    def plan_operator_config(
+        self, advisory: str, breaker_epoch: int, reasoner: dict | None = None
+    ):
         """Write advisoryChecks and breakerEpoch into the admin-owned ConfigMap, then restart the
         operator, which reads its configuration at startup (ADR-025). The ConfigMap is created by
         bootstrap, never by ArgoCD (template header), so this is not an ArgoCD-managed resource.
         advisoryChecks is "off" only in phase D (spec line 394); the caller decides, the batch driver
-        refuses "off" for any other cell."""
+        refuses "off" for any other cell.
+        `reasoner` is the run's arm as the operator reads it (ADR-035): all four of REASONER_KEYS,
+        as strings, in the same patch, so the operator restarts into that arm and nothing of the
+        previous run's arm stays. Without it the keys are left as they are."""
         if advisory not in ("on", "off"):
             raise ValueError(f"advisoryChecks must be on or off, not {advisory!r}")
         if not isinstance(breaker_epoch, int) or breaker_epoch < 0:
             raise ValueError(
                 "breakerEpoch must be a non-negative integer (Unix seconds)"
             )
-        patch = json.dumps(
-            {"data": {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}}
-        )
+        data = {"advisoryChecks": advisory, "breakerEpoch": str(breaker_epoch)}
+        note = f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"
+        if reasoner is not None:
+            if set(reasoner) != set(REASONER_KEYS) or not all(
+                isinstance(v, str) for v in reasoner.values()
+            ):
+                raise ValueError(f"the arm needs exactly {REASONER_KEYS}, as strings")
+            data.update(reasoner)
+            note += f", reasonerMode={reasoner['reasonerMode']}, reasonerModel={reasoner['reasonerModel'] or '-'}"
+        patch = json.dumps({"data": data})
         return [
             self.k("patch", "configmap", "nexus-operator-config", "--type", "merge", "-p", patch,
-                   ns=NS_SYSTEM, note=f"advisoryChecks={advisory}, breakerEpoch={breaker_epoch}"),
+                   ns=NS_SYSTEM, note=note),
             self.k("rollout", "restart", "deployment/nexus-operator", ns=NS_SYSTEM,
                    note="the operator reads its configuration at startup"),
             self.k("rollout", "status", "deployment/nexus-operator", "--timeout=180s", ns=NS_SYSTEM),
@@ -265,14 +418,27 @@ class Runner:
         baseline_ref: str | None = None,
         advisory: str = "on",
         breaker_epoch: int | None = None,
+        reasoner: dict | None = None,
+        locust_baseline: dict | None = None,
+        touch_locust: bool = True,
     ):
         """Reset, in the order of spec section 20. With breaker_epoch, the last step also sets
-        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D)."""
+        breakerEpoch to now and advisoryChecks to the run's value (back to "on" after phase D),
+        and, with `reasoner`, the run's arm (plan_operator_config).
+        Locust: with touch_locust it is stopped (GET /stop) and, with locust_baseline (users,
+        spawn_rate, classes), the baseline swarm is then started again, so Locust ends at exactly
+        that swarm; the stop comes first because a /swarm on a running swarm re-dispatches the user
+        count with the old classes (ADR-027; only stop() resets the dispatcher). Without a baseline
+        it is left idle. With touch_locust False there is no Locust step: it keeps running as it is
+        (the batch driver says so when no load scenario ran and Locust is at the baseline)."""
         steps: list[Step] = []
         if self.git_dir:
             steps += [
                 Step(("git", "fetch", "origin", BRANCH), False),
-                Step(("git", "checkout", BRANCH), True),
+                # Detached at the fetched branch, never a local branch: the experiment worktree
+                # stays as it was created (git worktree add --detach), and a commit here reaches
+                # the remote only through the forward push below (Block 5 finding (i)).
+                Step(("git", "checkout", "--detach", f"origin/{BRANCH}"), True),
             ]
             if baseline_ref:
                 # Forward commit restoring the baseline tree; skipped when there is no diff.
@@ -296,12 +462,13 @@ class Runner:
             self.k("exec", "dependency-db-0", "-c", "dependency-db", "--", "psql", "-U", "postgres", "-c",
                    S5_RESTORE_SQL, ns=NS_DATA, note="restore role"),
         ]  # fmt: skip
-        if self.locust:
-            steps.append(
-                Step(("POST", f"{self.locust}/stop", ""), True, "Locust to idle")
-            )
+        if self.locust and touch_locust:
+            # GET: Locust 2.46.7 declares route("/stop") with no methods, so a POST gets 405 (V19).
+            steps.append(Step(("GET", f"{self.locust}/stop"), True, "Locust to idle"))
+            if locust_baseline:
+                steps.append(self.swarm_step(locust_baseline, "Locust to the baseline"))
         if breaker_epoch is not None:
-            steps += self.plan_operator_config(advisory, breaker_epoch)
+            steps += self.plan_operator_config(advisory, breaker_epoch, reasoner)
         return steps
 
     # ---------------------------------------------------------------- execution
@@ -315,6 +482,11 @@ class Runner:
                     urllib.parse.parse_qs(body, keep_blank_values=True) if body else {},
                 )
                 rc = 0
+            elif (
+                s.argv[0] == "GET"
+            ):  # Locust's web API; anything but 200 fails the step
+                code, _ = self.http_step_get(s.argv[1])
+                rc = 0 if code == 200 else 1
             elif s.argv[0] == "SETLEVEL":
                 rc = set_level(self.git_dir, int(s.argv[1]))
             elif s.argv[0] == "git":
@@ -351,6 +523,43 @@ class Runner:
             if time.monotonic() >= deadline:
                 return False
             self.sleep(poll_s)
+
+
+REPO = (
+    pathlib.Path(__file__).resolve().parents[2]
+)  # the checkout this runner's code comes from
+CODE_REFS = ("origin/dev", "origin/main")
+
+
+def code_guard(exec_=None, repo=REPO) -> str | None:
+    """Why the runner must not execute from this checkout, or None (owner, 2026-11-19).
+
+    A run's code must be reviewed code: no uncommitted change under experiments/ (the runner, the
+    harness, the fault files), and HEAD a commit on origin/dev or origin/main. Read-only: git
+    status, rev-parse and merge-base on the local remote-tracking refs (no fetch, so stale refs
+    refuse rather than pass). Any git failure refuses too."""
+    run = exec_ or _subprocess_exec
+    rc, out = run(["git", "status", "--porcelain", "--", "experiments/"], cwd=repo)
+    if rc != 0:
+        return f"cannot read git status in {repo} (rc {rc})"
+    dirty = [ln[3:] for ln in out.splitlines() if ln.strip()]
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (
+            f" and {len(dirty) - 5} more" if len(dirty) > 5 else ""
+        )
+        return f"uncommitted changes under experiments/: {shown}"
+    rc, head = run(["git", "rev-parse", "HEAD"], cwd=repo)
+    if rc != 0:
+        return f"cannot read HEAD in {repo} (rc {rc})"
+    head = head.strip()
+    for ref in CODE_REFS:
+        rc, _ = run(["git", "merge-base", "--is-ancestor", head, ref], cwd=repo)
+        if rc == 0:
+            return None
+    return (
+        f"HEAD {head[:12]} is not a commit on {' or '.join(CODE_REFS)} "
+        "(git fetch origin, or run from a merged commit)"
+    )
 
 
 def _subprocess_exec(argv, cwd=None, timeout=120):
@@ -395,15 +604,24 @@ def set_level(git_dir, level: int) -> int:
     return 0
 
 
-def _post_form(url, fields):
+def _post_form(url, fields, opener=urllib.request.urlopen):
+    """POST a form to Locust's web API. Locust answers a refused /swarm with HTTP 200 and
+    {"success": false, "message": ...}: that is a failure here, so a fault that was not injected
+    stops the run instead of being waited for. An HTTP error status raises by itself (urlopen)."""
     data = urllib.parse.urlencode(fields, doseq=True).encode()
-    with urllib.request.urlopen(
-        urllib.request.Request(url, data=data, method="POST"), timeout=30
-    ) as r:
-        r.read()
+    with opener(urllib.request.Request(url, data=data, method="POST"), timeout=30) as r:
+        body = r.read().decode("utf-8", "replace")
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return
+    if isinstance(doc, dict) and doc.get("success") is False:
+        raise RuntimeError(
+            f"POST {url} was refused: {str(doc.get('message') or '')[:200]}"
+        )
 
 
-def main(argv=None):
+def main(argv=None, guard_exec=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["gate"]:  # read-only manual-run gate (gate.py)
         from . import gate
@@ -420,26 +638,52 @@ def main(argv=None):
         default=NS_DEV,
         help="fault target for inject (default nexus-dev); nexus-prod needs level <= 1",
     )
-    ap.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=3)
+    ap.add_argument(
+        "--level",
+        type=int,
+        choices=(0, 1, 2, 3),
+        help="inject: the cell's level, required; the namespace label must equal it. "
+        "reset: the level to commit (default 3)",
+    )
     ap.add_argument("--locust")
-    ap.add_argument("--users", type=int)
+    ap.add_argument(
+        "--users",
+        type=int,
+        help=f"Locust's total for S2, S4, S6: {PROD_USERS} (ProdUser) + the nexus-dev rate",
+    )
+    ap.add_argument(
+        "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
+    )
     ap.add_argument("--git-dir")
-    ap.add_argument("--s3-patch")
+    ap.add_argument(
+        "--s3-patch", help=f"the S3 patch, relative to --git-dir ({S3_PATCH})"
+    )
     ap.add_argument("--baseline-ref")
     ap.add_argument(
         "--execute", action="store_true", help="actually run the steps (mode run only)"
     )
     a = ap.parse_args(argv)
+    if a.mode == "run" and a.execute:
+        why = code_guard(guard_exec)
+        if why:
+            print(f"runner: refusing to execute: {why}", file=sys.stderr)
+            return 2
     r = Runner(a.context, locust=a.locust, git_dir=a.git_dir, namespace=a.namespace)
     if a.op == "inject":
         if not a.scenario:
             ap.error("inject needs a scenario")
+        if a.level is None:
+            ap.error(
+                "inject needs --level: the cell's autonomy level, checked against the namespace"
+            )
         try:
-            steps = r.plan_inject(a.scenario, a.s3_patch, a.users)
+            steps = r.plan_inject(
+                a.scenario, a.s3_patch, a.users, a.spawn_rate, level=a.level
+            )
         except ValueError as e:
             ap.error(str(e))
     elif a.op == "reset":
-        steps = r.plan_reset(a.level, a.baseline_ref)
+        steps = r.plan_reset(3 if a.level is None else a.level, a.baseline_ref)
     else:
         steps = r.plan_refresh()
     if a.mode == "plan" or not a.execute:

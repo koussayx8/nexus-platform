@@ -1,10 +1,13 @@
-"""`runner.py gate` (manual-run gate): offline, on test_batch's fake cluster. Read-only, every
-value required, a PASS or FAIL line per check, exit 1 on any FAIL."""
+"""`python -m experiments.harness.runner gate` (manual-run gate): offline, on test_batch's fake
+cluster. Read-only, every value required, a PASS or FAIL line per check, exit 1 on any FAIL."""
 
 import contextlib
 import io
 import json
 import os
+import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -172,6 +175,38 @@ class GateTest(unittest.TestCase):
         c = self.cluster()
         c.recorder_up = 0.0
         self.assertEqual(self.run_gate(c)[0], 1)
+
+    def test_the_documented_command_is_the_one_that_runs(self):
+        root = pathlib.Path(__file__).resolve().parents[3]
+        env = {
+            **os.environ,
+            "KUBECONFIG": "/nonexistent",
+        }  # --help reads nothing anyway
+
+        def run(*argv):
+            return subprocess.run(
+                [sys.executable, *argv, "gate", "--help"],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        module = run("-m", "experiments.harness.runner")
+        self.assertEqual(module.returncode, 0, module.stderr)
+        self.assertTrue(module.stdout.startswith(f"usage: {gate.PROG} "), module.stdout)
+        script = run(
+            "experiments/harness/runner.py"
+        )  # the form the docstrings used to show
+        self.assertNotEqual(script.returncode, 0)
+        self.assertIn("ImportError", script.stderr)
+
+    def test_the_docstrings_show_the_module_form(self):
+        self.assertIn(f"`{gate.PROG} ...`", gate.__doc__.splitlines()[0])
+        self.assertIn(f"  {gate.PROG} --context C", runner.__doc__)
+        for doc in (gate.__doc__, runner.__doc__):
+            self.assertNotIn("  runner.py gate --", doc)
 
 
 if __name__ == "__main__":

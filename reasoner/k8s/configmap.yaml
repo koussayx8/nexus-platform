@@ -1,9 +1,28 @@
 # Reasoner configuration (spec §16): model ids, endpoints, effort and the score floor live here, never
 # in code. API keys are NOT here: `apiKeyEnv` names an environment variable that the Secret
-# `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git).
+# `nexus-reasoner-keys` provides; the owner creates that Secret (never in Git). The arms are the
+# spec's R2 and R3 only: the Haiku arm (H1) was cut on 2026-11-12 (TASKS.md D3, D10).
 #
-# scoreFloor 3.0675 is the value PROPOSED by experiments/retrieval/results.json (2.9584 in PR #147;
-# 3.0675 after rb-gray-failure v2, ADR-039); it is frozen only at G16. The Ollama demo fallback
+# R2 and R3 are served by the named configs `active` points at (owner, 2026-11-20; ADR-035 addenda B
+# and D, ADR-045). NVIDIA NIM only, one backup per arm; final after bake-off round 4:
+#   config      model                                    timeout  maxOutput  note
+#   r2-primary  nvidia/nemotron-3.5-super-vl-120b-a12b   120 s    8192       a PREVIEW model (owner's choice:
+#                                                                            the only small model with 0 hangs
+#                                                                            and 0 errors in round 4)
+#   r2-backup   nvidia/nemotron-3-ultra-550b-a55b        120 s    8192       thinking OFF (extraBody). UNTESTED:
+#                                                                            only if NIM retires 3.5 Super; bake
+#                                                                            it off before use
+#   r3-primary  nvidia/nemotron-3-ultra-550b-a55b        300 s    8192       thinking on (its default), as tested
+#   r3-backup   google/gemma-4-31b-it                    300 s    8192       thinking off (its default), as tested
+# Switching is the `active` line plus a Reasoner restart (the ConfigMap is not generated, so nothing
+# rolls by itself), and experiments/harness/arms.py names the config and model id the arm expects: a
+# run served by another config is refused by the arm check. r2-backup and r3-primary share a model id:
+# requests name an arm or a config, and a model id that two configs share resolves to nothing. The
+# operator's reasonerTimeoutSeconds is 300 (the R3 configs), so Diagnosing ends at 330 s.
+#
+# scoreFloor 3.1739 is the value PROPOSED by experiments/retrieval/results.json (2.9584 in PR #147;
+# 3.0675 after rb-gray-failure v2, ADR-039; 3.1739 after the Block 3 polish of rb-gray-failure v3 and
+# rb-bad-rollout v2, TASKS.md D23); it is frozen only at G16. The Ollama demo fallback
 # has no baseUrl here: the host IP changes on WSL2 and is set at bootstrap (spec §18), so `demo`
 # is unavailable (503) until then.
 apiVersion: v1
@@ -18,15 +37,17 @@ data:
   reasoner.json: |
     {
       "indexPath": "/app/index/index.json",
-      "scoreFloor": 3.0675,
+      "scoreFloor": 3.1739,
       "timeoutSeconds": 30,
       "maxOutputTokens": 1024,
       "seed": 0,
       "port": 8080,
       "models": {
-        "R2": {"provider": "groq", "model": "openai/gpt-oss-20b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
-        "R3": {"provider": "groq", "model": "openai/gpt-oss-120b", "baseUrl": "https://api.groq.com/openai/v1", "apiKeyEnv": "GROQ_API_KEY", "reasoningEffort": "low"},
-        "H1": {"provider": "anthropic", "model": "claude-haiku-5-5", "baseUrl": "https://api.anthropic.com", "apiKeyEnv": "ANTHROPIC_API_KEY"},
+        "r2-primary": {"provider": "nvidia", "model": "nvidia/nemotron-3.5-super-vl-120b-a12b", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192},
+        "r2-backup": {"provider": "nvidia", "model": "nvidia/nemotron-3-ultra-550b-a55b", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 120, "maxOutputTokens": 8192, "extraBody": {"chat_template_kwargs": {"enable_thinking": false}}},
+        "r3-primary": {"provider": "nvidia", "model": "nvidia/nemotron-3-ultra-550b-a55b", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 300, "maxOutputTokens": 8192},
+        "r3-backup": {"provider": "nvidia", "model": "google/gemma-4-31b-it", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKeyEnv": "NVIDIA_API_KEY", "timeoutSeconds": 300, "maxOutputTokens": 8192},
         "demo": {"provider": "ollama", "model": "llama3.1:8b", "baseUrl": ""}
-      }
+      },
+      "active": {"R2": "r2-primary", "R3": "r3-primary"}
     }

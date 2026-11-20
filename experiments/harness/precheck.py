@@ -14,7 +14,8 @@ check is READ-ONLY (get / get --raw / GET / stat); none changes anything:
   * Kill Switch `active`: ConfigMap nexus-killswitch, data.state; anything else, or absent, fails
     (the operator treats a missing ConfigMap as halted, spec §16).
   * the namespace level is the cell's level: label nexus.io/autonomy-level on nexus-dev (a missing
-    label is L0, fail closed, as the policies read it).
+    label is L0, fail closed, as the policies read it). The level read is recorded with every
+    window (`window.namespace_level`: observed and the cell's), pass or fail.
   * Backstage at zero: no pod in the backstage namespace.
   * Locust at its baseline, within +-10 %: the swarm is `running` with the configured number of
     users, and sample-api's request rate in each namespace is within the tolerance of the
@@ -158,6 +159,21 @@ def normalise(cfg: dict | None) -> dict:
     _number(loc["baseline_users"], "locust.baseline_users")
     _number(loc["baseline_rps_per_namespace"], "locust.baseline_rps_per_namespace")
     _number(loc["tolerance"], "locust.tolerance")
+    # Optional Locust recovery (batch.py): the exact baseline swarm as platform/load/master.yaml autostarts it.
+    if "spawn_rate" in loc:
+        _number(loc["spawn_rate"], "locust.spawn_rate")
+    if "classes" in loc and (
+        not isinstance(loc["classes"], list)
+        or not loc["classes"]
+        or not all(isinstance(c, str) and c for c in loc["classes"])
+    ):
+        raise ConfigError(
+            "precheck.locust.classes must be a non-empty list of class names"
+        )
+    if "recovery_attempts" in loc:
+        _number(loc["recovery_attempts"], "locust.recovery_attempts", positive=False)
+    if "recovery_wait_s" in loc:
+        _number(loc["recovery_wait_s"], "locust.recovery_wait_s", positive=False)
     _number(rs["port"], "reasoner.port")
     _number(au["max_age_s"], "audit_log.max_age_s")
     if _bare_hash(rs["expected_index_hash"]) is None:
@@ -316,16 +332,21 @@ def killswitch_failures(runner, cfg: dict) -> list[str]:
     return [] if state == "active" else [f"killswitch:state={state!r}"]
 
 
-def namespace_level_failures(runner, cfg: dict, level: int) -> list[str]:
-    ns = cfg["namespace"]
-    rc, out = _kubectl(runner, "get", "namespace", ns, "-o", "json")
+def namespace_level(runner, cfg: dict) -> str | None:
+    """The autonomy level the namespace carries now: its label, "0" when the label is missing
+    (fail closed, as the policies read it), None when the namespace cannot be read."""
+    rc, out = _kubectl(runner, "get", "namespace", cfg["namespace"], "-o", "json")
     doc = _json(out) if rc == 0 else None
     if not isinstance(doc, dict):
+        return None
+    return str(((doc.get("metadata") or {}).get("labels") or {}).get(LEVEL_LABEL, "0"))
+
+
+def namespace_level_failures(runner, cfg: dict, level: int) -> list[str]:
+    got = namespace_level(runner, cfg)
+    if got is None:
         return ["namespace_level:no_answer"]
-    got = ((doc.get("metadata") or {}).get("labels") or {}).get(
-        LEVEL_LABEL, "0"
-    )  # missing = L0
-    return [] if str(got) == str(level) else [f"namespace_level:{got}!={level}"]
+    return [] if got == str(level) else [f"namespace_level:{got}!={level}"]
 
 
 def backstage_failures(runner, cfg: dict) -> list[str]:
@@ -337,6 +358,13 @@ def backstage_failures(runner, cfg: dict) -> list[str]:
         return ["backstage:no_answer"]
     n = len(doc.get("items") or [])
     return [] if n == 0 else [f"backstage:pods={n}"]
+
+
+def request_rate(prom: Prom, namespace: str) -> float | None:
+    """sample-api's request rate in a namespace as the server counts it (2 m rate); None: no answer."""
+    return prom.scalar(
+        f'namespace:nexus_sample_api_requests:rate2m{{namespace="{namespace}"}}'
+    )
 
 
 def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
@@ -360,9 +388,7 @@ def locust_failures(runner, prom: Prom, cfg: dict) -> list[str]:
     for ns in c[
         "namespaces"
     ]:  # the server's view: Locust's own rate lags by design (ADR-026)
-        rate = prom.scalar(
-            f'namespace:nexus_sample_api_requests:rate2m{{namespace="{ns}"}}'
-        )
+        rate = request_rate(prom, ns)
         base = c["baseline_rps_per_namespace"]
         if rate is None:
             out.append(f"locust:{ns}:no_rate")
@@ -380,17 +406,24 @@ def _bare_hash(h) -> str | None:
     return h if re.fullmatch(r"[0-9a-f]{64}", h) else None
 
 
+def reasoner_healthz(runner, cfg: dict):
+    """The Reasoner's GET /healthz through the API server's service proxy: (reached, body), body
+    the parsed JSON (None when unparsable)."""
+    c = cfg["reasoner"]
+    path = f"/api/v1/namespaces/{c['namespace']}/services/http:{c['service']}:{c['port']}/proxy/healthz"
+    rc, out = _kubectl(runner, "get", "--raw", path)
+    return (False, None) if rc != 0 else (True, _json(out))
+
+
 def reasoner_failures(runner, cfg: dict) -> list[str]:
     """GET /healthz of the Reasoner service (reasoner/nexus_reasoner/service.py, G9), which answers
     200 {"status": "ready", "corpusHash": "<64 hex>", "promptVersion": ..., "scoreFloor": ...} once
     its index is loaded. A Pod whose index is missing never serves it, so an unreachable or non-200
     answer is "not ready"."""
     c = cfg["reasoner"]
-    path = f"/api/v1/namespaces/{c['namespace']}/services/http:{c['service']}:{c['port']}/proxy/healthz"
-    rc, out = _kubectl(runner, "get", "--raw", path)
-    if rc != 0:
+    reached, doc = reasoner_healthz(runner, cfg)
+    if not reached:
         return ["reasoner:not_ready"]
-    doc = _json(out)
     if not isinstance(doc, dict):
         return ["reasoner:healthz_unparsable"]
     if doc.get("status") != "ready":
@@ -503,6 +536,9 @@ def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: 
         "start": _iso(start_w), "end": _iso(end_w), "seconds": end_w - start_w, "polls": polls,
         "alerts": fired_alerts(prom, end_w - start_w),
         "incidents": sorted(new, key=lambda i: i["uid"]),
+        # the level the namespace carried at the end of the window, beside the cell's (review F1):
+        # a run reported at a level is a run that was checked to be at it
+        "namespace_level": {"observed": namespace_level(prom.r, cfg), "cell": str(level)},
     }  # fmt: skip
     # the batch stops only when the cap ran out on an open Incident; other failures discard the run
     stop = "non_terminal_incident" if failures and open_ else None

@@ -1,4 +1,8 @@
-"""Manual-run gate: `runner.py gate ...`. Read-only; prints PASS or FAIL per check, exits 1 on any FAIL.
+"""Manual-run gate: `python -m experiments.harness.runner gate ...`. Read-only; exits 1 on any FAIL.
+
+Run it as a module, from the repository root: the runner imports this file relatively, so
+`python experiments/harness/runner.py gate` stops with an ImportError before any check.
+It prints PASS or FAIL per check.
 
 Every check is an existing precheck.py function; nothing here detects anything itself:
   locust    locust_failures: state running, users within tolerance, the namespace's rate within +-10 %
@@ -21,6 +25,7 @@ from . import precheck
 from . import runner as runner_mod
 from .operator_lib import model
 
+PROG = "python -m experiments.harness.runner gate"  # the form that works (module docstring)
 _WINDOW = re.compile(r"(\d+)([smh])")
 
 
@@ -85,9 +90,7 @@ def build_config(raw: dict, namespace: str, users: int, rate: float) -> dict:
 
 
 def main(argv=None, runner_factory=runner_mod.Runner, out=sys.stdout) -> int:
-    ap = argparse.ArgumentParser(
-        prog="runner.py gate", description=__doc__.split("\n")[0]
-    )
+    ap = argparse.ArgumentParser(prog=PROG, description=__doc__.split("\n")[0])
     ap.add_argument("--context", required=True)
     ap.add_argument("--namespace", required=True, choices=runner_mod.INJECT_NAMESPACES)
     ap.add_argument("--locust", required=True, help="Locust base URL")

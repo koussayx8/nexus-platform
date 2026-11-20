@@ -248,6 +248,430 @@
           "rawSql": "SELECT t.at AS \"time\", i.target, t.incident_uid, t.seq, t.from_phase, t.to_phase, t.stage, t.reason FROM transitions t JOIN incidents i USING (incident_uid) WHERE ($__timeFilter(t.at)) AND ('${run}' = 'All' OR i.run_id = '${run}') ORDER BY t.at DESC, t.seq DESC LIMIT 300"
         }
       ]
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Reasoner",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Proposals over time by reasoner_mode and fallback_used",
+      "description": "Every proposals row (Reasoner calls and R1 rows), bucketed by the Incident's detected_at (proposals has no timestamp of its own). A fallback shows as the failed call (no fallback) plus its R1 row (rules / fallback).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(i.detected_at, $__interval),\n  p.reasoner_mode || CASE WHEN p.fallback_used THEN ' / fallback' ELSE ' / no fallback' END AS metric,\n  count(*) AS calls\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Tokens per call (promptTokens, completionTokens) and latencyMs",
+      "description": "One point per Reasoner call, from proposals.usage. Calls recorded before usage existed have no tokens; their latency falls back to proposals.latency_ms.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 6,
+            "showPoints": "always",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "latency_ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT i.detected_at AS \"time\",\n  (CASE WHEN jsonb_typeof(p.usage -> 'promptTokens') = 'number' THEN (p.usage ->> 'promptTokens')::numeric END) AS prompt_tokens,\n  (CASE WHEN jsonb_typeof(p.usage -> 'completionTokens') = 'number' THEN (p.usage ->> 'completionTokens')::numeric END) AS completion_tokens,\n  coalesce((CASE WHEN jsonb_typeof(p.usage -> 'latencyMs') = 'number' THEN (p.usage ->> 'latencyMs')::numeric END), p.latency_ms) AS latency_ms\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Prompt tokens: estimate vs actual, and their ratio",
+      "description": "promptTokensEstimate (the Reasoner's prompt/v2 estimate) against the provider's promptTokens, and actual / estimate on the right axis. Empty until the operator records the estimate (#253) and calls are made with it.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 6,
+            "showPoints": "always",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "actual_over_estimate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT i.detected_at AS \"time\",\n  (CASE WHEN jsonb_typeof(p.usage -> 'promptTokensEstimate') = 'number' THEN (p.usage ->> 'promptTokensEstimate')::numeric END) AS prompt_tokens_estimate,\n  (CASE WHEN jsonb_typeof(p.usage -> 'promptTokens') = 'number' THEN (p.usage ->> 'promptTokens')::numeric END) AS prompt_tokens,\n  round((CASE WHEN jsonb_typeof(p.usage -> 'promptTokens') = 'number' THEN (p.usage ->> 'promptTokens')::numeric END) / nullif((CASE WHEN jsonb_typeof(p.usage -> 'promptTokensEstimate') = 'number' THEN (p.usage ->> 'promptTokensEstimate')::numeric END), 0), 3) AS actual_over_estimate\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND p.usage -> 'promptTokensEstimate' IS NOT NULL AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Tokens per day per model_id (Groq 200K/day line)",
+      "description": "totalTokens (or prompt + completion) summed per UTC day and model, over all runs: the provider's daily limit counts every call, so the Run variable is not applied. The red line is 200,000 tokens per day.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 200000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (date_trunc('day', i.detected_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS \"time\",\n  coalesce(p.model_id, '(unknown model)') AS metric,\n  sum(coalesce((CASE WHEN jsonb_typeof(p.usage -> 'totalTokens') = 'number' THEN (p.usage ->> 'totalTokens')::numeric END), (CASE WHEN jsonb_typeof(p.usage -> 'promptTokens') = 'number' THEN (p.usage ->> 'promptTokens')::numeric END) + (CASE WHEN jsonb_typeof(p.usage -> 'completionTokens') = 'number' THEN (p.usage ->> 'completionTokens')::numeric END))) AS tokens\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND $__timeFilter(i.detected_at)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Latest 20 Reasoner calls (trim level, log selection per pod, model reasoning)",
+      "description": "From proposals.usage: promptTrimLevel and logSelection.pods (kept = error + recent lines). '-' where the call predates these keys. reasoning: the first 400 characters of proposals.reasoning, the model's thinking trace as received (untrusted model text, plain text, never used for a decision; ADR-035 addendum C); '-' without a trace or before the column exists (read through to_jsonb, so the query runs either way).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "log_selection"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 900
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reasoning"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 900
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  p.reasoner_mode AS mode,\n  coalesce((CASE WHEN jsonb_typeof(p.usage -> 'promptTrimLevel') = 'number' THEN (p.usage ->> 'promptTrimLevel')::numeric END)::text, '-') AS trim_level,\n  coalesce(sel.per_pod, '-') AS log_selection,\n  coalesce(length(to_jsonb(p) ->> 'reasoning')::text, '-') AS reasoning_chars,\n  coalesce(left(to_jsonb(p) ->> 'reasoning', 400), '-') AS reasoning\nFROM proposals p JOIN incidents i USING (incident_uid)\nLEFT JOIN LATERAL (\n  SELECT string_agg(\n      coalesce(e ->> 'pod', '?') || ': kept '\n        || coalesce(((CASE WHEN jsonb_typeof(e -> 'kept_error_lines') = 'number' THEN (e ->> 'kept_error_lines')::int ELSE 0 END)\n                   + (CASE WHEN jsonb_typeof(e -> 'kept_recent_lines') = 'number' THEN (e ->> 'kept_recent_lines')::int ELSE 0 END))::text, '?')\n        || ' (' || coalesce(e ->> 'kept_error_lines', '?') || ' error, ' || coalesce(e ->> 'kept_recent_lines', '?') || ' recent)'\n        || ', dropped ' || coalesce(e ->> 'dropped', '?') || ' of ' || coalesce(e ->> 'lines', '?'),\n      '; ' ORDER BY n) AS per_pod\n  FROM jsonb_array_elements(\n      CASE WHEN jsonb_typeof(p.usage #> '{logSelection,pods}') = 'array' THEN p.usage #> '{logSelection,pods}' ELSE '[]'::jsonb END\n    ) WITH ORDINALITY AS pods(e, n)\n  WHERE jsonb_typeof(e) = 'object'\n) sel ON true\nWHERE p.request_id IS NOT NULL AND NOT p.fallback_used AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Escalations: the model's suggested change and runbook gap (untrusted, never applied)",
+      "description": "From proposals.parsed_proposal -> escalation (ADR-044): suggestedChange (first 1,000 characters) and runbookGap, as the Reasoner sent them. Untrusted model text for a human to read, plain text; nothing applies it. '-' where a proposal has none.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "suggested_change"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 700
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "runbook_gap"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 400
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  coalesce(left(p.parsed_proposal #>> '{escalation,reason}', 300), '-') AS reason,\n  coalesce(left(p.parsed_proposal #>> '{escalation,suggestedChange}', 1000), '-') AS suggested_change,\n  coalesce(left(p.parsed_proposal #>> '{escalation,runbookGap}', 500), '-') AS runbook_gap\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE p.parsed_proposal #>> '{action,id}' = 'escalate'\n  AND (p.parsed_proposal #>> '{escalation,suggestedChange}' IS NOT NULL\n       OR p.parsed_proposal #>> '{escalation,runbookGap}' IS NOT NULL)\n  AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
+        }
+      ]
     }
   ]
 }

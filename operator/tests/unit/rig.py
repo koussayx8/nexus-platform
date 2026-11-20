@@ -19,7 +19,15 @@ from nexus_operator.gate import Gate
 from nexus_operator.model import iso
 from nexus_operator.verifier import Verifier
 
-TERMINAL = {"Resolved", "Escalated", "Blocked", "Recommended", "Dismissed"}
+TERMINAL = {
+    "Resolved",
+    "Escalated",
+    "Blocked",
+    "Recommended",
+    "Dismissed",
+    "Rejected",
+    "Expired",
+}
 
 
 class Rig:
@@ -34,6 +42,7 @@ class Rig:
         recorder=None,
         collector=False,
         reasoner=None,
+        diagnosing_timeout_s=60,
     ):
         self.loop = asyncio.new_event_loop()
         self.api = FakeCluster(replicas, level, killswitch)
@@ -56,17 +65,23 @@ class Rig:
             if collector
             else None,
             reasoner,
+            diagnosing_timeout_s=diagnosing_timeout_s,
         )
 
     def call(self, coro):
         return self.loop.run_until_complete(coro)
 
-    def proposed(self, doc, level=3, baseline=BASELINE, name="inc"):
+    def proposed(self, doc, level=3, baseline=BASELINE, name="inc", anomalous=None):
+        """`anomalous` None leaves status.evidence.anomalous out: restart_v2 then requires
+        every signal."""
+        evidence = {"baseline": baseline}
+        if anomalous is not None:
+            evidence["anomalous"] = anomalous
         status = {
             "phase": "Proposed",
             "autonomyLevel": level,
             "timestamps": {"proposed": iso(self.clock())},
-            "evidence": {"baseline": baseline},
+            "evidence": evidence,
             "proposal": {"hash": f"sha256:{name}"},
         }
         self.api.put(name, created=T0, status=status)

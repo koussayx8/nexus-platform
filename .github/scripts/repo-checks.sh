@@ -29,8 +29,11 @@
 # 15. Every ConfigMap that a rendered Application's workloads reference (volumes, envFrom,
 #     valueFrom) is in that Application's render, or allow-listed by name (configmap-refs.py).
 # 17. Offline tests for verify-state.sh --milestone m3 (G7: K1-K6, N1-N6, Reasoner), stub kubectl.
+# 18. scripts/forward-merge-check.sh on fixture trees: a forward-merge's tree must equal main's.
 # 16. The audit policy and rotation in scripts/bootstrap.sh: rule order, operator and approver
 #     writes at RequestResponse, every other write at Metadata (audit-policy.sh, ADR-036).
+# 19. No rendered Application deploys the all-zero placeholder digest (sha256:0{64}): an image
+#     that was never built is wired into ArgoCD only after its digest bump (the Reasoner, Block 3).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
@@ -83,6 +86,14 @@ echo "::group::Render every Application and check its AppProject"
 bash "$(dirname "$0")/render-apps.sh" "$work/render"
 echo "::endgroup::"
 
+echo "::group::No rendered Application deploys a placeholder image digest"
+if placeholders=$(grep -nE '@sha256:0{64}' "$work"/render/apps/*.yaml); then
+  echo "::error::the all-zero placeholder digest is in a rendered Application (merge its digest bump first):"
+  echo "$placeholders"; exit 1
+fi
+echo "none"
+echo "::endgroup::"
+
 echo "::group::Every ConfigMap an Application's workloads reference exists in its render"
 bash scripts/tests/configmap-refs.sh
 python3 "$(dirname "$0")/configmap-refs.py" "$work/render/meta"
@@ -117,6 +128,10 @@ echo "::endgroup::"
 
 echo "::group::verify-state M3 checks (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-m3.sh
+echo "::endgroup::"
+
+echo "::group::forward-merge tree check (offline, fixture trees)"
+bash scripts/tests/forward-merge-check.sh
 echo "::endgroup::"
 
 echo "::group::detection-inputs.jq fixture tests (M1b-6c)"

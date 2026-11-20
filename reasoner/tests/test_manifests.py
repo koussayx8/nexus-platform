@@ -1,11 +1,12 @@
-"""I1/N6 and 'merged is not deployed': manifest tests (re-plan O7). Text-level, standard library only."""
+"""I1/N6 and "never deployed with the placeholder digest": manifest tests (re-plan O7). Text-level,
+standard library only."""
 
 import json
 import re
 import textwrap
 import unittest
 
-from nexus_reasoner import config
+from nexus_reasoner import config, prompt
 
 from .helpers import REPO
 
@@ -65,7 +66,7 @@ class ManifestTest(unittest.TestCase):
                     dep,
                 )
             ),
-            2,
+            2,  # groq-api-key and nvidia-api-key: the anthropic key went with the Haiku arm
         )
         self.assertNotRegex(
             dep + (K8S / "configmap.yaml").read_text(), r"(gsk_|sk-ant|Bearer )"
@@ -76,19 +77,73 @@ class ManifestTest(unittest.TestCase):
         text = (K8S / "configmap.yaml").read_text()
         block = text.split("reasoner.json: |\n", 1)[1]
         cfg = config.parse(json.loads(textwrap.dedent(block)))
-        self.assertEqual(cfg.models["R2"].model, "openai/gpt-oss-20b")
-        self.assertEqual(cfg.models["R3"].model, "openai/gpt-oss-120b")
-        self.assertEqual(cfg.models["H1"].provider, "anthropic")
+        # Final after bake-off round 4 (ADR-045): NIM only, one backup per arm, no Groq entry.
+        self.assertEqual(cfg.active, {"R2": "r2-primary", "R3": "r3-primary"})
+        self.assertEqual(
+            cfg.resolve("R2").model, "nvidia/nemotron-3.5-super-vl-120b-a12b"
+        )
+        self.assertEqual(cfg.resolve("R3").model, "nvidia/nemotron-3-ultra-550b-a55b")
+        # No H1: the Haiku arm was cut (TASKS.md D3, D10).
+        self.assertEqual(
+            set(cfg.models),
+            {"r2-primary", "r2-backup", "r3-primary", "r3-backup", "demo"},
+        )
+        self.assertFalse([e for e in cfg.models.values() if e.provider == "groq"])
+        want = {  # name: (model id, timeoutSeconds, maxOutputTokens, extraBody)
+            "r2-primary": ("nvidia/nemotron-3.5-super-vl-120b-a12b", 120.0, 8192, {}),
+            "r2-backup": ("nvidia/nemotron-3-ultra-550b-a55b", 120.0, 8192,
+                          {"chat_template_kwargs": {"enable_thinking": False}}),
+            "r3-primary": ("nvidia/nemotron-3-ultra-550b-a55b", 300.0, 8192, {}),
+            "r3-backup": ("google/gemma-4-31b-it", 300.0, 8192, {}),
+        }  # fmt: skip
+        for name, (model, timeout, cap, extra) in want.items():
+            e = cfg.models[name]
+            self.assertEqual((e.provider, e.api_key_env), ("nvidia", "NVIDIA_API_KEY"))
+            self.assertEqual(e.base_url, "https://integrate.api.nvidia.com/v1")
+            self.assertEqual(
+                (e.model, e.timeout_s, e.max_output_tokens), (model, timeout, cap)
+            )
+            self.assertEqual(dict(e.extra_body), extra)
+            self.assertEqual(
+                e.response_format, "none"
+            )  # json_schema on NIM: UNVERIFIED
+            # the request guard holds the 16K budget plus this model's own output cap
+            self.assertLessEqual(
+                prompt.PROMPT_BUDGET_TOKENS + cap, prompt.REQUEST_GUARD_TOKENS
+            )
+        header = text.split("apiVersion:", 1)[0]
+        r2_note = header.split("r2-primary", 1)[1].split("r2-backup", 1)[0]
+        self.assertIn("PREVIEW", r2_note)
+        self.assertIn(
+            "UNTESTED", header.split("r2-backup", 1)[1].split("r3-primary", 1)[0]
+        )
+        # r2-backup and r3-primary share a model id: by id it resolves to nothing, by name exactly
+        self.assertIsNone(cfg.resolve("nvidia/nemotron-3-ultra-550b-a55b"))
+        self.assertEqual(cfg.resolve("r2-backup").name, "r2-backup")
+        # the operator's Diagnosing limit covers the R3 configs: 300 s + 30 s
+        self.assertEqual(max(e.timeout_s for e in cfg.models.values()), 300.0)
         self.assertEqual(cfg.models["demo"].provider, "ollama")
         self.assertEqual((cfg.timeout_s, cfg.max_output_tokens), (30.0, 1024))
         results = json.loads((REPO / "experiments/retrieval/results.json").read_text())
         self.assertEqual(cfg.score_floor, results["metrics"]["proposed_floor"])
 
-    def test_merged_is_not_deployed(self):
-        for p in (REPO / "platform" / "argocd").rglob("*.yaml"):
-            self.assertNotIn("reasoner/k8s", p.read_text(), p)
-        for p in (REPO / "operator/k8s").rglob("kustomization.yaml"):
-            self.assertNotRegex(p.read_text(), r"reasoner")
+    def test_never_deployed_with_the_placeholder_digest(self):
+        # Merged is deployed only once the image is real: whatever wires reasoner/k8s into ArgoCD
+        # (an Application, or the `nexus` Application's operator/k8s) needs a built digest, never the
+        # all-zero placeholder. repo-checks step 19 holds the same on the rendered Applications.
+        wired = [
+            p
+            for p in (REPO / "platform" / "argocd").rglob("*.yaml")
+            if "reasoner/k8s" in p.read_text()
+        ] + [
+            p
+            for p in (REPO / "operator/k8s").rglob("kustomization.yaml")
+            if re.search(r"reasoner", p.read_text())
+        ]
+        if wired:
+            self.assertNotRegex(
+                (K8S / "deployment.yaml").read_text(), r"@sha256:0{64}", wired
+            )
 
 
 class ValidatorTest(unittest.TestCase):

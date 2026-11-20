@@ -3,62 +3,67 @@
 import contextlib
 import io
 import json
+import pathlib
 import unittest
+import urllib.parse
 from unittest import mock
 
-from .. import arms, runner
+from .. import arms, batch, runner
+
+PATCH = str(pathlib.Path(__file__).resolve().parents[3] / runner.S3_PATCH)
 
 
 class ArmsTest(unittest.TestCase):
-    def test_spec_arms_and_haiku(self):
-        self.assertEqual(arms.arm_config("R2")["model"], "openai/gpt-oss-20b")
-        self.assertEqual(arms.arm_config("R3")["model"], "openai/gpt-oss-120b")
-        h = arms.arm_config("H1")
-        self.assertEqual((h["provider"], h["mode"]), ("anthropic", "llm"))
+    def test_the_arms_are_the_specs_four(self):
+        self.assertEqual(sorted(arms.ARMS), ["R0", "R1", "R2", "R3"])
+        r2 = arms.arm_config("R2")
+        self.assertEqual((r2["model"], r2["model_config"], r2["model_id"], r2["provider"]),
+                         ("R2", "r2-primary", "nvidia/nemotron-3.5-super-vl-120b-a12b", "nvidia"))  # fmt: skip
+        r3 = arms.arm_config("R3")
+        # asked for as "R3"; final after bake-off round 4 (ADR-045)
+        self.assertEqual((r3["model"], r3["model_config"], r3["model_id"], r3["provider"]),
+                         ("R3", "r3-primary", "nvidia/nemotron-3-ultra-550b-a55b", "nvidia"))  # fmt: skip
+        self.assertEqual((r2["purpose"], r3["purpose"]), ("small model", "large model"))
         for a in ("R0", "R1"):
             self.assertIsNone(arms.arm_config(a)["model"])
+        with self.assertRaises(KeyError):
+            arms.arm_config("R9")
 
     def test_common_settings_frozen(self):
-        for a in ("R2", "R3", "H1", "R3-high"):
+        # the configs' own settings (reasoner/k8s/configmap.yaml): r2-primary 120 s, r3-primary 300 s
+        for a, timeout in (("R2", 120), ("R3", 300)):
             c = arms.arm_config(a)
             self.assertEqual(
                 (
                     c["temperature"],
                     c["max_output_tokens"],
                     c["timeout_s"],
-                    c["attempts"],
+                    c["max_attempts"],
+                    c["seed"],
+                    c["json_schema_output"],
                 ),
-                (0, 1024, 30, 1),
+                (0, 8192, timeout, 2, 0, False),
+            )
+            # reasoning_effort is Groq's option: none for a NIM arm, so the operator sends none
+            self.assertIsNone(c["reasoning_effort"])
+            self.assertEqual(
+                batch.operator_reasoner(a, "http://r")["reasonerEffort"], ""
             )
 
-    def test_sweep(self):
-        s = arms.sweep("R3")
-        self.assertEqual(sorted(s), ["R3-high", "R3-low", "R3-medium"])
-        self.assertEqual(
-            {v["reasoning_effort"] for v in s.values()}, {"low", "medium", "high"}
-        )
-        self.assertEqual(
-            arms.arm_config("R3-low")["model"], arms.arm_config("R3")["model"]
-        )
-        with self.assertRaises(ValueError):
-            arms.sweep("R1")
-        with self.assertRaises(KeyError):
-            arms.arm_config("R9")
-
-    def test_haiku_and_sweep_are_phase_b_only(self):
+    def test_the_haiku_arm_and_the_effort_sweep_are_gone(self):
+        # Cut on 2026-11-12 (TASKS.md D3, D10): no H1, no per-effort arm, in any phase.
         for name in ("H1", "R3-low", "R3-medium", "R3-high"):
-            self.assertEqual(arms.arm_config(name)["phases"], ("B",), name)
-        for phase in ("A", "C", "D"):
-            offending = {"H1", "R3-low", "R3-medium", "R3-high"} & set(
-                arms.arms_for_phase(phase)
-            )
-            self.assertFalse(offending, (phase, offending))
+            with self.assertRaises(KeyError, msg=name):
+                arms.arm_config(name)
+        self.assertFalse(hasattr(arms, "sweep"))
+        self.assertTrue(all(c["provider"] in (None, "nvidia") for c in arms.ARMS.values()))  # fmt: skip
+
+    def test_arms_per_phase(self):
         self.assertEqual(arms.arms_for_phase("A"), ["R1", "R3"])  # C1 and C2
+        self.assertEqual(arms.arms_for_phase("B"), ["R0", "R1", "R2", "R3"])  # C3
+        self.assertEqual(arms.arms_for_phase("C"), ["R1"])
         self.assertEqual(arms.arms_for_phase("D"), ["R0"])  # C7
-        self.assertEqual(
-            arms.arms_for_phase("B"),
-            ["H1", "R0", "R1", "R2", "R3", "R3-high", "R3-low", "R3-medium"],
-        )
+        self.assertEqual(arms.CONFIGURATIONS["C3"][0], ("R0", "R1", "R2", "R3"))
 
     def test_configurations_refer_to_known_arms(self):
         for arms_, _levels, _phase in arms.CONFIGURATIONS.values():
@@ -84,7 +89,7 @@ class RunnerTest(unittest.TestCase):
     def runner(self, **kw):
         ex = FakeExec(**{k: v for k, v in kw.items() if k in ("pods", "sync")})
         return runner.Runner("ctx", exec_=ex, sleep=lambda s: None, locust=kw.get("locust"), git_dir=kw.get("git_dir"),
-                             http_post=kw.get("http_post")), ex  # fmt: skip
+                             http_post=kw.get("http_post"), http_get=kw.get("http_get")), ex  # fmt: skip
 
     def test_context_required_and_always_named(self):
         with self.assertRaises(ValueError):
@@ -112,15 +117,24 @@ class RunnerTest(unittest.TestCase):
         r, _ = self.runner(locust="http://l")
         with self.assertRaises(ValueError):
             r.plan_inject("S4")
-        s6 = r.plan_inject("S6", users=15)
-        self.assertEqual(s6[0].argv, ("POST", "http://l/swarm", "user_count=15"))
+        with self.assertRaises(ValueError):
+            r.plan_inject("S4", users=15)  # Locust refuses a swarm without spawn_rate
+        s6 = r.plan_inject("S6", users=170, spawn_rate=4)
+        self.assertEqual(
+            s6[0].argv, ("POST", "http://l/swarm", "user_count=170&spawn_rate=4")
+        )
         self.assertTrue(any("/fault/inject-logs" in s.argv[-1] for s in s6[1:]))
 
     def test_s3_is_a_forward_push_only(self):
         r, _ = self.runner(git_dir="/g")
-        steps = r.plan_inject("S3", s3_patch="p.diff")
+        steps = r.plan_inject("S3", s3_patch=PATCH)
         flat = [" ".join(s.argv) for s in steps]
         self.assertEqual(flat[-1], "git push origin HEAD:experiment/dev-state")
+        # only the files the patch names are staged, never everything in the work tree
+        self.assertIn("git add -- overlays/dev/kustomization.yaml", flat)
+        self.assertFalse(
+            any(f.startswith("git add -A") or f == "git add ." for f in flat)
+        )
         self.assertFalse(any("force" in f or " -f" in f for f in flat))
         with self.assertRaises(ValueError):
             self.runner()[0].plan_inject("S3")
@@ -132,6 +146,46 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("pg_terminate_backend", s.argv[-1])
         with self.assertRaises(ValueError):
             r.plan_inject("S9")
+
+    def test_reset_stops_locust_then_starts_the_baseline_swarm(self):
+        b = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
+        r, _ = self.runner(locust="http://l")
+        stop, swarm = [
+            s
+            for s in r.plan_reset(3, locust_baseline=b)
+            if s.argv[0] in ("GET", "POST")
+        ]
+        # the stop first: a /swarm on a running swarm keeps the old classes (ADR-027)
+        self.assertEqual(stop.argv, ("GET", "http://l/stop"))
+        self.assertEqual(swarm.argv[:2], ("POST", "http://l/swarm"))
+        self.assertEqual(
+            urllib.parse.parse_qs(swarm.argv[2]),
+            {
+                "user_count": ["160"],
+                "spawn_rate": ["4"],
+                "user_classes": ["DevUser", "ProdUser"],
+            },
+        )
+        # without a baseline the reset only stops Locust, with the same GET
+        (only,) = [s for s in r.plan_reset(3) if s.argv[0] in ("GET", "POST")]
+        self.assertEqual(only.argv, ("GET", "http://l/stop"))
+        # and told to leave Locust alone it has no Locust step at all, baseline or not
+        for kw in ({}, {"locust_baseline": b}):
+            steps = r.plan_reset(3, touch_locust=False, **kw)
+            self.assertFalse([s for s in steps if s.argv[0] in ("GET", "POST")])
+            self.assertEqual(
+                len(steps), len(r.plan_reset(3)) - 1
+            )  # nothing else changes
+        # executed, in that order; the form reaches http_post with one user_classes field per class
+        sent = []
+        r2, _ = self.runner(
+            locust="http://l",
+            http_post=lambda u, f: sent.append(("POST", u, f)),
+            http_get=lambda u: sent.append(("GET", u)) or (200, "{}"),
+        )
+        r2.execute(r2.plan_reset(3, locust_baseline=b))
+        self.assertEqual([x[:2] for x in sent], [("GET", "http://l/stop"), ("POST", "http://l/swarm")])  # fmt: skip
+        self.assertEqual(sent[1][2]["user_classes"], ["DevUser", "ProdUser"])
 
     def test_reset_order_and_no_force(self):
         r, _ = self.runner(locust="http://l", git_dir="/g")
@@ -247,12 +301,14 @@ class RunnerTest(unittest.TestCase):
         )
 
     def test_execute_runs_steps_in_order_and_stops_on_failure(self):
-        posts = []
+        posts, gets = [], []
         r, _ex = self.runner(
-            locust="http://l", http_post=lambda u, f: posts.append((u, f))
+            locust="http://l",
+            http_post=lambda u, f: posts.append((u, f)),
+            http_get=lambda u: gets.append(u) or (200, "{}"),
         )
         log = r.execute(r.plan_reset(3))
-        self.assertEqual(posts, [("http://l/stop", {})])
+        self.assertEqual((gets, posts), (["http://l/stop"], []))  # the stop is a GET
         self.assertEqual(len(log), len(r.plan_reset(3)))
 
         def failing(argv, cwd=None):
@@ -343,7 +399,7 @@ class ProdTargetTest(unittest.TestCase):
                 r.plan_inject(sc, users=5)
         r, _ = self.runner("0")
         with self.assertRaises(ValueError):
-            r.plan_inject("S3", s3_patch="p.diff")
+            r.plan_inject("S3", s3_patch=PATCH)
 
     def test_s5_alters_the_namespaces_own_role_only(self):
         for ns, level, role, other in (
@@ -356,6 +412,38 @@ class ProdTargetTest(unittest.TestCase):
             self.assertIn(f"ALTER ROLE {role} NOLOGIN", sql)
             self.assertIn(f"usename='{role}'", sql)
             self.assertNotIn(other, sql)
+
+    def test_inject_reads_the_level_and_refuses_a_mismatch(self):
+        """Boundary review F1: the fault goes in only when the namespace carries the cell's level."""
+        r, calls = self.runner("3", ns="nexus-dev")
+        self.assertEqual(len(r.plan_inject("S1", level=3)), 1)
+        self.assertTrue(any("namespace" in c and "nexus-dev" in c for c in calls))
+        for label, rc, cell in (
+            ("3", 0, 2),
+            ("2", 0, 3),
+            ("", 0, 3),
+            ("3", 1, 3),
+            ("abc", 0, 3),
+        ):
+            r, calls = self.runner(label, ns="nexus-dev", rc=rc)
+            with self.assertRaises(
+                ValueError, msg=f"{label!r} rc={rc} cell={cell}"
+            ) as e:
+                r.plan_inject("S1", level=cell)
+            self.assertIn("refusing to inject in nexus-dev", str(e.exception))
+            self.assertFalse(any("exec" in c for c in calls))
+
+    def test_a_missing_label_is_level_0(self):
+        r, _ = self.runner("", ns="nexus-dev")
+        self.assertEqual(r.require_level(0), "0")
+
+    def test_the_command_line_needs_the_level_for_inject(self):
+        with (
+            self.assertRaises(SystemExit),
+            contextlib.redirect_stderr(io.StringIO()) as err,
+        ):
+            runner.main(["plan", "inject", "S1", "--context", "c"])
+        self.assertIn("inject needs --level", err.getvalue())
 
     def test_reset_restores_both_roles(self):
         r, _ = self.runner("1", ns="nexus-dev")
@@ -385,8 +473,14 @@ class ProdTargetTest(unittest.TestCase):
                         "c",
                         "--namespace",
                         "nexus-prod",
+                        "--level",
+                        "1",
                     ]
-                    + flags
+                    + flags,
+                    guard_exec=lambda argv, cwd=None, timeout=120: (
+                        0,
+                        "",
+                    ),  # clean code
                 )
             self.assertEqual(rc, 0)
             mutating = [c for c in calls if "exec" in c]  # the S1 kubectl exec

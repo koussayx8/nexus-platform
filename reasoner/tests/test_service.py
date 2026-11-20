@@ -35,7 +35,7 @@ def groq(p):
 class ServiceTest(unittest.TestCase):
     def setUp(self):
         self.env = dict(os.environ)
-        os.environ["T_GROQ_KEY"], os.environ["T_ANT_KEY"] = "k1", "k2"
+        os.environ["T_GROQ_KEY"] = "k1"
         self.b = bundle()
 
     def tearDown(self):
@@ -71,10 +71,57 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(
             (m["arm"], m["model"], m["provider"]), ("R3", "openai/gpt-oss-120b", "groq")
         )
-        self.assertEqual(m["promptVersion"], "prompt/v1")
+        self.assertEqual(m["promptVersion"], "prompt/v3")
         self.assertEqual(m["corpusHash"], rs.retriever.corpus_hash)
         self.assertTrue(m["retrievedChunks"])
         self.assertFalse(m["noRunbook"])
+
+    def test_decision_chunks_are_expanded_and_marked(self):
+        # ADR-043: the top 3, then the Decision chunk of the first 2 runbooks hit.
+        rs = reasoner(groq(good_proposal(self.b)))
+        chunks = rs.retriever.retrieve(self.b)
+        hits = [c for c in chunks if not c["expanded"]]
+        self.assertEqual(len(hits), 3)
+        self.assertEqual(chunks[:3], hits)  # the hits come first, in rank order
+        exp = [c for c in chunks if c["expanded"]]
+        self.assertEqual(
+            [c["runbook"] for c in exp],
+            list(dict.fromkeys(c["runbook"] for c in hits))[:2],
+        )
+        self.assertTrue(
+            all(c["heading"] == "Decision" and c["score"] is None for c in exp)
+        )
+        m = self.call(rs)["metadata"]
+        self.assertEqual(m["retrievedChunks"], [c["id"] for c in chunks])
+        self.assertEqual(m["expandedChunks"], [c["id"] for c in exp])
+
+    def test_a_runbook_ref_to_an_expanded_chunk_is_accepted(self):
+        rs = reasoner()
+        exp = [c["id"] for c in rs.retriever.retrieve(self.b) if c["expanded"]]
+        rs.opener = groq(good_proposal(self.b, runbooks=exp[:1]))
+        out = self.call(rs)
+        self.assertEqual(out["proposal"]["runbookRefs"], exp[:1])
+
+    def test_no_runbook_expands_nothing(self):
+        m = self.call(reasoner(groq(good_proposal(self.b)), floor=1e9))["metadata"]
+        self.assertEqual((m["retrievedChunks"], m["expandedChunks"]), ([], []))
+        self.assertTrue(m["noRunbook"])
+
+    def test_a_bundle_with_null_zscores_is_answered(self):
+        # A real bundle carries null for a signal with no data (p95 once a hang lets no request
+        # complete). The BM25 query used to raise on it, which the operator saw as a failed arm.
+        z = self.b["metrics"]["zscores"]
+        z["latencyP95"], z["errorRatio"] = None, None
+        self.b.pop("hash")
+        self.b["hash"] = proposal.hash_of(self.b)
+        out = self.call(
+            reasoner(groq(good_proposal(self.b, refs=("metrics.zscores.cpu",))))
+        )
+        self.assertEqual(out["proposal"]["action"]["id"], "restart_workload")
+        self.assertEqual(
+            self.call(reasoner(), mode="rules", model=None)["proposal"]["schema"],
+            "proposal/v1",
+        )
 
     def test_no_runbook_when_floor_is_high(self):
         rs = reasoner(groq(good_proposal(self.b)), floor=1e9)
@@ -91,17 +138,6 @@ class ServiceTest(unittest.TestCase):
             self.call(reasoner(op), model=model)
             m = op.calls[0]["body"]["messages"]
             sent[model] = (m[0]["content"], m[1]["content"])
-        op = FakeOpener(
-            lambda u, b: {
-                "content": [
-                    {"type": "text", "text": json.dumps(good_proposal(self.b))}
-                ],
-                "usage": {},
-            }
-        )
-        self.call(reasoner(op), model="claude-haiku-5-5")
-        b = op.calls[0]["body"]
-        sent["h1"] = (b["system"], b["messages"][0]["content"])
         op = FakeOpener(
             lambda u, b: {"message": {"content": json.dumps(good_proposal(self.b))}}
         )
