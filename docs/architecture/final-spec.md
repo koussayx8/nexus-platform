@@ -30,8 +30,8 @@ Version 1.1 records decisions already taken — by an ADR, by the owner in `TASK
 | X10 | 3, 11, 14, 20, 21, 23, 26, 27 | The K8sGPT comparison (C6) is deferred; a theoretical study replaces it | ADR-037 |
 | X11 | 14, 16, 16A, 22 | R1 rule 4 also covers a full hang; `evidence/v1.1` adds the in-flight Z-score; `proposals` is keyed per Incident | ADR-039 |
 | X12 | 7, 9, 20, 25 | `restart_v2` replaces `restart_v1`: every signal anomalous in the bundle must be back within its raw pre-fault baseline, unknown is not met, and a restart's Verifying timeout is 300 s | ADR-039 addendum, 2026-11-15 (#229) |
-| X13 | 4, 13, 18, 26 | C8's fork token lives in the bot pod, never in the operator; when the Reasoner names no commit, the newest commit touching only the target's overlay is chosen. **Pending** | ADR-041 (#237) |
-| X14 | 2, 3, 16A, 23 | A second approval client, the Telegram bot. **Pending**: its namespace, its impersonation grants and `spec.source.note` enter sections 3, 11 and 18 with ADR-040 | ADR-040 (#237) |
+| X13 | 4, 13, 18, 26 | C8's fork token lives in the bot pod, never in the operator; when the Reasoner names no commit, the newest commit touching only the target's overlay is chosen. **Pending** | ADR-041 (#237, aligned on 2026-11-21 with C8 as built in #255) |
+| X14 | 2, 3, 16A, 23 | A second approval client, the Telegram bot. **Pending**: its namespace, its impersonation grants and `spec.source.note` enter sections 3, 11 and 18 with ADR-040 | ADR-040 (#237, aligned on 2026-11-21 with the bot as built in #252) |
 
 **B. Owner decisions of 2026-11-12 and later** (`TASKS.md`, Block 9: "spec v1.1, amended for D3, D8, D9 and the L1 scenario item")
 
