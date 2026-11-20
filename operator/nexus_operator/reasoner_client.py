@@ -174,7 +174,7 @@ def _error_excerpt(raw: str) -> dict:
 
 
 EXCERPT_KEYS = (
-    "modelConfig",  # the Reasoner config that served the call (r3-groq, r3-primary, ...); also on a failure
+    "modelConfig",  # the Reasoner config that served the call (r2-primary, r3-primary, ...); also on a failure
     "logSelection",
     "promptTrimLevel",
     "promptTokensEstimate",
