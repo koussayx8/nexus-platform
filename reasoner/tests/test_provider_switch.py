@@ -251,3 +251,61 @@ class ReasoningTraceTest(ServiceSwitchTest):
         answer = json.dumps(good_proposal(self.b))
         m = self.call(self.rs("r3-groq", FakeOpener(nim_reply(answer))))["metadata"]
         self.assertNotIn("reasoning", m)
+
+
+THINK = {"chat_template_kwargs": {"enable_thinking": True}}
+
+
+class ExtraBodyTest(unittest.TestCase):
+    """ADR-045: an nvidia entry's extraBody is merged into the request body; it may never override
+    the request's own fields, and no other provider may set it."""
+
+    def entry_doc(self, extra, provider="nvidia"):
+        d = doc()
+        d["models"]["r3-primary"]["extraBody"] = extra
+        d["models"]["r3-primary"]["provider"] = provider
+        if provider != "nvidia":
+            d["models"]["r3-primary"].pop("maxOutputTokens")
+        return d
+
+    def setUp(self):
+        self.env = dict(os.environ)
+        os.environ["T_NIM_KEY"] = "nvapi-test-secret"
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.env)
+
+    def test_gemma_thinking_is_turned_on_and_its_trace_is_kept(self):
+        cfg = config.parse(self.entry_doc(THINK))
+        op = FakeOpener(nim_reply("{}", reasoning="thinking..."))
+        c = adapter.complete(cfg, cfg.models["r3-primary"], "S", "U", opener=op)
+        body = op.calls[0]["body"]
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": True})
+        self.assertEqual(
+            (body["model"], body["max_tokens"], body["temperature"]),
+            ("vendor/thinker-1", 8192, 0),
+        )
+        self.assertEqual(c.reasoning, "thinking...")
+        self.assertEqual(c.settings["extra_body"], ["chat_template_kwargs"])
+
+    def test_no_extra_body_sends_nothing_extra(self):
+        cfg = config.parse(doc())
+        op = FakeOpener(nim_reply("{}"))
+        adapter.complete(cfg, cfg.models["r3-primary"], "S", "U", opener=op)
+        self.assertNotIn("chat_template_kwargs", op.calls[0]["body"])
+
+    def test_reserved_keys_other_providers_and_non_objects_are_refused(self):
+        for key in sorted(config.EXTRA_BODY_RESERVED):
+            with self.assertRaises(config.ConfigError, msg=key):
+                config.parse(self.entry_doc({key: "x"}))
+        with self.assertRaises(config.ConfigError):
+            config.parse(self.entry_doc(THINK, provider="groq"))
+        for bad in (["chat_template_kwargs"], "enable_thinking", 1):
+            with self.assertRaises(config.ConfigError, msg=repr(bad)):
+                config.parse(self.entry_doc(bad))
+
+    def test_the_parsed_extra_body_cannot_be_changed_afterwards(self):
+        cfg = config.parse(self.entry_doc(THINK))
+        with self.assertRaises(TypeError):
+            cfg.models["r3-primary"].extra_body["model"] = "other"

@@ -20,11 +20,16 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 # groq and nvidia (NVIDIA NIM, https://integrate.api.nvidia.com/v1) are OpenAI-compatible; no
 # anthropic: the Haiku arm was cut (TASKS.md D3, D10).
 PROVIDERS = ("groq", "nvidia", "ollama")
 RESPONSE_FORMATS = ("json_schema", "json_object", "none")
+# extraBody (nvidia only, ADR-045) may add provider options, never replace what the request is
+EXTRA_BODY_RESERVED = frozenset(
+    {"model", "messages", "temperature", "seed", "max_tokens", "response_format"}
+)
 MAX_OUTPUT_TOKENS_MAX = 32768
 # A model's call budget, retries included (ADR-035 addendum 2026-11-20): 30 s by default, at most
 # 300 s (owner, 2026-11-20; was 180), the operator's own reasonerTimeoutSeconds bound.
@@ -49,6 +54,8 @@ class ModelEntry:
     timeout_s: float = DEFAULT_TIMEOUT_S  # the call's whole budget, a retry included
     max_output_tokens: int = 1024
     response_format: str = "json_schema"
+    # merged into a NIM request body, e.g. {"chat_template_kwargs": {"enable_thinking": true}}
+    extra_body: MappingProxyType = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def configured(self) -> bool:
@@ -115,6 +122,26 @@ def _response_format(m: dict, where: str) -> str:
     return value
 
 
+def _extra_body(m: dict, where: str) -> MappingProxyType:
+    """An nvidia entry's extraBody: a JSON object whose keys never override the request's own
+    fields (EXTRA_BODY_RESERVED). Any other provider may not set it."""
+    extra = m.get("extraBody")
+    if extra is None:
+        return MappingProxyType({})
+    if m.get("provider") != "nvidia":
+        raise ConfigError(f"{where}: extraBody is for the nvidia provider only")
+    if not isinstance(extra, dict):
+        raise ConfigError(f"{where}: extraBody must be an object")
+    bad = sorted(set(extra) & EXTRA_BODY_RESERVED)
+    if bad:
+        raise ConfigError(f"{where}: extraBody may not set {bad}")
+    try:
+        json.dumps(extra)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{where}: extraBody must be plain JSON") from None
+    return MappingProxyType(json.loads(json.dumps(extra)))
+
+
 def parse(doc: dict) -> Config:
     if not isinstance(doc, dict):
         raise ConfigError("config must be an object")
@@ -149,6 +176,7 @@ def parse(doc: dict) -> Config:
             _timeout(m.get("timeoutSeconds", default_timeout), name),
             _output_cap(m.get("maxOutputTokens", default_cap), name),
             _response_format(m, name),
+            _extra_body(m, name),
         )
     active = doc.get("active", {})
     if not isinstance(active, dict):
