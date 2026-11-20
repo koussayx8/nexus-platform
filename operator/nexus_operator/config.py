@@ -8,8 +8,9 @@ Verifier's metrics source; empty means the Verifier cannot measure, so no repair
 The Writer's keys (recorderHost, recorderPort, recorderDatabase, recorderUser,
 recorderPasswordFile; ADR-031) say where the Flight Recorder DB is and which mounted file holds the
 nexus_writer password; the password is never a ConfigMap value. metricsPort is the /metrics port.
-The Reasoner Client reads reasonerEndpoint (empty: off), reasonerMode, reasonerModel and
-reasonerEffort. approvalTTL (default 15m, at most 15m: K5 refuses a longer expiresAt) is how long
+The Reasoner Client reads reasonerEndpoint (empty: off), reasonerMode, reasonerModel,
+reasonerEffort and reasonerTimeoutSeconds (default 30, at most 180; the Diagnosing timeout is it
+plus 30 s). approvalTTL (default 15m, at most 15m: K5 refuses a longer expiresAt) is how long
 an Incident waits in AwaitingApproval and the longest approval the operator accepts (§7, §9
 stage 8). A change takes effect at the next operator start.
 """
@@ -48,7 +49,19 @@ class Config:
     reasoner_mode: str = "llm"  # rules | llm | adversarial (the Reasoner's own modes)
     reasoner_model: str = ""
     reasoner_effort: str | None = None
+    # reasonerTimeoutSeconds: the Reasoner's budget for one proposal, its one provider retry
+    # included (ADR-035 addendum 2026-11-20); the client waits REASONER_CLIENT_MARGIN_S more and
+    # Diagnosing ends at it + DIAGNOSING_MARGIN_S. Set it to the active model's timeoutSeconds.
+    reasoner_timeout_s: int = 30
     approval_ttl_s: int = 900  # approvalTTL; §7 fixes 15 min as the ceiling
+
+    @property
+    def reasoner_client_timeout_s(self) -> int:
+        return self.reasoner_timeout_s + REASONER_CLIENT_MARGIN_S
+
+    @property
+    def diagnosing_timeout_s(self) -> int:
+        return self.reasoner_timeout_s + DIAGNOSING_MARGIN_S
 
 
 def _seconds(data: dict, key: str, default: int) -> int:
@@ -78,6 +91,32 @@ def _port(data: dict, key: str, default: int) -> int:
 
 
 APPROVAL_TTL_MAX_S = 900
+REASONER_TIMEOUT_MAX_S = (
+    180  # the upper bound: a slow model never holds an Incident longer
+)
+REASONER_CLIENT_MARGIN_S = (
+    5  # the Reasoner's own work and the transport around the model call
+)
+DIAGNOSING_MARGIN_S = 30  # 30 s + 30 s = the 60 s Diagnosing timeout of ADR-034
+
+
+def _reasoner_timeout(data: dict) -> int:
+    raw = data.get("reasonerTimeoutSeconds")
+    if raw is None or str(raw).strip() == "":
+        return 30
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        raise ConfigError(
+            f"reasonerTimeoutSeconds is not an integer: {raw!r}"
+        ) from None
+    if not 1 <= value <= REASONER_TIMEOUT_MAX_S:
+        raise ConfigError(
+            f"reasonerTimeoutSeconds is out of range [1, {REASONER_TIMEOUT_MAX_S}]: {value}"
+        )
+    return value
+
+
 _DURATION = re.compile(r"(\d+)([sm])")
 
 
@@ -150,6 +189,7 @@ def parse(configmap: dict | None) -> Config:
         reasoner_mode=mode,
         reasoner_model=model,
         reasoner_effort=effort,
+        reasoner_timeout_s=_reasoner_timeout(data),
         approval_ttl_s=_ttl(data),
         recorder_host=host,
         recorder_port=port,

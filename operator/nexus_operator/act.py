@@ -216,8 +216,12 @@ class ActPath:
         collector: EvidenceCollector | None = None,
         reasoner: ReasonerClient | None = None,
         approval_ttl_s: int = 900,
+        diagnosing_timeout_s: int = DIAGNOSING_TIMEOUT_S,
     ) -> None:
         self.approval_ttl_s = approval_ttl_s
+        self.diagnosing_timeout_s = (
+            diagnosing_timeout_s  # reasonerTimeoutSeconds + 30 s
+        )
         self.api, self.mutations, self.recorder, self.gate = (
             api,
             mutations,
@@ -356,11 +360,11 @@ class ActPath:
 
         Order matters (Q1): the raw bundle exists only inside the collection step; the redacted
         copy is what is hashed, stored, sent to the Reasoner and given to R1. The Reasoner call
-        (30 s, one attempt) runs as a task, so a slow Reasoner never stalls the reconcile loop or
+        (one attempt from here; the Reasoner may retry its provider once inside its budget) runs as a task, so a slow Reasoner never stalls the reconcile loop or
         its liveness probe; a later tick collects the answer. On a timeout, a provider error, a
         422 or an invalid proposal, R1 answers once with fallbackUsed = true, and an invalid R1
         proposal ends the Incident Blocked (§6 transitions 4-6). Failures before the answer retry
-        each tick until the 60 s Diagnosing timeout: an unreadable target ends Escalated /
+        each tick until the Diagnosing timeout (reasonerTimeoutSeconds + 30 s; 60 s by default): an unreadable target ends Escalated /
         evidence_error, an unreachable recorder ends Blocked / recorder_unavailable.
         """
         status = incident["status"]
@@ -369,7 +373,7 @@ class ActPath:
         started = parse_time(
             (status.get("timestamps") or {}).get("diagnosing") or iso(now)
         )
-        timed_out = (now - started).total_seconds() > DIAGNOSING_TIMEOUT_S
+        timed_out = (now - started).total_seconds() > self.diagnosing_timeout_s
         work = self._diagnoses.get(uid)
         if work is None:
             try:
@@ -400,7 +404,7 @@ class ActPath:
         if work.task is not None and not work.task.done():
             if (
                 timed_out
-            ):  # the client's own 30 s timeout should have fired long before this
+            ):  # the client's own timeout (reasonerTimeoutSeconds + 5 s) fires first
                 work.task.cancel()
                 self._diagnoses.pop(uid, None)
                 await self._move(incident, "Escalated", "reasoner_unavailable")

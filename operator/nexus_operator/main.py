@@ -104,6 +104,7 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
             mode=cfg.reasoner_mode,
             model=cfg.reasoner_model,
             effort=cfg.reasoner_effort,
+            timeout_s=cfg.reasoner_client_timeout_s,
         )
         if cfg.reasoner_endpoint
         else None
@@ -136,6 +137,7 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         EvidenceCollector(RUNTIME.api, RUNTIME.metrics, now),
         RUNTIME.reasoner,
         approval_ttl_s=cfg.approval_ttl_s,
+        diagnosing_timeout_s=cfg.diagnosing_timeout_s,
     )
     logger.info(
         "act path advisoryChecks=%s breakerEpoch=%d prometheus=%s recorder=%s metricsPort=%d reasoner=%s",
@@ -144,7 +146,8 @@ async def start(settings: kopf.OperatorSettings, **_) -> None:
         "set" if cfg.prometheus_url else "unset",
         f"{cfg.recorder_host}:{cfg.recorder_port}" if cfg.recorder_host else "unset",
         cfg.metrics_port,
-        f"{cfg.reasoner_mode} {cfg.reasoner_endpoint}"
+        f"{cfg.reasoner_mode} {cfg.reasoner_endpoint} timeout={cfg.reasoner_timeout_s}s"
+        f" (client {cfg.reasoner_client_timeout_s}s, diagnosing {cfg.diagnosing_timeout_s}s)"
         if cfg.reasoner_endpoint
         else "off",
     )

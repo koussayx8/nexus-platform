@@ -507,3 +507,15 @@ def test_without_an_excerpt_nothing_is_added():
     assert not set(EXCERPT) & set(s)
     [row] = rows(rig).values()
     assert not set(EXCERPT) & set(row["usage"])
+
+
+def test_a_longer_reasoner_timeout_moves_the_diagnosing_limit():
+    """reasonerTimeoutSeconds 120 (a thinking model): Diagnosing ends at 120 + 30 s, not at 60 s."""
+    reasoner = FakeReasoner(answer(), gate=asyncio.Event())  # never set
+    rig = make(reasoner, diagnosing_timeout_s=150)
+    rig.tick()
+    rig.tick()
+    rig.tick(seconds=61)
+    assert rig.status()["phase"] == "Diagnosing"
+    rig.tick(seconds=90)
+    assert ended(rig) == ("Escalated", "reasoner_unavailable")

@@ -8,7 +8,10 @@ Rules this module keeps:
 * Only the operator's redacted bundle leaves. Before anything is sent the bundle is checked to be
   redacted (counts present, hash equal to the canonical hash, and a second pass over every string
   finds nothing); otherwise nothing is sent and the result is `not_redacted` (Q1).
-* One attempt, 30 s timeout, no retry. The caller falls back to the embedded Rules Engine once.
+* One attempt from the operator. Its timeout is reasonerTimeoutSeconds + 5 s (30 + 5 by default,
+  at most 180 + 5): the Reasoner's own budget, which holds its one provider retry (ADR-035
+  addendum 2026-11-20), plus its work around the model call. The caller falls back to the
+  embedded Rules Engine once.
 * The answer is data. It is read with a size cap, parsed, and checked with proposal.validate
   before anything else sees it. Whether the action is in the catalogue and within bounds is the
   Safety Gate's decision, not this client's: an out-of-envelope proposal (R0) must reach the Gate

@@ -15,6 +15,9 @@
 #   reasonerMode            rules | llm | adversarial: the mode the Reasoner is asked to run
 #   reasonerModel           the model id the Reasoner's configuration lists (required for llm)
 #   reasonerEffort          low | medium | high, or empty
+#   reasonerTimeoutSeconds  the Reasoner's budget for one proposal, its one provider retry included
+#                           (default 30, at most 180; set it to the active model's timeoutSeconds).
+#                           The client waits 5 s more; Diagnosing ends 30 s after it (ADR-035)
 #   prometheusURL           Prometheus HTTP API, for the Evidence Collector and the Verifier
 #   recorderHost            Flight Recorder DB Service (ADR-031); empty: no Writer, every mutation
 #                           is refused as recorder_unavailable
@@ -42,6 +45,7 @@ data:
   reasonerMode: llm
   reasonerModel: ""
   reasonerEffort: ""
+  reasonerTimeoutSeconds: "30"
   prometheusURL: http://observability-kube-prometh-prometheus.monitoring.svc:9090
   recorderHost: flight-recorder-db.nexus-system.svc
   recorderPort: "5432"
