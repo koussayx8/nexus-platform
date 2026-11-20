@@ -36,6 +36,10 @@ from .redact import unredacted
 
 TIMEOUT_S = 30
 MAX_RESPONSE_BYTES = 1_048_576
+REASONING_MAX_CHARS = (
+    16000  # proposals.reasoning; status.reasoner shows REASONING_EXCERPT_CHARS
+)
+REASONING_EXCERPT_CHARS = 300
 CATALOGUE_VERSION = "1"
 # evidence/v1.1 (ADR-039) adds metrics.zscores.inflight; v1 bundles stay valid input.
 EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
@@ -149,6 +153,12 @@ def _clean_meta(meta: Any) -> dict:
     if usage:
         out["usage"] = usage
     out.update(_excerpt_meta(meta))
+    # the model's thinking trace: untrusted text, kept for the record only (ADR-035 addendum C)
+    text = meta.get("reasoning")
+    if isinstance(text, str) and text:
+        out["reasoning"] = text[:REASONING_MAX_CHARS]
+        n = _count(meta.get("reasoningLength"))
+        out["reasoningLength"] = n if n is not None else len(text)
     return out
 
 

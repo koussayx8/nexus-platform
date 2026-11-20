@@ -58,7 +58,7 @@ from .metrics import (
 )
 from .model import iso, parse_time
 from .mutations import Mutations
-from .reasoner_client import EXCERPT_KEYS, ReasonerClient
+from .reasoner_client import EXCERPT_KEYS, REASONING_EXCERPT_CHARS, ReasonerClient
 from .reasoner_client import Result as ReasonerResult
 from .recorder import ActionIntent, ActRecorder, RecorderUnavailable
 from .redact import redact_bundle
@@ -188,6 +188,23 @@ def _tokens(usage: dict | None) -> dict | None:
     if usage is None:
         return None
     return {k: v for k, v in usage.items() if k not in EXCERPT_KEYS} or None
+
+
+def _reasoning_text(result: ReasonerResult | None) -> str | None:
+    """The call's thinking trace for proposals.reasoning: untrusted text, stored and shown, never
+    read for a decision (ADR-035 addendum C)."""
+    return None if result is None else result.meta.get("reasoning")
+
+
+def _reasoning_status(result: ReasonerResult | None) -> dict:
+    """status.reasoner's view of the trace: its first REASONING_EXCERPT_CHARS and its length."""
+    text = _reasoning_text(result)
+    if not text:
+        return {}
+    return {
+        "reasoningExcerpt": text[:REASONING_EXCERPT_CHARS],
+        "reasoningLength": result.meta.get("reasoningLength", len(text)),
+    }
 
 
 def _excerpt(result: ReasonerResult | None) -> dict:
@@ -473,6 +490,7 @@ class ActPath:
             "fallbackReason": answer.fallback_reason,
             "usage": _tokens(answer.usage),
             **_excerpt(answer.result),  # also on a fallback: the call was made with it
+            **_reasoning_status(answer.result),
         }
         return {k: v for k, v in status.items() if v is not None}
 
@@ -550,6 +568,7 @@ class ActPath:
                 request_id=result.request_id,
                 reject_reason=reason[:500],
                 usage=_call_usage(result),  # the call's cost sits on the call's own row
+                reasoning=_reasoning_text(result),
             )
         meta = answer.meta
         answer.digest = proposal.hash_of(answer.doc)
@@ -570,6 +589,7 @@ class ActPath:
             reject_reason="; ".join(answer.errors)[:500] or None,
             # the R1 row of a fallback carries none: the call is counted once, on its own row
             usage=None if answer.fallback_used else answer.usage,
+            reasoning=None if answer.fallback_used else _reasoning_text(answer.result),
         )
 
     # ---- Proposed ------------------------------------------------------------------------

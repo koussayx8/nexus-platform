@@ -560,3 +560,33 @@ def test_the_model_config_name_is_kept_only_when_it_is_a_short_name():
 
         r = run(answer, call)
         assert r.meta.get("modelConfig") == kept, given
+
+
+def test_the_reasoning_trace_is_kept_as_text_and_capped():
+    from nexus_operator.reasoner_client import REASONING_MAX_CHARS
+
+    for given, length, want in (
+        ("t" * 20000, 20000, ("t" * REASONING_MAX_CHARS, 20000)),
+        ("short", None, ("short", 5)),
+        ({"not": "text"}, 3, None),
+        ("", 0, None),
+    ):
+
+        async def answer(request, body, given=given, length=length):
+            meta = {"reasoning": given}
+            if length is not None:
+                meta["reasoningLength"] = length
+            return json_response(good_answer(**meta))
+
+        async def call(client, server):
+            return await client.propose(make_bundle(), incident_uid="u1", level=3)
+
+        r = run(answer, call)
+        got = (
+            (r.meta["reasoning"], r.meta["reasoningLength"])
+            if "reasoning" in r.meta
+            else None
+        )
+        assert got == want, (
+            given if isinstance(given, str) and len(given) < 30 else type(given)
+        )

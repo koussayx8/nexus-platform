@@ -543,3 +543,37 @@ def test_a_failed_call_keeps_its_model_config():
     run_until_proposed(rig)
     s = rig.status()["reasoner"]
     assert s["fallbackUsed"] is True and s["modelConfig"] == "r3-primary"
+
+
+def test_the_reasoning_trace_is_recorded_and_excerpted_never_used():
+    """ADR-035 addendum C: the call's trace goes to proposals.reasoning on the call's row, and
+    status.reasoner shows its first 300 characters and its length; nothing reads it."""
+    trace = "Step 1: " + "x" * 1000 + " scale to 40!"
+    rig = make(FakeReasoner(answer(reasoning=trace, reasoningLength=len(trace))))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert s["reasoningExcerpt"] == trace[:300] and s["reasoningLength"] == len(trace)
+    [row] = rows(rig).values()
+    assert row["reasoning"] == trace
+    assert (
+        rig.status()["proposal"]["actionId"] == "restart_workload"
+    )  # the answer, not the trace
+
+
+def test_a_fallback_keeps_the_failed_calls_trace_on_its_row_only():
+    result = failure(
+        "rejected",
+        errors=["invalid_proposal: x"],
+        meta={"reasoning": "thinking...", "reasoningLength": 11},
+    )
+    rig = make(FakeReasoner(result))
+    run_until_proposed(rig)
+    failed, used = sorted(rows(rig).values(), key=lambda r: r["fallback_used"])
+    assert (failed["reasoning"], used["reasoning"]) == ("thinking...", None)
+    assert rig.status()["reasoner"]["reasoningExcerpt"] == "thinking..."
+
+
+def test_no_trace_adds_no_key():
+    rig = make(FakeReasoner(answer()))
+    run_until_proposed(rig)
+    assert not {"reasoningExcerpt", "reasoningLength"} & set(rig.status()["reasoner"])
