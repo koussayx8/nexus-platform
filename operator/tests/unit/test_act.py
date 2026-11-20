@@ -124,11 +124,27 @@ def test_rollout_in_progress_fails_the_precondition():
 
 
 def test_restart_needs_two_ready_replicas():
+    # One desired replica, Ready and not rolling: the only state that reaches this check, since
+    # an unready pod of a 2-replica Deployment reads as a rollout first (next test).
+    rig = Rig(replicas=1)
+    rig.proposed(proposal_doc())
+    rig.run()
+    assert ended(rig) == ("Blocked", "precondition_failed")
+    gate = rig.status()["gate"]
+    assert gate["firstFailingStage"] == 6
+    assert gate["detail"] == "fewer than 2 Ready replicas"
+    assert rig.api.requests == []
+
+
+def test_an_unready_pod_of_two_reads_as_a_rollout_in_progress():
+    # availableReplicas (1) < updatedReplicas (2): rollout_in_progress fires before the Ready
+    # check. Still Blocked at stage 6, by the earlier branch.
     rig = Rig(replicas=2)
     rig.api.pods[0]["status"]["conditions"][0]["status"] = "False"
     rig.proposed(proposal_doc())
     rig.run()
     assert ended(rig) == ("Blocked", "precondition_failed")
+    assert rig.status()["gate"]["detail"] == "a rollout is in progress"
 
 
 def test_dry_run_denial_blocks_and_sends_only_the_dry_run():
