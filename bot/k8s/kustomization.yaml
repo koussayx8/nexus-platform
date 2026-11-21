@@ -1,0 +1,14 @@
+# The Telegram bot (ADR-040): namespace, ServiceAccount, configuration and Deployment. Its RBAC is
+# platform/rbac/nexus-bot/, its NetworkPolicies platform/network/nexus-bot/.
+# NOT WIRED: no Argo CD Application references this directory, and the AppProject has no nexus-bot
+# destination yet. repo-checks builds and kubeconform-checks it on its own. Wiring is the Block 7
+# live step (owner approval): the digest bump first, then the Application, the AppProject
+# destination, and the two platform/ directories added to their parent kustomizations.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml
