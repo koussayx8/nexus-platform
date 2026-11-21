@@ -34,6 +34,8 @@ PRE = {  # the pre-registration's clean baseline (a stddev per signal); the rest
     "reasoner": {"expected_index_hash": INDEX_HASH},
 }  # fmt: skip
 UNIT = pathlib.Path(__file__).resolve().parents[1] / "systemd" / "nexus-batch.service"
+# FakeCluster.bundle_z: no Flight Recorder row / the read fails
+ABSENT, FAIL = object(), object()
 
 
 class FakeClock:
@@ -670,6 +672,9 @@ class FakeCluster:
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
         self.detected_at = None  # spec.detectedAt of the injected fault's Incident, set when it appears
         self.operator_config = {}  # nexus-operator-config data, as the reset's patches leave it
+        # The run's Incident's status.evidence.bundleHash (None: not written) and that bundle's
+        # metrics.zscores.latencyP95 in the Flight Recorder; ABSENT: no row, FAIL: the read fails.
+        self.bundle_hash, self.bundle_z = "sha256:" + "c" * 64, 0.4
         self.images = {  # the image of each Deployment's container; None: the read fails
             "nexus-operator": f"ghcr.io/x/nexus-operator@sha256:{'a' * 64}",
             "nexus-reasoner": f"ghcr.io/x/nexus-reasoner@sha256:{'b' * 64}",
@@ -728,6 +733,13 @@ class FakeCluster:
         line = " ".join(argv)
         if "nexus-operator-config" in argv and "patch" in argv:
             self.operator_config.update(json.loads(argv[argv.index("-p") + 1])["data"])
+        # the S6 void rule's bundle read (psql -A -t)
+        if "flight-recorder-db-0" in argv:
+            if self.bundle_z is FAIL:
+                return 1, ""
+            if self.bundle_z is ABSENT or self.bundle_hash not in argv[-1]:
+                return 0, "\n"
+            return 0, json.dumps({"found": True, "z": self.bundle_z}) + "\n"
         if "--raw" in argv and "/proxy/healthz" in argv[-1]:
             return (
                 (0, json.dumps(self.reasoner)) if self.reasoner is not None else (1, "")
@@ -806,7 +818,8 @@ class FakeCluster:
                 items.append({"metadata": {"uid": "new", "name": "inc-new", "creationTimestamp": self.detected_at},
                               "spec": {"source": {"alertname": "NexusLatencyAnomaly"}, "detectedAt": self.detected_at,
                                        "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}},
-                              "status": {"phase": phase, "reasoner": self.reasoner_status()}})  # fmt: skip
+                              "status": {"phase": phase, "reasoner": self.reasoner_status(),
+                                         **({"evidence": {"bundleHash": self.bundle_hash}} if self.bundle_hash else {})}})  # fmt: skip
             return 0, json.dumps({"items": items})
         if any("sync.status" in a for a in argv):
             return 0, self.synced
