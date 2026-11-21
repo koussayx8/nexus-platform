@@ -37,6 +37,9 @@ known-third-party = ["nexus_client", "nexusctl", "nexus_revert"]
 
 [tool.mypy]
 strict = true
+# nexus_revert is a flat-layout package: its editable install is an import hook that mypy cannot
+# follow, so mypy reads it from the source tree.
+mypy_path = "../libs/nexus-revert"
 
 [[tool.mypy.overrides]]
 module = ["yaml", "kubernetes", "kubernetes.*"]
