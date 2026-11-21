@@ -1,5 +1,5 @@
 # NetworkPolicies for nexus-bot (ADR-040 decision 2 and stated limit 6; spec §18 pattern).
-# NOT WIRED: platform/network/kustomization.yaml does not list this directory until Block 7.
+# Listed by platform/network/kustomization.yaml (platform/m3-live, the platform Application).
 # Outbound only: no ingress rule exists, so default-deny refuses every inbound connection.
 ---
 apiVersion: networking.k8s.io/v1

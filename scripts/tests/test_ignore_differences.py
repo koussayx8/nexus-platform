@@ -57,6 +57,16 @@ class Boundary(unittest.TestCase):
                   "resources: [deployments, replicasets]\n    verbs: [get, list, watch, patch]")
         self.assertEqual(self.rules(), ["B3"])
 
+    def test_b3_skips_the_bots_roles_only_while_no_operator_identity_holds_them(self):
+        # The bot's impersonate grant (ADR-040) is bound to nexus-bot:nexus-bot only: not judged.
+        self.assertEqual(cid.check(self.tmp), [])
+        # Bound to the operator as well, it is the operator's RBAC and outside the catalogue.
+        self.edit("platform/rbac/nexus-bot/nexus-bot.yaml",
+                  "subjects:\n  - kind: ServiceAccount\n    name: nexus-bot\n    namespace: nexus-bot\n---\n# Reads",
+                  "subjects:\n  - kind: ServiceAccount\n    name: nexus-bot\n    namespace: nexus-bot\n"
+                  "  - kind: ServiceAccount\n    name: nexus-operator\n    namespace: nexus-system\n---\n# Reads")
+        self.assertEqual(self.rules(), ["B3"])
+
     def test_b3_cluster_wide_scale(self):
         self.edit("platform/rbac/nexus-operator-dev.yaml",
                   "resources: [deployments, replicasets]\n    verbs: [get, list, watch]",

@@ -11,7 +11,9 @@ Deployment, so names are stable).
   B2  every Application that has ignoreDifferences also has RespectIgnoreDifferences=true;
   B3  the operator's RBAC (platform/rbac) can write only what the catalogue reaches:
       deployments/scale (patch, update), pods/eviction (create), nexus.io incidents and
-      incidents/status. No wildcard, no other write verb on any other resource;
+      incidents/status. No wildcard, no other write verb on any other resource. Every Role and
+      ClusterRole there counts, except one whose bindings in that tree all name subjects outside
+      nexus-system (the Telegram bot's, platform/rbac/nexus-bot: ADR-040; an unbound role counts);
   B4  every namespace where the operator may write deployments/scale: each Deployment that the
       Application tracking it declares has an ignoreDifferences entry for its name;
   B5  in those namespaces no bare Pod is declared (eviction removes a declared Pod for good, which
@@ -33,6 +35,7 @@ except ImportError:  # the repo-checks runner has mikefarah yq on PATH
     yaml = None
 
 DELEGATED = ["/spec/replicas"]
+OPERATOR_NAMESPACE = "nexus-system"   # the operator's ServiceAccounts (nexus-operator, nexus-baseline)
 READ_VERBS = {"get", "list", "watch"}
 # (apiGroup, resource) -> the write verbs the catalogue and the operator's own CRs may use.
 ALLOWED_WRITES = {
@@ -102,11 +105,26 @@ def check(root: pathlib.Path) -> list[str]:
     # B3: what the operator can write
     scale_namespaces: set[str] = set()
     rbac_dir = root / "platform/rbac"
-    for doc in tree_docs(rbac_dir):
+    rbac_docs = tree_docs(rbac_dir)
+    # role key -> True when a binding names a subject in nexus-system (the operator's namespace)
+    bound_to_operator_ns: dict[tuple, bool] = {}
+    for doc in rbac_docs:
+        if doc.get("kind") not in ("RoleBinding", "ClusterRoleBinding"):
+            continue
+        ref = doc.get("roleRef") or {}
+        key = (ref.get("kind"), doc["metadata"].get("namespace") if ref.get("kind") == "Role" else None,
+               ref.get("name"))
+        ours = any(s.get("namespace", doc["metadata"].get("namespace")) == OPERATOR_NAMESPACE
+                   for s in doc.get("subjects") or [])
+        bound_to_operator_ns[key] = bound_to_operator_ns.get(key, False) or ours
+    for doc in rbac_docs:
         if doc.get("kind") not in ("Role", "ClusterRole"):
             continue
         rname = doc["metadata"]["name"]
         ns = doc["metadata"].get("namespace")
+        key = (doc["kind"], ns if doc["kind"] == "Role" else None, rname)
+        if bound_to_operator_ns.get(key) is False:
+            continue  # bound, and only to identities outside nexus-system: not the operator's RBAC
         for rule in doc.get("rules") or []:
             writes = set(rule.get("verbs") or []) - READ_VERBS
             if not writes:

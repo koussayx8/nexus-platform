@@ -1,0 +1,33 @@
+# The Telegram approval bot (ADR-040, Block 7): bot/k8s, i.e. its ServiceAccount, configuration
+# and Deployment in nexus-bot. The namespace itself, the bot's RBAC (platform/rbac/nexus-bot) and
+# its NetworkPolicies (platform/network/nexus-bot) are in the platform Application, as for every
+# other NEXUS namespace. The pod starts only once the owner has created Secret nexus-bot-telegram
+# (scripts/nexus-bot-secrets.sh). No ignoreDifferences: nothing of the bot is runtime state.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nexus-bot
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    app.kubernetes.io/component: application
+  annotations:
+    nexus.io/adr: "ADR-040"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: nexus
+  source:
+    repoURL: https://github.com/koussayx8/nexus-platform.git
+    targetRevision: main
+    path: bot/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nexus-bot           # declared, with its Pod Security labels, by the platform Application
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }
