@@ -109,6 +109,10 @@ schema has no commit field. So:
   It then goes through the same checks 1–6; if it fails one, no older commit is tried. The pull request body
   says the commit was chosen by rule A1, not by the Reasoner.
 
+In the S3 trial rerun, R3's `recommendation.detail` named exactly the injected commit (one 40-hex token; the
+64-hex image digest in the same text is not matched), and the reviewer's offline run of #255's `prepare()` on
+that Incident with `experiment/dev-state` at `86dc5e7` produced the exact inverse diff (2026-11-21).
+
 **Two rules added by this ADR, accepted by the owner on 2026-11-17:**
 
 | # | Rule | Reason |
@@ -201,6 +205,10 @@ required check; report those minutes with the human time, not as NEXUS latency.
    Deployments with two ServiceAccounts would separate them; that split is not planned before the defense.
 6. **Merge recognition is a chat message, not a record in the Flight Recorder.** The export reads the times
    from GitHub.
+7. **In a C8 run the runner does not reset when the Incident is Escalated.** The fault stays until the owner
+   merges the revert pull request (the merge is the fix), and the reset follows recovery. A reset first makes
+   check 5 refuse ("changes nothing, already reverted?"), shown offline on 2026-11-21 with the real commits
+   `86dc5e7` and `eca2031`.
 
 ## Contradictions with the spec and the sources
 
@@ -223,8 +231,8 @@ Reported, not adapted silently. The rows that change the spec are in the spec v1
 | U1 | Which token type can open the upstream pull request | The token test, steps 4 and 6 |
 | U2 | The upstream setting "require approval for fork pull request workflows" and its level | Owner: repository Settings → Actions → General; or `gh api repos/koussayx8/nexus-platform/actions/permissions/fork-pr-contributor-approval` |
 | U3 | Whether the ruleset on `experiment/dev-state` blocks a plain push (plan 3.3). No longer decisive: the token has no upstream write | `gh api repos/koussayx8/nexus-platform/rulesets` |
-| U4 | The exact paths of the fault class, confidence, arm and model in `status` (`act.py:395` shows `bundleHash`; `act.py:558-564` the recommendation) | Read `act.py` and one `Escalated` Incident from a Block 5 trial run |
-| U5 | The S3 injector's commits touch only `overlays/dev` (rule A2) | Read `experiments/` S3 injection code in Block 6 |
+| U4 | The exact paths of the fault class, confidence, arm and model in `status` (`act.py:395` shows `bundleHash`; `act.py:558-564` the recommendation) | **VERIFIED, 2026-11-21**, from the S3 trial rerun (`~/nexus-evidence/trials-2026-11-21/S3/RECORD.md` and the Incident JSON there): `status.proposal.faultClass` and `confidence`, `status.reasoner.mode` and `modelId`, `status.evidence.bundleHash` and `status.proposal.hash` are all present on `inc-ac15ee36af8a7a62-1795253568` |
+| U5 | The S3 injector's commits touch only `overlays/dev` (rule A2) | **VERIFIED, 2026-11-21**, from the S3 trial rerun (`~/nexus-evidence/trials-2026-11-21/S3/RECORD.md`): the injector commits only `overlays/dev/kustomization.yaml` (`inject.json`: `git add -- overlays/dev/kustomization.yaml`; commit `86dc5e79c12ba7fd292e16a3dbd8ead270a6a9f6` changes that one file) |
 | U6 | ArgoCD pickup time after a merge into `experiment/dev-state` | Measured in the Block 6 end-to-end run |
 | U7 | The required check on `main` runs on a fork pull request without secrets and can pass | The first pull request against `main`, or cut the mapping |
 
@@ -250,6 +258,8 @@ adds the rest (ADR-040). The package and image step (2 hours) is ADR-040's step 
 `experiment/dev-state` from the fork; its diff is the inverse of the injected commit; the owner merges it under
 rule 11; ArgoCD syncs; the alert resolves; the log (the chat after Block 7) shows "merged by". One refusal: an
 Incident whose named SHA is not on the branch opens no pull request.
+In a C8 run the runner does not reset when the Incident is Escalated: the fault stays until the owner merges
+the revert pull request (the merge is the fix), and the reset follows recovery (limit 7).
 
 **Owner-only:** the machine account, its fork and tokens; the fork-workflow approval setting (U2); running the
 Secret script; merging the revert pull request; deleting test branches in the fork.
@@ -277,6 +287,7 @@ Secret script; merging the revert pull request; deleting test branches in the fo
   state: the fix is a human merge of a diff that NEXUS proposed.
 - The operator's trust envelope is unchanged: no token, no public egress.
 - One more outside credential lives in the cluster, in the bot pod, with no write to this repository.
-- The spec needs addenda in v1.1: §13 (the bot proposes through Git, a human merges; the token is not in the
-  operator), §19 (no ruleset change; the fork-workflow approval setting), §20 (C8 in scope), §24 (the threat
-  rows above).
+- Spec v1.1 (ADR-048, merged in #203) names this ADR as pending; these addenda enter spec version 1.2 or an
+  amendment of ADR-048 (its decision 4): §13 (the bot proposes through Git, a human merges; the token is not in
+  the operator), §19 (no ruleset change; the fork-workflow approval setting), §20 (C8 in scope), §24 (the
+  threat rows above).
