@@ -3,6 +3,7 @@
 # token test (README).
 upstream: koussayx8/nexus-platform
 machineAccount: nexus-machine-example
+# real value: belhouchetkoussay (token test, ADR-041); it goes into the bot's config in Block 6
 # fork: defaults to <machineAccount>/nexus-platform; must be owned by the machine account
 prMode: pull_request          # compare_link if the token test ends in outcome C
 fetchDepth: 50                # check 2, "recent": within the last 50 commits of the tracked branch
