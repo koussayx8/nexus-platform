@@ -14,7 +14,11 @@ from typing import Any, Protocol
 API = "https://api.telegram.org"
 MAX_TEXT = 4096  # Bot API: sendMessage text, after entity parsing
 MAX_CALLBACK_DATA = 64  # Bot API: callback_data, in bytes
-POLL_TIMEOUT = 50  # seconds the server holds a getUpdates call open
+# Seconds the server holds a getUpdates call open. 25, not 50: the live bot logged a getUpdates
+# TimeoutError about once a minute at 50 s, most likely an idle connection dropped on the path
+# before the server answered. The client waits POLL_SLACK longer than the server holds the call.
+POLL_TIMEOUT = 25
+POLL_SLACK = 10
 ALLOWED_UPDATES = ["message", "callback_query"]
 ELLIPSIS = "…"
 
@@ -114,7 +118,7 @@ class TelegramClient:
         payload: dict[str, Any] = {"timeout": POLL_TIMEOUT, "allowed_updates": ALLOWED_UPDATES}
         if offset is not None:
             payload["offset"] = offset
-        result = self._call("getUpdates", payload, timeout=POLL_TIMEOUT + 10)
+        result = self._call("getUpdates", payload, timeout=POLL_TIMEOUT + POLL_SLACK)
         return [u for u in (result or []) if isinstance(u, dict) and isinstance(u.get("update_id"), int)]
 
     def send_message(self, chat_id: int, text: str,
