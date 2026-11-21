@@ -114,19 +114,67 @@ def test_token_is_a_mounted_secret_file_never_an_env_value() -> None:
     assert env["NEXUS_BOT_TOKEN_FILE"].startswith(mounts["telegram"]["mountPath"] + "/")
 
 
-def test_namespace_is_restricted() -> None:
-    labels = docs(K8S / "namespace.yaml")[0]["metadata"]["labels"]
-    assert labels["pod-security.kubernetes.io/enforce"] == "restricted"
+def _namespace() -> dict[str, Any]:
+    [ns] = [d for d in docs(ROOT / "platform/namespaces/namespaces.yaml") if d["metadata"]["name"] == "nexus-bot"]
+    return ns
 
 
-@pytest.mark.parametrize("parent", ["platform/rbac/kustomization.yaml", "platform/network/kustomization.yaml",
-                                    "operator/k8s/kustomization.yaml"])
-def test_not_wired_into_any_parent(parent: str) -> None:
-    text = (ROOT / parent).read_text()
+def test_namespace_is_restricted_and_has_no_autonomy_level() -> None:
+    labels = _namespace()["metadata"]["labels"]
+    for mode in ("enforce", "warn", "audit"):
+        assert labels[f"pod-security.kubernetes.io/{mode}"] == "restricted"
+    assert "nexus.io/autonomy-level" not in labels
+
+
+def test_namespace_has_one_owner_the_platform_application() -> None:
+    # Declared once, in platform/namespaces: the bot's NetworkPolicies (platform Application) and
+    # scripts/nexus-bot-secrets.sh need it before the nexus-bot Application syncs.
+    assert "namespace.yaml" not in yaml.safe_load((K8S / "kustomization.yaml").read_text())["resources"]
+    assert not (K8S / "namespace.yaml").exists()
+    assert "namespaces" in yaml.safe_load((ROOT / "platform/kustomization.yaml").read_text())["resources"]
+
+
+def test_allowlist_is_one_owner_id_mapped_to_the_one_impersonable_user() -> None:
+    [cm] = docs(K8S / "configmap.yaml")
+    cfg = yaml.safe_load(cm["data"]["config.yaml"])
+    assert cfg["allowlist"] == {"8998653791": "koussay-approver"}
+    assert cfg["approverGroup"] == "nexus-approvers"
+    impersonable = {n for r in by_kind(docs(RBAC), "ClusterRole")["/nexus-bot-impersonate-approver"]["rules"]
+                    for n in r["resourceNames"]}
+    assert set(cfg["allowlist"].values()) | {cfg["approverGroup"]} == impersonable
+
+
+@pytest.mark.parametrize(("parent", "entry"), [("platform/rbac/kustomization.yaml", "nexus-bot"),
+                                               ("platform/network/kustomization.yaml", "nexus-bot")])
+def test_rbac_and_network_are_wired_into_their_parents(parent: str, entry: str) -> None:
+    assert entry in yaml.safe_load((ROOT / parent).read_text())["resources"]
+
+
+def test_operator_application_does_not_carry_the_bot() -> None:
+    # Decision 6: nothing of the bot goes through the nexus Application (operator/k8s, nexus-system).
+    text = (ROOT / "operator/k8s/kustomization.yaml").read_text()
     assert "nexus-bot" not in text and "bot/k8s" not in text
 
 
-def test_not_wired_into_any_application() -> None:
-    for app in (ROOT / "platform/argocd").rglob("*.yaml"):
-        text = app.read_text()
-        assert "bot/k8s" not in text and "nexus-bot" not in text, app
+def test_application_deploys_bot_k8s_in_its_own_namespace() -> None:
+    app = docs(ROOT / "platform/argocd/applications/nexus-bot.yaml")[0]
+    assert app["kind"] == "Application" and app["metadata"]["name"] == "nexus-bot"
+    spec = app["spec"]
+    assert spec["project"] == "nexus"
+    assert spec["source"] == {"repoURL": "https://github.com/koussayx8/nexus-platform.git",
+                              "targetRevision": "main", "path": "bot/k8s"}
+    assert spec["destination"] == {"server": "https://kubernetes.default.svc", "namespace": "nexus-bot"}
+    assert spec["syncPolicy"]["automated"] == {"prune": True, "selfHeal": True}
+    assert "ignoreDifferences" not in spec
+    assert "resources-finalizer.argocd.argoproj.io" in app["metadata"]["finalizers"]
+
+
+def test_only_the_nexus_bot_application_points_at_bot_k8s() -> None:
+    hits = [a.name for a in (ROOT / "platform/argocd").rglob("*.yaml") if "bot/k8s" in a.read_text()]
+    assert hits == ["nexus-bot.yaml"]
+
+
+def test_appproject_admits_the_namespace() -> None:
+    [proj] = docs(ROOT / "platform/argocd/projects/nexus.yaml")
+    dests = proj["spec"]["destinations"]
+    assert {"server": "https://kubernetes.default.svc", "namespace": "nexus-bot"} in dests

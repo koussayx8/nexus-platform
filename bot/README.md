@@ -14,9 +14,9 @@ write exactly as they decide a `nexusctl approve`.
 | `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>` | built, read-only |
 | Note, `/ask` | Block 8 (a Note press answers "not available") |
 | Image (`bot/Dockerfile`, hashed `requirements.txt`), CI build, Trivy scan, Cosign signing, digest-bump PR (`.github/workflows/bot.yml`) | built; the first image is pushed when this merges to `main` |
-| `bot/k8s/` (namespace, ServiceAccount, ConfigMap, Deployment), `platform/rbac/nexus-bot/`, `platform/network/nexus-bot/` | written, **not wired**: no Application or parent kustomization references them |
+| `bot/k8s/` (ServiceAccount, ConfigMap, Deployment) by the `nexus-bot` Application; the namespace (`platform/namespaces/`), `platform/rbac/nexus-bot/` and `platform/network/nexus-bot/` by the `platform` Application | wired (Block 7 live step); deploys only once the image's digest bump has landed on `main` |
 | Alertmanager Telegram route (`platform/observability/alertmanager-telegram-values.yaml`) | written, **not enabled**: not in the `observability` Application's `valueFiles` |
-| Argo CD Application, AppProject destination `nexus-bot`, `scripts/nexus-bot-secrets.sh` | Block 7 live step |
+| Argo CD Application, AppProject destination `nexus-bot`, `scripts/nexus-bot-secrets.sh` | written (Block 7 live step) |
 
 ## How a press is decided
 
@@ -54,29 +54,30 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
 2. **Register the bot** with @BotFather: `/newbot`, a display name, a username ending in `bot`. BotFather
    replies with the token: copy it, do not paste it into a chat, a file in the repository or a terminal
    command line. Then `/setjoingroups` → **Disable** (the bot refuses groups anyway; this stops the invite).
-3. **Store the token as a Secret, outside Git**, once the `nexus-bot` namespace exists (a cluster write:
-   it needs your approval for the Block 7 live step). `read -rs` takes the token at a silent prompt, so it
-   never lands in shell history or in any process's argv (only `printf`, a shell builtin, holds it, and
-   kubectl reads it from stdin):
+3. **Store the token as a Secret, outside Git**, once the `nexus-bot` namespace exists (the
+   `platform` Application creates it; a cluster write, so it needs your approval for the Block 7
+   live step). Save the token from BotFather into `~/.nexus/telegram-bot.token` (mode 0600). `read -rs`
+   takes it at a silent prompt, so it never lands in shell history or in any process's argv:
 
    ```bash
-   read -rs -p 'Telegram bot token: ' T && echo && printf '%s' "$T" | kubectl --context default -n nexus-bot create secret generic nexus-bot-telegram --from-file=token=/dev/stdin; unset T
+   ( umask 077; read -rs -p 'Telegram bot token: ' T && echo && printf '%s' "$T" > ~/.nexus/telegram-bot.token )
    ```
 
-   Then check it by printing **only its length** (a bot token is about 46 characters), never its value:
+   Then create the Secret:
 
    ```bash
-   kubectl --context default -n nexus-bot get secret nexus-bot-telegram -o jsonpath='{.data.token}' | base64 -d | wc -c
+   scripts/nexus-bot-secrets.sh
    ```
 
-   `--from-file=…=/dev/stdin` works with kubectl on Linux; test it once with a dummy value first (then
-   `kubectl delete secret` it and create the real one). ADR-040 step 8 later replaces this with
-   `scripts/nexus-bot-secrets.sh` (create if absent, value never in argv or output). Rotate the token in
-   BotFather (`/revoke`) if it ever leaks; the bot calls `deleteWebhook` at every start.
-4. **Find your numeric user ID** without a third-party bot: start the bot with the empty allowlist it
-   ships with (`allowlist: {}` in `bot/k8s/configmap.yaml`), send it
-   `/status` from your phone, and read the log line `dropped {"update_id": …, "from_id": <your ID>, …}`.
-   Put that number in `allowlist` (in Git, reviewed), mapped to `koussay-approver`. One entry today.
+   It creates Secret `nexus-bot-telegram` (key `token`) in `nexus-bot` if it is absent, with
+   `kubectl create secret --from-file` (the value is never in argv), and prints only the token's
+   length (a bot token is about 46 characters). It refuses if the namespace does not exist yet,
+   and leaves an existing Secret as it is. To rotate: `/revoke` in BotFather, delete the Secret,
+   replace the file and run it again. The bot calls `deleteWebhook` at every start.
+4. **Your numeric user ID** is in `allowlist` in `bot/k8s/configmap.yaml` (in Git, reviewed),
+   mapped to `koussay-approver`: one entry, given by the owner on 2026-11-21. To check an ID, send
+   the bot `/status` from that account and read the log line `dropped {"update_id": …, "from_id": <ID>, …}`
+   (logged for any sender not in the allowlist).
 5. Send `/start` to the bot once: Telegram lets a bot message only users who have opened its chat.
 6. **When the Alertmanager route is enabled** (not before): the same token as a second Secret, in
    `monitoring`, and your user ID as `chat_id` in `platform/observability/alertmanager-telegram-values.yaml`:

@@ -22,7 +22,7 @@ def test_shipped_configmap_parses() -> None:
 
     cm = yaml.safe_load((Path(__file__).parents[1] / "k8s" / "configmap.yaml").read_text())
     cfg = parse(yaml.safe_load(cm["data"]["config.yaml"]), TOKEN)
-    assert cfg.allowlist == {} and cfg.namespaces == ("nexus-dev", "nexus-prod")
+    assert cfg.allowlist == {8998653791: "koussay-approver"} and cfg.namespaces == ("nexus-dev", "nexus-prod")
 
 
 def test_parse_minimal() -> None:

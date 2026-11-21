@@ -85,10 +85,11 @@ canilist() {   # <ns> <rows...>
 BASE_ROWS=('selfsubjectreviews.authentication.k8s.io   []   []   [create]' '                                      [/healthz]   []   [get]')
 DEV_ROWS=('deployments.apps/scale   []   []   [get patch update]' 'pods/eviction   []   []   [create]')
 rbac_ok() { canilist nexus-dev "${BASE_ROWS[@]}" "${DEV_ROWS[@]}"; canilist nexus-prod "${BASE_ROWS[@]}"; canilist nexus-data "${BASE_ROWS[@]}"; }
-levels() {   # <prod> <data> <dev> <system> <reasoner> <load>
+levels() {   # <prod> <data> <dev> <system> <reasoner> <load> [<bot>, default unset]
   printf '%s' "$1" > "$work/fx/level-nexus-prod.txt"; printf '%s' "$2" > "$work/fx/level-nexus-data.txt"
   printf '%s' "$3" > "$work/fx/level-nexus-dev.txt"; printf '%s' "$4" > "$work/fx/level-nexus-system.txt"
   printf '%s' "$5" > "$work/fx/level-nexus-reasoner.txt"; printf '%s' "$6" > "$work/fx/level-nexus-load.txt"
+  printf '%s' "${7:-}" > "$work/fx/level-nexus-bot.txt"
 }
 
 failed=0
@@ -187,6 +188,9 @@ levels 1 0 0 "" "" ""; run_case "level-live-lags-git" 1 'nexus-dev: label=0 want
 ns_yaml 0; git commit -q -am l0; git update-ref refs/remotes/origin/experiment/dev-state HEAD
 levels 1 0 0 "" "" ""; run_case "level-from-git-0" 0 'nexus-dev: label=0 want=0' '' v_namespace_levels
 levels 1 0 3 "" "" ""; run_case "level-live-ahead-of-git" 1 'nexus-dev: label=3 want=0' '' v_namespace_levels
+levels 1 0 0 "" "" "" 1; run_case "level-bot-labelled" 1 'nexus-bot: label=1 want=<unset>' '' v_namespace_levels
+levels 1 0 0 "" "" ""; rm "$work/fx/level-nexus-bot.txt"
+run_case "level-bot-missing" 1 'nexus-bot: NAMESPACE NOT FOUND' '' v_namespace_levels
 git update-ref -d refs/remotes/origin/experiment/dev-state
 levels 1 0 0 "" "" ""; run_case "level-git-unreadable" 1 'nexus-dev: no autonomy-level in origin/experiment/dev-state' '' v_namespace_levels
 
