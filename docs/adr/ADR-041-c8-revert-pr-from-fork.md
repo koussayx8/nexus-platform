@@ -70,7 +70,7 @@ is merged; the test pull request is closed at the end.
 | 1 | Create the machine account; fork `koussayx8/nexus-platform` with all branches; disable Actions on the fork | — |
 | 2 | Create the fine-grained token (decision 3). Store it in `~/.nexus/`, never in Git or in a command line | — |
 | 3 | With that token: push a branch `nexus/token-test` to the **fork**, holding one empty commit on top of `experiment/dev-state` | Accepted |
-| 4 | With that token: `POST /repos/koussayx8/nexus-platform/pulls` with `head: <machine>:nexus/token-test`, `base: experiment/dev-state` | **This is the question.** Expected to be refused: a fine-grained token reaches only the repositories it lists, and the upstream is not one of them (UNVERIFIED — recalled from GitHub's documentation, not tested) |
+| 4 | With that token: `POST /repos/koussayx8/nexus-platform/pulls` with `head: <machine>:nexus/token-test`, `base: experiment/dev-state` | **This is the question.** Expected to be refused: a fine-grained token reaches only the repositories it lists, and the upstream is not one of them. **Verified, 2026-11-21: refused, HTTP 403** (below) |
 | 5 | Negative checks with the same token, **no merge attempt** (owner, 2026-11-19): `GET /repos/koussayx8/nexus-platform` → `permissions.push`; `git push` of a throwaway ref (`nexus/token-test-throwaway`) to the **upstream** | `permissions.push` is `false` and the push gets `403`. If either does not hold, stop: decision 3 is broken. Steps 3 and 4 are the positive checks (fork push, upstream pull request) |
 | 6 | If step 4 was refused: create the classic token with `public_repo` only and repeat steps 3 to 5 | 3 and 4 accepted, 5 refused |
 | 7 | Close the test pull request; the owner deletes the test branch in the fork | — |
@@ -82,6 +82,24 @@ is merged; the test pull request is closed at the end.
 | C — neither does | **Fallback (accepted by the owner):** the bot pushes the branch to the fork and posts the compare link (`…/compare/<base>...<machine>:nexus/revert-<incident>?expand=1`) in the chat; the owner opens the pull request with one tap. C8's metric then starts at the link, not at the pull request |
 
 Record the outcome, with the HTTP status of steps 4 and 5, in this ADR before Block 6 continues.
+
+## Token test, 2026-11-21 (owner): outcome B
+
+Run by the owner. Machine account `belhouchetkoussay`; fork `belhouchetkoussay/nexus-platform`, with all
+branches, Actions disabled; two-step verification on. The results are the owner's report, except the pull
+request row, read with `gh pr view 295` in this session: author and head owner `belhouchetkoussay`, head
+`nexus/token-test-2`, base `experiment/dev-state`, 0 changed files, `CLOSED`, `mergedAt: null`.
+
+| Step | Fine-grained token (fork only; Contents RW, Pull requests RW, Metadata R) | Classic token, scope `public_repo` only |
+|---|---|---|
+| 3. Push to the fork | Accepted | Accepted |
+| 4. Upstream pull request | **Refused**, HTTP 403 "Resource not accessible by personal access token" | **HTTP 201**, #295 (an empty commit on `experiment/dev-state`), closed unmerged |
+| 5. `permissions.push` on the upstream | `false` | `false` |
+| 5. Push to the upstream | 403 | 403 ("Permission to koussayx8/nexus-platform.git denied to belhouchetkoussay") |
+
+**Outcome B.** `prMode: pull_request` with the classic token. The fine-grained token is revoked. Decision 3
+holds: neither token can write upstream. The classic token's wider reach is stated in limit 1 and in the
+threat model (row 1).
 
 ## Commit validation
 
@@ -228,7 +246,7 @@ Reported, not adapted silently. The rows that change the spec are in the spec v1
 
 | # | Item | Settled by |
 |---|---|---|
-| U1 | Which token type can open the upstream pull request | The token test, steps 4 and 6 |
+| U1 | Which token type can open the upstream pull request | **VERIFIED, 2026-11-21**: outcome B, the classic token with public_repo only (see "Token test, 2026-11-21"); the fine-grained token was refused (403) |
 | U2 | The upstream setting "require approval for fork pull request workflows" and its level | Owner: repository Settings → Actions → General; or `gh api repos/koussayx8/nexus-platform/actions/permissions/fork-pr-contributor-approval` |
 | U3 | Whether the ruleset on `experiment/dev-state` blocks a plain push (plan 3.3). No longer decisive: the token has no upstream write | `gh api repos/koussayx8/nexus-platform/rulesets` |
 | U4 | The exact paths of the fault class, confidence, arm and model in `status` (`act.py:395` shows `bundleHash`; `act.py:558-564` the recommendation) | **VERIFIED, 2026-11-21**, from the S3 trial rerun (`~/nexus-evidence/trials-2026-11-21/S3/RECORD.md` and the Incident JSON there): `status.proposal.faultClass` and `confidence`, `status.reasoner.mode` and `modelId`, `status.evidence.bundleHash` and `status.proposal.hash` are all present on `inc-ac15ee36af8a7a62-1795253568` |
@@ -279,7 +297,7 @@ Secret script; merging the revert pull request; deleting test branches in the fo
 | Checks 4b, 4c | Owner, 2026-11-19 | Built as written: workload files only, never `overlays/dev/namespace.yaml`; the kustomization's keys except `patches` unchanged, except the sample-api `images` entry's `newName`, `newTag`, `digest` |
 | Outcome C | Post the compare link | `prMode: compare_link`, also used when the create is refused |
 | Merge recognition | Poll | As decision 10: every 30 s, 24 h, restart recovery by author and head prefix; a notification only |
-| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test (steps 0, owner) has not run: its outcome (A, B or C) is still to be recorded here |
+| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test ran on 2026-11-21: outcome B (see "Token test, 2026-11-21") |
 
 ## Consequences
 
