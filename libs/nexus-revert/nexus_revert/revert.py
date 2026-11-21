@@ -189,6 +189,9 @@ def prepare(req: Request, cfg: Config, git: Git, gh: GitHub, now: datetime) -> P
 
 def push(p: Prepared, cfg: Config, git: Git) -> None:
     """Push the one revert commit to the fork, under nexus/ only, never forced."""
-    assert p.branch.startswith(BRANCH_PREFIX) and SHA.fullmatch(p.revert_commit)
+    if not p.branch.startswith(BRANCH_PREFIX):
+        raise GitError(f"refusing to push: the branch is not under {BRANCH_PREFIX}")
+    if not SHA.fullmatch(p.revert_commit):
+        raise GitError("refusing to push: the revert commit is not a full 40-hex SHA")
     git(["remote", "add", "fork", cfg.fork_url])
     git(["push", "-q", "--no-verify", "fork", f"{p.revert_commit}:refs/heads/{p.branch}"], push_auth=True)

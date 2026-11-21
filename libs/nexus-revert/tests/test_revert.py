@@ -1,11 +1,13 @@
 """Checks 1-6 and the mechanical revert, on real fixture repositories (file://, no network)."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from nexus_revert.gitcmd import GitError, Result
 from nexus_revert.revert import Prepared, Refusal, prepare, push
 from nexus_revert.trigger import request_for
 from tests.fixtures import BRANCH, KUSTOMIZATION, FakeGitHub, Repos, incident, sh
@@ -266,6 +268,22 @@ def test_push_sends_only_the_nexus_branch_to_the_fork(repos: Repos) -> None:
     assert repos.fork_branches() == ["nexus/revert-inc-0a1b2c3d-1764585600"]
     assert sh(repos.fork, "rev-parse", "nexus/revert-inc-0a1b2c3d-1764585600") == p.revert_commit
     assert sh(repos.upstream, "for-each-ref") == before  # upstream untouched
+
+
+def _no_git(args: Sequence[str], *, push_auth: bool = False, check: bool = True) -> Result:
+    raise AssertionError(f"git must not run: {list(args)}")
+
+
+@pytest.mark.parametrize(("branch", "commit"), [
+    ("main", "a" * 40),  # not under nexus/revert-
+    ("nexus/revert-inc-1", "a" * 12),  # not a full SHA
+])
+def test_push_refuses_a_bad_branch_or_commit_even_under_python_O(repos: Repos, branch: str, commit: str) -> None:
+    p = Prepared(sha="b" * 40, subject="s", chosen_by_reasoner=False, branch=branch, base=BRANCH,
+                 revert_commit=commit)
+    with pytest.raises(GitError, match="refusing to push") as e:
+        push(p, repos.config(), _no_git)
+    assert "://" not in str(e.value)
 
 
 def test_no_hooks_run(repos: Repos) -> None:

@@ -89,6 +89,12 @@ def test_unreachable_carries_no_token() -> None:
     assert TOKEN not in str(e.value)
 
 
+def test_a_path_outside_repos_is_refused_even_under_python_O() -> None:
+    with pytest.raises(GitHubError, match="outside /repos/") as e:
+        HttpTransport(TOKEN, "http://127.0.0.1:1").request("GET", "/user")
+    assert e.value.status is None and TOKEN not in str(e.value)
+
+
 @pytest.mark.parametrize("module", [github, prwatch, revert, service])
 def test_no_merge_auto_merge_review_or_label_call_exists(module: object) -> None:
     src = inspect.getsource(module)  # type: ignore[arg-type]

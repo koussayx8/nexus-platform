@@ -34,7 +34,8 @@ class HttpTransport:
         return f"HttpTransport(base={self._base!r})"
 
     def request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        assert path.startswith("/repos/")
+        if not path.startswith("/repos/"):
+            raise GitHubError(f"{method}: refusing a path outside /repos/")
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(f"{self._base}{path}", data=data, method=method, headers={
             "Authorization": f"Bearer {self._token}",
