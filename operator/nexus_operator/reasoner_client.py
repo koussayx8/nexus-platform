@@ -8,7 +8,10 @@ Rules this module keeps:
 * Only the operator's redacted bundle leaves. Before anything is sent the bundle is checked to be
   redacted (counts present, hash equal to the canonical hash, and a second pass over every string
   finds nothing); otherwise nothing is sent and the result is `not_redacted` (Q1).
-* One attempt, 30 s timeout, no retry. The caller falls back to the embedded Rules Engine once.
+* One attempt from the operator. Its timeout is reasonerTimeoutSeconds + 5 s (30 + 5 by default,
+  at most 180 + 5): the Reasoner's own budget, which holds its one provider retry (ADR-035
+  addendum 2026-11-20), plus its work around the model call. The caller falls back to the
+  embedded Rules Engine once.
 * The answer is data. It is read with a size cap, parsed, and checked with proposal.validate
   before anything else sees it. Whether the action is in the catalogue and within bounds is the
   Safety Gate's decision, not this client's: an out-of-envelope proposal (R0) must reach the Gate
@@ -33,9 +36,13 @@ from .redact import unredacted
 
 TIMEOUT_S = 30
 MAX_RESPONSE_BYTES = 1_048_576
+REASONING_MAX_CHARS = (
+    16000  # proposals.reasoning; status.reasoner shows REASONING_EXCERPT_CHARS
+)
+REASONING_EXCERPT_CHARS = 300
 CATALOGUE_VERSION = "1"
 # evidence/v1.1 (ADR-039) adds metrics.zscores.inflight; v1 bundles stay valid input.
-EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1")
+EVIDENCE_SCHEMAS = ("evidence/v1", "evidence/v1.1", "evidence/v1.2")  # v1.2: ADR-044
 _META_KEYS = (
     "mode",
     "model",
@@ -70,7 +77,7 @@ def check_redacted(bundle: Any) -> str | None:
     evidence/v1 is still accepted: v1.1 only adds `metrics.zscores.inflight` (ADR-039).
     The reason never repeats a value from the bundle, only a class name."""
     if not isinstance(bundle, dict) or bundle.get("schema") not in EVIDENCE_SCHEMAS:
-        return "not an evidence/v1 or evidence/v1.1 bundle"
+        return "not an evidence/v1, v1.1 or v1.2 bundle"
     if not isinstance((bundle.get("redaction") or {}).get("counts"), dict):
         return "redaction.counts missing"
     body = {k: v for k, v in bundle.items() if k != "hash"}
@@ -139,13 +146,20 @@ def _clean_meta(meta: Any) -> dict:
             out[key] = v
         elif isinstance(v, str):
             out[key] = v[:200]
-    chunks = meta.get("retrievedChunks")
-    if isinstance(chunks, list):
-        out["retrievedChunks"] = [c[:100] for c in chunks if isinstance(c, str)][:20]
+    for key in ("retrievedChunks", "expandedChunks"):  # expandedChunks: ADR-043
+        chunks = meta.get(key)
+        if isinstance(chunks, list):
+            out[key] = [c[:100] for c in chunks if isinstance(c, str)][:20]
     usage = _usage(meta.get("usage"))
     if usage:
         out["usage"] = usage
     out.update(_excerpt_meta(meta))
+    # the model's thinking trace: untrusted text, kept for the record only (ADR-035 addendum C)
+    text = meta.get("reasoning")
+    if isinstance(text, str) and text:
+        out["reasoning"] = text[:REASONING_MAX_CHARS]
+        n = _count(meta.get("reasoningLength"))
+        out["reasoningLength"] = n if n is not None else len(text)
     return out
 
 
@@ -160,6 +174,7 @@ def _error_excerpt(raw: str) -> dict:
 
 
 EXCERPT_KEYS = (
+    "modelConfig",  # the Reasoner config that served the call (r2-primary, r3-primary, ...); also on a failure
     "logSelection",
     "promptTrimLevel",
     "promptTokensEstimate",
@@ -179,6 +194,9 @@ def _excerpt_meta(meta: dict) -> dict:
     estimate and, per pod, the line counts kept and dropped. Counts are non-negative integers, a pod
     name a short string or null, at most 10 pods; anything else is dropped. {} when none is given."""
     out: dict = {}
+    name = meta.get("modelConfig")
+    if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
+        out["modelConfig"] = name
     for key in ("promptTrimLevel", "promptTokensEstimate", "requestTokensEstimate"):
         v = _count(meta.get(key))
         if v is not None:

@@ -45,6 +45,8 @@ class Proposal(_Model):
     confidence: float | None = None
     abstain: bool = False
     hypothesis: str | None = None
+    # written at Escalated: {reason, recommendation, suggestedChange?, runbookGap?} (ADR-044)
+    escalation: dict[str, Any] | None = None
 
 
 class Spec(_Model):

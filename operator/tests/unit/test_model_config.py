@@ -126,3 +126,38 @@ def test_test_scaffolding_stays_out_of_the_package():
             "operator.kubeconfig",
         ):
             assert word not in text, f"{word} in {path.name}"
+
+
+def test_the_reasoner_timeout_sets_the_client_and_diagnosing_limits():
+    """ADR-035 addendum (2026-11-20): reasonerTimeoutSeconds, default 30, at most 300; the client
+    waits 5 s more, Diagnosing ends 30 s after it (30 + 30 = ADR-034's 60 s)."""
+    c = config.parse(cm(alertmanagerURL=URL))
+    assert (
+        c.reasoner_timeout_s,
+        c.reasoner_client_timeout_s,
+        c.diagnosing_timeout_s,
+    ) == (
+        30,
+        35,
+        60,
+    )
+    c = config.parse(cm(alertmanagerURL=URL, reasonerTimeoutSeconds="120"))
+    assert (c.reasoner_client_timeout_s, c.diagnosing_timeout_s) == (125, 150)
+    c = config.parse(cm(alertmanagerURL=URL, reasonerTimeoutSeconds="300"))
+    assert (c.reasoner_client_timeout_s, c.diagnosing_timeout_s) == (305, 330)
+
+
+@pytest.mark.parametrize("raw", ["0", "301", "3600", "ten", "1.5", "-5"])
+def test_the_reasoner_timeout_is_bounded(raw):
+    with pytest.raises(config.ConfigError):
+        config.parse(cm(alertmanagerURL=URL, reasonerTimeoutSeconds=raw))
+
+
+def test_a_300_s_model_gets_a_330_s_diagnosing_limit():
+    """ADR-045: the NIM R3 configs take 300 s; the operator's setting at the cap gives 305 / 330."""
+    c = config.parse(cm(alertmanagerURL=URL, reasonerTimeoutSeconds="300"))
+    assert (
+        c.reasoner_timeout_s,
+        c.reasoner_client_timeout_s,
+        c.diagnosing_timeout_s,
+    ) == (300, 305, 330)

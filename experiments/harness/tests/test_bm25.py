@@ -155,5 +155,63 @@ class IndexTest(unittest.TestCase):
         )
 
 
+class DecisionExpansionTest(unittest.TestCase):
+    """ADR-043: after the top 3, the Decision chunk of the first 2 runbooks hit, marked expanded."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.idx = bm25.Index.from_dir(Path(__file__).resolve().parents[3] / "runbooks")
+
+    @staticmethod
+    def hit(cid, score):
+        return {"id": cid, "score": score, "runbook": cid.split("#")[0]}
+
+    def test_s3_hits_gain_the_bad_rollout_decision(self):
+        # status.reasoner.chunks of the 2026-11-19 S3 run: Symptoms only, no Decision.
+        hits = [self.hit("rb-bad-rollout#1", 9.0), self.hit("rb-image-pull#1", 5.0),
+                self.hit("rb-traffic-spike#1", 4.0)]  # fmt: skip
+        out = self.idx.expand_decisions(hits)
+        # the hits, their order and the top runbook unchanged
+        self.assertEqual(out[:3], hits)
+        self.assertEqual(
+            [(c["id"], c["score"], c["expanded"]) for c in out[3:]],
+            [("rb-bad-rollout#3", None, True), ("rb-image-pull#3", None, True)],
+        )
+        by_id = {c["id"]: c for c in self.idx.chunks}
+        self.assertEqual(by_id["rb-bad-rollout#3"]["heading"], "Decision")
+        self.assertIn("never restart", by_id["rb-bad-rollout#3"]["text"])
+        self.assertIn("git revert", by_id["rb-bad-rollout#3"]["text"])
+
+    def test_at_most_two_runbooks_in_rank_order(self):
+        hits = [self.hit("rb-traffic-spike#1", 9.0), self.hit("rb-traffic-spike#2", 8.0),
+                self.hit("rb-cpu-saturation#1", 7.0)]  # fmt: skip
+        out = self.idx.expand_decisions(hits)
+        self.assertEqual(
+            [c["id"] for c in out[3:]], ["rb-traffic-spike#3", "rb-cpu-saturation#3"]
+        )
+
+    def test_a_decision_already_hit_is_not_repeated(self):
+        hits = [self.hit("rb-bad-rollout#3", 9.0), self.hit("rb-bad-rollout#1", 8.0)]
+        self.assertEqual(self.idx.expand_decisions(hits), hits)
+
+    def test_no_hit_stays_no_runbook(self):
+        self.assertEqual(self.idx.expand_decisions([]), [])
+
+    def test_retrieve_and_top_k_unchanged(self):
+        self.assertEqual(bm25.TOP_K, 3)
+        q = bm25.tokenize("NexusRolloutStuck rollout")
+        hits = self.idx.retrieve(q, 0.0)
+        self.assertLessEqual(len(hits), 3)
+        self.assertTrue(all("expanded" not in h for h in hits))
+        self.assertLessEqual(len(self.idx.expand_decisions(hits)) - len(hits), 2)
+
+    def test_every_runbook_has_one_decision_chunk(self):
+        rbs = {c["runbook"] for c in self.idx.chunks}
+        dec = [
+            c for c in self.idx.chunks if c["heading"].lower() == bm25.DECISION_HEADING
+        ]
+        self.assertEqual(sorted(c["runbook"] for c in dec), sorted(rbs))
+
+
 if __name__ == "__main__":
     unittest.main()
