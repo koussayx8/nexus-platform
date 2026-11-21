@@ -13,12 +13,12 @@ library the bot's loop calls (`Service.tick`), or on its own with `python -m nex
 only) until the bot core (#252) is merged. **Not in the operator**: the operator keeps no Git
 credential and no public egress.
 
-| Change it needs | Where | In this PR |
+| Change it needs | Where | Status |
 |---|---|---|
-| `git` in the bot image | `bot/Dockerfile` (#252): `apt-get install --no-install-recommends git` in the final stage | no — #252 is not on `dev` |
-| The GitHub token as a file | Secret `nexus-bot/nexus-bot-github` (key `token`) at `/var/run/secrets/nexus-bot/github/token` | no (owner, after the token test) |
-| The config | key `revert.yaml` in `nexus-bot-config` (`revert.example.yaml` here) at `/etc/nexus-bot/revert.yaml` | example only |
-| A writable scratch directory (root FS is read-only) | `emptyDir` at `/tmp` (`NEXUS_REVERT_SCRATCH`) | no |
+| `git` in the bot image | `bot/Dockerfile` (#252): `apt-get install --no-install-recommends git` in the final stage | wired (Block 6) |
+| The GitHub token as a file | Secret `nexus-bot/nexus-bot-github` (key `token`) at `/var/run/secrets/nexus-bot/github/token` | mount wired (Block 6, optional); the Secret: owner, `scripts/nexus-bot-secrets.sh` |
+| The config | key `revert.yaml` in `nexus-bot-config` (`revert.example.yaml` here) at `/etc/nexus-bot/revert.yaml` | wired (Block 6), `bot/k8s/configmap.yaml` |
+| A writable scratch directory (root FS is read-only) | `emptyDir` at `/tmp` (`NEXUS_REVERT_SCRATCH`) | wired (Block 6), 64 Mi |
 | Egress to `github.com` and `api.github.com` on 443 | already allowed by #252's `bot-egress` (public TCP 443) | nothing new |
 | RBAC | none new: `get`/`list` on Incidents in `nexus-system` (#252's `nexus-bot-read`). No write on Incidents | nothing new |
 | The operator's NetworkPolicy | **unchanged.** `operator-egress` (`platform/network/system.yaml`) keeps no public 443; its comment ("the spec's public-443 egress is for the SHOULD fork-PR feature and is omitted") stays true. Running C8 in the operator would need that public-443 rule (as `reasoner.yaml`'s) and the token mounted there; ADR-041 rejects both | not touched |

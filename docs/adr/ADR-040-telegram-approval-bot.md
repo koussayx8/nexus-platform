@@ -417,7 +417,8 @@ reported, `/ask` makes exactly one HTTP call and its answer never reaches `decid
 | `spec.source.note` | A CRD property before the Note flow (B4) | Unchanged: the CRD has none; `nexus-client`'s `Source.note` exists |
 | Alertmanager route | `telegram_configs` | Written, not enabled (decision 12) |
 | Argo CD Application, AppProject destination `nexus-bot`, `scripts/nexus-bot-secrets.sh` | Step 7 and 8 | Not in #252: the Block 7 live step (`bot/README.md`). Until then no Application deploys `bot/k8s/` |
-| C8 | ADR-041 | Built separately (#255) as a library the bot's loop calls (`Service.tick`); `git` in the bot image and the GitHub Secret come with Block 6 |
+| C8 | ADR-041 | Built separately (#255) as a library the bot's loop calls (`Service.tick`); `git` in the bot image and the GitHub Secret come with Block 6; wired in Block 6 as the bot's third loop (ADR-041 "As wired into the bot") |
+| `getUpdates` timeout (decision 2) | 50 s | 25 s, the client's timeout 10 s above it (Block 6): at 50 s the live bot logged a `getUpdates` TimeoutError about once a minute, most likely an idle connection dropped before the server answered |
 
 ## Consequences
 
