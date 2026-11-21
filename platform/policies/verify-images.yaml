@@ -37,6 +37,6 @@ spec:
             - entries:
                 - keyless:
                     issuer: https://token.actions.githubusercontent.com
-                    subjectRegExp: '^https://github\.com/koussayx8/nexus-platform/\.github/workflows/(ci|operator)\.yml@refs/heads/main$'
+                    subjectRegExp: '^https://github\.com/koussayx8/nexus-platform/\.github/workflows/(ci|operator|bot)\.yml@refs/heads/main$'
                     rekor:
                       url: https://rekor.sigstore.dev
