@@ -31,6 +31,9 @@ patches:
           spec:
             containers:
               - name: sample-api
+                readinessProbe:
+                  httpGet:
+                    path: /readyz
                 env:
                   - name: DB_USER
                     value: app_dev
