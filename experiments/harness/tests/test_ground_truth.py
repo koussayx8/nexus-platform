@@ -307,12 +307,12 @@ class OperatorPathTest(unittest.TestCase):
                     tuple(sc["expected_reason"][lv] for lv in LEVELS), reasons
                 )
 
-    def test_l1_escalate_disagreement_with_spec_is_stated(self):
+    def test_l1_escalate_spec_change_is_stated(self):
         truth, _ = load()
         for name in ("S3", "S5"):
-            self.assertIn(
-                "CONTRADICTS spec v1.0", truth[name]["expected_terminal_notes"]["L1"]
-            )
+            note = truth[name]["expected_terminal_notes"]["L1"]
+            self.assertIn("v1.0 §20 said Recommended", note)
+            self.assertIn("spec v1.1", note)
 
     def test_verification_criteria_are_the_catalogue_s(self):
         truth, _ = load()
