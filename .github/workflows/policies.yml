@@ -9,6 +9,7 @@ on:
     paths:
       - 'platform/policies/**'
       - 'platform/network/**'
+      - 'platform/rbac/nexus-bot/**'
       - 'scripts/tests/policies-offline.py'
       - 'scripts/tests/network-offline.py'
       - '.github/workflows/policies.yml'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'platform/policies/**'
       - 'platform/network/**'
+      - 'platform/rbac/nexus-bot/**'
       - 'scripts/tests/policies-offline.py'
       - 'scripts/tests/network-offline.py'
       - '.github/workflows/policies.yml'

@@ -142,7 +142,7 @@ git fetch origin main experiment/dev-state >/dev/null 2>&1 && FETCH_OK=1
 # the startupProbe budget, the pull allowance or the reconcile term means re-deriving all four
 # ADR-020 values, this default and bootstrap.sh's dependency-db wait included.
 # ---------------------------------------------------------------------------
-EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db nexus)
+EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db nexus nexus-bot)
 REPO_URL=https://github.com/koussayx8/nexus-platform.git
 APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
 APPS_TIMEOUT=${NEXUS_VERIFY_APPS_TIMEOUT:-1140}
@@ -271,11 +271,11 @@ v_namespace_levels() {
   else
     echo "nexus-dev: expected level $dev_level from origin/experiment/dev-state:overlays/dev/namespace.yaml"
   fi
-  for ns_want in "nexus-prod:1" "nexus-data:0" "nexus-dev:$dev_level" "nexus-system:" "nexus-reasoner:" "nexus-load:"; do
+  for ns_want in "nexus-prod:1" "nexus-data:0" "nexus-dev:$dev_level" "nexus-system:" "nexus-reasoner:" "nexus-load:" "nexus-bot:"; do
     ns=${ns_want%%:*}; want=${ns_want#*:}
     if ! k get ns "$ns" >/dev/null 2>&1; then
       # A namespace that doesn't exist is not the same as one that exists unlabeled — even for
-      # the three namespaces where "want" is empty, an absent namespace must still fail.
+      # the namespaces where "want" is empty, an absent namespace must still fail.
       echo "$ns: NAMESPACE NOT FOUND (want label=${want:-<unset>})"
       rc=1
       continue
@@ -598,6 +598,7 @@ NETPOLS=(
   "nexus-load default-deny" "nexus-load locust-internal"
   "nexus-reasoner default-deny" "nexus-reasoner allow-operator-ingress" "nexus-reasoner allow-dns-and-public-https"
   "nexus-system default-deny" "nexus-system operator-ingress" "nexus-system operator-egress" "nexus-system flight-recorder-db-ingress"
+  "nexus-bot default-deny" "nexus-bot bot-egress"
 )
 v_network_policies() {
   local rc=0 pair ns name missing=() present=0
