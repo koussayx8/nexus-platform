@@ -8,10 +8,11 @@ timings and tokens (§7), and the Flight Recorder exports after a run (§8).
 **Sources.** Scenario table and ground truth: `docs/architecture/final-spec.md` §20 (lines 1797–1806).
 Alerts: spec lines 296–303. Runbooks: `runbooks/`. Commands: `experiments/harness/runner.py`, `batch.py`
 and `gate.py` on `dev` at `a0d3fcd` (2026-11-20), `nexusctl/src/nexusctl/app.py`, `platform/policies/`.
-Measured timings: the evidence folders named in each table (`~/nexus-evidence/…`, not in Git). **Every
-live timing and token figure so far was measured with R3 = `openai/gpt-oss-120b` on Groq** (prompt/v2);
-the NIM models (ADR-045) are re-measured in the trial reruns after the promotion (#286: **S1, S3, S5 and S6** at
-the calibrated load, **S2** at 220 users; R3 at L3): those cells are now filled from the trial reruns of 2026-11-21 (`~/nexus-evidence/trials-2026-11-21/`). Anything not confirmed by a run is marked UNVERIFIED.
+Measured timings: the evidence folders named in each table (`~/nexus-evidence/…`, not in Git). **The live
+LLM timing and token figures from before 2026-11-21 were measured with R3 = `openai/gpt-oss-120b` on Groq**
+(prompt/v2); the NIM figures (ADR-045) come from the trial reruns of 2026-11-21 after the promotion (#286: **S1,
+S3, S5 and S6** at the calibrated load, **S2** at 220 users; R3 at L3; `~/nexus-evidence/trials-2026-11-21/`).
+Each figure is marked with its model and date. Anything not confirmed by a run is marked UNVERIFIED.
 
 **A demo run is not a measured run.** The standing rule in `TASKS.md` (no Grafana dashboard or
 port-forward open during a timed run) applies to measured cells only. Never count a demo run in a cell.
@@ -548,8 +549,11 @@ mutation in the audit log.
 Timings: not measured live (D10). Each calibration step produced one `NexusTrafficAnomaly` Incident, R3
 `no_action` → `Dismissed` (`cal-2026-11-21/RESULT.md`).
 **Observed, not controlled:** the unplanned traffic step of 2026-11-14 ended `Escalated` /
-`proposed_escalation`, not `Dismissed` (`block2-l2-2026-11-14/TIMELINES.md`). Which terminal a planned
-S4 reaches is UNKNOWN until a run. The S6 trial run in Block 5 is the first controlled reading.
+`proposed_escalation`, not `Dismissed` (`block2-l2-2026-11-14/TIMELINES.md`); its four Incidents ran with
+R1 (`status.reasoner.mode: rules`) at L1 and L2, not with an LLM (read from the cluster, 2026-11-21). At L3 with
+R3 on NIM, the three calibration steps (165, 168 and 170 users) each ended `Dismissed`
+(`cal-2026-11-21/RESULT.md`). S4 is not measured live (D10). The S6 trial run in Block 5 is the first
+controlled reading.
 
 **Reset** (it restarts the baseline swarm, ADR-047):
 
@@ -602,7 +606,8 @@ and its LOGIN attribute; `Escalated` / `proposed_escalation` 09:46:41 (+2 m 36 s
 level 4 (14,346 estimated tokens, inside the 16,000 budget); chunks `rb-image-pull#1`, `#3` (above).
 
 **Watch:** RED "Errors (% 5xx)" for `nexus-dev` rising while the pods stay 2/2 Ready; `nexusctl explain`:
-retrieval says `no_runbook`.
+retrieval shows `no_runbook` or a wrong runbook (`rb-image-pull` in the 2026-11-21 rerun), and the model's
+`runbookGap` says which.
 
 **Reset** (restores `LOGIN` for both roles, so a forgotten S5 never outlives the run):
 
