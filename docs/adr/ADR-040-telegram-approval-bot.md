@@ -370,7 +370,7 @@ Reported, not adapted silently. The rows that change the spec are in the spec v1
 | # | Item | Settled by |
 |---|---|---|
 | U1 | No binding names `koussay-approver` beyond the group's (the repository has none: `grep -rn koussay-approver` finds only `nexusctl` and `libs` tests and docs) | `kubectl auth can-i --list --as koussay-approver --as-group nexus-approvers -n nexus-system` (read-only), and the same with `-n kube-system` |
-| U2 | The API server accepts the impersonation with only the two `resourceNames` rules | Block 7: `kubectl auth can-i impersonate users/koussay-approver --as system:serviceaccount:nexus-bot:nexus-bot` → yes; the same for `users/admin` → no; then the first live approve |
+| U2 | The API server accepts the impersonation with only the two `resourceNames` rules | VERIFIED 2026-11-21: `kubectl auth can-i --as system:serviceaccount:nexus-bot:nexus-bot` → `impersonate users/koussay-approver` yes, `impersonate groups/nexus-approvers` yes, `impersonate users/admin` no, `impersonate groups/system:masters` no; `patch incidents.nexus.io -n nexus-system` no |
 | U3 | The operator reconciles an Incident it did not create from an alert (plan 3.2) | Block 8, first task: an envtest case that creates a `human` Incident |
 | U4 | `evidence.py:161` sets `"note": None`; whether the prompt renders `incident.note` | Read `evidence.py` and `reasoner/nexus_reasoner/prompt.py` in Block 8. A prompt change must land before the Block 9 freeze |
 | U5 | The audit policy (ADR-036) records Incident patches with `impersonatedUser` | After the first live approve: `scripts/audit-join.py` output for that Incident |
@@ -418,6 +418,26 @@ reported, `/ask` makes exactly one HTTP call and its answer never reaches `decid
 | Alertmanager route | `telegram_configs` | Written, not enabled (decision 12) |
 | Argo CD Application, AppProject destination `nexus-bot`, `scripts/nexus-bot-secrets.sh` | Step 7 and 8 | Not in #252: the Block 7 live step (`bot/README.md`). Until then no Application deploys `bot/k8s/` |
 | C8 | ADR-041 | Built separately (#255) as a library the bot's loop calls (`Service.tick`); `git` in the bot image and the GitHub Secret come with Block 6 |
+
+## Live gate, 2026-11-21 (owner)
+
+Evidence: `~/nexus-evidence/bot-live-2026-11-21/` (`RECORD.md`, `incident.json`, `audit-event-1d1c583b.jsonl`,
+`bot.log`), collected read-only; `RECORD.md` holds the source commands and the sha256 of each file.
+
+| Point | Result |
+| --- | --- |
+| Deployment | The bot `@nexus_pfe_bot`, deployed by promotion 20 (#300, `main` 8a00e97); image `nexus-bot@sha256:37f9a54ec2dfe1fe1381c674af284065a21cb4d6a8560d52d2d7ca966d04dd07`, signed with Cosign keyless |
+| Sync lesson | The platform sync that adds the AppProject destination `nexus-bot` and the resources in that namespace cannot pass in one sync: Argo CD validates against the live AppProject. It was unblocked by syncing `AppProject/nexus` alone, then `platform`. A from-empty rebuild is not affected: `bootstrap.sh` applies the AppProject first |
+| Level-2 approval | Incident `inc-669532275a7b73d2-1795292289`: `spec.approval` `decision: approved`, `approvedBy: koussay-approver`, `reason: telegram:8998653791`, the pinned `proposalHash`, a 15-minute expiry (`expiresAt` 20:34:59Z) |
+| Audit | Event `1d1c583b-f598-4f28-a7ff-4ea450bb5796`: the bot's ServiceAccount impersonating `koussay-approver` and `nexus-approvers`, `patch`, 200, stamped by Kyverno K5 (the mutating webhook reports `mutated: true`) |
+| Bot log | `press a from <id>: wrote=True`; the buttons were removed after the write, so an old message cannot be pressed again |
+| Outcome | `Escalated` / `verification_failed`, caused by the runner's reset (a rollout restart at 20:23Z) inside the verification window 20:20:34Z–20:25:34Z; not a fault of the bot or the action |
+| Second-account test | Skipped by the owner; the unit tests cover it (any sender not on the allowlist is dropped) |
+
+Follow-ups:
+
+- `getUpdates` raises `TimeoutError` about once a minute, likely idle connections dropped; try a 25 s long poll.
+- Pushes show `hypothesis: -`: the operator does not copy the hypothesis summary into the Incident status.
 
 ## Consequences
 
