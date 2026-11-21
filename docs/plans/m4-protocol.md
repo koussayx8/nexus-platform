@@ -1,7 +1,8 @@
 # M4 run protocol — DRAFT
 
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
-version. Written offline from `dev` at `4b077fb`: nothing here was checked on the cluster. Metrics, claims, the
+version. Written offline from `dev` at `4b077fb`, brought up to `dev` at `e7fec65` on 2026-11-21 (Q6, D25, two run
+rules): nothing here was checked on the cluster. Metrics, claims, the
 export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metrics.md`](m4-metrics.md); the ground truth is
 [`experiments/ground-truth.json`](../../experiments/ground-truth.json) (#285).
 
@@ -15,7 +16,7 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Score floor, prompt | 3.1739; `prompt/v2` (ADR-042), with `CHARS_PER_TOKEN` set to the ratio measured on the 2026-11-19 S1 R3 call (TBD, from the owner's Flight Recorder export; ADR-042 addendum) | by hand at each queue start (§4) |
 | Models | R2 and R3 **pending the bake-off** (#271). Today R2 = config `r2-groq` (`openai/gpt-oss-20b`), R3 = `r3-groq` (`openai/gpt-oss-120b`), both on Groq, chosen by the Reasoner's `active` (ADR-035 addenda B, D). Effort low, temperature 0, seed 0. Each model has its own `timeoutSeconds` (default 30 s, at most 300 s), the whole call's budget; inside it **one retry** after a network error, an HTTP 5xx, or a 429 with `Retry-After`, only when 5 s of the budget remain (ADR-035 addendum A) | the strict arm check: each call's `modelConfig` and `proposals.model_id` against `arms.py` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
-| Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace; `ProdUser` has `fixed_count = 80`, so every user above 160 goes to `nexus-dev` (#273) | pre-check |
+| Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace; `ProdUser` has `fixed_count = 80`, so every user above 160 goes to `nexus-dev` (#273). S4 and S6: 170 users, `nexus-dev` 90 req/s, `ProdUser` 80 (Q6, §9; `TASKS.md` D26) | pre-check |
 
 The index hash pins the runbooks, not the query builder; the Reasoner digest pins both (ADR-039). The owner verified
 live on 2026-11-15 at 20:05 that the Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`; the
@@ -35,13 +36,17 @@ rebuilt Reasoner (#242) must serve the same two values, since its runbooks and i
 | `B/R0` | R0, seeded | about 300 proposals | L0–L3, computed | offline | about 1,200 verdicts |
 | `B/R1`, `B/R2`, `B/R3` | R1, R2, R3 | real bundles of S1, then S3, S5, S6; synthetic ones labelled | L0–L3, computed | offline | one call per bundle, level and arm |
 
-About 59 live runs, all injected in `nexus-dev`. Not run: S2 and S4 live, R2 live, live L0 or L1 cells, C4, C5, C6.
+About 59 live runs, all injected in `nexus-dev`. Not run: S2 and S4 live, R2 live, live L0 or L1 cells, C4 (cut,
+`TASKS.md` D25: no `nexus-baseline`, no live or offline C4 runs), C5, C6. The volumes match spec v1.1's phases table
+(#203): phase A 40 valid runs (C1 and C2, 8 cells × 5), phase C 0 runs. **One difference, not resolved here:** spec
+v1.1's phase D row says 16 runs (the four live scenarios × 2 × advisory checks on and off); this protocol and
+`TASKS.md`'s run matrix keep `D/R0` at 10 runs on S1 with the advisory checks off (Q3). The owner decides which holds.
 `C8`'s human time runs from the pull request opened to merged, then to 2 of 2 Ready and the alert resolved (Q5).
 The suite runs after #233's must-fix items 2–5 (L2 compensation, K3 cells, `nexus-baseline`, request shapes), a
-separate change due on 2026-11-17 (Q10).
+separate change due on 2026-11-17 (Q10). With C4 cut, the `nexus-baseline` cells stay offline only (spec v1.1, F14).
 
 **TODO (Q6), from the calibration and the Block 5 trial runs, before the freeze:** `clean_stddev` per signal; S3's
-patch and `baseline_ref`. S4/S6's load: **TBD** after the calibration (§9).
+patch and `baseline_ref`. S4/S6's load is decided: 170 users (§9).
 
 ## 3. Run order
 
@@ -99,6 +104,17 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   invalid output) counts against the arm. One the provider caused (429, 5xx, timeout) is reported apart, kept out of
   the arm's rates, and re-run in Block 12.
 
+**Two run rules learned on 2026-11-21** (not yet in `batch.py` on `dev` at `e7fec65`: its wait ends when the counted
+Incident is terminal or at 1,200 s, and later Incidents are not waited for):
+
+- **The reset waits for every Incident.** A run's reset starts only after the counted Incident and every later one
+  are terminal. A reset during verification restarts the pods and fails `restart_v2`: seen in the L2 bot test
+  (ADR-040 live gate, #302): Incident `inc-669532275a7b73d2-1795292289` ended `Escalated` / `verification_failed`
+  after the runner's rollout restart at 20:23Z, inside its verification window 20:20:34Z–20:25:34Z.
+- **A `C8` run is not reset at `Escalated`.** The fault stays until the owner merges the revert pull request (the
+  merge is the fix); the reset follows recovery (ADR-041 limit 7). A reset first makes check 5 refuse ("changes
+  nothing, already reverted?").
+
 ## 6. Void, discard, failed
 
 | Word | Meaning | In the metrics |
@@ -145,7 +161,7 @@ without `Retry-After`, or one that does not fit, becomes an R1 fallback: provide
 
 | Item | Decision |
 |---|---|
-| Q6: S4/S6's load | **TBD.** Calibrated after the fix round's promotion (#273: `ProdUser` `fixed_count = 80`), with plain resizes of the running swarm to totals 165, 168 and 170 (`nexus-dev` at 85, 88 and 90 req/s), about 5 minutes each, back to 160 between steps, the owner asked before each change. S4/S6's total is 80 + the highest `nexus-dev` rate where `NexusTrafficAnomaly` fires and `NexusCpuAnomaly` does not. Evidence so far: at 240 users split 120/120 (S6, 2026-11-20) `NexusCpuAnomaly` fired in both namespaces and R3 scaled `nexus-dev` 2 → 4; at `DevUser`-only 90 (step 1, 2026-11-20, with the `/stop` gap) it fired at CPU z 3.0–3.3 and R3 scaled 2 → 3. |
+| Q6: S4/S6's load | **170 users: `nexus-dev` 90 req/s against its baseline 80, `ProdUser` 80** (owner, 2026-11-21; `TASKS.md` D26), about 1.13 × the `nexus-dev` load. Calibrated after promotion 18 (R3 = `r3-primary`, `prompt/v3`) with plain resizes of the running swarm to totals 165, 168 and 170: at each step `NexusTrafficAnomaly` fired, `NexusCpuAnomaly` did not, the max p95 latency Z was at most −0.02, and the Incident ended `Dismissed` (`~/nexus-evidence/cal-2026-11-21/RESULT.md`). Spec v1.0's "1.5 × baseline" (240 users) was never used: at 240 split 120/120 (S6, 2026-11-20) `NexusCpuAnomaly` fired in both namespaces and R3 scaled `nexus-dev` 2 → 4. |
 | S2's injection | **A spike beyond capacity:** Locust total 220, spawn rate 4 (`nexus-dev` at 140 req/s, above the 120 where CPU saturated in S6), as a plain resize of the running swarm. Expected: `cpu_saturation`, `scale_deployment`. Spec v1.1 note: §20's S2 row ("Locust ramp to twice per-pod capacity on `/work/cpu` for 10 min") is replaced by this; `/work/cpu` and #190's `DevCpuUser` are no longer S2's load. |
 | The run's Incident | Only the first Incident per run counts (§5). |
 | Limitation | **NEXUS must not scale a workload managed by an HPA.** `scale_deployment` writes the Deployment's scale subresource; an HPA on the same Deployment would fight it. `sample-api` has no HPA (none in the repository, none on the cluster on 2026-11-20); the thesis states this as a limitation of the action catalogue, not a tested property. |

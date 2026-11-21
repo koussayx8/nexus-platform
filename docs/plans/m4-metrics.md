@@ -101,7 +101,7 @@ Q1–Q11 were this draft's open questions; the owner answered all of them on #23
 | Q3 | The scenario of the 10 `D/R0` runs | S1 for all |
 | Q4 | `L2` with R1 or R3 | R1: no tokens |
 | Q5 | `C8`: where human time starts and ends | Pull request opened → merged → 2 of 2 Ready and the alert resolved |
-| Q6 | `clean_stddev` per signal, S6's `users` and `spawn_rate`, S3's patch and `baseline_ref` | From the calibration and the Block 5 trial runs; TODO markers stay until then |
+| Q6 | `clean_stddev` per signal, S6's `users` and `spawn_rate`, S3's patch and `baseline_ref` | From the calibration and the Block 5 trial runs; TODO markers stay until then. S6's `users`: 170, decided 2026-11-21 (`TASKS.md` D26; protocol §9) |
 | Q7 | A fallback caused by the provider (429, 5xx, timeout) | Reported apart and re-run in Block 12 |
 | Q8 | The failed-fix threshold | `rate_end` below 8 req/s; 8 to 72 listed as "Resolved, rate low" |
 | Q9 | Does selfHeal start a second rollout after the reset's `rollout restart` (V18)? | One reset, then read the ReplicaSets |
