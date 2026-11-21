@@ -1916,7 +1916,7 @@ Exactly **one responder acts per run**: NEXUS is the only responder.
 
 S5 is injected inside the database on purpose: blocking it with a NetworkPolicy would change declared state, and ArgoCD would silently undo the fault within seconds.
 
-The pre-registration file (#285) lists the accepted alternatives the table does not show: S5 also accepts `investigate` (no runbook chunk is retrieved); S4 and S6 accept `cpu_saturation` as the fault class only when the counted Incident is `NexusCpuAnomaly` (the answer stays `no_action`); the counted Incident is the first Incident of a run; an S6 run is void when the counted bundle's `latencyP95` Z-score is above 3.
+The pre-registration file (#285) lists the accepted alternatives the table does not show: S5 also accepts `investigate` (no runbook covers S5, so none names either investigation kind); S4 and S6 accept `cpu_saturation` as the fault class only when the counted Incident is `NexusCpuAnomaly` (the answer stays `no_action`); the counted Incident is the first Incident of a run; an S6 run is void when the counted bundle's `latencyP95` Z-score is above 3.
 
 At L1, S3 and S5 end `Escalated` / `proposed_escalation`, not `Recommended`: a proposed escalation is a hand-off at every level (section 12). Version 1.0 said `Recommended`.
 
@@ -2445,7 +2445,7 @@ Status: **Inherited** — taken over from the Authority Review unchanged; **Corr
 | NF-17 | Missing level means L0; missing Kill Switch means halted | NF | Fail closed | — | K1, K4 tests |
 | NF-18 | NEXUS policies narrowly scoped, `failurePolicy: Fail` | NF | Limits the blast radius of a Kyverno outage | — | Fail-closed test |
 | NF-19 | Fork token mounted as a file, fork-only scope | NF | No Secrets RBAC; no write to the canonical repository | — | Scope check |
-| NF-20 | One responder per run; responder replicas delegated | NF | Clean baseline comparison | — | Runner pre-check |
+| NF-20 | One responder per run; responder replicas delegated; with C4 cut (TASKS.md D25), NEXUS is the only responder | NF | Clean baseline comparison | — | Runner pre-check |
 | NF-21 | R1 derived only from in-corpus runbooks, escalating by default | NF | Keeps S5 held out for every arm | — | — |
 | NF-22 | K8sGPT as a host CLI at evidence time — deferred with C6 (ADR-037); K8sGPT stays out of the cluster | NF | No extra in-cluster component | K8sGPT operator | Backend options |
 | NF-23 | `sample-api` readiness excludes the dependency | NF | S5 stays a gray failure | — | — |
