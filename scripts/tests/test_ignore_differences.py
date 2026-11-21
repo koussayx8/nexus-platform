@@ -67,6 +67,23 @@ class Boundary(unittest.TestCase):
                   "  - kind: ServiceAccount\n    name: nexus-operator\n    namespace: nexus-system\n---\n# Reads")
         self.assertEqual(self.rules(), ["B3"])
 
+    def bind_impersonate_also_to(self, subject):
+        # Adds a subject to the bot's impersonate ClusterRoleBinding (the first binding in the file).
+        self.edit("platform/rbac/nexus-bot/nexus-bot.yaml",
+                  "subjects:\n  - kind: ServiceAccount\n    name: nexus-bot\n    namespace: nexus-bot\n---\n# Reads",
+                  "subjects:\n  - kind: ServiceAccount\n    name: nexus-bot\n    namespace: nexus-bot\n"
+                  f"{subject}---\n# Reads")
+
+    def test_b3_checks_the_bots_role_when_the_operators_group_holds_it(self):
+        self.bind_impersonate_also_to("  - kind: Group\n    apiGroup: rbac.authorization.k8s.io\n"
+                                      "    name: system:serviceaccounts:nexus-system\n")
+        self.assertEqual(self.rules(), ["B3"])
+
+    def test_b3_checks_the_bots_role_when_the_operators_user_holds_it(self):
+        self.bind_impersonate_also_to("  - kind: User\n    apiGroup: rbac.authorization.k8s.io\n"
+                                      "    name: system:serviceaccount:nexus-system:nexus-operator\n")
+        self.assertEqual(self.rules(), ["B3"])
+
     def test_b3_cluster_wide_scale(self):
         self.edit("platform/rbac/nexus-operator-dev.yaml",
                   "resources: [deployments, replicasets]\n    verbs: [get, list, watch]",
