@@ -1,0 +1,150 @@
+# The Telegram bot's RBAC (ADR-040 decisions 4 and 5; the YAML of its "RBAC" section, narrowed to
+# the verbs the code calls). NOT WIRED: no Application and no parent kustomization references this
+# directory yet; the Block 7 live step adds it to platform/rbac/kustomization.yaml.
+#
+# Write authority: the first two objects, and nothing else. The bot may act as ONE user in ONE
+# group, by resourceNames. A second name here is a new approver: review under CODEOWNERS.
+# `impersonate` on users and groups is cluster-scoped, so this cannot be a namespaced Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-bot-impersonate-approver
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+  annotations:
+    nexus.io/adr: "ADR-040"
+rules:
+  - apiGroups: [""]
+    resources: [users]
+    verbs: [impersonate]
+    resourceNames: [koussay-approver]
+  - apiGroups: [""]
+    resources: [groups]
+    verbs: [impersonate]
+    resourceNames: [nexus-approvers]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-bot-impersonate-approver
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-impersonate-approver
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+# Reads, as the bot itself (decision 5). Incidents: list (pushes, /status, a press) and get
+# (/incident, the re-read after a write); the bot polls, so no watch. The Kill Switch ConfigMap
+# only (/status), by name. No write verb anywhere below.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nexus-bot-read
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [nexus.io]
+    resources: [incidents]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [nexus-killswitch]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-bot-read
+  namespace: nexus-system
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nexus-bot-read
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+# /pods <ns>: list pods and Deployments. Bound in nexus-dev and nexus-prod only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-bot-read-workloads
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-bot-read-workloads
+  namespace: nexus-dev
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-read-workloads
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nexus-bot-read-workloads
+  namespace: nexus-prod
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-read-workloads
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot
+---
+# /status: the autonomy-level labels of the two namespaces, by name (`list` cannot be limited by
+# name, so only `get`).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nexus-bot-read-namespaces
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [nexus-dev, nexus-prod]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nexus-bot-read-namespaces
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nexus-bot-read-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: nexus-bot
+    namespace: nexus-bot

@@ -869,7 +869,7 @@ its outlines stay as the record.
 | D12 | The harness blockers are six: V1, V2, V3, V4, V5 and V19 (#198). Block 4 fixes all six |
 | D13 | #189 goes in Block 4: its reset and fallback move to `GET /stop` (V19), then it merges. #190 stays held (S2 not measured live) |
 | D14 | #169 and #194 are closed: superseded by the Reasoner rebuild after #199 (Block 3) |
-| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only |
+| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only. Done 2026-11-21: outcome B (ADR-041) |
 | D16 | Replay: real bundles exist only for S1. The R0 replay starts 11-19; the R1–R3 replay runs on S1 first, then on S3, S5 and S6 as the trial runs produce real bundles; synthetic bundles are labelled as such |
 | D17 | One promotion per block. The operator bump that follows #179 rides with Block 1's `m3-live` promotion |
 | D18 | Block 1's gate adds: a dry-run scale in `nexus-prod` is refused by K1 (`m3-live` also binds the operator's `nexus-prod` grants from #179) |
@@ -879,6 +879,8 @@ its outlines stay as the record.
 | D22 | `/ask`: the bot collects one fixed read-only snapshot, makes ONE LLM call, and shows plain-text advice marked "advice only"; it never acts on it. Built after the Note flow; cut first if late. Not on run days (Groq tokens). CLAUDE.md rule 8 stays: no agent loop |
 | D23 | Runbooks: no new ones. Before the Block 9 freeze, polish `rb-bad-rollout` (own words, source cited: runbooks.prometheus-operator.dev, KubePodCrashLooping) and the `rb-gray-failure` Diagnosis line, then re-check retrieval once. **Done:** polish in #224 (`d61a0ba`, 2026-11-15: `rb-bad-rollout` v2, `rb-gray-failure` v3, floor 3.1739, corpus hash `fad76a74…`); re-checked unchanged 2026-11-20 (ADR-046) |
 | D24 | ITBench: no runs. One desk table in the thesis mapping ITBench fault types to what NEXUS would do (fix, escalate, not seen) |
+| D25 | 2026-11-21: C4, the static baseline, is cut: no `nexus-baseline` build (G10 cut), no live or offline C4 runs. Naive alert-driven automation appears only in the related work (owner, 2026-11-21) |
+| D26 | 2026-11-21: S4/S6's load is the calibrated one: Locust total 170 (`nexus-dev` 90 req/s against its baseline 80, ProdUser 80; about 1.13x the `nexus-dev` load). At 165, 168 and 170 `NexusTrafficAnomaly` fired and `NexusCpuAnomaly` did not, max p95 latency Z at most -0.02 (`~/nexus-evidence/cal-2026-11-21/RESULT.md`). Spec v1.0's "1.5 x baseline" (240 users) was never used: at 240 on 2026-11-20 `NexusCpuAnomaly` fired and R3 scaled `nexus-dev` 2 -> 4 (owner, 2026-11-21) |
 
 ### Blocks
 
@@ -909,7 +911,7 @@ secrets, `sudo`.
   run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
   kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
   (each trial run feeds the replay).
-- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15). Then the PR opener, the commit
+- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
   token; merging the revert PR. Cut first: the `main` mapping (unused at L1).
