@@ -118,7 +118,7 @@ that Incident with `experiment/dev-state` at `86dc5e7` produced the exact invers
 | # | Rule | Reason |
 |---|---|---|
 | A1 | The newest overlay commit, when the Reasoner names none. The body names the rule | Without it, every R1 run of S3 opens no pull request, and C8 could only be shown with R3 |
-| A2 | Check 4 is strict: **every** file the candidate changes is under the overlay path | See check 4. The runner's S3 commits touch the overlay only (UNVERIFIED, U5 — read the S3 injector in Block 6) |
+| A2 | Check 4 is strict: **every** file the candidate changes is under the overlay path | See check 4. The runner's S3 commits touch the overlay only (VERIFIED 2026-11-21, U5: the injector commits only overlays/dev/kustomization.yaml) |
 
 Git is run with hooks disabled, no submodules, in an empty scratch directory. The token is passed by an
 askpass helper or an HTTP header, never in a URL, in `argv` or in a log line. The revert commit's message is
