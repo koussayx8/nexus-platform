@@ -918,6 +918,7 @@ secrets, `sudo`.
 - [ ] **Block 7 — 11-28 → 11-30. Bot core.** Pushes; Approve, Reject, Explain; `/status`, `/pods`, `/incident`
   (D21); the Alertmanager Telegram route. **Gate:** an L2 approval from the owner's phone; the Incident and the audit
   log name the owner. Owner: BotFather, the bot token, the Telegram user ID. Cut first: Explain polish; never Approve.
+  Bot core live on 2026-11-21; live gate done (the second-account test skipped, covered by unit tests).
 - [ ] **Block 8 — 12-01 → 12-02. Note flow, then `/ask`.** Hard stop 12-02. **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
 - [ ] **Block 9 — 12-03 → 12-04. Freeze.** Runbook polish and one retrieval re-check (D23), then the final Reasoner
