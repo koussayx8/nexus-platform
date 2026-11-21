@@ -869,7 +869,7 @@ its outlines stay as the record.
 | D12 | The harness blockers are six: V1, V2, V3, V4, V5 and V19 (#198). Block 4 fixes all six |
 | D13 | #189 goes in Block 4: its reset and fallback move to `GET /stop` (V19), then it merges. #190 stays held (S2 not measured live) |
 | D14 | #169 and #194 are closed: superseded by the Reasoner rebuild after #199 (Block 3) |
-| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only |
+| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only. Done 2026-11-21: outcome B (ADR-041) |
 | D16 | Replay: real bundles exist only for S1. The R0 replay starts 11-19; the R1–R3 replay runs on S1 first, then on S3, S5 and S6 as the trial runs produce real bundles; synthetic bundles are labelled as such |
 | D17 | One promotion per block. The operator bump that follows #179 rides with Block 1's `m3-live` promotion |
 | D18 | Block 1's gate adds: a dry-run scale in `nexus-prod` is refused by K1 (`m3-live` also binds the operator's `nexus-prod` grants from #179) |
@@ -911,7 +911,7 @@ secrets, `sudo`.
   run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
   kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
   (each trial run feeds the replay).
-- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15). Then the PR opener, the commit
+- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
   token; merging the revert PR. Cut first: the `main` mapping (unused at L1).
