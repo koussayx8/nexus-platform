@@ -1,7 +1,8 @@
 # The bot's configuration (bot/README.md "Configuration"). The allowlist is the list of who may
 # approve through the chat: one numeric Telegram user ID per approver username, reviewed in Git.
-# Empty until the owner's ID is known (README owner step 4): with no entry the bot drops every
-# update and logs only its IDs.
+# One entry: the owner's Telegram user ID (given by the owner on 2026-11-21; the bot is
+# @nexus_pfe_bot), mapped to koussay-approver, the one user the bot may impersonate
+# (platform/rbac/nexus-bot/). A second entry is a second approver.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,7 +13,8 @@ metadata:
     app.kubernetes.io/part-of: nexus-platform
 data:
   config.yaml: |
-    allowlist: {}
+    allowlist:
+      "8998653791": koussay-approver
     approverGroup: nexus-approvers
     namespaces: [nexus-dev, nexus-prod]
     pollSeconds: 10

@@ -1,8 +1,8 @@
-# The Telegram bot (ADR-040). NOT WIRED: no Application references bot/k8s yet.
+# The Telegram bot (ADR-040), deployed by the nexus-bot Application.
 #
 # Image: the all-zero placeholder digest until bot.yml's first build on main opens the digest-bump
-# pull request; repo-checks step 19 refuses it in any rendered Application, so it cannot be wired
-# in before that bump.
+# pull request; repo-checks step 19 refuses it in any rendered Application, so the nexus-bot
+# Application cannot reach main before that bump.
 #
 # 1 replica, Recreate: Telegram allows one getUpdates consumer per token, and two pods would compete
 # for the updates. Restricted Pod Security, as the operator: non-root UID 10001, no privilege
@@ -10,7 +10,7 @@
 # and no Service: the bot is outbound only (decision 2). The ServiceAccount token is mounted: it is
 # the bot's only login and its impersonation right (stated limit 2).
 # The Telegram token is the file /var/run/secrets/nexus-bot/telegram/token, from the Secret
-# nexus-bot-telegram that the owner creates outside Git (bot/README.md step 3). The mount is not
+# nexus-bot-telegram that the owner creates outside Git (scripts/nexus-bot-secrets.sh). The mount is not
 # optional: without the Secret the pod does not start.
 # No probe: there is no HTTP endpoint, and both loops log and retry rather than exit.
 apiVersion: apps/v1
@@ -45,7 +45,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: bot
-          image: ghcr.io/koussayx8/nexus-platform/nexus-bot@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: ghcr.io/koussayx8/nexus-platform/nexus-bot@sha256:37f9a54ec2dfe1fe1381c674af284065a21cb4d6a8560d52d2d7ca966d04dd07
           imagePullPolicy: IfNotPresent
           env:
             - name: NEXUS_BOT_CONFIG
