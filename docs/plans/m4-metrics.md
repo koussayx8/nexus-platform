@@ -79,7 +79,7 @@ Labels E1–E10. Where the reader is `experiments/analysis/results.py` or `exper
 | E1 | Take the injection time from the queue record (`injection_at`; S3 keeps `injection_pushed_at`). Drop the required `--injection` | #216 records it (V5) |
 | E2 | Export the run's Incident by `queue_record.incident.uid`, one row per run. Today every Incident detected between `started_at` and `ended_at` is attached, pre-check false alarms included. Keep the others as `other_incidents`, apart | V8 |
 | E3 | Keep the audit extract over the whole attempt for containment, and mark events before `injection_at`: they are not the run's actions | V8, V15 |
-| E4 | Read `experiments/ground-truth.yaml` (`ground-truth/v2`) and hash its bytes. `results.load_truth` reads JSON; `metrics.action_matches` reads one `correct_action` | The ground truth is YAML with lists |
+| E4 | Read `experiments/ground-truth.json` (`ground-truth/v2`) and hash its bytes. `results.load_truth` reads JSON; `metrics.action_matches` reads one `correct_action` | The ground truth (#285) has lists |
 | E5 | Per admitted mutation: the action, its parameters and its class (acceptable, wrong-in-envelope, out-of-envelope). Per run: `wrong_action`, and what followed. A new table: the wrong-action rate per arm | D20 |
 | E6 | Derive `failed_fix` from `terminal` and `rate_end`; carry `timed_out`. A timed-out run has no terminal phase and must still export | Protocol §6 |
 | E7 | Keep `status` (`void` or `discarded`) beside the reason; add `excluded`. Group discards by cell id: `metrics.discards` groups by arm and scenario, which merges `L2` with `A/R1/S1` | Discards per cell |
