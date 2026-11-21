@@ -10,8 +10,8 @@ Alerts: spec lines 296–303. Runbooks: `runbooks/`. Commands: `experiments/harn
 and `gate.py` on `dev` at `a0d3fcd` (2026-11-20), `nexusctl/src/nexusctl/app.py`, `platform/policies/`.
 Measured timings: the evidence folders named in each table (`~/nexus-evidence/…`, not in Git). **Every
 live timing and token figure so far was measured with R3 = `openai/gpt-oss-120b` on Groq** (prompt/v2);
-the NIM models (ADR-045) are re-measured in the trial reruns: those cells are marked
-**[NIM: TBD after the trial reruns]**. Anything not confirmed by a run is marked UNVERIFIED.
+the NIM models (ADR-045) are re-measured in the trial reruns after the promotion (#286: **S1, S3, S5 and S6** at
+the calibrated load, **S2** at 220 users; R3 at L3): those cells are marked **[NIM: TBD after the trial reruns]**. Anything not confirmed by a run is marked UNVERIFIED.
 
 **A demo run is not a measured run.** The standing rule in `TASKS.md` (no Grafana dashboard or
 port-forward open during a timed run) applies to measured cells only. Never count a demo run in a cell.
@@ -914,19 +914,28 @@ not reuse the Groq figures above for NIM.
 
 ## 8. Flight Recorder exports after a run
 
-The run's window is the pre-check end to the Incident's terminal time. The `actions` export is the one
-`scripts/audit-join.py` documents; the password comes from the environment, never argv:
+The run's window is the pre-check end to the Incident's terminal time. `scripts/fr-export.sh` exports one table
+for a window: `psql` as `nexus_reader` (SELECT only) inside `flight-recorder-db-0`, through one `kubectl exec`;
+no password is passed or printed. CSV with a header by default; `--jsonl` for the audit join. It is
+**untested until the owner's first run** (its queries are written from `05-schema.sql`; CI runs them against
+the real schema and roles, #290).
 
 ```bash
-psql "$FR_URL" -At -c "SELECT row_to_json(a) FROM actions a WHERE intent_at BETWEEN '<start>' AND '<end>'" > actions.jsonl
+bash scripts/fr-export.sh actions <start> <end> --jsonl > actions.jsonl
 ```
 
-Then the join against the API audit log (completeness must be 1.0 for a run to count):
+```bash
+bash scripts/fr-export.sh proposals <start> <end> > proposals.csv
+```
+
+```bash
+bash scripts/fr-export.sh gate_decisions <start> <end> > gate_decisions.csv
+```
+
+`<start>` and `<end>` are RFC 3339 (`2026-11-20T06:25:39Z`); the window is `[start, end)`. Rows are placed by
+`actions.intent_at`, `gate_decisions.at`, and, for `proposals` (no time of their own), the Incident's
+`detected_at`. Then the join against the API audit log (completeness must be 1.0 for a run to count):
 
 ```bash
 python3 scripts/audit-join.py --actions actions.jsonl --audit <audit log copy> --since <start> --until <end>
 ```
-
-How `FR_URL` reaches the Flight Recorder (port-forward and role), and the exact `proposals` and
-`gate_decisions` export queries used for the token and gate figures, are not in Git: **owner, please add
-them here** (open question in the promotion PR #286).
