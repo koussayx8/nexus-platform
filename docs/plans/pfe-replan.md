@@ -75,7 +75,7 @@ cloud credit), still delivered as a PR to `dev` through its gate.
 | G7 | `verify-state.sh` checks per milestone (FR DB Ready, staged RBAC, rollout strategy, levels; K1–K6 Enforce, N1–N6; Reasoner Ready) | §25 | each exit | with each milestone's live step | local, at each milestone exit |
 | G8 | `nexus-prod` Scale/Eviction grants with K1–K6 in Enforce; the operator's L2 states | M2 plan, §11 | M3 | T3 follow-up (stated in T3) | T3 follow-up |
 | G9 | The Reasoner service: Deployment in `nexus-reasoner` with no token, Model Adapter, `/healthz` with the index hash, image (multi-arch); eight runbooks (S5 held out), runbook lint, `make index`, the 30 labelled queries and retrieval evaluation | §15, §16, I1 | 12-20 | new task | T4 |
-| G10 | Static baseline C4: `nexus-baseline` identity and receiver | §20 | 12-20 | new task | T4 |
+| G10 | Static baseline C4: `nexus-baseline` identity and receiver | §20 | 12-20 | new task | **Cut** (TASKS.md D25) |
 | G11 | Containment suite: coverage matrix, fail-closed, Kill Switch, compromised operator (Phase D) | §20 | 12-20 | new task | T3 follow-up |
 | G12 | ~~K8sGPT capture (C6)~~ — moved to the improvements backlog (owner, 2026-11-04; ADR-037) | §20 | — | — | — |
 | G13 | `reconcile-audit`, `export-results`, `make results` | §14, §25 | 12-20 | T4 follow-up | T4 |
