@@ -64,8 +64,8 @@ with at most 2 hangs of 20, not a preview, and a median of at most 300 s. Only N
 
 ## Addendum (2026-11-21): night reliability run, 2026-11-20/21
 
-**What ran.** prompt/v3 on the same 10 bundles, six runs about 45–80 minutes apart from 21:54 local, 60 calls a model
-(30 on the real scenarios, 30 on the novel ones). Evidence: `~/nexus-evidence/bakeoff-2026-11-20/night/run1` … `run6`.
+**What ran.** prompt/v3 on 10 bundles (5 real scenarios, 5 novel ones), six runs about 45–80 minutes apart from
+21:54 local, 60 calls a model (30 real, 30 novel). Evidence: `~/nexus-evidence/bakeoff-2026-11-20/night/run1` … `run6`.
 
 | Model | Live-effective | Real | Novel | Hangs | Median a run | Max |
 | --- | --- | --- | --- | --- | --- | --- |
