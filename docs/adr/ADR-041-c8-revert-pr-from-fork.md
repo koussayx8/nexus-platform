@@ -246,7 +246,7 @@ Reported, not adapted silently. The rows that change the spec are in the spec v1
 
 | # | Item | Settled by |
 |---|---|---|
-| U1 | Which token type can open the upstream pull request | The token test, steps 4 and 6 |
+| U1 | Which token type can open the upstream pull request | **VERIFIED, 2026-11-21**: outcome B, the classic token with public_repo only (see "Token test, 2026-11-21"); the fine-grained token was refused (403) |
 | U2 | The upstream setting "require approval for fork pull request workflows" and its level | Owner: repository Settings → Actions → General; or `gh api repos/koussayx8/nexus-platform/actions/permissions/fork-pr-contributor-approval` |
 | U3 | Whether the ruleset on `experiment/dev-state` blocks a plain push (plan 3.3). No longer decisive: the token has no upstream write | `gh api repos/koussayx8/nexus-platform/rulesets` |
 | U4 | The exact paths of the fault class, confidence, arm and model in `status` (`act.py:395` shows `bundleHash`; `act.py:558-564` the recommendation) | **VERIFIED, 2026-11-21**, from the S3 trial rerun (`~/nexus-evidence/trials-2026-11-21/S3/RECORD.md` and the Incident JSON there): `status.proposal.faultClass` and `confidence`, `status.reasoner.mode` and `modelId`, `status.evidence.bundleHash` and `status.proposal.hash` are all present on `inc-ac15ee36af8a7a62-1795253568` |
@@ -297,7 +297,7 @@ Secret script; merging the revert pull request; deleting test branches in the fo
 | Checks 4b, 4c | Owner, 2026-11-19 | Built as written: workload files only, never `overlays/dev/namespace.yaml`; the kustomization's keys except `patches` unchanged, except the sample-api `images` entry's `newName`, `newTag`, `digest` |
 | Outcome C | Post the compare link | `prMode: compare_link`, also used when the create is refused |
 | Merge recognition | Poll | As decision 10: every 30 s, 24 h, restart recovery by author and head prefix; a notification only |
-| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test (steps 0, owner) has not run: its outcome (A, B or C) is still to be recorded here |
+| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test ran on 2026-11-21: outcome B (see "Token test, 2026-11-21") |
 
 ## Consequences
 
