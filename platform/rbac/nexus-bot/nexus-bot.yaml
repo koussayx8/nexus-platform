@@ -1,6 +1,5 @@
 # The Telegram bot's RBAC (ADR-040 decisions 4 and 5; the YAML of its "RBAC" section, narrowed to
-# the verbs the code calls). NOT WIRED: no Application and no parent kustomization references this
-# directory yet; the Block 7 live step adds it to platform/rbac/kustomization.yaml.
+# the verbs the code calls). Listed by platform/rbac/kustomization.yaml (the platform Application).
 #
 # Write authority: the first two objects, and nothing else. The bot may act as ONE user in ONE
 # group, by resourceNames. A second name here is a new approver: review under CODEOWNERS.

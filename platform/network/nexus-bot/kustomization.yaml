@@ -1,5 +1,5 @@
-# NetworkPolicies for nexus-bot (ADR-040). NOT WIRED: built and kubeconform-checked by repo-checks
-# on its own; platform/network/kustomization.yaml does not list it until the Block 7 live step.
+# NetworkPolicies for nexus-bot (ADR-040), listed by platform/network/kustomization.yaml (deployed
+# with platform/m3-live by the platform Application).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

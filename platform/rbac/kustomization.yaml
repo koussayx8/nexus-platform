@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - nexus-operator.yaml
   - nexus-operator-dev.yaml
+  - nexus-bot                 # the Telegram bot's reads and its impersonation grant (ADR-040)
