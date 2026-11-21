@@ -49,6 +49,11 @@ spec:
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef: {name: nexus-reasoner-keys, key: groq-api-key, optional: true}
+            # NVIDIA NIM (the R3 configs r3-primary, r3-backup-*): optional, so a Secret without
+            # it leaves those configs unavailable (503) and nothing else changes.
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef: {name: nexus-reasoner-keys, key: nvidia-api-key, optional: true}
           volumeMounts:
             - name: config
               mountPath: /etc/nexus-reasoner

@@ -190,7 +190,9 @@ def _utc(t: float | None = None) -> str:
 
 
 def validate_cells(cells) -> list[dict]:
-    """Every cell names its scenario, arm, level, tier, valid-run target and attempt cap."""
+    """Every cell names its scenario, arm, level, tier, valid-run target, attempt cap and the
+    `baseline_ref` its reset restores (ADR-047 addendum: one rule for every cell, the runner's
+    reset rule; a commit-ish with no whitespace that cannot read as a git option)."""
     if not isinstance(cells, list) or not cells:
         raise Refused("cells must be a non-empty list")
     ids = [c.get("cell") if isinstance(c, dict) else None for c in cells]
@@ -204,9 +206,18 @@ def validate_cells(cells) -> list[dict]:
             "tier",
             "valid_target",
             "max_attempts",
+            "baseline_ref",
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        ref = c["baseline_ref"]
+        if not isinstance(ref, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._/^~-]*", ref
+        ):
+            raise Refused(
+                f"cell {c['cell']!r}: baseline_ref must be the experiment/dev-state commit its "
+                "reset restores (a commit-ish: no whitespace, not starting with '-')"
+            )
         if c["reasoner"] not in arms.ARMS:
             raise Refused(
                 f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
@@ -563,19 +574,31 @@ def arm_mismatch(arm: str, reasoner_status: dict | None) -> str | None:
     * fallbackUsed: R1 answered once for a Reasoner call that failed (spec §17). That is the arm's
       own run, counted against it, so it is no contradiction, except on an arm that calls no
       Reasoner: R1 cannot fall back, so the operator was running something else.
-    * Otherwise the mode is the arm's, and so is the model id when the arm has one."""
+      A failed call that recorded the config it used must still have used the arm's config.
+    * Otherwise the mode is the arm's, and for an arm with a model, the call recorded exactly the
+      config and the model id the arm expects (arms.py): a switch of the Reasoner's `active` while
+      a batch runs is a mismatch, never a run of another model under this arm's name."""
     a = arms.ARMS[arm]
     if not reasoner_status:
         return None
+    config = reasoner_status.get("modelConfig")
     if reasoner_status.get("fallbackUsed"):
         if a["mode"] == "rules":
             return "fallbackUsed on an arm that calls no Reasoner"
+        if a.get("model_config") and config is not None and config != a["model_config"]:
+            return f"the failed call used config {config!r}, the arm's is {a['model_config']!r}"
         return None
     mode, model_id = reasoner_status.get("mode"), reasoner_status.get("modelId")
     if mode != a["mode"]:
         return f"mode {mode!r}, the arm's is {a['mode']!r}"
-    if a.get("model") is not None and model_id != a["model"]:
-        return f"model {model_id!r}, the arm's is {a['model']!r}"
+    if a.get("model") is not None and (config, model_id) != (
+        a["model_config"],
+        a["model_id"],
+    ):
+        return (
+            f"config {config!r} model {model_id!r}, "
+            f"the arm's is {a['model_config']!r} {a['model_id']!r}"
+        )
     return None
 
 
@@ -999,7 +1022,7 @@ class LiveRun:
         # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
         seen = st.get("reasoner")
         rec["arm"]["observed"] = (
-            {k: seen.get(k) for k in ("mode", "modelId", "fallbackUsed")}
+            {k: seen.get(k) for k in ("mode", "modelConfig", "modelId", "fallbackUsed")}
             if isinstance(seen, dict)
             else None
         )
@@ -1030,7 +1053,7 @@ def _status(queue: Queue) -> dict:
     }
 
 
-def main(argv=None) -> int:
+def main(argv=None, guard_exec=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("mode", choices=("init", "status", "run", "clear-halt"))
     ap.add_argument("--state", required=True)
@@ -1079,6 +1102,10 @@ def main(argv=None) -> int:
                 )
             )
             return 0
+        # ADR-047: the batch runs reviewed code only, as the runner does (#266)
+        why = runner_mod.code_guard(guard_exec)
+        if why:
+            raise Refused(f"refusing to execute: {why}")
         live = LiveRun(
             runner_mod.Runner(a.context, locust=a.locust, git_dir=a.git_dir),
             queue.doc["precheck"],

@@ -13,12 +13,15 @@ import urllib.parse
 from .. import batch, metrics, precheck, runner
 
 REF = "G16/pre-registration#approval-1"
+BASELINE_REF = (
+    "0123456789abcdef0123456789abcdef01234567"  # the dev-state commit a reset restores
+)
 # Targets, caps and tiers are G16 configuration; these are test values (Tier 1 = a small target).
 CELLS = [
     {"cell": "C1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
     {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 INDEX_HASH = (
     "ab" * 32
@@ -350,6 +353,7 @@ class TierTest(Base):
             "cell": n,
             "scenario": "S1",
             "reasoner": "R1",
+            "baseline_ref": BASELINE_REF,
             "level": 3,
             **kw,
         }
@@ -420,7 +424,8 @@ class TierTest(Base):
 
     def test_targets_caps_and_tiers_are_required_configuration(self):
         with tempfile.TemporaryDirectory() as d:
-            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3}
+            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3,
+                    "baseline_ref": BASELINE_REF}  # fmt: skip
             bad = [
                 base,  # no tier, target or cap
                 {**base, "tier": 1, "valid_target": 5},  # no cap
@@ -679,7 +684,15 @@ class FakeCluster:
             return {"mode": "rules", "fallbackUsed": False}
         if self.fallback:
             return {"mode": "rules", "fallbackUsed": True, "latencyMs": 30000}
-        return {"mode": cfg["reasonerMode"], "modelId": cfg["reasonerModel"] or None, "fallbackUsed": False}  # fmt: skip
+        # as the Reasoner serves the name it is sent (reasoner/k8s/configmap.yaml), through `active`
+        served = {
+            "R2": ("r2-primary", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
+            "R3": ("r3-primary", "nvidia/nemotron-3-ultra-550b-a55b"),
+        }
+        config, model_id = served.get(
+            cfg["reasonerModel"], (None, cfg["reasonerModel"] or None)
+        )
+        return {"mode": cfg["reasonerMode"], "modelConfig": config, "modelId": model_id, "fallbackUsed": False}  # fmt: skip
 
     def vector(self, value):
         return json.dumps(
@@ -1787,7 +1800,7 @@ class SevenPrechecksTest(unittest.TestCase):
         cfg = rcfg.parse({"indexPath": "x", "scoreFloor": 1.0, "models": {}})
         body = Reasoner(cfg, Retriever(index, 1.0), None).health()
         self.assertEqual(
-            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor"}
+            set(body), {"status", "corpusHash", "promptVersion", "scoreFloor", "active"}
         )
         self.assertEqual(body["status"], "ready")
         self.assertRegex(

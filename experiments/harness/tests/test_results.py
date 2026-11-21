@@ -285,6 +285,7 @@ def make_queue_run(
             "tier": 1,
             "valid_target": 2,
             "max_attempts": 4,
+            "baseline_ref": "0123456789abcdef0123456789abcdef01234567",
         }
     ]
     pre = {"clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},

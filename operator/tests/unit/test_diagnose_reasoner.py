@@ -507,3 +507,94 @@ def test_without_an_excerpt_nothing_is_added():
     assert not set(EXCERPT) & set(s)
     [row] = rows(rig).values()
     assert not set(EXCERPT) & set(row["usage"])
+
+
+def test_a_longer_reasoner_timeout_moves_the_diagnosing_limit():
+    """reasonerTimeoutSeconds 120 (a thinking model): Diagnosing ends at 120 + 30 s, not at 60 s."""
+    reasoner = FakeReasoner(answer(), gate=asyncio.Event())  # never set
+    rig = make(reasoner, diagnosing_timeout_s=150)
+    rig.tick()
+    rig.tick()
+    rig.tick(seconds=61)
+    assert rig.status()["phase"] == "Diagnosing"
+    rig.tick(seconds=90)
+    assert ended(rig) == ("Escalated", "reasoner_unavailable")
+
+
+def test_the_model_config_is_recorded_in_status_and_on_the_row():
+    """Owner, 2026-11-20: every call records the config that served it (r3-groq, r3-primary...)
+    beside the model id, in status.reasoner and in the call row's usage, not in usage's tokens."""
+    rig = make(FakeReasoner(answer(modelConfig="r3-primary")))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert (s["modelConfig"], s["modelId"]) == ("r3-primary", MODEL)
+    assert "modelConfig" not in s["usage"]
+    [row] = rows(rig).values()
+    assert row["usage"]["modelConfig"] == "r3-primary"
+
+
+def test_a_failed_call_keeps_its_model_config():
+    result = failure(
+        "http_503",
+        errors=["model_unavailable: no_credentials"],
+        meta={"modelConfig": "r3-primary"},
+    )
+    rig = make(FakeReasoner(result))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert s["fallbackUsed"] is True and s["modelConfig"] == "r3-primary"
+
+
+def test_the_reasoning_trace_is_recorded_and_excerpted_never_used():
+    """ADR-035 addendum C: the call's trace goes to proposals.reasoning on the call's row, and
+    status.reasoner shows its first 300 characters and its length; nothing reads it."""
+    trace = "Step 1: " + "x" * 1000 + " scale to 40!"
+    rig = make(FakeReasoner(answer(reasoning=trace, reasoningLength=len(trace))))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert s["reasoningExcerpt"] == trace[:300] and s["reasoningLength"] == len(trace)
+    [row] = rows(rig).values()
+    assert row["reasoning"] == trace
+    assert (
+        rig.status()["proposal"]["actionId"] == "restart_workload"
+    )  # the answer, not the trace
+
+
+def test_a_fallback_keeps_the_failed_calls_trace_on_its_row_only():
+    result = failure(
+        "rejected",
+        errors=["invalid_proposal: x"],
+        meta={"reasoning": "thinking...", "reasoningLength": 11},
+    )
+    rig = make(FakeReasoner(result))
+    run_until_proposed(rig)
+    failed, used = sorted(rows(rig).values(), key=lambda r: r["fallback_used"])
+    assert (failed["reasoning"], used["reasoning"]) == ("thinking...", None)
+    assert rig.status()["reasoner"]["reasoningExcerpt"] == "thinking..."
+
+
+def test_no_trace_adds_no_key():
+    rig = make(FakeReasoner(answer()))
+    run_until_proposed(rig)
+    assert not {"reasoningExcerpt", "reasoningLength"} & set(rig.status()["reasoner"])
+
+
+def test_expanded_chunks_are_marked_in_status_and_on_the_row():
+    """ADR-043: status.reasoner.chunks keeps every id sent; expandedChunks names the Decision
+    chunks added after the top 3; the row's usage records them; status.reasoner.usage does not."""
+    chunks = ["rb-bad-rollout#1", "rb-image-pull#1", "rb-bad-rollout#3"]
+    rig = make(FakeReasoner(answer(retrievedChunks=chunks, expandedChunks=chunks[2:])))
+    run_until_proposed(rig)
+    s = rig.status()["reasoner"]
+    assert s["chunks"] == chunks and s["expandedChunks"] == ["rb-bad-rollout#3"]
+    assert "expandedChunks" not in s["usage"]
+    [row] = rows(rig).values()
+    assert row["usage"]["expandedChunks"] == ["rb-bad-rollout#3"]
+
+
+def test_no_expansion_adds_no_key():
+    rig = make(FakeReasoner(answer(expandedChunks=[])))
+    run_until_proposed(rig)
+    assert "expandedChunks" not in rig.status()["reasoner"]
+    [row] = rows(rig).values()
+    assert "expandedChunks" not in row["usage"]

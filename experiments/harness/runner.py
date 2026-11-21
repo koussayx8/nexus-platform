@@ -64,6 +64,13 @@ LEVEL_FILE = (
 S3_ALLOWED = ("overlays/dev/kustomization.yaml", "overlays/dev/sample-api*.yaml")
 S3_PATCH = "experiments/faults/s3-bad-rollout.patch"  # the committed S3 fault
 APP_PORT = 8000
+# ProdUser's fixed_count in platform/load/locustfile.py: a spike's total minus this is nexus-dev's
+# rate (S2: 220 -> 140; S4/S6: 80 + the calibrated dev rate). A test reads the locustfile.
+PROD_USERS = 80
+# The frozen baseline swarm (platform/load/master.yaml --users 160 --spawn-rate 4, both classes;
+# ADR-026): what `reset --locust` starts again after its stop, so a reset never leaves Locust idle
+# (ADR-047). A test reads master.yaml and the locustfile.
+BASELINE_SWARM = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
 # Locust's master answers /stop only when its user count is 0, and waits for its workers up to
 # stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
 LOCUST_STOP_TIMEOUT_S = 75
@@ -295,6 +302,16 @@ class Runner:
                 raise ValueError(
                     f"{sc} needs --locust URL, --users and --spawn-rate (from the calibrated capacity)"
                 )
+            # users is Locust's total: ProdUser keeps PROD_USERS, the rest go to nexus-dev
+            if (
+                isinstance(users, bool)
+                or not isinstance(users, int)
+                or users <= PROD_USERS
+            ):
+                raise ValueError(
+                    f"{sc}: users is the total, {PROD_USERS} (ProdUser) + the nexus-dev rate; "
+                    f"it must be an integer above {PROD_USERS}"
+                )
             if (
                 isinstance(spawn_rate, bool)
                 or not isinstance(spawn_rate, int | float)
@@ -422,7 +439,10 @@ class Runner:
         if self.git_dir:
             steps += [
                 Step(("git", "fetch", "origin", BRANCH), False),
-                Step(("git", "checkout", BRANCH), True),
+                # Detached at the fetched branch, never a local branch: the experiment worktree
+                # stays as it was created (git worktree add --detach), and a commit here reaches
+                # the remote only through the forward push below (Block 5 finding (i)).
+                Step(("git", "checkout", "--detach", f"origin/{BRANCH}"), True),
             ]
             if baseline_ref:
                 # Forward commit restoring the baseline tree; skipped when there is no diff.
@@ -509,6 +529,43 @@ class Runner:
             self.sleep(poll_s)
 
 
+REPO = (
+    pathlib.Path(__file__).resolve().parents[2]
+)  # the checkout this runner's code comes from
+CODE_REFS = ("origin/dev", "origin/main")
+
+
+def code_guard(exec_=None, repo=REPO) -> str | None:
+    """Why the runner must not execute from this checkout, or None (owner, 2026-11-19).
+
+    A run's code must be reviewed code: no uncommitted change under experiments/ (the runner, the
+    harness, the fault files), and HEAD a commit on origin/dev or origin/main. Read-only: git
+    status, rev-parse and merge-base on the local remote-tracking refs (no fetch, so stale refs
+    refuse rather than pass). Any git failure refuses too."""
+    run = exec_ or _subprocess_exec
+    rc, out = run(["git", "status", "--porcelain", "--", "experiments/"], cwd=repo)
+    if rc != 0:
+        return f"cannot read git status in {repo} (rc {rc})"
+    dirty = [ln[3:] for ln in out.splitlines() if ln.strip()]
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (
+            f" and {len(dirty) - 5} more" if len(dirty) > 5 else ""
+        )
+        return f"uncommitted changes under experiments/: {shown}"
+    rc, head = run(["git", "rev-parse", "HEAD"], cwd=repo)
+    if rc != 0:
+        return f"cannot read HEAD in {repo} (rc {rc})"
+    head = head.strip()
+    for ref in CODE_REFS:
+        rc, _ = run(["git", "merge-base", "--is-ancestor", head, ref], cwd=repo)
+        if rc == 0:
+            return None
+    return (
+        f"HEAD {head[:12]} is not a commit on {' or '.join(CODE_REFS)} "
+        "(git fetch origin, or run from a merged commit)"
+    )
+
+
 def _subprocess_exec(argv, cwd=None, timeout=120):
     try:
         p = subprocess.run(
@@ -568,7 +625,7 @@ def _post_form(url, fields, opener=urllib.request.urlopen):
         )
 
 
-def main(argv=None):
+def main(argv=None, guard_exec=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["gate"]:  # read-only manual-run gate (gate.py)
         from . import gate
@@ -593,7 +650,11 @@ def main(argv=None):
         "reset: the level to commit (default 3)",
     )
     ap.add_argument("--locust")
-    ap.add_argument("--users", type=int)
+    ap.add_argument(
+        "--users",
+        type=int,
+        help=f"Locust's total for S2, S4, S6: {PROD_USERS} (ProdUser) + the nexus-dev rate",
+    )
     ap.add_argument(
         "--spawn-rate", type=float, help="users started per second (S2, S4, S6)"
     )
@@ -606,6 +667,11 @@ def main(argv=None):
         "--execute", action="store_true", help="actually run the steps (mode run only)"
     )
     a = ap.parse_args(argv)
+    if a.mode == "run" and a.execute:
+        why = code_guard(guard_exec)
+        if why:
+            print(f"runner: refusing to execute: {why}", file=sys.stderr)
+            return 2
     r = Runner(a.context, locust=a.locust, git_dir=a.git_dir, namespace=a.namespace)
     if a.op == "inject":
         if not a.scenario:
@@ -621,7 +687,18 @@ def main(argv=None):
         except ValueError as e:
             ap.error(str(e))
     elif a.op == "reset":
-        steps = r.plan_reset(3 if a.level is None else a.level, a.baseline_ref)
+        # ADR-047, the S3 lesson: a reset without the commit to restore leaves an injected commit
+        # deployed; without --git-dir the ref would be ignored, so both are required.
+        if not a.baseline_ref or not a.git_dir:
+            ap.error(
+                "reset needs --baseline-ref (the experiment/dev-state commit recorded before the "
+                "injection) and --git-dir (the experiment worktree it is restored in)"
+            )
+        steps = r.plan_reset(
+            3 if a.level is None else a.level,
+            a.baseline_ref,
+            locust_baseline=BASELINE_SWARM if a.locust else None,
+        )
     else:
         steps = r.plan_refresh()
     if a.mode == "plan" or not a.execute:
