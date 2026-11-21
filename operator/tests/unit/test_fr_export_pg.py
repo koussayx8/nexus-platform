@@ -1,6 +1,8 @@
 """scripts/fr-export.sh's queries against a real Flight Recorder schema (05-schema.sql and
 10-roles.sql, as the pod's init applies them), as nexus_reader. The stub kubectl hands the psql part
-of the exec to the throwaway server. Skips without server binaries, except in CI (conftest.pg)."""
+of the exec to the throwaway server. Skips without server binaries, except in CI (conftest.pg).
+The server is shared with the other PostgreSQL tests: the seed is idempotent, its ids are its own,
+and its window (2031) holds no other test's rows."""
 
 import csv
 import io
@@ -24,20 +26,24 @@ os.execv(os.path.join(os.environ["PG_BINDIR"], "psql"), psql)
 
 SEED = """
 INSERT INTO incidents (incident_uid, target, source, detected_at) VALUES
-  ('u-in', 'nexus-dev/sample-api', 'detector', '2026-11-20T06:28:32Z'),
-  ('u-out', 'nexus-dev/sample-api', 'detector', '2026-11-20T05:00:00Z');
+  ('fr-export-in', 'nexus-dev/sample-api', 'detector', '2031-01-07T06:28:32Z'),
+  ('fr-export-out', 'nexus-dev/sample-api', 'detector', '2031-01-07T05:00:00Z')
+  ON CONFLICT DO NOTHING;
 INSERT INTO proposals (proposal_hash, incident_uid, reasoner_mode, schema_valid, model_id, reasoning) VALUES
-  ('sha256:in', 'u-in', 'llm', true, 'nvidia/nemotron-3-ultra-550b-a55b', 'a "quoted" trace, with a comma'),
-  ('sha256:out', 'u-out', 'rules', true, NULL, NULL);
+  ('sha256:fr-export-in', 'fr-export-in', 'llm', true, 'nvidia/nemotron-3-ultra-550b-a55b', 'a "quoted" trace, with a comma'),
+  ('sha256:fr-export-out', 'fr-export-out', 'rules', true, NULL, NULL)
+  ON CONFLICT DO NOTHING;
 INSERT INTO gate_decisions (incident_uid, stage, verdict, detail, at) VALUES
-  ('u-in', 6, 'fail', '{"detail": "a rollout is in progress"}', '2026-11-20T06:28:50Z'),
-  ('u-out', 1, 'pass', NULL, '2026-11-20T05:00:10Z');
+  ('fr-export-in', 6, 'fail', '{"detail": "a rollout is in progress"}', '2031-01-07T06:28:50Z'),
+  ('fr-export-out', 1, 'pass', NULL, '2031-01-07T05:00:10Z')
+  ON CONFLICT DO NOTHING;
 INSERT INTO actions (idempotency_key, incident_uid, action_id, parameters, intent_at, action_class) VALUES
-  ('u-in-1', 'u-in', 'scale_deployment', '{"replicas": 4}', '2026-11-20T06:28:52Z', 'scale'),
-  ('u-out-1', 'u-out', 'restart_workload', '{}', '2026-11-20T05:01:00Z', 'restart');
+  ('fr-export-in-1', 'fr-export-in', 'scale_deployment', '{"replicas": 4}', '2031-01-07T06:28:52Z', 'scale'),
+  ('fr-export-out-1', 'fr-export-out', 'restart_workload', '{}', '2031-01-07T05:01:00Z', 'restart')
+  ON CONFLICT DO NOTHING;
 """
 
-SINCE, UNTIL = "2026-11-20T06:25:39Z", "2026-11-20T06:31:32Z"
+SINCE, UNTIL = "2031-01-07T06:25:39Z", "2031-01-07T06:31:32Z"
 
 
 def export(pg, tmp_path, *args):
@@ -65,9 +71,9 @@ def seeded(pg):
 def test_each_table_exports_only_its_window_as_csv(pg, tmp_path):
     seeded(pg)
     for table, key, want in (
-        ("actions", "idempotency_key", ["u-in-1"]),
-        ("gate_decisions", "incident_uid", ["u-in"]),
-        ("proposals", "proposal_hash", ["sha256:in"]),
+        ("actions", "idempotency_key", ["fr-export-in-1"]),
+        ("gate_decisions", "incident_uid", ["fr-export-in"]),
+        ("proposals", "proposal_hash", ["sha256:fr-export-in"]),
     ):
         out = export(pg, tmp_path, table, SINCE, UNTIL)
         assert out.returncode == 0, (table, out.stderr)
@@ -87,7 +93,10 @@ def test_jsonl_feeds_audit_join(pg, tmp_path):
     out = export(pg, tmp_path, "actions", SINCE, UNTIL, "--jsonl")
     assert out.returncode == 0, out.stderr
     [row] = [json.loads(ln) for ln in out.stdout.splitlines() if ln.strip()]
-    assert (row["idempotency_key"], row["parameters"]) == ("u-in-1", {"replicas": 4})
+    assert (row["idempotency_key"], row["parameters"]) == (
+        "fr-export-in-1",
+        {"replicas": 4},
+    )
 
 
 def test_the_reader_cannot_write(pg):
