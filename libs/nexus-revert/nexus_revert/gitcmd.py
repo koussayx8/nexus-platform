@@ -16,7 +16,20 @@ from typing import Protocol
 
 
 class GitError(Exception):
-    """A git call failed. The message is git's stderr tail, with the token removed."""
+    """A git call failed. The message is git's explanation, with the token removed."""
+
+
+EXPLANATION_PREFIXES = ("!", "remote:", "error:", "fatal:")
+EXPLANATION_MAX = 300
+
+
+def explanation(stderr: str) -> str:
+    """The lines of git's stderr that say why (a rejected ref is "! [remote rejected] ...", a server's reason
+    is "remote: ...", the summary is "error: ..." or "fatal: ..."), joined and cut to 300 characters in all.
+    Without any such line, the last line. The caller passes stderr already redacted."""
+    lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
+    why = [ln for ln in lines if ln.startswith(EXPLANATION_PREFIXES)] or lines[-1:] or ["no stderr"]
+    return " | ".join(why)[:EXPLANATION_MAX]
 
 
 @dataclass(frozen=True)
@@ -86,6 +99,5 @@ class SubprocessGit:
             raise GitError(f"git {args[0]}: {type(e).__name__}") from None
         res = Result(p.returncode, p.stdout, self._redact(p.stderr))
         if check and p.returncode != 0:
-            tail = res.err.strip().splitlines()[-1:] or ["no stderr"]
-            raise GitError(f"git {args[0]} exited {p.returncode}: {tail[0][:300]}")
+            raise GitError(f"git {args[0]} exited {p.returncode}: {explanation(res.err)}")
         return res
