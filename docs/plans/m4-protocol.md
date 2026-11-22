@@ -15,7 +15,7 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Images | the digests at the `v0.6.0` tag. **No new Reasoner image (D28):** the measured Reasoner is the one deployed now, `sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c` (`reasoner/k8s/deployment.yaml` on `main` at `49c5565`; bump `b989cba`, 2026-11-21, built from `832cda7`, whose `prompt.py` is `prompt/v3`). It includes #242's fix, which merged earlier. Operator `sha256:9f3380e9…0625c` and sample-api `sha256:3321d6fa…f268` are as of `dev` at `4b077fb`: the operator manifest on `main` now reads `sha256:7c9d1599…95eb`, so both are read again from the manifests at the tag | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
 | Score floor, prompt | 3.1739; `prompt/v3` (ADR-045; `VERSION` in `reasoner/nexus_reasoner/prompt.py`, the version the live Incidents show), `CHARS_PER_TOKEN` 2.5 (same file) | by hand at each queue start (§4) |
-| Models | R2 and R3 **pending the bake-off** (#271). Today R2 = config `r2-groq` (`openai/gpt-oss-20b`), R3 = `r3-groq` (`openai/gpt-oss-120b`), both on Groq, chosen by the Reasoner's `active` (ADR-035 addenda B, D). Effort low, temperature 0, seed 0. Each model has its own `timeoutSeconds` (default 30 s, at most 300 s), the whole call's budget; inside it **one retry** after a network error, an HTTP 5xx, or a 429 with `Retry-After`, only when 5 s of the budget remain (ADR-035 addendum A) | the strict arm check: each call's `modelConfig` and `proposals.model_id` against `arms.py` |
+| Models | **NVIDIA NIM only** (ADR-045: owner, 2026-11-20, after bake-off round 4 of #271; the R2 and R3 choice is final; the Groq configs are retired). Each arm is served by the config `active` names in `reasoner/k8s/configmap.yaml` on `main`, and `experiments/harness/arms.py` names the config and model id each arm expects. **R0** and **R1** call no model: R0 is the seeded adversarial generator, R1 the rules baseline. **R2** = `r2-primary`, `nvidia/nemotron-3.5-super-vl-120b-a12b` (a preview model), timeout 120 s, 8,192 output tokens; offline replay only, never live (D10). **R3** = `r3-primary`, `nvidia/nemotron-3-ultra-550b-a55b`, thinking on (its default), timeout 300 s, 8,192 output tokens; live in phase A and in the replay. Backups, used only if `active` is switched: `r2-backup` (the Ultra model, thinking off, UNTESTED) and `r3-backup` (`google/gemma-4-31b-it`, 300 s). Temperature 0, seed 0, no effort setting (NIM gets none). The timeout is the whole call's budget; inside it **one retry**, after a network error or an HTTP 5xx (1 s later) or after a 429's `Retry-After`, only when 5 s of the budget remain; a timeout and a 429 without `Retry-After` are never retried (`reasoner/nexus_reasoner/adapter.py`, ADR-035 addendum A). The operator's `reasonerTimeoutSeconds` is 300, so Diagnosing ends at 330 s (ConfigMap comment, ADR-045); its live value is UNVERIFIED here (the owner sets it in the live ConfigMap). The trial reruns of 2026-11-21 ran R3 as `r3-primary` on `prompt/v3`: six live calls, median 16.4 s, no fallback and no retry (`~/nexus-evidence/trials-2026-11-21/NIM-TIMINGS-FOR-287.md`, not in Git). Whether the live Reasoner's `active` still reads `r2-primary` and `r3-primary` at the tag is UNVERIFIED: no cluster in this change | the strict arm check: each call's `modelConfig` and `proposals.model_id` against `arms.py` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
 | Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace; `ProdUser` has `fixed_count = 80`, so every user above 160 goes to `nexus-dev` (#273). S4 and S6: 170 users, `nexus-dev` 90 req/s, `ProdUser` 80 (Q6, §9; `TASKS.md` D26) | pre-check |
 
@@ -83,7 +83,8 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   15-minute standard deviation within 1.5 × the clean baseline (TODO, Q6); node CPU < 60 %, memory < 80 %; no Backstage
   pod; the Reasoner ready with the frozen index hash; the Flight Recorder up; the audit log written in the last 60 s.
 - **By hand, read-only, before each queue start** (not implemented): seven ClusterPolicies Ready with K1–K6 in
-  Enforce; one successful call to each Groq model; `/healthz` shows floor 3.1739 and `prompt/v2`.
+  Enforce; one successful call to the R3 model, `r3-primary` on NVIDIA NIM (R2 is replay only, so it needs none live);
+  `/healthz` shows the frozen index hash, floor 3.1739 and `prompt/v3` (§1).
 
 ## 5. Run-validity rules, as implemented (#216 and #189 on `dev`)
 
@@ -115,6 +116,14 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   one is `NexusRolloutStuck`, from 08:12:48. An Incident from the warm-up after a later reset (08:36) is not the run's
   either. The reset still waits for all of them (below).
 - **Every attempt counts toward the cap** (V7); a cell at its cap is reported `exhausted`.
+- **No other heavy work on the machine during a measured run** (owner rule, 2026-11-22; M2-1's V5,
+  [`m2-1-plan.md`](m2-1-plan.md) line 201). From the injection to the run's end, no CPU-heavy work on the host: no Claude
+  Code session running tests, builds or linters, no image pulls, no dashboard or extra port-forward; read-only or
+  documentation work only. Why: on the morning of 2026-11-22 NEXUS scaled `sample-api` 2 → 3 → 4 on host load
+  (`inc-259a43e737cea6a6-1795338309` and `-1795340949`, REPORTED by the owner, not re-read here): node CPU stayed at
+  10–30 % while `sample-api`'s CPU Z reached 10, so the node-load pre-check (§4) does not catch it. As in M2-1, a run
+  that overlaps such work is void and is repeated. The batch cannot see it: no code checks this rule, the owner and
+  any session working on the repository keep it.
 - **After the run, not in the batch (V9):** the audit join must be complete (1.0) and clean, or the run is
   excluded (`not_reconciled`) and re-run in Block 12. Export within 24 h: the audit log kept about 2.2 days at idle
   (ADR-019 addendum).
@@ -178,21 +187,26 @@ did not end `Resolved` with traffic back, every `D/R0` and refused `L2` run, a v
 - **Check once (Q9, V18):** after the first reset, read the `nexus-dev` ReplicaSets to see whether selfHeal started a
   second rollout after the `rollout restart`.
 
-## 8. Groq budget
+## 8. NIM budget
 
-Free tier, per model (the owner's figures; the organisation's own limits are UNVERIFIED): 30 requests/min, 1,000
-requests/day, 8,000 tokens/min, 200,000 tokens/day. At about 3,000 tokens per call the tokens bind: 2 calls/min and
-66 calls/day per model. The plan uses 60.
+NVIDIA NIM's free endpoint (ADR-045; the Groq configs are retired). **No NIM request or token limit is recorded in
+the repository** (the spec's open item "NIM … rate limits" was left to the bake-off, and ADR-045 states none), so
+every figure the Groq plan used (30 requests/min, 8,000 tokens/min, 1,000 requests and 200,000 tokens a day, 60 calls
+a day per model, the 35 s spacing) is withdrawn and the NIM daily budget is **UNVERIFIED**. What the records give:
+the bake-off ran at most 40 call starts a minute across all its models, and the two Nemotrons had 0 hangs in 120
+calls (ADR-045 finding (e)); the six live R3 calls of 2026-11-21 took 14.3 to 21.9 s (median 16.4 s) with no retry and
+no fallback; live prompts were 2,861 to 13,455 tokens (`prompt/v3`, budget 16,000; `NIM-TIMINGS-FOR-287.md`).
 
 | Use | Calls | Rule |
 |---|---|---|
-| Live R3 | 1 per Incident raised while an R3 cell is set, false alarms included: plan 3 per attempt | First on R3's budget. At most 20 R3 attempts a day; the owner stops the queue, the batch counts no calls |
-| Replay R3 | bundles × 4 levels | Only what the day's live runs leave of the 60 |
-| Replay R2 | bundles × 4 levels | Its own 60 a day: 15 bundles |
+| Live R3 | 1 per Incident raised while an R3 cell is set, false alarms included: plan 3 per attempt | First on R3's budget. At most 20 R3 attempts a day (the plan's own cap, from the Groq plan; **UNVERIFIED** for NIM); the owner stops the queue, the batch counts no calls |
+| Replay R3 | bundles × 4 levels | Only what the day's live runs leave of the daily budget, once that is known |
+| Replay R2 | bundles × 4 levels, `r2-primary` | Its own budget, once known; the pace of the bake-off, at most 40 starts a minute |
 
-Replay calls are at least 35 s apart and every response is saved; an HTTP 429 is a pause, then the same call again.
-Live, the Reasoner retries a 429 once when its `Retry-After` fits the model's budget (ADR-035 addendum A); a 429
-without `Retry-After`, or one that does not fit, becomes an R1 fallback: provider-caused, re-run in Block 12 (Q7). No `/ask` and no Note flow on run days.
+Replay calls keep the bake-off's pace (at most 40 starts a minute), every response is saved, and an HTTP 429 is a
+pause, then the same call again. Live, the Reasoner retries a 429 once when its `Retry-After` fits the model's budget
+(ADR-035 addendum A); a 429 without `Retry-After`, or one that does not fit, becomes an R1 fallback: provider-caused,
+re-run in Block 12 (Q7). No `/ask` and no Note flow on run days.
 
 ## 9. Owner's decisions after the Block 5 trial runs (2026-11-20)
 
@@ -202,7 +216,7 @@ without `Retry-After`, or one that does not fit, becomes an R1 fallback: provide
 | S2's injection | **A spike beyond capacity:** Locust total 220, spawn rate 4 (`nexus-dev` at 140 req/s, above the 120 where CPU saturated in S6), as a plain resize of the running swarm. Expected: `cpu_saturation`, `scale_deployment`. Spec v1.1 note: §20's S2 row ("Locust ramp to twice per-pod capacity on `/work/cpu` for 10 min") is replaced by this; `/work/cpu` and #190's `DevCpuUser` are no longer S2's load. |
 | The run's Incident | Only the first Incident per run counts (§5). |
 | Limitation | **NEXUS must not scale a workload managed by an HPA.** `scale_deployment` writes the Deployment's scale subresource; an HPA on the same Deployment would fight it. `sample-api` has no HPA (none in the repository, none on the cluster on 2026-11-20); the thesis states this as a limitation of the action catalogue, not a tested property. |
-| R3's model | **Pending the bake-off** (#271). Until then R3 is `openai/gpt-oss-120b` on Groq. The chosen model, its provider and its timeout are frozen with the rest at `v0.6.0`. |
+| R3's model | **`r3-primary`, `nvidia/nemotron-3-ultra-550b-a55b` on NVIDIA NIM**, thinking on, timeout 300 s (ADR-045, owner, 2026-11-20, after the bake-off, #271; final). Frozen with the rest at `v0.6.0`; the arms' configs are in §1. |
 
 ## 10. The 6-hour idle test (D19)
 

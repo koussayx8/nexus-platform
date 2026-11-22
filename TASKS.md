@@ -910,10 +910,13 @@ secrets, `sudo`.
 - [ ] **Block 4 — 11-21 → 11-22. Harness blockers.** V1–V5 and V19 (D12); #189 moved to `GET /stop`, then merged
   (D13); the Haiku arm and the effort sweep removed from `experiments/harness/arms.py` and its tests. **Gate:** the
   expected-failure tests from #198 pass. Cut first: nothing (mandatory).
-- [ ] **Block 5 — 11-23 → 11-24. Redaction, F5, trial runs.** #197 A1; the F5 decision; `audit-join.py` after every
+- [x] **Block 5 — 11-23 → 11-24. Redaction, F5, trial runs.** #197 A1; the F5 decision; `audit-join.py` after every
   run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
   kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
-  (each trial run feeds the replay).
+  (each trial run feeds the replay). **Gate passed (owner, 2026-11-22).** Trial reruns of 2026-11-21 (R3 at L3), records in
+  `~/nexus-evidence/trials-2026-11-21/<scenario>/RECORD.md`: S1 audit-join completeness 1.0 (2 of 2 matched); S3, S5 and
+  S6 null, because they made no mutation (nothing to join, join exit 0), read as meeting the gate. The pause-gap rule
+  applies to measured runs, not to these trials.
 - [x] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
@@ -1448,6 +1451,7 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   - **GATE M2-0:** Hygiene: test coverage only; it gates nothing.
 - [→ Not tasked] `bootstrap.sh` hardening part (1), the mounts preflight. The item is under M2-3 (ADR-030 track); WSL2 stays the fallback host.
 - [→ Not tasked; README status goes in PR descriptions] Stale status lines (GATE M2-0 report j): the README M1b row still reads "In progress" (M1b closed at `v0.3.0`, 2026-10-14), and the M1b-9 L2 and closing-PR boxes in this file are unticked.
+- [→ After the measured runs] Two comment fixes under `reasoner/`, left alone until the runs are done because a change there rebuilds the Reasoner image, against D28 (owner, 2026-11-22): the `reasoner/nexus_reasoner/adapter.py` module docstring says a model's `timeoutSeconds` is "at most 180 s", while `config.py` (`MAX_TIMEOUT_S`) allows 300 s; and the header of `reasoner/k8s/deployment.yaml` still says "Image: PLACEHOLDER digest", while the file pins a real one.
 
 ### Cut (owner, 2026-11-02)
 
