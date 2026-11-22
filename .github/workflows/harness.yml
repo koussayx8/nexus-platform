@@ -18,6 +18,7 @@ on:
       - 'operator/nexus_operator/model.py'
       - 'reasoner/nexus_reasoner/**'   # a test pins the pre-check to the real /healthz response
       - 'experiments/analysis/**'      # make results and its fixture runs
+      - 'experiments/ground-truth.json' # the pre-registered ground truth (G16) and its tests
       - 'experiments/detectors/**'     # the detector comparison (analysis-only requirements)
       - 'experiments/runs/**'
       - 'scripts/reconcile-audit.py'
@@ -42,6 +43,7 @@ on:
       - 'operator/nexus_operator/model.py'
       - 'reasoner/nexus_reasoner/**'   # a test pins the pre-check to the real /healthz response
       - 'experiments/analysis/**'      # make results and its fixture runs
+      - 'experiments/ground-truth.json' # the pre-registered ground truth (G16) and its tests
       - 'experiments/detectors/**'     # the detector comparison (analysis-only requirements)
       - 'experiments/runs/**'
       - 'scripts/reconcile-audit.py'
