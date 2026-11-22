@@ -67,5 +67,5 @@ def test_offset_advances_past_a_failing_update() -> None:
     assert bot.poll_once() == 3 and bot.offset == 44
     del t.fail["sendMessage"]
     bot.poll_once()
-    assert t.calls[-1] == ("getUpdates", {"timeout": 50, "allowed_updates": ["message", "callback_query"],
+    assert t.calls[-1] == ("getUpdates", {"timeout": 25, "allowed_updates": ["message", "callback_query"],
                                           "offset": 44})

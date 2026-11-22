@@ -297,7 +297,24 @@ Secret script; merging the revert pull request; deleting test branches in the fo
 | Checks 4b, 4c | Owner, 2026-11-19 | Built as written: workload files only, never `overlays/dev/namespace.yaml`; the kustomization's keys except `patches` unchanged, except the sample-api `images` entry's `newName`, `newTag`, `digest` |
 | Outcome C | Post the compare link | `prMode: compare_link`, also used when the create is refused |
 | Merge recognition | Poll | As decision 10: every 30 s, 24 h, restart recovery by author and head prefix; a notification only |
-| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test ran on 2026-11-21: outcome B (see "Token test, 2026-11-21") |
+| Not in #255 | — | `git` in the bot image (`bot/Dockerfile`, #252), the Secret, the `revert.yaml` key in `nexus-bot-config`, `scripts/nexus-bot-secrets.sh`, the C8 export step. The token test ran on 2026-11-21: outcome B (see "Token test, 2026-11-21"). All but the export step are wired in Block 6 (below) |
+
+## As wired into the bot, Block 6 (2026-11-21)
+
+Offline only: code, manifests and tests; no image was built and nothing was deployed. Live: the Block 6
+gate (S3 end to end).
+
+| Point | Built |
+| --- | --- |
+| The loop | A third thread in the bot (`bot/nexus_bot/main.py`, `c8_service`) runs `Service.tick` every `pollSeconds` of `revert.yaml` (30 s). It reads Incidents as the bot's own ServiceAccount (`nexus_revert.main.KubeIncidentReader`, the existing `nexus-bot-read` Role; no new RBAC) |
+| On or off | On only when `/etc/nexus-bot/revert.yaml` **and** `/var/run/secrets/nexus-bot/github/token` are present. Otherwise, or when either is unusable (the library's `ConfigError`, which never holds the token), or the start fails: one log line `C8 off: …`, and the bot runs without C8 |
+| Errors | An exception in a tick is logged (`c8: <type>`) and the loop goes on after 5 s; it runs in its own thread, so it never reaches the Telegram poll or the push scan |
+| The chat | Every line C8 notifies — `revert pull request #N opened against <branch> (reverts <sha12>, named by the Reasoner \| chosen by rule A1); NEXUS will not merge it`, `no revert pull request (check <n>): <reason>`, the compare link (outcome C or a refused create), `merged by <login>, merge commit <sha>`, `closed, not merged`, the 24 h timeout — goes to the log and, prefixed `C8 revert: `, through `sanitize` as plain text to every allowlisted chat. A failed send is logged, not retried |
+| The token | Secret `nexus-bot/nexus-bot-github`, key `token`, at `/var/run/secrets/nexus-bot/github/token`, read-only, mode 0440 (the pod's fsGroup), **`optional: true`**: the Telegram Secret stays required, the GitHub one only turns C8 on. Created by `scripts/nexus-bot-secrets.sh` from the owner's `github-machine.token` file under `~/.nexus/` when it exists (length only, never the value) |
+| The config | Key `revert.yaml` in `nexus-bot-config` (`bot/k8s/configmap.yaml`): `revert.example.yaml` with `machineAccount: belhouchetkoussay` and `prMode: pull_request` (outcome B); `nexus-dev` only, `nexus-prod` commented out (limit 4) |
+| Scratch | `emptyDir` at `/tmp`, `sizeLimit: 64Mi` (`NEXUS_REVERT_SCRATCH`); the root filesystem stays read-only. `experiment/dev-state`'s tree is about 6 MiB (`git ls-tree -r -l`, 2026-11-21) |
+| The image | `git` (Debian package, no recommended packages; unpinned version on the digest-pinned base) and `nexus_revert` copied as source; still UID 10001. `bot.yml` rebuilds on `libs/nexus-revert/nexus_revert/**`, not on `bot/README.md` or `bot/tests/**` |
+| Also | `getUpdates` long poll 25 s, not 50 (ADR-040 "As built") |
 
 ## Consequences
 

@@ -1,8 +1,9 @@
-# The Telegram bot (ADR-040), deployed by the nexus-bot Application.
+# The Telegram bot (ADR-040), deployed by the nexus-bot Application, with C8, the revert pull
+# request (ADR-041), as its third loop.
 #
-# Image: the all-zero placeholder digest until bot.yml's first build on main opens the digest-bump
-# pull request; repo-checks step 19 refuses it in any rendered Application, so the nexus-bot
-# Application cannot reach main before that bump.
+# Image: pinned by index digest. bot.yml's build on main opens a digest-bump pull request into dev
+# that rewrites it; repo-checks step 19 refuses the all-zero placeholder digest in any rendered
+# Application.
 #
 # 1 replica, Recreate: Telegram allows one getUpdates consumer per token, and two pods would compete
 # for the updates. Restricted Pod Security, as the operator: non-root UID 10001, no privilege
@@ -12,7 +13,12 @@
 # The Telegram token is the file /var/run/secrets/nexus-bot/telegram/token, from the Secret
 # nexus-bot-telegram that the owner creates outside Git (scripts/nexus-bot-secrets.sh). The mount is not
 # optional: without the Secret the pod does not start.
-# No probe: there is no HTTP endpoint, and both loops log and retry rather than exit.
+# The GitHub token (C8, ADR-041 outcome B: the machine account's classic public_repo token) is the
+# file /var/run/secrets/nexus-bot/github/token, from the Secret nexus-bot-github, created by the same
+# script. That mount is optional: without the Secret the bot runs with C8 off and logs it once.
+# /tmp is an emptyDir, the root filesystem's only writable place: C8's scratch clones, one per
+# attempt, deleted after it (a depth-50 fetch of one branch, a few MiB).
+# No probe: there is no HTTP endpoint, and every loop logs and retries rather than exit.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -52,6 +58,12 @@ spec:
               value: /etc/nexus-bot/config.yaml
             - name: NEXUS_BOT_TOKEN_FILE
               value: /var/run/secrets/nexus-bot/telegram/token
+            - name: NEXUS_REVERT_CONFIG
+              value: /etc/nexus-bot/revert.yaml
+            - name: NEXUS_REVERT_TOKEN_FILE
+              value: /var/run/secrets/nexus-bot/github/token
+            - name: NEXUS_REVERT_SCRATCH
+              value: /tmp
           volumeMounts:
             - name: config
               mountPath: /etc/nexus-bot
@@ -59,6 +71,11 @@ spec:
             - name: telegram
               mountPath: /var/run/secrets/nexus-bot/telegram
               readOnly: true
+            - name: github
+              mountPath: /var/run/secrets/nexus-bot/github
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -79,3 +96,11 @@ spec:
           secret:
             secretName: nexus-bot-telegram
             defaultMode: 288          # 0440: readable by the pod's fsGroup only
+        - name: github
+          secret:
+            secretName: nexus-bot-github
+            defaultMode: 288          # 0440: readable by the pod's fsGroup only
+            optional: true            # absent: C8 stays off, the bot runs
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
