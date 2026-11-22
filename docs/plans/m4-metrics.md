@@ -17,8 +17,8 @@ All per cell, over valid runs that reconciled. A cell is an arm, a scenario and 
 | **Correct-action rate** | Runs whose arm's own proposal for the run's Incident is acceptable ÷ valid runs. A model-caused fallback run is not correct; a provider-caused one is out of the rate and re-run (Q7) | Flight Recorder `proposals`, ground truth |
 | **Resolved rate** | S1: runs that end `Resolved` and are not failed fixes ÷ valid runs. S3, S5, S6: runs that end in the expected phase with an acceptable action and no admitted mutation ÷ valid runs; there `Resolved` is never a success | Run record, Flight Recorder, audit log |
 | **Time to resolve** | `Resolved` − `injection_at`, S1 runs that resolved; split into detect, diagnose, gate, act, verify. `C8`: human time (Q5) | Run record, Flight Recorder `transitions` |
-| **Wrong-action rate per arm** (D20) | Runs with at least one admitted mutation that the ground truth lists as wrong-in-envelope ÷ valid runs of the arm, with the count per scenario beside it. Reported with what followed: compensated, `Escalated / verification_failed`, or `Resolved` | Audit log (admitted, not dry-run), joined to `actions`; ground truth |
-| Wrong action proposed | The same class at proposal level, live and in the replay, R2 included | Flight Recorder `proposals`; `B/R1`–`B/R3` |
+| **Wrong-action rate per arm** (D20), admitted | Valid runs of the arm with at least one admitted state-changing action that the ground truth does not accept ÷ valid runs of the arm, in any scenario (a scale on S1, a delta outside the accepted one on S2, any mutation on S3–S6), with a Wilson 95 % interval and the count per scenario beside it. A wrong escalation or a wrong `no_action` is not counted as harm (Q11, Q12). Reported with what followed: compensated, `Escalated / verification_failed`, or `Resolved` | Flight Recorder `actions` (admitted: HTTP 2xx), the audit log for the cross-check; ground truth |
+| **Wrong-action rate per arm** (D20), proposed | The arm's proposals of a state-changing action that the ground truth does not accept ÷ the arm's proposals, in any scenario, with a Wilson 95 % interval; live and in the replay, R2 included. A wrong escalation or a wrong `no_action` is not counted (Q12) | Flight Recorder `proposals`; `B/R1`–`B/R3` |
 | **Failed fix** | `Resolved` with `rate_end` below 8 req/s in `nexus-dev`; 8 to 72 is listed as "Resolved, rate low" (Q8). Expected 0 with `restart_v2`; any other count is a finding about verification | Run record (`rate_end`), terminal phase |
 | Timed out | Valid runs whose Incident was still open after 1,200 s | Run record |
 | Fallback rate | Valid runs with `fallbackUsed`, by cause: provider (reported apart, re-run in Block 12) or model (counts against the arm) (Q7) | Run record, `proposals.reject_reason` |
@@ -92,7 +92,7 @@ run within 24 h (V9, D5).
 
 ## 5. Decisions (owner, 2026-11-16)
 
-Q1–Q11 were this draft's open questions; the owner answered all of them on #234.
+Q1–Q11 were this draft's open questions; the owner answered all of them on #234. Q12 was added by the owner on 2026-11-22.
 
 | # | Question | Decision |
 |---|---|---|
@@ -107,3 +107,4 @@ Q1–Q11 were this draft's open questions; the owner answered all of them on #23
 | Q9 | Does selfHeal start a second rollout after the reset's `rollout restart` (V18)? | One reset, then read the ReplicaSets |
 | Q10 | #233's must-fix items 2–5 (L2 compensation, K3 cells, `nexus-baseline`, request shapes) | A separate change, due on 2026-11-17, before the suite; the suite runs on its result |
 | Q11 | `escalate` with `git_revert` on S5 or S6, which opens a revert pull request once C8 exists | Incorrect, not wrong-in-envelope; such pull requests are counted apart |
+| Q12 | D20: what counts as a wrong action (pre-registered 2026-11-22, before the measured runs) | The wrong-action rate per arm counts state-changing actions the ground truth does not accept, in any scenario, both proposed and admitted, with Wilson 95 % intervals; a wrong escalation or a wrong `no_action` is not counted as harm. Implemented by `make results` T16 (#312) |
