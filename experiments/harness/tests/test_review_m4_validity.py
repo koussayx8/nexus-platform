@@ -181,15 +181,20 @@ class NotTheRuns(tb.FakeCluster):
 
 
 class SecondIncident(tb.FakeCluster):
-    """Once the run's Incident is terminal, the next alert on the target gets its own Incident."""
+    """Once the run's Incident is terminal, the next alert on the target gets its own Incident,
+    which is Executing for its first three reads and then Resolved."""
+
+    second_reads = 0
 
     def __call__(self, argv, cwd=None):
         rc, out = super().__call__(argv, cwd)
         if "incidents" in argv and self.injected:
             doc = json.loads(out)
             if doc["items"][-1]["status"]["phase"] == "Dismissed":
+                self.second_reads += 1
+                phase = "Executing" if self.second_reads <= 3 else "Resolved"
                 later = batch.model.parse_time(self.detected_at).timestamp() + 60
-                doc["items"].insert(0, _dev_incident("second", batch._utc(later), "Executing"))  # fmt: skip
+                doc["items"].insert(0, _dev_incident("second", batch._utc(later), phase))  # fmt: skip
             out = json.dumps(doc)
         return rc, out
 
@@ -237,6 +242,10 @@ class RunIdentityTest(Live):
         self.assertEqual((r["status"], r["terminal"]), ("valid", "Dismissed"))
         self.assertEqual(r["incident"]["uid"], "new")
         self.assertEqual([i["uid"] for i in r["other_incidents"]], ["second"])
+        # the reset waited for the later Incident (protocol #234 §5); the run's phase did not change
+        self.assertTrue(r["settle"]["settled"])
+        self.assertEqual([(i["uid"], i["phase"]) for i in r["settle"]["incidents"]],
+                         [("new", "Dismissed"), ("second", "Resolved")])  # fmt: skip
 
     # V3
     def test_a_hang_that_was_not_remediated_is_a_valid_run(self):

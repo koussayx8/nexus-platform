@@ -1509,7 +1509,8 @@ class LiveRunTest(Base):
     def test_an_incident_still_open_at_the_end_of_the_wait_is_a_failed_run_not_a_discard(
         self,
     ):
-        c = FakeCluster(self.ft, phases=("Executing",))
+        # open through the 20 s wait (five reads), Resolved during the settle that follows
+        c = FakeCluster(self.ft, phases=("Executing",) * 6 + ("Resolved",))
         live = self.live(c)
         live.wait_s = 20
         self.drive(live, max_runs=1)
@@ -1519,6 +1520,8 @@ class LiveRunTest(Base):
         self.assertEqual(
             (r["incident"]["uid"], r["incident"]["phase"]), ("new", "Executing")
         )
+        # the later phase is on the settle record only; the measurement ended at wait_s
+        self.assertEqual(r["settle"]["incidents"][0]["phase"], "Resolved")
 
     def test_a_run_whose_incident_ended_is_not_marked_timed_out(self):
         self.drive(self.live(FakeCluster(self.ft)), max_runs=1)
