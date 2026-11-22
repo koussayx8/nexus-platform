@@ -3,6 +3,7 @@ experiments/analysis (`make results`). The fixture runs are committed under
 experiments/analysis/sample/ and regenerated here, so they cannot drift from their generator."""
 
 import contextlib
+import csv
 import filecmp
 import gzip
 import importlib.util
@@ -274,8 +275,10 @@ def make_queue_run(
     extra_events=(),
     tables_mut=None,
     window_shift=0,
+    record=None,
 ):
-    """One exported-able run built from the generator's own pieces."""
+    """One exported-able run built from the generator's own pieces; `record` overrides queue-record
+    fields (None as a value removes the field)."""
     cells = [
         {
             "cell": "A/R1/S1/L3",
@@ -293,7 +296,7 @@ def make_queue_run(
     q = batch.Queue.create(
         tmp / "queue", "G16/test#approval-1", cells, precheck_cfg=pre
     )
-    rec_extra, tables, events, inj = sample_data.run_inputs(
+    rec_extra, tables, events = sample_data.run_inputs(
         1, "R1", "S1", 1, sample_data.behaviour("R1", "S1", 1), False, False
     )
     t0 = sample_data.BASE + sample_data.datetime.timedelta(hours=1)
@@ -301,6 +304,11 @@ def make_queue_run(
            "started_at": sample_data.iso(t0), "ended_at": sample_data.iso(t0 + sample_data.datetime.timedelta(minutes=20 + window_shift)),
            "boot_id_start": "b", "boot_id_end": "b", "pause_gap_s": 0.0, "void_reason": "boot_id_changed" if status == "void" else None,
            "discard_reason": None, "fallbackUsed": False, "terminal": None, **rec_extra}  # fmt: skip
+    for k, v in (record or {}).items():
+        if v is None:
+            rec.pop(k, None)
+        else:
+            rec[k] = v
     q.doc["runs"] = [rec]
     q.save()
     if tables_mut:
@@ -309,8 +317,8 @@ def make_queue_run(
     (tmp / "audit.log").write_text(
         "".join(json.dumps(e) + "\n" for e in [*events, *extra_events])
     )
-    (tmp / "gt.json").write_text('{"scenarios": {}}')
-    return {"queue_dir": tmp / "queue", "run_id": rec["run_id"], "injection": inj.isoformat(), "ground_truth": tmp / "gt.json",
+    (tmp / "gt.json").write_text(json.dumps(sample_data.TRUTH_DOC))
+    return {"queue_dir": tmp / "queue", "run_id": rec["run_id"], "ground_truth": tmp / "gt.json",
                 "git_commit": "a" * 40, "out_dir": tmp / "runs", "tables": tmp / "tables.json", "audit": tmp / "audit.log"}  # fmt: skip
 
 
@@ -407,7 +415,7 @@ class ExportTest(unittest.TestCase):
     def test_command_line_exit_codes(self):
         kw = make_queue_run(self.tmp)
         argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
-                "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw["out_dir"])]  # fmt: skip
+                "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw["out_dir"])]  # fmt: skip
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(EXPORT.main(argv), 0)
         with contextlib.redirect_stderr(io.StringIO()):
@@ -418,7 +426,7 @@ class ExportTest(unittest.TestCase):
                 extra_events=[event("rogue", when="2027-01-05T11:05:00+00:00")],
             )
             argv2 = ["--queue", str(kw2["queue_dir"]), "--run-id", kw2["run_id"], "--tables", str(kw2["tables"]), "--audit", str(kw2["audit"]),
-                     "--injection", kw2["injection"], "--ground-truth", str(kw2["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw2["out_dir"])]  # fmt: skip
+                     "--ground-truth", str(kw2["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw2["out_dir"])]  # fmt: skip
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(
                     EXPORT.main(argv2), 1
@@ -467,6 +475,7 @@ class ResultsTest(unittest.TestCase):
             "T16",
             "T17",
             "T18",
+            "T19",
         ):
             self.assertIn(f"{t}.csv", names)
         for f in ("F1", "F2", "F3"):
@@ -704,7 +713,7 @@ class ExportMetricsTest(unittest.TestCase):
             kw = make_queue_run(t)
             (t / "metrics.json").write_text(json.dumps(self.doc(step_s=-1)))
             argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
-                    "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
+                    "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
                     "--out", str(kw["out_dir"]), "--metrics", str(t / "metrics.json")]  # fmt: skip
             with contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(EXPORT.main(argv), 2)
@@ -799,7 +808,7 @@ class FixtureMarkerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             kw = make_queue_run(pathlib.Path(d))
             argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
-                    "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
+                    "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
                     "--out", str(kw["out_dir"]), "--fixture"]  # fmt: skip
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(EXPORT.main(argv), 0)
@@ -881,6 +890,117 @@ class MetricsAdditionsTest(unittest.TestCase):
         text = svg.stacked_bars("a < b & c", [("x<y", [1.0, 2.0])], ["s&1", "s2"])
         ET.fromstring(text)  # would raise on an unescaped label
         self.assertIn("a &lt; b &amp; c", text)
+
+
+# ---------------------------------------------------------------- host_disturbance: prod_alerts and T19
+
+PENDING = [{"alertname": "NexusCpuAnomaly", "state": "pending"}]
+FIRING = [{"alertname": "NexusCpuAnomaly", "state": "firing"}]
+
+
+def counted_item(arm, scen, prod_alerts):
+    return {"run": {"reasoner": arm, "scenario": scen}, "prod_alerts": prod_alerts}
+
+
+class HostDisturbanceExportTest(unittest.TestCase):
+    """The export carries `prod_alerts` and `void_reason` (batch.py's host_disturbance rule) into run.json."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = pathlib.Path(self._tmp.name)
+
+    def doc(self, **kw):
+        return json.loads(
+            (EXPORT.export(**make_queue_run(self.tmp, **kw)) / "run.json").read_text()
+        )
+
+    def test_a_valid_run_carries_its_prod_alerts(self):
+        doc = self.doc(record={"prod_alerts": PENDING})
+        self.assertEqual((doc["prod_alerts"], doc["void_reason"]), (PENDING, None))
+
+    def test_a_host_disturbance_void_carries_its_reason_and_the_firing_alert(self):
+        doc = self.doc(
+            status="void",
+            record={"void_reason": "host_disturbance", "prod_alerts": FIRING},
+        )
+        self.assertEqual(
+            (doc["void_reason"], doc["prod_alerts"]), ("host_disturbance", FIRING)
+        )
+        self.assertEqual(
+            (doc["run"]["discarded"], doc["run"]["discard_reason"]),
+            (True, "host_disturbance"),
+        )
+
+    def test_a_record_from_before_the_rule_exports_prod_alerts_null(self):
+        doc = self.doc(
+            record={"prod_alerts": None}
+        )  # the field is absent from the queue record
+        self.assertIn("prod_alerts", doc)
+        self.assertIsNone(doc["prod_alerts"])
+
+    def test_load_runs_falls_back_to_the_queue_record_for_an_older_export(self):
+        d = EXPORT.export(**make_queue_run(self.tmp, record={"prod_alerts": PENDING}))
+        doc = json.loads((d / "run.json").read_text())
+        del doc["prod_alerts"]  # an export made before run.json carried it
+        (d / "run.json").write_text(json.dumps(doc))
+        man = json.loads((d / "MANIFEST.json").read_text())
+        man["files"]["run.json"] = EXPORT.sha256(d / "run.json")
+        (d / "MANIFEST.json").write_text(json.dumps(man))
+        loaded = results.load_runs(d.parent, EXPORT.sha256(self.tmp / "gt.json"))
+        (it,) = loaded["counted"]
+        self.assertEqual(it["prod_alerts"], PENDING)
+
+
+class HostSensitivityTest(unittest.TestCase):
+    """T19: per cell, the counted runs a pending-or-firing rule would have voided."""
+
+    def test_pending_only_counts_and_firing_or_quiet_does_not(self):
+        hs = results.host_sensitivity([
+            counted_item("R1", "S1", PENDING), counted_item("R1", "S1", []),
+            counted_item("R1", "S1", PENDING + FIRING), counted_item("R3", "S1", []),
+        ])  # fmt: skip
+        self.assertEqual(hs, [
+            {"reasoner": "R1", "scenario": "S1", "valid": 3, "pending_only": 1, "not_recorded": 0, "valid_under_pending_rule": 2},
+            {"reasoner": "R3", "scenario": "S1", "valid": 1, "pending_only": 0, "not_recorded": 0, "valid_under_pending_rule": 1},
+        ])  # fmt: skip
+
+    def test_a_run_without_prod_alerts_is_not_recorded_never_quiet(self):
+        (c,) = results.host_sensitivity(
+            [counted_item("R1", "S5", None), counted_item("R1", "S5", [])]
+        )
+        self.assertEqual(
+            (
+                c["valid"],
+                c["pending_only"],
+                c["not_recorded"],
+                c["valid_under_pending_rule"],
+            ),
+            (2, 0, 1, 1),
+        )
+
+    def test_make_results_reports_t19_from_the_fixtures(self):
+        with tempfile.TemporaryDirectory() as d:
+            summary = build(pathlib.Path(d))
+            rows = list(
+                csv.reader(io.StringIO((pathlib.Path(d) / "T19.csv").read_text()))
+            )
+            md = (pathlib.Path(d) / "RESULTS.md").read_text()
+        self.assertTrue(rows[0][0].startswith("# FIXTURE"))  # the fixture marker line
+        body = [r for r in rows if r and not r[0].startswith("#")]
+        self.assertEqual(body[0], ["Arm", "Scenario", "Valid", "Pending-only nexus-prod alert",
+                                   "Valid under pending-or-firing", "prod_alerts not recorded"])  # fmt: skip
+        by = {(r[0], r[1]): r[2:] for r in body[1:]}
+        self.assertEqual(
+            by[("R1", "S1")], ["2", "1", "1", "0"]
+        )  # the sample's one pending-only run
+        self.assertTrue(all(v[1] == "0" for k, v in by.items() if k != ("R1", "S1")))
+        self.assertIn("### T19. Host-disturbance sensitivity", md)
+        hs = {
+            (c["reasoner"], c["scenario"]): c
+            for c in summary["metrics"]["host_disturbance_sensitivity"]
+        }
+        self.assertEqual(hs[("R1", "S1")]["pending_only"], 1)
 
 
 if __name__ == "__main__":

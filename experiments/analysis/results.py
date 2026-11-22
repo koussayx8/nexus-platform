@@ -29,11 +29,13 @@ One Incident per run is scored: the batch's own (queue record `incident.uid`), e
 detected (the pre-registration's counted Incident); the export keeps every Incident of the window,
 and the others are reported in RESULTS.md, never scored.
 
-Output, all deterministic (no clock, sorted keys, fixed precision): T01..T18 as CSV, RESULTS.md (the
+Output, all deterministic (no clock, sorted keys, fixed precision): T01..T19 as CSV, RESULTS.md (the
 inputs, what is missing, every figure and table), results.json (every number), and the figures:
 F1..F5 as PNG and SVG with matplotlib (plots.py), or F1..F3 as standard-library SVG without it.
 Statistics are spec §21's: Wilson 95 % for proportions, the rule of three for zero events, median
-and IQR for times; no p-values, per scenario. T16 is D20's wrong-action rate per arm.
+and IQR for times; no p-values, per scenario. T16 is D20's wrong-action rate per arm. T19 is the
+host_disturbance sensitivity: per cell, the counted runs that saw a pending-only nexus-prod alert,
+which a pending-or-firing rule would have voided (the batch voids on firing only, owner 2026-11-22).
 """
 
 from __future__ import annotations
@@ -140,7 +142,14 @@ def load_runs(runs_dir, truth_hash: str, truth: dict | None = None) -> dict:
                 "dir": d.name,
                 "injection_at": doc.get("injection_at"),
                 "queue_record": doc.get("queue_record") or {},
+                "other_incidents": doc.get("other_incidents") or {},
             }
+            # an export made before run.json carried it still has it in the queue record
+            item["prod_alerts"] = (
+                doc["prod_alerts"]
+                if "prod_alerts" in doc
+                else item["queue_record"].get("prod_alerts")
+            )
         except (OSError, ValueError, KeyError) as e:
             out["excluded"].append(
                 {
@@ -304,6 +313,28 @@ class Table:
 # ---------------------------------------------------------------- the analysis
 
 
+def host_sensitivity(counted: list[dict]) -> list[dict]:
+    """Per cell (arm, scenario) of the counted runs: how many saw a pending-only nexus-prod alert
+    (`prod_alerts` non-empty, none firing), the runs a pending-or-firing host_disturbance rule would
+    have voided; how many would stay valid under it; and how many have no `prod_alerts` recorded
+    (null or absent: unknown, never counted as quiet)."""
+    cells: dict = {}
+    for it in counted:
+        c = cells.setdefault((it["run"]["reasoner"], it["run"]["scenario"]),
+                             {"valid": 0, "pending_only": 0, "not_recorded": 0})  # fmt: skip
+        c["valid"] += 1
+        alerts = it.get("prod_alerts")
+        if not isinstance(alerts, list):
+            c["not_recorded"] += 1
+        elif alerts and all(a.get("state") != "firing" for a in alerts):
+            c["pending_only"] += 1
+    return [
+        {"reasoner": a, "scenario": s, **c,
+         "valid_under_pending_rule": c["valid"] - c["pending_only"] - c["not_recorded"]}
+        for (a, s), c in sorted(cells.items())
+    ]  # fmt: skip
+
+
 def analyse(
     loaded: dict, truth: dict, suite=None, retrieval=None, queue=None
 ) -> tuple[list[Table], dict, dict]:
@@ -325,9 +356,15 @@ def analyse(
     scored = {row["incident_uid"] for row in runs}
     others = defaultdict(int)
     for it in counted:
-        for i in it["tables"].get("incidents", []):
-            if i["incident_uid"] not in scored:
-                others[f"{it['run']['reasoner']}/{it['run']['scenario']}"] += 1
+        # the export keeps them in run.json (`other_incidents`), apart from the run's own tables
+        seen = {
+            i["incident_uid"]
+            for i in it["tables"].get("incidents", [])
+            + it["other_incidents"].get("incidents", [])
+            if i["incident_uid"] not in scored
+        }
+        if seen:
+            others[f"{it['run']['reasoner']}/{it['run']['scenario']}"] += len(seen)
     r["other_incidents_not_scored"] = dict(sorted(others.items()))
 
     # -- T01 inventory: valid, discarded and excluded per cell
@@ -483,7 +520,7 @@ def analyse(
     r["voids_and_discards"] = ar
     t15 = Table("T15", "Void and discarded attempts, per cell and reason", ["Arm", "Scenario", "Status", "Reason", "Attempts"],
                 [[a["reasoner"], a["scenario"], a["status"], a["reason"], a["attempts"]] for a in ar],
-                "Every attempt is counted, valid or not (spec §20). Void: the timed-run rule (boot_id, pause gap, Locust at the end); discarded: nothing to score (pre-check timeout, no Incident...).")  # fmt: skip
+                "Every attempt is counted, valid or not (spec §20). Void: the timed-run rule (boot_id, pause gap, Locust at the end), a firing nexus-prod alert (host_disturbance, T19); discarded: nothing to score (pre-check timeout, no Incident...).")  # fmt: skip
 
     # -- T16 the wrong-action rate per arm (D20)
     wap, wae = (
@@ -510,6 +547,16 @@ def analyse(
                 "Valid: the queue's verdict; counted: exported, reconciled and on this ground truth. Needs QUEUE=<batch state dir>." if queue is not None else
                 "Not computed: no batch queue was given (QUEUE=<batch state dir>).")  # fmt: skip
 
+    # -- T19 the host_disturbance sensitivity: a pending-or-firing rule instead of firing only
+    hs = host_sensitivity(counted)
+    r["host_disturbance_sensitivity"] = hs
+    t19 = Table("T19", "Host-disturbance sensitivity: valid runs with a pending-only nexus-prod alert, per cell",
+                ["Arm", "Scenario", "Valid", "Pending-only nexus-prod alert", "Valid under pending-or-firing", "prod_alerts not recorded"],
+                [[c["reasoner"], c["scenario"], c["valid"], c["pending_only"], c["valid_under_pending_rule"], c["not_recorded"]] for c in hs],
+                "The batch voids a run on a FIRING nexus-prod alert (host_disturbance, owner 2026-11-22; m4-protocol §5). "
+                "Pending-only: the run's prod_alerts holds only pending alerts; a pending-or-firing rule would have voided it. "
+                "Not recorded: no prod_alerts on the run (an older record), so neither rule can be checked; it is not counted valid under the stricter rule.")  # fmt: skip
+
     return (
         [
             t01,
@@ -531,6 +578,7 @@ def analyse(
             t16,
             t17,
             t18,
+            t19,
         ],
         r,
         {

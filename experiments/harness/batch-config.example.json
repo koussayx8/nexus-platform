@@ -4,6 +4,7 @@
     "namespace": "nexus-dev",
     "cap_s": 1200,
     "poll_s": 30,
+    "quiet_s": 360,
     "clean_stddev": {
       "cpu": 0.05,
       "latencyP95": 0.02,

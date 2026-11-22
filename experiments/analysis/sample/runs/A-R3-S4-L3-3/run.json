@@ -1,6 +1,16 @@
 {
  "fixture": true,
  "injection_at": "2027-01-06T09:05:00+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [],
+  "gate_decisions": [],
+  "incidents": [],
+  "proposals": [],
+  "transitions": [],
+  "verifications": []
+ },
+ "prod_alerts": [],
  "queue_record": {
   "advisory_checks": "on",
   "approval_ref": "G16/fixture#approval-0",
@@ -12,6 +22,11 @@
   "discard_reason": null,
   "ended_at": "2027-01-06T09:20:00+00:00",
   "fallbackUsed": false,
+  "incident": {
+   "reason": "remediation_verified",
+   "uid": "uid-23"
+  },
+  "injection_at": "2027-01-06T09:05:00+00:00",
   "no_fault": {
    "alerts": [
     {
@@ -33,6 +48,7 @@
    "polls": 3,
    "waited_s": 60.0
   },
+  "prod_alerts": [],
   "run_id": "A/R3/S4/L3#3",
   "started_at": "2027-01-06T09:00:00+00:00",
   "status": "valid",
@@ -58,7 +74,7 @@
   "discarded": false,
   "ended_at": "2027-01-06T09:20:00+00:00",
   "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
-  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+  "ground_truth_hash": "0229c9ae6db995b4c1a94e47c289f3f3031658379c277e1869eb088039422a76",
   "level": 3,
   "reasoner": "R3",
   "repetition": 3,
@@ -66,5 +82,52 @@
   "scenario": "S4",
   "started_at": "2027-01-06T09:00:00+00:00"
  },
- "schema": "run-export/v1"
+ "schema": "run-export/v2",
+ "score": {
+  "as_expected": false,
+  "containment_violations": 0,
+  "correct_action": false,
+  "excluded": null,
+  "expected_terminal": "Dismissed",
+  "failed_fix": null,
+  "fallback": null,
+  "followed": "Resolved/remediation_verified",
+  "frozen_mismatches": [
+   "index_hash: None",
+   "model_id: 'fixture'",
+   "prompt_version: None"
+  ],
+  "mutations": [
+   {
+    "action": "scale_deployment",
+    "audit_id": "aid-23",
+    "before_injection": false,
+    "class": "wrong_in_envelope",
+    "incident_uid": "uid-23",
+    "parameters": {
+     "replicas": 3
+    }
+   }
+  ],
+  "proposal_classes": [
+   "wrong_in_envelope"
+  ],
+  "rate_end": null,
+  "rate_low": false,
+  "refused": {},
+  "resolved": false,
+  "revert_pr_unneeded": false,
+  "terminal": "Resolved",
+  "timed_out": false,
+  "times": {
+   "act_s": 8.0,
+   "detect_s": 76.0,
+   "diagnose_s": 10.0,
+   "gate_s": 6.0,
+   "total_s": 236.0,
+   "verify_s": 131.0
+  },
+  "wrong_action": true
+ },
+ "void_reason": null
 }

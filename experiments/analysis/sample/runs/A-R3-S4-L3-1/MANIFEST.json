@@ -1,10 +1,10 @@
 {
  "files": {
-  "run.json": "ab3225074d204bb4158d4404d9c87cf56372a7694b128706fb9e6ac17a8e53e5"
+  "run.json": "0860329ad025b084ac39b3a55deac956f6af48ca351ff8ecae25c9f3d1d8f855"
  },
  "fixture": true,
  "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
- "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+ "ground_truth_hash": "0229c9ae6db995b4c1a94e47c289f3f3031658379c277e1869eb088039422a76",
  "run_id": "A/R3/S4/L3#1",
- "schema": "run-export/v1"
+ "schema": "run-export/v2"
 }

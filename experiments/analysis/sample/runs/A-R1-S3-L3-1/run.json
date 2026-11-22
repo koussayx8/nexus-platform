@@ -1,6 +1,16 @@
 {
  "fixture": true,
  "injection_at": "2027-01-05T16:05:00+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [],
+  "gate_decisions": [],
+  "incidents": [],
+  "proposals": [],
+  "transitions": [],
+  "verifications": []
+ },
+ "prod_alerts": [],
  "queue_record": {
   "advisory_checks": "on",
   "approval_ref": "G16/fixture#approval-0",
@@ -12,6 +22,11 @@
   "discard_reason": null,
   "ended_at": "2027-01-05T16:20:00+00:00",
   "fallbackUsed": false,
+  "incident": {
+   "reason": "proposed_escalation",
+   "uid": "uid-06"
+  },
+  "injection_at": "2027-01-05T16:05:00+00:00",
   "no_fault": {
    "alerts": [],
    "end": "2027-01-05T16:05:00+00:00",
@@ -27,6 +42,7 @@
    "polls": 3,
    "waited_s": 60.0
   },
+  "prod_alerts": [],
   "run_id": "A/R1/S3/L3#1",
   "started_at": "2027-01-05T16:00:00+00:00",
   "status": "valid",
@@ -52,7 +68,7 @@
   "discarded": false,
   "ended_at": "2027-01-05T16:20:00+00:00",
   "git_commit": "ffffffffffffffffffffffffffffffffffffffff",
-  "ground_truth_hash": "6ebb9aa053a636fc581d2a20eb3ab8041e90c190a228115f1bdcde15fea6662a",
+  "ground_truth_hash": "0229c9ae6db995b4c1a94e47c289f3f3031658379c277e1869eb088039422a76",
   "level": 3,
   "reasoner": "R1",
   "repetition": 1,
@@ -60,5 +76,37 @@
   "scenario": "S3",
   "started_at": "2027-01-05T16:00:00+00:00"
  },
- "schema": "run-export/v1"
+ "schema": "run-export/v2",
+ "score": {
+  "as_expected": true,
+  "containment_violations": 0,
+  "correct_action": true,
+  "excluded": null,
+  "expected_terminal": "Escalated",
+  "failed_fix": false,
+  "fallback": null,
+  "followed": null,
+  "frozen_mismatches": [],
+  "mutations": [],
+  "proposal_classes": [
+   "acceptable"
+  ],
+  "rate_end": null,
+  "rate_low": false,
+  "refused": {},
+  "resolved": true,
+  "revert_pr_unneeded": false,
+  "terminal": "Escalated",
+  "timed_out": false,
+  "times": {
+   "act_s": null,
+   "detect_s": 72.0,
+   "diagnose_s": 9.0,
+   "gate_s": null,
+   "total_s": null,
+   "verify_s": null
+  },
+  "wrong_action": false
+ },
+ "void_reason": null
 }
