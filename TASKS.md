@@ -917,6 +917,11 @@ secrets, `sudo`.
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
   token; merging the revert PR. Cut first: the `main` mapping (unused at L1).
+  Live gate run 2026-11-22 (C8 on S3 at L3): `Escalated`, #314 opened by NEXUS, merged by the owner in the GitHub UI
+  (merge commit `fa2e62c…`), `sample-api` back to 2/2 by 08:31. The first attempt failed at the push to the fork,
+  which was behind `experiment/dev-state`; it passed after the owner synced the fork. The refusal case was not run
+  live. Results and findings: ADR-041 "Live gate, 2026-11-22"; evidence `~/nexus-evidence/c8-gate-2026-11-22/RECORD.md`.
+  The tick waits for the owner's gate approval.
 - [ ] **Block 7 — 11-28 → 11-30. Bot core.** Pushes; Approve, Reject, Explain; `/status`, `/pods`, `/incident`
   (D21); the Alertmanager Telegram route. **Gate:** an L2 approval from the owner's phone; the Incident and the audit
   log name the owner. Owner: BotFather, the bot token, the Telegram user ID. Cut first: Explain polish; never Approve.
@@ -1402,6 +1407,13 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   end `Recommended` at L1, but a live L1 proposal of `escalate` ends `Escalated / proposed_escalation` (E1 attempt 2,
   2026-11-07, `inc-a676334b7210ccba-1794045159`; `docs/plans/m2-exit-record.md`). Decide which is right and record it
   in spec v1.1.
+
+- [→ Block 12 / demo] **C8 needs the fork current** (Block 6 live gate, 2026-11-22; ADR-041 F1–F3). The bot pushes
+  to `belhouchetkoussay/nexus-platform`; when its `experiment/dev-state` is behind commits that change
+  `.github/workflows/`, GitHub refuses the push and C8 opens no pull request (the machine token has no `workflow`
+  scope). Decide how the fork is kept current before the C8 cells and the demo (the owner syncs it; a step in the run
+  scripts; or the scope, which widens outcome B). Also: `SubprocessGit` reports only git's last stderr line, which
+  hid this reason (`libs/nexus-revert/nexus_revert/gitcmd.py:89-90`).
 
 ### Hygiene — one pull request that gates nothing
 
