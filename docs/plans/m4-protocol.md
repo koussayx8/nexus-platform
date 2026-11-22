@@ -92,6 +92,7 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 |---|---|
 | `boot_id` changed or a pause gap above 1 s, at any step; a run cut off by a stop | void: `boot_id_changed`, `pause_gap`, `interrupted` |
 | At the end Locust is not `running` with its users | void: `locust_end_check`. The server-side rate is recorded (`rate_end`) and decides nothing |
+| A NEXUS alert on `nexus-prod` is firing at any time from `injection_at` to the end of the measurement (owner, 2026-11-22) | void: `host_disturbance` (`host_disturbance_unknown` when Prometheus does not answer). Every `nexus-prod` alert in that window, pending or firing, is recorded (`prod_alerts`) and decides nothing, for a sensitivity report. Checked on 17 past `nexus-dev` fault runs: pending-or-firing would have voided one valid run (S1, 2026-11-19), firing none; firing catches 3 of the 4 host-load episodes (2026-11-20 21:00, 2026-11-22 09:04 and 09:49; not 09:34) |
 | Applications not Synced and Healthy 600 s after the reset | discarded: `applications_not_synced` |
 | Pre-checks not met in 20 minutes | discarded: `precheck_timeout`; with an Incident still open the batch halts |
 | S3: Argo CD has not applied the pushed revision in 1,200 s | discarded: `injection_not_applied` |
