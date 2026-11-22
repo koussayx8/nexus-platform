@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
-**Deadline (owner, 2026-11-12):** everything (code, runs, demo, thesis) done before 2027-01-01; target 2026-12-24. The plan is section "Plan to the defense" below; it replaces the dates of the 2026-11-02 re-plan. M2 complete: `v0.4.0` on `1dfd119` (2026-11-11). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
-**Current phase:** Block 0 of the plan to the defense (2026-11-13). The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
+**Deadline (owner, 2026-11-12):** everything (code, runs, demo, thesis) done before 2027-01-01; target 2026-12-24; the technical work and the demo end by 2026-12-05 (D28). The plan is section "Plan to the defense" below; it replaces the dates of the 2026-11-02 re-plan. M2 complete: `v0.4.0` on `1dfd119` (2026-11-11). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
+**Current phase:** Block 9 prep, the freeze (2026-11-22). The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -924,7 +924,7 @@ secrets, `sudo`.
 - [ ] ~~**Block 8 — 12-01 → 12-02. Note flow, then `/ask`.**~~ **Cut (D28, 2026-11-22).** Was: **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
 - [ ] **Block 9 — 11-23 → 11-24. Freeze.** No runbook changes and no new Reasoner image (D28): the index `fad76a74…` is
-  the frozen one; `experiments/ground-truth.yaml`; a one-page run protocol; spec v1.1 (#203, amended
+  the frozen one; `experiments/ground-truth.json` (#285, ground-truth/v2); a one-page run protocol; spec v1.1 (#203, amended
   for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19) the night of 11-23. Tag `v0.6.0` on 11-24. Code freeze.
   **Gate:** the protocol is merged before the first measured run. Owner: approvals, the tag. Cut first: shrink the
   protocol to half a page.
@@ -943,7 +943,6 @@ secrets, `sudo`.
   video exists. Cut first: the Grafana panel.
 - 12-03 → 12-05: buffer. The technical work and the demo end 12-05 (D28).
 - [ ] **Block 15 — Thesis, after 12-05.** The owner decides when (D28); slides; the ITBench desk table (D24).
-  Chapters are written in parallel from Block 0 on.
 
 **Cut order if the plan slips:** `/ask`; the Grafana panel; the C8 comparison cells (the C8 demo
 stays); the no-fault window. **Never cut:** the visible loop (D2), the offline adversarial replay, the live
