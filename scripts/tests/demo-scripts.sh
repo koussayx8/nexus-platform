@@ -5,7 +5,7 @@
 # PATH / in NEXUS_DEMO_RUNNER, so nothing here can reach a cluster, Locust, GitHub or Git's remote
 # (the experiment worktree is a throwaway clone of a local bare repo). Each stub logs every call;
 # a kubectl call without `--context default`, or any write other than the server-side dry-run
-# scale, fails the run. Safe to run anywhere.
+# scale and the Kill Switch halt / re-activation patches, fails the run. Safe to run anywhere.
 #
 # Usage: scripts/tests/demo-scripts.sh      Exit: 0 all cases pass, 1 otherwise.
 set -uo pipefail
@@ -40,8 +40,16 @@ case " \$* " in
       echo "\$n" > "$work/n"; f="$work/seq.\$n.json"
       [[ -f \$f ]] || f=\$(ls "$work"/seq.*.json | sort -V | tail -1)
       cat "\$f"
+    elif [[ -f "$work/halted-once" && -f "$work/during.json" ]]; then cat "$work/during.json"
     else cat "$work/before.json"; fi ;;
-  *" get configmap nexus-killswitch "*) echo active ;;
+  *" get configmap nexus-killswitch "*) cat "$work/ks" ;;
+  *" -n nexus-system patch configmap nexus-killswitch --type merge -p "*)
+    st=\$(sed -nE 's/.*\{"data":\{"state":"([a-z]+)"\}\}.*/\1/p' <<< "\$*")
+    [[ -n \$st ]] || { echo "stub kubectl: bad killswitch patch: \$*" >> "$work/unexpected.log"; exit 1; }
+    echo "\$st" > "$work/ks"; [[ \$st != halted ]] || touch "$work/halted-once"
+    echo "killswitch \$st" >> "$work/order.log" ;;
+  *" get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-alertmanager:9093/proxy/api/v2/alerts "*)
+    if [[ -f "$work/halted-once" && -f "$work/am-during.json" ]]; then cat "$work/am-during.json"; else cat "$work/am.json"; fi ;;
   *" get deployment sample-api -o json "*) cat "$work/deploy.json" ;;
   *" get namespace nexus-dev "*) cat "$work/level" ;;
   *" scale deployment/sample-api --replicas=40 --dry-run=server --as=system:serviceaccount:nexus-system:nexus-operator "*)
@@ -65,6 +73,7 @@ STUB
 cat > "$work/runner" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$work/runner.log"
+[[ " \$* " != *" --execute "* ]] || echo "runner \$*" >> "$work/order.log"
 [[ " \$* " == *" --execute "* ]] || { echo '[]'; exit 0; }
 case "\$*" in
   *"run inject "*) echo 1 > "$work/injected" ;;
@@ -75,22 +84,28 @@ STUB
 chmod +x "$work/bin/"* "$work/runner"
 export PATH=$work/bin:$PATH
 export NEXUS_DEMO_RUNNER=$work/runner NEXUS_DEMO_EXP_DIR=$work/exp NEXUS_DEMO_INTERVAL=0
-export NEXUS_DEMO_TIMEOUT=60 NEXUS_DEMO_READY_TIMEOUT=5
+export NEXUS_DEMO_TIMEOUT=60 NEXUS_DEMO_READY_TIMEOUT=5 NEXUS_DEMO_SETTLE=0
 
-inc() {  # inc <name> <phase> <reason> <action>
-  jq -n --arg n "$1" --arg p "$2" --arg r "$3" --arg a "$4" \
-    '{metadata:{name:$n},status:{phase:$p,reason:$r,proposal:{actionId:$a,faultClass:"x",confidence:0.9},gate:{verdict:"allowed"},timestamps:{($p):"2026-11-22T09:14:10Z"}}}'
+inc() {  # inc <name> <phase> <reason> <action> [alertname, default NexusLatencyAnomaly]
+  jq -n --arg n "$1" --arg p "$2" --arg r "$3" --arg a "$4" --arg al "${5:-NexusLatencyAnomaly}" \
+    '{metadata:{name:$n},spec:{source:{alertname:$al}},status:{phase:$p,reason:$r,proposal:{actionId:$a,faultClass:"x",confidence:0.9},gate:{verdict:"allowed"},timestamps:{($p):"2026-11-22T09:14:10Z"}}}'
 }
 old=$(inc old-1 Resolved remediation_verified restart_workload)
+EXTRA='[]'  # Incidents present before the inject besides old-1 (e.g. raised during the settle)
 seq_file() {  # seq_file <n> <incident json...>
   local n=$1; shift
-  jq -n --argjson o "$old" '{items: ([$o] + [$ARGS.positional[] | fromjson])}' --args "$@" > "$work/seq.$n.json"
+  jq -n --argjson o "$old" --argjson x "$EXTRA" '{items: ([$o] + $x + [$ARGS.positional[] | fromjson])}' --args "$@" > "$work/seq.$n.json"
+}
+am_alert() {  # am_alert <alertname> <nexus_target>: one Alertmanager v2 alert
+  jq -cn --arg a "$1" --arg t "$2" '{labels:{alertname:$a,nexus_target:$t,namespace:($t|split("/")[0])},status:{state:"active"}}'
 }
 reset_case() {  # reset_case <level> [spec ready total]
   local s r t
   rm -f "${work:?}"/seq.*.json "${work:?}/n" "${work:?}/injected" "${work:?}/runner.log" \
-    "${work:?}/kubectl.log" "${work:?}/unexpected.log" "${work:?}/nexusctl.log"
+    "${work:?}/kubectl.log" "${work:?}/unexpected.log" "${work:?}/nexusctl.log" "${work:?}/order.log" \
+    "${work:?}/halted-once" "${work:?}/during.json" "${work:?}/am-during.json"
   jq -n --argjson o "$old" '{items:[$o]}' > "$work/before.json"
+  echo active > "$work/ks"; echo '[]' > "$work/am.json"; EXTRA='[]'
   echo "$1" > "$work/level"
   read -r s r t <<< "${2:-2 2 2}"
   jq -n --argjson s "$s" --argjson r "$r" --argjson t "$t" '{spec:{replicas:$s},status:{readyReplicas:$r,replicas:$t}}' > "$work/deploy.json"
@@ -98,27 +113,31 @@ reset_case() {  # reset_case <level> [spec ready total]
 run() {  # run <script> <stdin>  -> $out, $rc
   out=$(printf '%b' "$2" | bash "$root/scripts/demo/$1" 2>&1); rc=$?
 }
-no_stray() {  # every kubectl call named the cluster; no write except the dry-run scale
+KS_PATCH='--context default -n nexus-system patch configmap nexus-killswitch --type merge -p {"data":{"state":"'
+no_stray() {  # every kubectl call named the cluster; no write except the dry-run scale and the Kill Switch
   [[ ! -s $work/unexpected.log ]] &&
-    ! grep -Eq ' (apply|patch|delete|exec|rollout|label|annotate|create|replace|edit) ' "$work/kubectl.log" &&
+    ! grep -vxF -e "${KS_PATCH}halted\"}}" -e "${KS_PATCH}active\"}}" "$work/kubectl.log" |
+      grep -Eq ' (apply|patch|delete|exec|rollout|label|annotate|create|replace|edit) ' &&
     ! { grep -E ' scale ' "$work/kubectl.log" | grep -vq -- '--dry-run=server'; }
 }
 line_of() { grep -n -- "$1" "$work/runner.log" | head -1 | cut -d: -f1; }
 yn() { if "$@"; then echo 1; fi; }
 
 # ---- the happy paths: reset first, inject second, phases shown, reset hint printed
-for sc in s1:S1:3:Resolved s3:S3:3:Escalated s5:S5:3:Escalated s6:S6:3:Dismissed l2:S1:2:Resolved; do
-  IFS=: read -r script id lvl term <<< "$sc"
+for sc in s1:S1:3:Resolved:NexusLatencyAnomaly s3:S3:3:Escalated:NexusRolloutStuck s5:S5:3:Escalated:NexusErrorRateAnomaly \
+          s6:S6:3:Dismissed:NexusTrafficAnomaly l2:S1:2:Resolved:NexusLatencyAnomaly; do
+  IFS=: read -r script id lvl term al <<< "$sc"
   reset_case 3
-  seq_file 1 "$(inc new-1 Detected "" "")"
-  seq_file 2 "$(inc new-1 Diagnosing "" "")"
+  seq_file 1 "$(inc new-1 Detected "" "" "$al")"
+  seq_file 2 "$(inc new-1 Diagnosing "" "" "$al")"
   if [[ $script == l2 ]]; then
-    seq_file 3 "$(inc new-1 AwaitingApproval "" restart_workload)"
-    seq_file 4 "$(inc new-1 AwaitingApproval "" restart_workload)"
-    seq_file 5 "$(inc new-1 Executing "" restart_workload)"
+    seq_file 3 "$(inc new-1 AwaitingApproval "" restart_workload "$al")"
+    seq_file 4 "$(inc new-1 AwaitingApproval "" restart_workload "$al")"
+    seq_file 5 "$(inc new-1 Executing "" restart_workload "$al")"
   fi
-  seq_file 9 "$(inc new-1 "$term" remediation_verified restart_workload)"
-  case $script in s3|s6|l2) stdin='yes\nyes\nyes\n' ;; *) stdin='yes\nyes\n' ;; esac
+  seq_file 9 "$(inc new-1 "$term" remediation_verified restart_workload "$al")"
+  # typed yes: reset (with the halt), re-activation, inject, then S3's refresh / S6's denied / L2's approval
+  case $script in s3|s6|l2) stdin='yes\nyes\nyes\nyes\n' ;; *) stdin='yes\nyes\nyes\n' ;; esac
   run "$script.sh" "$stdin"
   check "$script: exits 0" "$(yn test "$rc" = 0)" "rc=$rc: $out"
   r=$(line_of "run reset --level $lvl "); i=$(line_of "run inject $id --context default --level $lvl ")
@@ -131,6 +150,11 @@ for sc in s1:S1:3:Resolved s3:S3:3:Escalated s5:S5:3:Escalated s6:S6:3:Dismissed
   check "$script: prints how to reset (level 3, same baseline)" \
     "$(yn bash -c 'grep -q "HOW TO RESET" <<< "$1" && grep -Eq "run reset --level 3 .*--baseline-ref $2" <<< "$1"' _ "$out" "$base")"
   check "$script: only the allowed kubectl calls" "$(yn no_stray)" "$(cat "$work/unexpected.log" 2> /dev/null)"
+  check "$script: shows the alert name and waits for $al" \
+    "$(yn bash -c 'grep -q "  alert    $2\$" <<< "$1" && grep -q "Waiting for: .*$2" <<< "$1"' _ "$out" "$al")" "$out"
+  check "$script: order is halt, reset, re-activate, inject" \
+    "$(yn bash -c 'sed -n "1p;2s/ --level.*//p;3p;4s/ --context.*//p" "$1/order.log" | tr "\n" "|" | grep -qx "killswitch halted|runner run reset|killswitch active|runner run inject $2|"' _ "$work" "$id")" \
+    "$(cat "$work/order.log" 2> /dev/null)"
   case $script in
     s3) check "s3: patch and git dir passed, then the Argo refresh" \
           "$(yn bash -c 'grep -q -- "--s3-patch experiments/faults/s3-bad-rollout.patch" "$1/runner.log" && grep -q "run refresh --context default --execute" "$1/runner.log"' _ "$work")" ;;
@@ -152,7 +176,7 @@ seq_file 3 "$(inc new-1 AwaitingApproval "" restart_workload)"
 seq_file 4 "$(inc new-1 AwaitingApproval "" restart_workload)"
 seq_file 5 "$(inc new-1 Executing "" restart_workload)"
 seq_file 9 "$(inc new-1 Resolved remediation_verified restart_workload)"
-run l2.sh 'yes\nyes\nphone\n'
+run l2.sh 'yes\nyes\nyes\nphone\n'
 check "l2 phone: exits 0, no nexusctl call" "$(yn bash -c '[[ $1 == 0 && ! -s $2/nexusctl.log ]]' _ "$rc" "$work")" "rc=$rc: $out"
 check "l2 phone: Telegram text, and phone is listed before yes" \
   "$(yn bash -c 'grep -q "Approve on Telegram now (@nexus_pfe_bot): the push has Approve / Reject / Explain" <<< "$1" && [[ $(grep -n "  phone  " <<< "$1" | head -1 | cut -d: -f1) -lt $(grep -n "  yes    " <<< "$1" | head -1 | cut -d: -f1) ]]' _ "$out")" "$out"
@@ -161,7 +185,7 @@ check "l2 phone: keeps watching to Resolved" \
 for answer in 'no\n' 'Phone\n' 'y\n' ''; do
   reset_case 3
   seq_file 3 "$(inc new-1 AwaitingApproval "" restart_workload)"
-  run l2.sh "yes\nyes\n$answer"
+  run l2.sh "yes\nyes\nyes\n$answer"
   check "l2: approval answer '${answer%\\n}' stops, no nexusctl call" \
     "$(yn bash -c '[[ $1 != 0 && ! -s $2/nexusctl.log ]]' _ "$rc" "$work")" "rc=$rc"
 done
@@ -174,9 +198,14 @@ for answer in 'no\n' 'y\n' 'YES\n' 'yes please\n' ''; do
     "$(yn bash -c '[[ $1 != 0 ]] && ! grep -q -- "--execute" "$2/runner.log" 2> /dev/null' _ "$rc" "$work")" "rc=$rc"
 done
 reset_case 3
-run s1.sh 'yes\nno\n'
+run s1.sh 'yes\nyes\nno\n'
 check "s1: yes to the reset, no to the inject: nothing injected" \
   "$(yn bash -c '[[ $1 != 0 && ! -f $2/injected ]] && grep -q "run reset" "$2/runner.log" && ! grep -q "run inject" "$2/runner.log"' _ "$rc" "$work")"
+reset_case 3
+run s1.sh 'yes\nno\n'
+check "s1: no to the re-activation: Kill Switch left halted, the command printed, nothing injected" \
+  "$(yn bash -c '[[ $1 != 0 && ! -f $2/injected && $(cat "$2/ks") == halted ]] && grep -q "Kill Switch is still halted" <<< "$3" && grep -q "patch configmap nexus-killswitch .*active" <<< "$3"' _ "$rc" "$work" "$out")" "$out"
+
 
 # ---- the pre-check refuses before any runner call
 reset_case 3 "1 2 2"; run s1.sh 'yes\nyes\n'
@@ -205,5 +234,71 @@ done
 unset SCALE_MODE
 reset_case 3; run denied.sh 'no\n'
 check "denied: 'no' runs no scale" "$(yn bash -c '[[ $1 != 0 ]] && ! grep -q " scale " "$2/kubectl.log" 2> /dev/null' _ "$rc" "$work")"
+
+
+# ---- the reset step: one "yes" for the halt and the reset; the settle ends with the re-activation
+reset_case 3; seq_file 9 "$(inc new-1 Resolved remediation_verified restart_workload)"
+run s1.sh 'yes\nyes\nyes\n'
+check "s1: the reset step lists the Kill Switch halt, then the reset, under one NEXT STEP" \
+  "$(yn bash -c 'step=$(grep -A3 "NEXT STEP.*halt the Kill Switch" <<< "$1"); grep -q "^  command 1: kubectl --context default -n nexus-system patch configmap nexus-killswitch --type merge -p .*halted" <<< "$step" && grep -q "^  command 2: .*run reset --level 3 " <<< "$step"' _ "$out")" "$out"
+check "s1: the halt and re-activation patches are the ones in manual-scenarios.md" \
+  "$(yn bash -c 'grep -qxF -e "$2halted\"}}" "$1/kubectl.log" && grep -qxF -e "$2active\"}}" "$1/kubectl.log"' _ "$work" "$KS_PATCH")"
+check "s1: settle, settle check, then the re-activation step, then the inject step" \
+  "$(yn bash -c 'a=$(grep -n "^Settling for 0s" <<< "$1" | cut -d: -f1); b=$(grep -n "^Settle check" <<< "$1" | cut -d: -f1); c=$(grep -n "NEXT STEP.*re-activate the Kill Switch" <<< "$1" | cut -d: -f1); d=$(grep -n "NEXT STEP.*inject S1" <<< "$1" | cut -d: -f1); [[ -n $a && -n $d && $a -lt $b && $b -lt $c && $c -lt $d ]]' _ "$out")" "$out"
+
+# ---- Incidents raised during the settle (Kill Switch halted) never show in the live view
+reset_case 3
+EXTRA="[$(inc warm-1 Blocked killswitch_halted "" NexusLatencyAnomaly)]"
+jq -n --argjson o "$old" --argjson x "$EXTRA" '{items: ([$o] + $x)}' > "$work/during.json"
+seq_file 1 "$(inc new-1 Detected "" "")"
+seq_file 9 "$(inc new-1 Resolved remediation_verified restart_workload)"
+run s1.sh 'yes\nyes\nyes\n'
+check "s1: an Incident raised during the settle is not in the live view or the result" \
+  "$(yn bash -c '[[ $1 == 0 ]] && ! grep -q "warm-1" <<< "$2" && grep -q "new-1 \[NexusLatencyAnomaly\]: Resolved" <<< "$2"' _ "$rc" "$out")" "rc=$rc: $out"
+
+# ---- the expected alert: an early terminal Incident with another alert does not settle the view
+reset_case 3
+w=$(inc warm-1 Dismissed no_action_required "" NexusLatencyAnomaly)
+seq_file 1 "$w"; seq_file 2 "$w"; seq_file 3 "$w"
+seq_file 4 "$w" "$(inc new-1 Detected "" "" NexusRolloutStuck)"
+seq_file 9 "$w" "$(inc new-1 Escalated proposed_escalation escalate NexusRolloutStuck)"
+run s3.sh 'yes\nyes\nyes\nyes\n'
+check "s3: a terminal Incident from another alert does not settle; NexusRolloutStuck's does" \
+  "$(yn bash -c '[[ $1 == 0 ]] && grep -q "new-1: (appeared) -> Detected" <<< "$2" && grep -q "new-1: Detected -> Escalated" <<< "$2" && grep -q "new-1 \[NexusRolloutStuck\]: Escalated" <<< "$2"' _ "$rc" "$out")" "rc=$rc: $out"
+check "s3: the other Incident is shown, marked as not the expected alert" \
+  "$(yn bash -c 'grep -q "  alert    NexusLatencyAnomaly   (not the expected alert)" <<< "$1" && grep -q "warm-1 \[NexusLatencyAnomaly, not the expected alert\]: Dismissed" <<< "$1"' _ "$out")" "$out"
+check "s3: while waiting, says which alert and why it takes minutes" \
+  "$(yn bash -c 'grep -q "Waiting for: NexusRolloutStuck or NexusCrashLooping. This takes minutes: Argo CD polls Git every 3 min" <<< "$1" && grep -q "NexusRolloutStuck needs its for: 3m" <<< "$1"' _ "$out")" "$out"
+reset_case 3
+seq_file 1 "$w"
+export NEXUS_DEMO_TIMEOUT=1
+run s3.sh 'yes\nyes\nyes\nyes\n'
+export NEXUS_DEMO_TIMEOUT=60
+check "s3: only another alert's Incident, terminal: the view times out (exit 3), it does not settle" \
+  "$(yn bash -c '[[ $1 == 3 ]] && grep -q "stopped after 1s with no terminal Incident for NexusRolloutStuck NexusCrashLooping" <<< "$2"' _ "$rc" "$out")" "rc=$rc: $out"
+
+# ---- NEXUS alerts: the pre-check and the settle check
+reset_case 3
+echo "[$(am_alert NexusLatencyAnomaly nexus-dev/sample-api)]" > "$work/am.json"
+run s1.sh 'yes\nyes\nyes\n'
+check "s1: a NEXUS alert firing for nexus-dev fails the pre-check, no runner call" \
+  "$(yn bash -c '[[ $1 != 0 ]] && grep -Eq "FAIL +NEXUS alerts +firing for nexus-dev: NexusLatencyAnomaly" <<< "$2" && [[ ! -s $3/runner.log ]]' _ "$rc" "$out" "$work")" "$out"
+reset_case 3; seq_file 9 "$(inc new-1 Resolved remediation_verified restart_workload)"
+echo "[$(am_alert NexusLatencyAnomaly nexus-prod/sample-api), $(am_alert Watchdog '')]" > "$work/am.json"
+run s1.sh 'yes\nyes\nyes\n'
+check "s1: an alert for nexus-prod, or a non-NEXUS alert, does not fail the pre-check" \
+  "$(yn bash -c '[[ $1 == 0 ]] && grep -Eq "ok +NEXUS alerts +none firing for nexus-dev" <<< "$2"' _ "$rc" "$out")" "rc=$rc: $out"
+reset_case 3
+echo "[$(am_alert NexusCpuAnomaly nexus-dev/sample-api)]" > "$work/am-during.json"
+run s1.sh 'yes\nyes\nyes\n'
+check "s1: a NEXUS alert firing after the settle stops the script: look command, no re-activation, no inject" \
+  "$(yn bash -c '[[ $1 != 0 && ! -f $3/injected && $(cat "$3/ks") == halted ]] && grep -q "still fires for nexus-dev after the settle: NexusCpuAnomaly" <<< "$2" && grep -q "Look: kubectl --context default get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-alertmanager:9093/proxy/api/v2/alerts" <<< "$2" && grep -q "Kill Switch is still halted" <<< "$2" && ! grep -q "re-activate the Kill Switch (state active)" <<< "$2"' _ "$rc" "$out" "$work")" "$out"
+check "s1: the failed settle check made no write after the halt and reset" \
+  "$([[ $(grep -c . "$work/order.log") == 2 ]] && no_stray && echo 1)" "$(cat "$work/order.log" 2> /dev/null)"
+reset_case 3
+jq -n --argjson o "$old" '{items: [$o, {metadata:{name:"warm-2"},status:{phase:"Diagnosing"}}]}' > "$work/during.json"
+run s1.sh 'yes\nyes\nyes\n'
+check "s1: an Incident still open after the settle stops the script before the re-activation" \
+  "$(yn bash -c '[[ $1 != 0 && ! -f $3/injected && $(cat "$3/ks") == halted ]] && grep -q "still open after the settle: warm-2" <<< "$2" && grep -q "Look: kubectl --context default -n nexus-system get incidents" <<< "$2"' _ "$rc" "$out" "$work")" "$out"
 
 exit "$failed"
