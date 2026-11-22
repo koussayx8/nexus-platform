@@ -61,3 +61,6 @@ nexus_roadmap.html
 # Node.js build artefacts
 node_modules/
 **/.yarn/install-state.gz
+
+# make results output: commit measured results deliberately (git add -f), never by accident
+/results/

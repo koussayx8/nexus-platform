@@ -71,10 +71,11 @@ class FakeCluster:
         return self.state
 
     def deployments(self, namespace: str) -> list[Deploy]:
-        return [Deploy("sample-api", 2, 3)]
+        return [Deploy("sample-api", 2, 3, 3, 2, "2026-11-23T10:00:00Z")]
 
     def pods(self, namespace: str) -> list[Pod]:
-        return [Pod("sample-api-7d9-abc", "Running", 4, True), Pod("sample-api-7d9-def", "Pending", 0, False)]
+        return [Pod("sample-api-7d9-abc", "Running", 4, True, 1, 1, "Running", "2026-11-28T08:00:00Z"),
+                Pod("sample-api-7d9-def", "Pending", 0, False, 1, 0, "Pending", "2026-11-28T09:57:00Z")]
 
     # ApproverFactory
     def approver_for(self, user: str, group: str) -> "FakeApprover":

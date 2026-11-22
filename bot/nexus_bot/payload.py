@@ -12,6 +12,18 @@ Reader only:
 
     p:<namespace>   /pods for nexus-dev or nexus-prod (the only two values)
     i:<key>         /incident for the Incident whose UID starts with key (16 hex, as above)
+
+More read-only buttons (2026-11-22, display changes), the same rules, at most 18 bytes:
+
+    t:<namespace>   /pods as a table, in place (Refresh, or the Table toggle)
+    k:<namespace>   /pods as cards, in place (Refresh, or the Cards toggle)
+    m:<key>         🧠 Reasoning: the reasoning excerpt
+    b:<key>         📚 Runbooks: the runbook chunks the Reasoner retrieved
+    c:<key>         🔗 Commit: a commit the model named, unchecked
+    l:<f>:<page>    /incident list, in place; f = a(ll), o(pen), d (nexus-dev), p (nexus-prod)
+    v:pods, v:inc   /pods and /incident with no argument, as a new message (the /status buttons)
+
+None of these reaches decide.py: they are answered with a Reader only.
 """
 
 import re
@@ -20,8 +32,13 @@ from dataclasses import dataclass
 from nexus_client.models import Incident
 
 PATTERN = re.compile(r"^[aren]:[0-9a-f]{16}:[0-9a-f]{32}$")
-VIEW = re.compile(r"^(?:p:(nexus-dev|nexus-prod)|i:([0-9a-f]{16}))$")
-PODS, INCIDENT = "pods", "incident"
+VIEW = re.compile(r"^(?:([ptk]):(nexus-dev|nexus-prod)|([imbc]):([0-9a-f]{16})|l:([aodp]):([0-9]{1,2})"
+                  r"|v:(pods|inc))$")
+PODS, TABLE, CARDS = "pods", "table", "cards"
+INCIDENT, REASONING, RUNBOOKS, COMMIT = "incident", "reasoning", "runbooks", "commit"
+LIST, PICK = "list", "pick"
+_KINDS = {"p": PODS, "t": TABLE, "k": CARDS, "i": INCIDENT, "m": REASONING, "b": RUNBOOKS, "c": COMMIT}
+_LETTER = {kind: letter for letter, kind in _KINDS.items()}
 APPROVE, REJECT, EXPLAIN, NOTE = "a", "r", "e", "n"
 _HASH = re.compile(r"^sha256:([0-9a-f]{64})$")
 
@@ -62,22 +79,35 @@ def decode(data: object) -> Press | None:
 
 @dataclass(frozen=True)
 class View:
-    kind: str  # PODS or INCIDENT
-    arg: str  # a namespace, or a 16-hex UID key
+    kind: str  # one of PODS, TABLE, CARDS, INCIDENT, REASONING, RUNBOOKS, COMMIT, LIST, PICK
+    arg: str  # a namespace, a 16-hex UID key, a list filter letter, or "pods" / "inc"
+    page: int = 0  # LIST only
 
 
-def pods_data(namespace: str) -> str | None:
-    data = f"p:{namespace}"
+def pods_data(namespace: str, kind: str = PODS) -> str | None:
+    data = f"{_LETTER.get(kind, '?')}:{namespace}"
     return data if VIEW.fullmatch(data) else None
 
 
-def incident_data(inc: Incident) -> str | None:
+def incident_data(inc: Incident, kind: str = INCIDENT) -> str | None:
     key = uid_key(inc.metadata.uid)
-    return f"i:{key}" if key is not None else None
+    data = f"{_LETTER.get(kind, '?')}:{key}"
+    return data if key is not None and VIEW.fullmatch(data) else None
+
+
+def list_data(filt: str, page: int) -> str | None:
+    data = f"l:{filt}:{page}"
+    return data if VIEW.fullmatch(data) else None
 
 
 def decode_view(data: object) -> View | None:
     m = VIEW.fullmatch(data) if isinstance(data, str) else None
     if m is None:
         return None
-    return View(PODS, m[1]) if m[1] else View(INCIDENT, m[2])
+    if m[1]:
+        return View(_KINDS[m[1]], m[2])
+    if m[3]:
+        return View(_KINDS[m[3]], m[4])
+    if m[5]:
+        return View(LIST, m[5], int(m[6]))
+    return View(PICK, m[7])

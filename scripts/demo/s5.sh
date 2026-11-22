@@ -10,4 +10,6 @@ D_TITLE="dependency failure (database refuses the app's role)"
 D_EXPECT="Escalated / proposed_escalation with dependency_investigation, no mutation, in about 2-3 min"
 D_INJECT_WHAT="ALTER ROLE app_dev NOLOGIN and terminate its sessions, in the Dependency DB pod in nexus-data (kubectl exec)"
 D_INJECT_ARGS=() D_RESET_ARGS=()
+D_EXPECT_ALERTS=(NexusErrorRateAnomaly)
+D_EXPECT_WHY="It fires after its for: 1m, about 1m40 after the inject."
 demo_run

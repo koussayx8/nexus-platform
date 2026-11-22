@@ -4,7 +4,11 @@ A message is plain text plus the `entities` of the Bot API (MessageEntity) that 
 itself. No `parse_mode` is ever sent, so Telegram parses nothing in the text: a `<b>`, a `*` or a
 `[link](x)` written by the model is shown as those characters.
 
-- `bold`, `italic`, `code` and `pre` take the bot's own labels: string literals in this package.
+- `bold`, `italic`, `code` and `pre` take the bot's own labels: string literals in this package. `pre`
+  also holds a table of cluster values (names, counts, phases) that its caller sanitized cell by cell.
+- `link` is a `text_link` entity over the bot's own text or a value that fully matches a strict
+  pattern (`prompt/v3`, a runbook chunk id, 7 hex of a commit). Its URL is built only by the bot,
+  from its configuration (`views.Links`); no URL is ever taken from model or cluster text.
 - `value` and `untrusted` take anything else. Both go through nexusctl's `sanitize` and never get
   an entity of their own. Untrusted text (model output, evidence, logs, the Incident's proposal,
   reasoning and escalation, error text) is written only inside `quote()`, so the one entity that
@@ -32,11 +36,12 @@ from nexusctl.render.injection import looks_like_instruction
 from nexusctl.render.sanitize import sanitize
 
 MAX_TEXT = 4096  # Bot API: sendMessage text, after entity parsing
-FORMATS = frozenset({"bold", "italic", "code", "pre"})
+FORMATS = frozenset({"bold", "italic", "code", "pre", "text_link"})
 QUOTES = frozenset({"blockquote", "expandable_blockquote"})
 TYPES = FORMATS | QUOTES
 FLAG = "⚠️ "
 NOTE = "(truncated: {shown} of {total} characters; the full text is in the Flight Recorder)"
+_LINK_URL = re.compile(r"^https://github\.com/[A-Za-z0-9._/#-]+$")
 IDENT = (
     re.compile(r"inc-[a-z0-9-]{1,59}"),       # an Incident name (the /incident grammar)
     re.compile(r"sha256:[0-9a-f]{64}"),       # a proposal, bundle or index hash
@@ -94,17 +99,17 @@ class RichText:
     def __init__(self) -> None:
         self._parts: list[str] = []
         self._n = 0  # code points so far
-        self._spans: list[tuple[str, int, int]] = []  # (type, start, end) in code points
+        self._spans: list[tuple[str, int, int, str | None]] = []  # (type, start, end, url) in code points
         self._untrusted: list[tuple[int, int]] = []
         self._quote: int | None = None
         self.flagged = 0  # instruction-like untrusted values written so far
 
-    def _put(self, text: str, kind: str | None = None) -> "RichText":
+    def _put(self, text: str, kind: str | None = None, url: str | None = None) -> "RichText":
         start = self._n
         self._parts.append(text)
         self._n += len(text)
         if kind is not None and text:
-            self._spans.append((kind, start, self._n))
+            self._spans.append((kind, start, self._n, url))
         return self
 
     # -- the bot's own text -------------------------------------------------------------------------
@@ -122,6 +127,12 @@ class RichText:
 
     def pre(self, s: str) -> "RichText":
         return self._put(s, "pre")
+
+    def link(self, s: str, url: str) -> "RichText":
+        """A trusted link: `s` is the bot's text (sanitized), `url` one the bot built from its config."""
+        if not _LINK_URL.fullmatch(url):
+            raise ValueError("a link URL is built by the bot, on the configured repository")
+        return self._put(sanitize(s, 120), "text_link", url)
 
     def nl(self) -> "RichText":
         return self._put("\n")
@@ -168,15 +179,16 @@ class RichText:
             yield self
         finally:
             start, self._quote = self._quote, None
-            self._spans.append(("expandable_blockquote" if expandable else "blockquote", start, self._n))
+            kind = "expandable_blockquote" if expandable else "blockquote"
+            self._spans.append((kind, start, self._n, None))
 
     # -- output -------------------------------------------------------------------------------------
     def build(self, limit: int = MAX_TEXT) -> Message:
         raw = "".join(self._parts)
         lead = len(raw) - len(raw.lstrip())  # Telegram trims the text; offsets follow the trim
         text = raw.strip()
-        spans = [(k, s - lead, e - lead) for k, s, e in self._spans]
-        bad = [(k, s, e) for k, s, e in spans if k in FORMATS
+        spans = [(k, s - lead, e - lead, u) for k, s, e, u in self._spans]
+        bad = [(k, s, e) for k, s, e, _u in spans if k in FORMATS
                for us, ue in self._untrusted if s < ue - lead and us - lead < e]
         if bad:
             raise ValueError(f"a {bad[0][0]} entity overlaps untrusted text")
@@ -187,20 +199,21 @@ class RichText:
             end, note = cut_point(text, limit)
             text = text[:end]
         clipped = []
-        for k, s, e in spans:
+        for k, s, e, u in spans:
             s, e = max(s, 0), min(e, end)
             while e > s and text[e - 1] == "\n":  # an entity never ends on a line break
                 e -= 1
             while s < e and text[s] == "\n":
                 s += 1
             if e > s:
-                clipped.append((k, s, e))
+                clipped.append((k, s, e, u))
         untrusted = [(max(s, 0), min(e, end)) for s, e in untrusted if min(e, end) > max(s, 0)]
         if note:
-            clipped.append(("italic", end + 1, end + len(note)))
+            clipped.append(("italic", end + 1, end + len(note), None))
             text += note
 
         cum = _prefix_units(text)
         clipped.sort(key=lambda t: (t[1], -(t[2] - t[1])))
-        entities = [{"type": k, "offset": cum[s], "length": cum[e] - cum[s]} for k, s, e in clipped]
+        entities = [{"type": k, "offset": cum[s], "length": cum[e] - cum[s]} | ({"url": u} if u else {})
+                    for k, s, e, u in clipped]
         return Message(text, entities, [(cum[s], cum[e] - cum[s]) for s, e in untrusted])

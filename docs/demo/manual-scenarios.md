@@ -76,7 +76,15 @@ every answer schema-valid. R2 is not run live (replay only, D10).
 
 ## 0. Setup, once per session
 
-Run everything from the repository root, on a clean checkout of `dev` or `main`.
+**First, before any command or demo script:** Locust's web API, in its own terminal, left open for the
+whole session (ADR-026; the API has no authentication, so it stays on 127.0.0.1). The demo scripts read
+`http://127.0.0.1:18090` by default (`NEXUS_DEMO_LOCUST`), and their pre-check fails without it:
+
+```bash
+kubectl --context default -n nexus-load port-forward --address 127.0.0.1 svc/locust-master 18090:8089
+```
+
+Run everything else from the repository root, on a clean checkout of `dev` or `main`.
 
 ```bash
 cd ~/nexus-platform && git status --short && git log --oneline -1
@@ -84,12 +92,6 @@ cd ~/nexus-platform && git status --short && git log --oneline -1
 
 ```bash
 export CTX=default && kubectl --context $CTX get nodes
-```
-
-Locust's web API, in its own terminal (ADR-026; the API has no authentication, so keep it on localhost):
-
-```bash
-kubectl --context default -n nexus-load port-forward svc/locust-master 18090:8089
 ```
 
 Grafana, in another terminal (service `observability-grafana`, port 80, read on 2026-11-19), then open
@@ -168,6 +170,58 @@ curl -s -X POST http://127.0.0.1:18090/swarm -d user_count=160 -d spawn_rate=4 -
 
 Then wait for the z-scores to settle (the gate's `baseline` check) before injecting. A traffic step
 opens its own Incidents: on 2026-11-14 the restart opened four (`NexusTrafficAnomaly`, `NexusCpuAnomaly`).
+
+### The demo scripts: Kill Switch halted, settle, expected alert
+
+`scripts/demo/*.sh` (see [README.md](README.md)) wrap the runner. Seen in the S3 run of 2026-11-22: the
+reset replaces the `sample-api` pods, and their warm-up raised `NexusLatencyAnomaly` about 2 and 4 minutes
+later, opening two Incidents (one `Dismissed`, one `Blocked` at stage 6) before S3's own `NexusRolloutStuck`.
+The script's live view settled on those and exited before the Incident that mattered. At L3 such an Incident
+can also be admitted as a `scale_deployment` when no rollout is in progress. So each script now:
+
+1. **Halts the Kill Switch together with the reset**, under the one typed `yes` of the reset step (the step
+   lists both commands): the same patch as section 3,
+   `kubectl --context default -n nexus-system patch configmap nexus-killswitch --type merge -p '{"data":{"state":"halted"}}'`,
+   then `runner run reset`. An Incident raised now ends `Blocked` at stage 5 and cannot act.
+2. **Waits** for `sample-api` 2/2 Ready and the level, then **settles**: a quiet window, polled. It passes
+   once no NEXUS alert for `nexus-dev` has been **pending or firing** for `NEXUS_DEMO_SETTLE_QUIET` seconds
+   in a row (default 120), no Incident is open, and `NEXUS_DEMO_SETTLE_MIN` seconds (default 120) have
+   passed since Ready. It reads Prometheus's `/api/v1/alerts` through the service proxy that
+   `scripts/verify-state.sh` uses, alerts whose `nexus_target` starts with `nexus-dev/`: Alertmanager only
+   knows firing alerts, and an alert still in its `for:` window would fire just after the re-activation.
+   A fixed wait does not work: on 2026-11-22 the warm-up alerts fired at +1 m 41 s and +3 m 41 s after
+   Ready, each pending a minute before, and rerunning the script resets again and restarts the warm-up.
+3. **Stops at `NEXUS_DEMO_SETTLE_MAX`** (default 900 s) if it never gets quiet, with the read-only commands
+   to look further and the command to re-activate the Kill Switch; it makes no write.
+4. **Re-activates the Kill Switch** (`state active`) as its own typed step, runs the pre-check again, and
+   only then takes the "before" Incident list. Incidents raised during the settle never show in the live
+   view.
+5. **Waits for the expected alert** (`D_EXPECT_ALERTS`, set by each script): the live view settles only once
+   a new Incident whose `spec.source.alertname` is in that list is terminal. Other Incidents are shown with
+   their alert name, marked "not the expected alert". While waiting it says which alert and why it takes
+   minutes.
+
+| Script | `D_EXPECT_ALERTS` (from the Signal line of each scenario below) |
+| --- | --- |
+| `s1.sh`, `l2.sh` | `NexusLatencyAnomaly` |
+| `s3.sh` | `NexusRolloutStuck`, `NexusCrashLooping` |
+| `s5.sh` | `NexusErrorRateAnomaly` |
+| `s6.sh` | `NexusTrafficAnomaly` |
+| `denied.sh` | none (no injection, no live view) |
+
+S1 and L2 wait for the same alert the warm-up raises, so for them the settle, not the filter, keeps the
+warm-up Incident out of the view.
+
+The pre-check also has a "NEXUS alerts" line: no NEXUS alert pending or firing for `nexus-dev`, with each
+alert's state. To look further:
+
+```bash
+kubectl --context default get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/alerts | jq '.data.alerts[] | {labels, state, activeAt}'
+```
+
+For the defense, prepare before the jury and run the scenario with `NEXUS_DEMO_SKIP_RESET=1` in front of it
+(`scripts/demo/prepare.sh <level>`, then for example `NEXUS_DEMO_SKIP_RESET=1 scripts/demo/s3.sh`;
+[README.md](README.md)), so the jury never waits through the settle.
 
 ### Runner rules that matter on stage (ADR-047)
 
