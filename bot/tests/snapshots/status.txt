@@ -1,0 +1,23 @@
+📊 NEXUS status
+Kill Switch: active
+Level nexus-dev: L2
+Level nexus-prod: L1
+
+Open Incidents: 2
+🟠 inc-6695…2289 · AwaitingApproval
+   nexus-dev/sample-api · scale_deployment · 3m
+⏳ inc-0a1b…0000 · Executing
+   nexus-dev/sample-api · scale_deployment · 20m
+
+As of 10:00 UTC
+
+=== entities (type offset length: covered text) ===
+bold 0 15: "📊 NEXUS status"
+bold 16 12: "Kill Switch:"
+bold 36 16: "Level nexus-dev:"
+bold 56 17: "Level nexus-prod:"
+bold 78 15: "Open Incidents:"
+italic 258 15: "As of 10:00 UTC"
+
+=== buttons ===
+📦 Pods [v:pods] | 🗂 Incidents [v:inc]

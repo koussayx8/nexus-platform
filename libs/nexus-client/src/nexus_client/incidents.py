@@ -65,11 +65,15 @@ def _admission_denial(message: str) -> bool:
 class KubeIncidentApi:
     def __init__(self, namespace: str = NAMESPACE, context: str | None = None,
                  kubeconfig: str | None = None, as_user: str | None = None,
-                 as_group: str | None = None) -> None:
+                 as_group: str | None = None, in_cluster: bool = False) -> None:
         from kubernetes import client, config
 
         headers = impersonation_headers(as_user, as_group)
-        config.load_kube_config(config_file=kubeconfig, context=context)  # type: ignore[no-untyped-call]
+        if in_cluster:
+            # the pod's projected ServiceAccount token (the bot, ADR-040); no kubeconfig is read
+            config.load_incluster_config()  # type: ignore[no-untyped-call]
+        else:
+            config.load_kube_config(config_file=kubeconfig, context=context)  # type: ignore[no-untyped-call]
         api_client = client.ApiClient()
         for name, value in headers.items():
             api_client.set_default_header(name, value)  # type: ignore[no-untyped-call]

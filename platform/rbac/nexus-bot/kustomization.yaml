@@ -1,0 +1,7 @@
+# The Telegram bot's RBAC (ADR-040), listed by platform/rbac/kustomization.yaml (the platform
+# Application).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - nexus-bot.yaml

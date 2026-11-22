@@ -1,0 +1,38 @@
+🟢 Resolved
+Incident: inc-6695…2289
+Target: nexus-dev/sample-api
+Level: L2
+Reason: remediation_verified
+Action: scale_deployment
+Parameters: replicas=4
+Hash: sha256:14f167…839f5e
+Execution: succeeded
+Verification: p95 latency under 300 ms for 5 min: passed
+Ended: 10:06 UTC
+
+Model text: untrusted, never a decision
+Proposal
+Fault class: cpu_saturation
+Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)
+
+=== entities (type offset length: covered text) ===
+bold 0 11: "🟢 Resolved"
+bold 12 9: "Incident:"
+bold 36 7: "Target:"
+bold 65 6: "Level:"
+bold 75 7: "Reason:"
+bold 104 7: "Action:"
+bold 129 11: "Parameters:"
+bold 152 5: "Hash:"
+bold 179 10: "Execution:"
+bold 200 13: "Verification:"
+bold 257 6: "Ended:"
+blockquote 275 168: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)"
+bold 275 39: "Model text: untrusted, never a decision"
+italic 315 8: "Proposal"
+bold 324 12: "Fault class:"
+bold 352 11: "Hypothesis:"
+
+=== buttons ===
+Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6] | 🧠 Reasoning [m:669532275a7b73d2]
+📦 Pods [p:nexus-dev] | 📚 Runbooks [b:669532275a7b73d2]

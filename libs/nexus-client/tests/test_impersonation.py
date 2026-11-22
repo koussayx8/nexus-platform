@@ -47,3 +47,18 @@ def test_without_flags_nothing_is_impersonated(monkeypatch: pytest.MonkeyPatch) 
     api = KubeIncidentApi()
     assert not any(h.startswith("Impersonate-") for h in api._api.api_client.default_headers)
     assert incidents.NAMESPACE == "nexus-system"
+
+
+def test_in_cluster_reads_no_kubeconfig(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kubernetes import config
+
+    called: list[str] = []
+    monkeypatch.setattr(config, "load_incluster_config", lambda: called.append("in-cluster"))
+
+    def no_kubeconfig(**_k: Any) -> None:
+        raise AssertionError("a kubeconfig was read")
+
+    monkeypatch.setattr(config, "load_kube_config", no_kubeconfig)
+    api = KubeIncidentApi(in_cluster=True, as_user="koussay-approver", as_group="nexus-approvers")
+    assert called == ["in-cluster"]
+    assert api._api.api_client.default_headers["Impersonate-User"] == "koussay-approver"

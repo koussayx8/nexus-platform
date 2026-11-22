@@ -12,10 +12,12 @@ authorises a mutation.
 
 ## Sources of truth
 
-- Architecture: `docs/architecture/final-spec.md` — version 1.0, frozen.
+- Architecture: `docs/architecture/final-spec.md` — version 1.1, frozen
+  (ADR-048; its section 0 lists every change since version 1.0).
   Do not redesign. If reality contradicts the spec, report the contradiction;
-  never silently adapt the design. Where an ADR or the contradiction table in
-  `docs/plans/pfe-replan.md` differs from the spec, the ADR governs until spec v1.1.
+  never silently adapt the design. Where a later ADR or the contradiction table in
+  `docs/plans/pfe-replan.md` differs from the spec, the ADR governs until the next
+  spec version.
 - Current milestone, phases and gates: `TASKS.md`.
 - Observed state: `docs/CURRENT_STATE.md` — generated from commands you ran,
   never written from memory.

@@ -285,6 +285,7 @@ def make_queue_run(
             "tier": 1,
             "valid_target": 2,
             "max_attempts": 4,
+            "baseline_ref": "0123456789abcdef0123456789abcdef01234567",
         }
     ]
     pre = {"clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
@@ -462,16 +463,22 @@ class ResultsTest(unittest.TestCase):
             "T12",
             "T13",
             "T14",
+            "T15",
+            "T16",
+            "T17",
+            "T18",
         ):
             self.assertIn(f"{t}.csv", names)
         for f in ("F1", "F2", "F3"):
             self.assertIn(f"{f}.svg", names)
-        self.assertTrue({"tables.md", "results.json", "INDEX.md"} <= names)
-        md = (self.out / "tables.md").read_text()
-        self.assertNotIn("No data", md)  # the fixtures exercise every table
+        self.assertTrue({"RESULTS.md", "results.json"} <= names)
+        md = (self.out / "RESULTS.md").read_text()
+        # the fixtures exercise every table but T18, which needs the batch queue
+        self.assertEqual(md.count("_No data._"), 1)
+        self.assertIn("_No data._", md.split("### T18.")[1])
 
     def test_c6_is_a_deferred_note_not_a_table_of_numbers(self):
-        md = (self.out / "tables.md").read_text()
+        md = (self.out / "RESULTS.md").read_text()
         self.assertIn("Deferred: theoretical study", md)
         self.assertNotIn("K8sGPT diagnosis accuracy", md)
 
@@ -730,12 +737,11 @@ class FixtureMarkerTest(unittest.TestCase):
             texts = [e.text for e in root.iter() if e.tag.endswith("text")]
             self.assertIn(self.MARK, texts, f.name)
 
-    def test_every_table_in_tables_md_and_the_index_carry_it(self):
-        md = (self.out / "tables.md").read_text()
+    def test_every_table_in_results_md_carries_it(self):
+        md = (self.out / "RESULTS.md").read_text()
         self.assertEqual(
             md.count(f"> **{self.MARK}**"), 1 + md.count("\n### ")
         )  # the page, and each table
-        self.assertIn(self.MARK, (self.out / "INDEX.md").read_text())
         self.assertTrue(self.summary["fixture"])
         self.assertTrue(json.loads((self.out / "results.json").read_text())["fixture"])
 
@@ -770,7 +776,7 @@ class FixtureMarkerTest(unittest.TestCase):
             self.assertFalse((d / "out" / "T01.csv").read_text().startswith("#"))
             self.assertNotIn(
                 "FIXTURE",
-                (d / "out" / "tables.md").read_text()
+                (d / "out" / "RESULTS.md").read_text()
                 + (d / "out" / "F1.svg").read_text(),
             )
 

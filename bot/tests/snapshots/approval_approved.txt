@@ -1,0 +1,18 @@
+⏳ Approved
+Incident: inc-6695…2289
+Decision: approved
+By: koussay-approver
+At: 10:00 UTC
+Expires: 10:14 UTC
+Pinned: sha256:14f167…839f5e
+Audit-Id: aud-ok
+
+=== entities (type offset length: covered text) ===
+bold 0 10: "⏳ Approved"
+bold 11 9: "Incident:"
+bold 35 9: "Decision:"
+bold 54 3: "By:"
+bold 75 3: "At:"
+bold 89 8: "Expires:"
+bold 108 7: "Pinned:"
+bold 137 9: "Audit-Id:"

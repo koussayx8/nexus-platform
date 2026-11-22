@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-bot"
+version = "0.1.0"
+description = "The Telegram approval bot (ADR-040): a client like nexusctl; it authorises nothing"
+requires-python = ">=3.12"
+# The sanitizer is nexusctl's (ADR-040 decision 11), not a second one. Telegram is reached with the
+# standard library, so the bot adds no HTTP dependency. C8 (ADR-041) is the nexus-revert library.
+dependencies = ["nexus-client", "nexusctl", "nexus-revert", "pyyaml>=6,<7"]
+
+[project.scripts]
+nexus-bot = "nexus_bot.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nexus_bot*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nexus_bot"]
+known-third-party = ["nexus_client", "nexusctl", "nexus_revert"]
+
+[tool.mypy]
+strict = true
+# nexus_revert is a flat-layout package: its editable install is an import hook that mypy cannot
+# follow, so mypy reads it from the source tree.
+mypy_path = "../libs/nexus-revert"
+
+[[tool.mypy.overrides]]
+module = ["yaml", "kubernetes", "kubernetes.*"]
+ignore_missing_imports = true

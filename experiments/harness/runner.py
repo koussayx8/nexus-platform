@@ -67,6 +67,10 @@ APP_PORT = 8000
 # ProdUser's fixed_count in platform/load/locustfile.py: a spike's total minus this is nexus-dev's
 # rate (S2: 220 -> 140; S4/S6: 80 + the calibrated dev rate). A test reads the locustfile.
 PROD_USERS = 80
+# The frozen baseline swarm (platform/load/master.yaml --users 160 --spawn-rate 4, both classes;
+# ADR-026): what `reset --locust` starts again after its stop, so a reset never leaves Locust idle
+# (ADR-047). A test reads master.yaml and the locustfile.
+BASELINE_SWARM = {"users": 160, "spawn_rate": 4, "classes": ["DevUser", "ProdUser"]}
 # Locust's master answers /stop only when its user count is 0, and waits for its workers up to
 # stop_timeout + 60 s (locust/runners.py 2.46.7, MasterRunner.stop; platform/load/master.yaml sets none).
 LOCUST_STOP_TIMEOUT_S = 75
@@ -683,7 +687,18 @@ def main(argv=None, guard_exec=None):
         except ValueError as e:
             ap.error(str(e))
     elif a.op == "reset":
-        steps = r.plan_reset(3 if a.level is None else a.level, a.baseline_ref)
+        # ADR-047, the S3 lesson: a reset without the commit to restore leaves an injected commit
+        # deployed; without --git-dir the ref would be ignored, so both are required.
+        if not a.baseline_ref or not a.git_dir:
+            ap.error(
+                "reset needs --baseline-ref (the experiment/dev-state commit recorded before the "
+                "injection) and --git-dir (the experiment worktree it is restored in)"
+            )
+        steps = r.plan_reset(
+            3 if a.level is None else a.level,
+            a.baseline_ref,
+            locust_baseline=BASELINE_SWARM if a.locust else None,
+        )
     else:
         steps = r.plan_refresh()
     if a.mode == "plan" or not a.execute:

@@ -1,0 +1,59 @@
+# NetworkPolicies for nexus-bot (ADR-040 decision 2 and stated limit 6; spec §18 pattern).
+# Listed by platform/network/kustomization.yaml (platform/m3-live, the platform Application).
+# Outbound only: no ingress rule exists, so default-deny refuses every inbound connection.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: nexus-bot
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# DNS; the API server (service IP 443, node 6443, as operator-egress in system.yaml: the node IP is
+# not hardcoded, WSL2 changes it); and TCP 443 to public addresses only, for api.telegram.org (by
+# address range, not by name: the spec §18 known limitation). The public rule's excepted ranges
+# contain the pod and service CIDRs and every private or WSL2 node range, as reasoner.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bot-egress
+  namespace: nexus-bot
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: nexus-bot}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: 10.43.0.1/32}
+      ports:
+        - {protocol: TCP, port: 443}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.42.0.0/16, 10.43.0.0/16]
+      ports:
+        - {protocol: TCP, port: 6443}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+      ports:
+        - {protocol: TCP, port: 443}

@@ -574,5 +574,101 @@ class RetrievalQualityTest(unittest.TestCase):
         self.assertEqual((q["false_retrieval"]["k"], q["false_retrieval"]["n"]), (1, 2))
 
 
+S6_TRUTH = {
+    "fault_class": "traffic_spike",
+    "fault_class_alternatives": [
+        {"value": "cpu_saturation", "alertnames": ["NexusCpuAnomaly"]}
+    ],
+    "correct_action": {"action": "no_action"},
+}
+
+
+class AlternativesTest(unittest.TestCase):
+    """Owner, 2026-11-20: a listed fault-class alternative and a listed recommendation kind score,
+    as in the bake-off. An alternative counts only for the alerts it names: S6's cpu_saturation on
+    a NexusCpuAnomaly Incident, not on a NexusTrafficAnomaly one."""
+
+    @staticmethod
+    def rows(*cells):
+        """cells: (run_id, alertname, fault class): the S6 proposals of R3, flattened."""
+        t = tables(
+            *[
+                (rid, "S6", "R3", prop(fc, "no_action"), STEPS[:3], "Dismissed", None)
+                for rid, _, fc in cells
+            ]
+        )
+        for b, (_, alert, _) in zip(t["evidence_bundles"], cells, strict=True):
+            b["content"]["incident"] = {
+                "alerts": [{"name": alert, "startedAt": at(10)}]
+            }
+        return metrics.flatten(t, {}, {"S6": S6_TRUTH})[0]
+
+    def test_flatten_carries_the_incidents_alert(self):
+        rows = self.rows(("a", "NexusCpuAnomaly", "cpu_saturation"))
+        self.assertEqual(rows[0]["alertname"], "NexusCpuAnomaly")
+        bare = tables(("b", "S6", "R3", prop("traffic_spike", "no_action"), STEPS[:3], "Dismissed", None))  # fmt: skip
+        self.assertIsNone(
+            metrics.flatten(bare)[0][0]["alertname"]
+        )  # no alert in the bundle
+
+    def test_an_alternative_counts_only_for_its_alert(self):
+        rows = self.rows(
+            (
+                "a",
+                "NexusCpuAnomaly",
+                "cpu_saturation",
+            ),  # right: the alternative's alert
+            ("b", "NexusCpuAnomaly", "traffic_spike"),  # right: the scenario's class
+            ("c", "NexusTrafficAnomaly", "cpu_saturation"),  # wrong: not this alert's
+            ("d", None, "cpu_saturation"),  # wrong: no alert, no alternative
+        )
+        d = metrics.diagnosis_accuracy(rows, {"S6": S6_TRUTH})["R3/S6"]
+        self.assertEqual((d["k"], d["n"]), (2, 4))
+
+    def test_accepted_faults(self):
+        self.assertEqual(
+            metrics.accepted_faults(S6_TRUTH, "NexusCpuAnomaly"),
+            ("traffic_spike", "cpu_saturation"),
+        )
+        self.assertEqual(
+            metrics.accepted_faults(S6_TRUTH, "NexusTrafficAnomaly"), ("traffic_spike",)
+        )
+        # a list in fault_class itself: any value counts (bundles.yaml's form)
+        self.assertEqual(
+            metrics.accepted_faults({"fault_class": ["a", "b"]}, None), ("a", "b")
+        )
+
+    def test_the_escalation_metric_accepts_any_listed_kind(self):
+        truth = {
+            "S5": {
+                "fault_class": "dependency_failure",
+                "correct_action": {
+                    "action": "escalate",
+                    "recommendation": ["dependency_investigation", "investigate"],
+                },
+            },
+            "S3": {
+                "fault_class": "bad_rollout",
+                "correct_action": {
+                    "action": "escalate",
+                    "recommendation": "git_revert",
+                },
+            },
+        }
+        rows = [
+            {"reasoner": "R3", "scenario": s, "action_id": a, "escalation_kind": k}
+            for s, a, k in (
+                ("S5", "escalate", "investigate"),
+                ("S5", "escalate", "dependency_investigation"),
+                ("S5", "escalate", "git_revert"),
+                ("S3", "escalate", "git_revert"),
+                ("S3", "escalate", "investigate"),
+                ("S3", "no_action", None),
+            )
+        ]
+        e = metrics.correct_escalation_rate(rows, truth)["R3"]
+        self.assertEqual((e["k"], e["n"]), (3, 6))
+
+
 if __name__ == "__main__":
     unittest.main()

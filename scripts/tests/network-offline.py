@@ -17,12 +17,13 @@ import sys
 import yaml
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "platform/network")
-NAMESPACES = ["nexus-system", "nexus-reasoner", "nexus-dev", "nexus-prod", "nexus-data", "nexus-load"]
+NAMESPACES = ["nexus-system", "nexus-reasoner", "nexus-dev", "nexus-prod", "nexus-data", "nexus-load", "nexus-bot"]
 # Example addresses only (k3s defaults and the WSL2 node seen at M0); the manifests hardcode none.
 POD_CIDR, SVC_CIDR, NODE_IP = "10.42.0.0/16", "10.43.0.0/16", "172.19.233.100"
 
 policies = []
-for f in sorted(ROOT.glob("*.yaml")):
+# The top-level files and one level of subdirectories (nexus-bot/, ADR-040), as kustomization.yaml lists them.
+for f in sorted([*ROOT.glob("*.yaml"), *ROOT.glob("*/*.yaml")]):
     if f.name == "kustomization.yaml":
         continue
     policies += [d for d in yaml.safe_load_all(f.read_text()) if d]
@@ -99,6 +100,7 @@ locust_w = Pod("nexus-load", {"app.kubernetes.io/name": "locust", "app.kubernete
 prom = Pod("monitoring", {"app.kubernetes.io/name": "prometheus"}, "10.42.0.60")
 grafana = Pod("monitoring", {"app.kubernetes.io/name": "grafana"}, "10.42.0.61")
 intruder = Pod("nexus-load", {"app.kubernetes.io/name": "other"}, "10.42.0.99")
+bot = Pod("nexus-bot", {"app.kubernetes.io/name": "nexus-bot"}, "10.42.0.70")
 svc_ip = str(next(ipaddress.ip_network(SVC_CIDR).hosts()))  # 10.43.0.1, kubernetes.default.svc
 
 checks = [
@@ -133,6 +135,18 @@ checks = [
     ("operator -> API server (service IP):443", connect_ext(operator, svc_ip, 443), True),
     ("operator -> API server (node IP):6443", connect_ext(operator, NODE_IP, 6443), True),
     ("operator -> public host:443", connect_ext(operator, "203.0.113.10", 443), False),
+    # The Telegram bot (ADR-040 decision 2, stated limit 6): outbound only, to the API server and public 443.
+    ("bot -> API server (service IP):443", connect_ext(bot, svc_ip, 443), True),
+    ("bot -> API server (node IP):6443", connect_ext(bot, NODE_IP, 6443), True),
+    ("bot -> public host:443 (api.telegram.org)", connect_ext(bot, "149.154.167.220", 443), True),
+    ("bot -> public host:80", connect_ext(bot, "149.154.167.220", 80), False),
+    ("bot -> node IP:443", connect_ext(bot, NODE_IP, 443), False),
+    ("bot -> Reasoner:8080", connect(bot, reasoner, 8080), False),
+    ("bot -> operator:8080", connect(bot, operator, 8080), False),
+    ("bot -> Flight Recorder DB:5432", connect(bot, frdb, 5432), False),
+    ("bot -> sample-api:8000", connect(bot, api_prod, 8000), False),
+    ("operator -> bot:8080", connect(operator, bot, 8080), False),
+    ("Prometheus -> bot:8080", connect(prom, bot, 8080), False),
 ]
 for label, got, want in checks:
     if got != want:
@@ -147,7 +161,7 @@ for ns in NAMESPACES:
         err(f"{ns}: no default-deny for Ingress and Egress")
 
 # The Reasoner's egress must not name the cluster, and the node IP must not be hardcoded.
-if NODE_IP in (ROOT / "reasoner.yaml").read_text() + (ROOT / "system.yaml").read_text():
+if NODE_IP in "".join((ROOT / f).read_text() for f in ("reasoner.yaml", "system.yaml", "nexus-bot/nexus-bot.yaml")):
     err("a manifest hardcodes the node IP")
 
 if errors:

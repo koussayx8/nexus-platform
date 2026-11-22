@@ -13,12 +13,15 @@ import urllib.parse
 from .. import batch, metrics, precheck, runner
 
 REF = "G16/pre-registration#approval-1"
+BASELINE_REF = (
+    "0123456789abcdef0123456789abcdef01234567"  # the dev-state commit a reset restores
+)
 # Targets, caps and tiers are G16 configuration; these are test values (Tier 1 = a small target).
 CELLS = [
     {"cell": "C1/S1/L3", "scenario": "S1", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
     {"cell": "C1/S4/L3", "scenario": "S4", "reasoner": "R1", "level": 3,
-     "tier": 1, "valid_target": 4, "max_attempts": 6},
+     "tier": 1, "valid_target": 4, "max_attempts": 6, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 INDEX_HASH = (
     "ab" * 32
@@ -31,6 +34,8 @@ PRE = {  # the pre-registration's clean baseline (a stddev per signal); the rest
     "reasoner": {"expected_index_hash": INDEX_HASH},
 }  # fmt: skip
 UNIT = pathlib.Path(__file__).resolve().parents[1] / "systemd" / "nexus-batch.service"
+# FakeCluster.bundle_z: no Flight Recorder row / the read fails
+ABSENT, FAIL = object(), object()
 
 
 class FakeClock:
@@ -350,6 +355,7 @@ class TierTest(Base):
             "cell": n,
             "scenario": "S1",
             "reasoner": "R1",
+            "baseline_ref": BASELINE_REF,
             "level": 3,
             **kw,
         }
@@ -420,7 +426,8 @@ class TierTest(Base):
 
     def test_targets_caps_and_tiers_are_required_configuration(self):
         with tempfile.TemporaryDirectory() as d:
-            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3}
+            base = {"cell": "x", "scenario": "S1", "reasoner": "R1", "level": 3,
+                    "baseline_ref": BASELINE_REF}  # fmt: skip
             bad = [
                 base,  # no tier, target or cap
                 {**base, "tier": 1, "valid_target": 5},  # no cap
@@ -665,6 +672,9 @@ class FakeCluster:
         self.false_alarm_after = None  # an Incident appears (and ends) this many reads in, before any injection
         self.detected_at = None  # spec.detectedAt of the injected fault's Incident, set when it appears
         self.operator_config = {}  # nexus-operator-config data, as the reset's patches leave it
+        # The run's Incident's status.evidence.bundleHash (None: not written) and that bundle's
+        # metrics.zscores.latencyP95 in the Flight Recorder; ABSENT: no row, FAIL: the read fails.
+        self.bundle_hash, self.bundle_z = "sha256:" + "c" * 64, 0.4
         self.images = {  # the image of each Deployment's container; None: the read fails
             "nexus-operator": f"ghcr.io/x/nexus-operator@sha256:{'a' * 64}",
             "nexus-reasoner": f"ghcr.io/x/nexus-reasoner@sha256:{'b' * 64}",
@@ -723,6 +733,13 @@ class FakeCluster:
         line = " ".join(argv)
         if "nexus-operator-config" in argv and "patch" in argv:
             self.operator_config.update(json.loads(argv[argv.index("-p") + 1])["data"])
+        # the S6 void rule's bundle read (psql -A -t)
+        if "flight-recorder-db-0" in argv:
+            if self.bundle_z is FAIL:
+                return 1, ""
+            if self.bundle_z is ABSENT or self.bundle_hash not in argv[-1]:
+                return 0, "\n"
+            return 0, json.dumps({"found": True, "z": self.bundle_z}) + "\n"
         if "--raw" in argv and "/proxy/healthz" in argv[-1]:
             return (
                 (0, json.dumps(self.reasoner)) if self.reasoner is not None else (1, "")
@@ -801,7 +818,8 @@ class FakeCluster:
                 items.append({"metadata": {"uid": "new", "name": "inc-new", "creationTimestamp": self.detected_at},
                               "spec": {"source": {"alertname": "NexusLatencyAnomaly"}, "detectedAt": self.detected_at,
                                        "target": {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}},
-                              "status": {"phase": phase, "reasoner": self.reasoner_status()}})  # fmt: skip
+                              "status": {"phase": phase, "reasoner": self.reasoner_status(),
+                                         **({"evidence": {"bundleHash": self.bundle_hash}} if self.bundle_hash else {})}})  # fmt: skip
             return 0, json.dumps({"items": items})
         if any("sync.status" in a for a in argv):
             return 0, self.synced
@@ -1491,7 +1509,8 @@ class LiveRunTest(Base):
     def test_an_incident_still_open_at_the_end_of_the_wait_is_a_failed_run_not_a_discard(
         self,
     ):
-        c = FakeCluster(self.ft, phases=("Executing",))
+        # open through the 20 s wait (five reads), Resolved during the settle that follows
+        c = FakeCluster(self.ft, phases=("Executing",) * 6 + ("Resolved",))
         live = self.live(c)
         live.wait_s = 20
         self.drive(live, max_runs=1)
@@ -1501,6 +1520,8 @@ class LiveRunTest(Base):
         self.assertEqual(
             (r["incident"]["uid"], r["incident"]["phase"]), ("new", "Executing")
         )
+        # the later phase is on the settle record only; the measurement ended at wait_s
+        self.assertEqual(r["settle"]["incidents"][0]["phase"], "Resolved")
 
     def test_a_run_whose_incident_ended_is_not_marked_timed_out(self):
         self.drive(self.live(FakeCluster(self.ft)), max_runs=1)

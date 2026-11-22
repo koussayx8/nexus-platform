@@ -1,0 +1,37 @@
+🟠 Approval needed
+Incident: inc-6695…2289
+Target: nexus-dev/sample-api
+Level: L2
+Reason: proposed_escalation
+Action: scale_deployment
+Parameters: replicas=4
+Hash: sha256:14f167…839f5e
+Gate: requires_approval
+Detected: 09:56 UTC
+Approve pins this action, these parameters and this hash for at most 15 minutes (Kyverno K5).
+
+Model text: untrusted, never a decision
+Proposal
+Fault class: cpu_saturation
+Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)
+
+=== entities (type offset length: covered text) ===
+bold 0 18: "🟠 Approval needed"
+bold 19 9: "Incident:"
+bold 43 7: "Target:"
+bold 72 6: "Level:"
+bold 82 7: "Reason:"
+bold 110 7: "Action:"
+bold 135 11: "Parameters:"
+bold 158 5: "Hash:"
+bold 185 5: "Gate:"
+bold 209 9: "Detected:"
+italic 229 93: "Approve pins this action, these parameters and this hash for at most 15 minutes (Kyverno K5)."
+blockquote 324 168: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)"
+bold 324 39: "Model text: untrusted, never a decision"
+italic 364 8: "Proposal"
+bold 373 12: "Fault class:"
+bold 401 11: "Hypothesis:"
+
+=== buttons ===
+Approve [a:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6] | Reject [r:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6] | Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6]
