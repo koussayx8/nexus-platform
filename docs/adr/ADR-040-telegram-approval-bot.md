@@ -483,7 +483,7 @@ text. The AwaitingApproval push (its text, entities, buttons and callback payloa
 | `/status` | 📦 Pods and 🗂 Incidents buttons, each opening a new message |
 
 UNVERIFIED (offline only, no live Telegram in this change): how the official clients draw a `text_link`
-inside a `pre`-free line and a `pre` block on a narrow phone, and whether 36 characters fit without
+and a `pre` block on a narrow phone, and whether 36 characters fit without
 wrapping in the default font. Settled by the next live deployment.
 
 ## Consequences
