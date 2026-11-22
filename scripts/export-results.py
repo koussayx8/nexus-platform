@@ -42,7 +42,9 @@ The injection time is the queue record's `injection_at` (for S3 Argo CD's deploy
 
 Writes, then reconciles (scripts/reconcile-audit.py) and seals:
   run.json           the `runs` row (spec §14) + the queue record + the cell + the injection time +
-                     `other_incidents` + `score`, the run's derived values (docs/plans/m4-metrics.md):
+                     `void_reason` and `prod_alerts` (batch.py's host_disturbance rule: every NEXUS
+                     alert on nexus-prod in the measurement, pending or firing; null when not
+                     recorded) + `other_incidents` + `score`, the run's derived values (docs/plans/m4-metrics.md):
                      the class of the arm's proposal and of every admitted mutation, wrong action,
                      failed fix, times, the fallback cause, refusals by layer, the frozen-values check
   tables.json       the run's Flight Recorder rows            (valid runs)
@@ -441,6 +443,10 @@ def export(
         "run": run,
         "queue_record": rec,
         "injection_at": rec.get("injection_at"),
+        # the host_disturbance rule (batch.py): a void reason of its own, and nexus-prod's alerts
+        # in the measurement, kept so that `make results` can report a pending-or-firing rule
+        "void_reason": rec.get("void_reason"),
+        "prod_alerts": rec.get("prod_alerts"),
         "fixture": fixture,
     }
     files = ["run.json"]

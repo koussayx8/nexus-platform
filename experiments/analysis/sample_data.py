@@ -334,6 +334,8 @@ def generate(out: pathlib.Path) -> None:
                        "approval_ref": "G16/fixture#approval-0", "started_at": iso(t0), "ended_at": iso(t0 + datetime.timedelta(minutes=20)),
                        "boot_id_start": "boot-A", "boot_id_end": "boot-A", "pause_gap_s": 0.0, "void_reason": None,
                        "discard_reason": None, "fallbackUsed": False, "terminal": None}  # fmt: skip
+                # prod_alerts is recorded only for a run that injected (batch.py)
+                rec["prod_alerts"] = None
                 if kind == "discarded":
                     rec["discard_reason"] = "precheck_timeout"
                 elif kind == "void":
@@ -347,6 +349,13 @@ def generate(out: pathlib.Path) -> None:
                     )
                     rec |= extra
                     rec["status"] = "valid"
+                    # one valid run saw a pending-only nexus-prod alert: valid under the firing
+                    # rule, void under a pending-or-firing one (T19)
+                    rec["prod_alerts"] = (
+                        [{"alertname": "NexusCpuAnomaly", "state": "pending"}]
+                        if (a, s, reps) == ("R1", "S1", 2)
+                        else []
+                    )
                     (tmp / f"in{n}").mkdir()
                     (tmp / f"in{n}" / "tables.json").write_text(json.dumps(tables))
                     (tmp / f"in{n}" / "metrics.json").write_text(
