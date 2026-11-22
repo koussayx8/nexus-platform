@@ -29,6 +29,19 @@
           "text": "All",
           "value": "All"
         }
+      },
+      {
+        "name": "incident",
+        "label": "Incident",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "nexus-flight-recorder"
+        },
+        "query": "SELECT to_char(detected_at, 'YYYY-MM-DD HH24:MI:SS TZ') || ' ' || target || ' ' || coalesce(terminal_phase, '(open)') AS __text, incident_uid AS __value FROM (SELECT detected_at, target, terminal_phase, incident_uid FROM incidents ORDER BY detected_at DESC LIMIT 50) latest ORDER BY detected_at DESC",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false
       }
     ]
   },
@@ -454,8 +467,8 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Tokens per day per model_id (Groq 200K/day line)",
-      "description": "totalTokens (or prompt + completion) summed per UTC day and model, over all runs: the provider's daily limit counts every call, so the Run variable is not applied. The red line is 200,000 tokens per day.",
+      "title": "Tokens per day per model_id",
+      "description": "totalTokens (or prompt + completion) summed per UTC day and model, over all runs: a provider's daily quota counts every call, so the Run variable is not applied. No limit line is drawn: the models are on NVIDIA NIM (ADR-045) and no per-day limit is recorded here.",
       "datasource": {
         "type": "postgres",
         "uid": "nexus-flight-recorder"
@@ -471,23 +484,7 @@
           "unit": "short",
           "custom": {
             "drawStyle": "bars",
-            "fillOpacity": 60,
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 200000
-              }
-            ]
+            "fillOpacity": 60
           }
         },
         "overrides": []
@@ -670,6 +667,475 @@
           "rawQuery": true,
           "editorMode": "code",
           "rawSql": "SELECT i.detected_at AS \"time\", i.target, coalesce(p.model_id, '-') AS model,\n  coalesce(left(p.parsed_proposal #>> '{escalation,reason}', 300), '-') AS reason,\n  coalesce(left(p.parsed_proposal #>> '{escalation,suggestedChange}', 1000), '-') AS suggested_change,\n  coalesce(left(p.parsed_proposal #>> '{escalation,runbookGap}', 500), '-') AS runbook_gap\nFROM proposals p JOIN incidents i USING (incident_uid)\nWHERE p.parsed_proposal #>> '{action,id}' = 'escalate'\n  AND (p.parsed_proposal #>> '{escalation,suggestedChange}' IS NOT NULL\n       OR p.parsed_proposal #>> '{escalation,runbookGap}' IS NOT NULL)\n  AND $__timeFilter(i.detected_at) AND ('${run}' = 'All' OR i.run_id = '${run}')\nORDER BY i.detected_at DESC\nLIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Incident detail",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Transitions (selected Incident)",
+      "description": "Every transition of the Incident chosen in the Incident variable, in order.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 76
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT t.seq, t.at, t.from_phase AS \"from\", t.to_phase AS \"to\", t.stage, t.reason\nFROM transitions t\nWHERE t.incident_uid = '${incident}'\nORDER BY t.seq"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "Gate decisions (selected Incident)",
+      "description": "One row per gate stage (spec \u00a79) for the selected Incident; detail is the recorded JSON.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 76
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "detail"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 600
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT g.stage, g.verdict, g.at, g.detail::text AS detail\nFROM gate_decisions g\nWHERE g.incident_uid = '${incident}'\nORDER BY g.stage"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Proposals (selected Incident): model, prompt, chunks, latency, parsed proposal",
+      "description": "One row per proposals row of the Incident: a Reasoner call, and the R1 fallback row after a failed call. chunks: retrieved_chunk_ids. parsed_proposal is untrusted model output, shown as received (plain text, never used for a decision).",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parsed_proposal"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 700
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "chunks"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT p.reasoner_mode AS mode, coalesce(p.model_id, '-') AS model, coalesce(p.prompt_version, '-') AS prompt,\n  coalesce(array_to_string(p.retrieved_chunk_ids, ', '), '') AS chunks,\n  p.latency_ms, p.schema_valid, p.fallback_used, coalesce(p.reject_reason, '') AS reject_reason,\n  coalesce(p.parsed_proposal::text, '-') AS parsed_proposal\nFROM proposals p\nWHERE p.incident_uid = '${incident}'\nORDER BY p.fallback_used, p.proposal_hash"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Reasoning (selected Incident, in full, one row per line)",
+      "description": "proposals.reasoning of the selected Incident, uncut: the model's thinking trace as received (untrusted model text, plain text, never used for a decision; ADR-035 addendum C). One row per line, in order, so a long trace is not clipped by the row height; text wraps, and a cell can be opened in full from the cell inspector. call: the proposals row (model / mode). No rows when the call recorded no trace. Read through to_jsonb, so the query runs before the column exists.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 92
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "text"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 1400
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "line"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT p.model_id AS model, p.reasoner_mode AS mode, l.n AS line, l.text\nFROM proposals p\nCROSS JOIN LATERAL regexp_split_to_table(to_jsonb(p) ->> 'reasoning', E'\\n') WITH ORDINALITY AS l(text, n)\nWHERE p.incident_uid = '${incident}' AND to_jsonb(p) ->> 'reasoning' IS NOT NULL\nORDER BY p.fallback_used, p.proposal_hash, l.n"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "Actions (selected Incident, with Audit-Id)",
+      "description": "One row per action. The row exists before the request (write-ahead); audit_id joins it to the API Audit Log.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 106
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parameters"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 500
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT a.intent_at, a.request_at, a.action_id, a.action_class, a.parameters::text AS parameters, a.http_status, a.result, a.audit_id\nFROM actions a\nWHERE a.incident_uid = '${incident}'\nORDER BY a.intent_at"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Verification observations (selected Incident)",
+      "description": "One row per verification criterion for the selected Incident; observations is the recorded JSON.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 14,
+        "x": 0,
+        "y": 112
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observations"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 700
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT v.at, v.criteria_id, v.result, v.observations::text AS observations\nFROM verifications v\nWHERE v.incident_uid = '${incident}'\nORDER BY v.at, v.criteria_id"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Evidence metrics.zscores (selected Incident)",
+      "description": "metrics.zscores of the Incident's evidence bundle (one block per bundle, newest first). A Z-score the collector could not compute is empty.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "nexus-flight-recorder"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 14,
+        "y": 112
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "nexus-flight-recorder"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT b.collected_at, z.key AS zscore,\n  CASE WHEN jsonb_typeof(z.value) = 'number' THEN (z.value)::numeric END AS value\nFROM evidence_bundles b\nCROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(b.content #> '{metrics,zscores}') = 'object' THEN b.content #> '{metrics,zscores}' ELSE '{}'::jsonb END) AS z(key, value)\nWHERE b.incident_uid = '${incident}'\nORDER BY b.collected_at DESC, z.key"
         }
       ]
     }
