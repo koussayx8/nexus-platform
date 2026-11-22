@@ -2,7 +2,7 @@
 # image carries three packages that live elsewhere in the repository (one copy of each, taken at
 # build time):
 #   libs/nexus-client/src/nexus_client     the Incident model, approval pinning, Kubernetes access
-#   nexusctl/src/nexusctl/render           the renderer (standard library only; ADR-040 decision 11)
+#   nexusctl/src/nexusctl/render           sanitize and the instruction heuristic (standard library only; ADR-040 decision 11)
 #   libs/nexus-revert/nexus_revert         C8, the revert pull request (ADR-041; PyYAML and the renderer)
 # and the system git, which C8 runs (no recommended packages; the base's ca-certificates serve https).
 # Runs as UID 10001; its only writes are C8's scratch clones under /tmp, an emptyDir, so the

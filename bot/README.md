@@ -11,7 +11,8 @@ write exactly as they decide a `nexusctl approve`.
 | Sender check: allowlisted numeric user ID, private chat only, `chat.id == from.id` | built |
 | Pushes for `AwaitingApproval`, `Escalated`, `Resolved`, `Blocked` (one per Incident and phase; after a restart, every pending `AwaitingApproval` again, older news only within `catchUpMinutes`; the rest is in `/status`) | built |
 | Buttons Approve, Reject, Explain (payload `<a\|r\|e>:<uid16>:<hash32>`, 51 bytes) | built |
-| `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>` | built, read-only |
+| `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>`; `/pods` alone offers the two namespaces as buttons (`p:<ns>`), `/incident` alone the 5 most recent Incidents (`i:<uid16>`); the command menu is set at start (`setMyCommands`) | built, read-only |
+| Messages laid out for a phone: plain text plus entities the bot computes (`richtext.py`), never a `parse_mode`; model and log text literal, inside blockquotes (ADR-040 decision 11, amended 2026-11-22) | built |
 | Note, `/ask` | Block 8 (a Note press answers "not available") |
 | C8, the revert pull request (ADR-041; `libs/nexus-revert`): a third loop, `Service.tick` every 30 s; its results in the chat | built (Block 6), **on only when `revert.yaml` and the GitHub token file are both present**; otherwise one log line `C8 off: …` |
 | Image (`bot/Dockerfile`, hashed `requirements.txt`), CI build, Trivy scan, Cosign signing, digest-bump PR (`.github/workflows/bot.yml`) | built; the first image is pushed when this merges to `main` |
@@ -31,6 +32,28 @@ write exactly as they decide a `nexusctl approve`.
    `nexus-approvers` (`Impersonate-User`, `Impersonate-Group`). K5 stamps `approvedBy` from that identity.
 7. Re-read and report `approved by <approvedBy> at <approvedAt>`, the pinned hash and the Audit-Id; the
    buttons are removed. A stale, repeated or refused press writes nothing and says why.
+
+## Messages (ADR-040 decision 11, amended 2026-11-22)
+
+No `parse_mode` is ever sent, so Telegram parses nothing. A message is plain text plus `entities`
+that `nexus_bot/richtext.py` computes, offsets in UTF-16 units:
+
+- bold for the bot's own titles and labels, italic for its notes, `code` only over a full Incident
+  name or `sha256:` hash (Explain, tap to copy);
+- untrusted text (the model's fault class, hypothesis, escalation suggestion and reasoning; error text;
+  C8's line) is `sanitize`d, literal, and only inside a blockquote, with no entity of its own; Explain
+  puts the proposal and the reasoning in expandable blockquotes titled "Model text: untrusted, never a
+  decision" and marks instruction-like text ⚠️;
+- what K5 binds (target, action, parameters, hash) and the level are facts above the model text;
+- titles carry the phase's icon: 🟠 approval needed, ⏳ in progress, 🟢 Resolved, 🔴 Escalated,
+  ⚪ Dismissed, Rejected, Expired, Recorded, Recommended, ⛔ Blocked;
+- pushes, lists and replies shorten hashes and names (`sha256:14f167…839f5e`, `inc-6695…2289`);
+  Explain shows them in full; times are `HH:MM UTC`;
+- over 4,096 UTF-16 units, the start is kept with every entity inside it, then
+  `(truncated: N of M characters; the full text is in the Flight Recorder)`.
+
+The rendered text and entities of every message are snapshots in `tests/snapshots/`
+(`export NEXUS_BOT_UPDATE_SNAPSHOTS=1 && pytest -q tests/test_messages.py` regenerates them).
 
 ## Configuration
 
@@ -52,7 +75,9 @@ C8 (ADR-041) reads `/etc/nexus-bot/revert.yaml`, the `revert.yaml` key of the sa
 (`NEXUS_REVERT_TOKEN_FILE`), Secret `nexus-bot-github`, mounted **optional**: without it the bot runs
 with C8 off. C8's scratch clones go to `/tmp`, an `emptyDir` (64 Mi); the root filesystem is read-only.
 
-What C8 sends to the chat, prefixed `C8 revert: ` (plain text, through `sanitize`; also in the log):
+What C8 sends to the chat: a title the bot picks from C8's fixed wording at the start of the line
+(🟠 C8: revert PR opened, ⛔ C8: no revert PR, 🟢 C8: revert PR merged, …), the Incident, and the
+line itself, through `sanitize`, in a blockquote. The log gets the line prefixed `C8 revert: `:
 
 | Line | When |
 | --- | --- |
