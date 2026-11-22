@@ -48,8 +48,15 @@ live scenarios × 2 × advisory checks on and off) is corrected by D27.
 The suite runs after #233's must-fix items 2–5 (L2 compensation, K3 cells, `nexus-baseline`, request shapes), a
 separate change due on 2026-11-17 (Q10). With C4 cut, the `nexus-baseline` cells stay offline only (spec v1.1, F14).
 
-**TODO (Q6), from the calibration and the Block 5 trial runs, before the freeze:** `clean_stddev` per signal; S3's
-patch and `baseline_ref`. S4/S6's load is decided: 170 users (§9).
+**The batch's approval reference** for the whole batch of runner mutations (injections, resets, the `advisoryChecks`
+and arm patches, the pushes to `experiment/dev-state`) is `G16-v0.6.0-2026-11-23` (owner, 2026-11-22). **Attempt caps:**
+`D/R0` is 10 valid runs and at most 15 attempts (the outline's pre-registration); every other cell keeps Q2's 10.
+
+**TODO (Q6):** `clean_stddev` per signal, from the 6-hour idle test of 2026-11-22 (§10; the method is in
+[`block10-runsheet.md`](block10-runsheet.md)); the values are recorded here once read. Decided: `baseline_ref` is
+`5839f65d4b711ca9cba9efadcf968d8c9ef587b0` (`experiment/dev-state` after the freeze forward merge, its tree equal to
+`main` at `c8a3635`; owner, 2026-11-22); S3's patch is `experiments/faults/s3-bad-rollout.patch`; S4/S6's load is 170
+users (§9).
 
 ## 3. Run order
 
@@ -126,8 +133,9 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   that overlaps such work is void and is repeated. The batch cannot see it: no code checks this rule, the owner and
   any session working on the repository keep it.
 - **After the run, not in the batch (V9):** the audit join must be complete (1.0) and clean, or the run is
-  excluded (`not_reconciled`) and re-run in Block 12. Export within 24 h: the audit log kept about 2.2 days at idle
-  (ADR-019 addendum).
+  excluded (`not_reconciled`) and re-run in Block 12. Export each morning (owner, 2026-11-22): the owner exports the
+  k3s audit log every morning, the log having kept about 2.2 days at idle (ADR-019 addendum; the command is in
+  [`block10-runsheet.md`](block10-runsheet.md)).
 - **Fallbacks (Q7):** a fallback to R1 leaves the run valid in the queue. One the model caused (unparseable or
   invalid output) counts against the arm. One the provider caused (429, 5xx, timeout) is reported apart, kept out of
   the arm's rates, and re-run in Block 12.
@@ -200,7 +208,7 @@ no fallback; live prompts were 2,861 to 13,455 tokens (`prompt/v3`, budget 16,00
 
 | Use | Calls | Rule |
 |---|---|---|
-| Live R3 | 1 per Incident raised while an R3 cell is set, false alarms included: plan 3 per attempt | First on R3's budget. At most 20 R3 attempts a day (the plan's own cap, from the Groq plan; **UNVERIFIED** for NIM); the owner stops the queue, the batch counts no calls |
+| Live R3 | 1 per Incident raised while an R3 cell is set, false alarms included: plan 3 per attempt | First on R3's budget. **No daily cap** (owner, 2026-11-22): the "at most 20 R3 attempts a day" came from the Groq plan, nothing enforced it, and NIM's own limit is not recorded. A provider call that fails is covered by the fallback and void rules (§5, Q7); the owner watches the number of live R3 calls that end in a 429 (provider-caused fallbacks in the run records, the Reasoner's log) and stops the queue by hand if they pile up |
 | Replay R3 | bundles × 4 levels | Only what the day's live runs leave of the daily budget, once that is known |
 | Replay R2 | bundles × 4 levels, `r2-primary` | Its own budget, once known; the pace of the bake-off, at most 40 starts a minute |
 
