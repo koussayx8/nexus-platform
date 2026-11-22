@@ -677,7 +677,7 @@ def build(
         if use_mpl:
             missing.append(
                 "matplotlib is not installed: F1-F3 are the standard-library SVGs, no PNG, no F4 or F5 "
-                "(pip install --only-binary=:all: -r experiments/analysis/requirements.txt)"
+                "(pip install --only-binary=:all: --require-hashes -r experiments/analysis/requirements.txt)"
             )
     summary = {
         "fixture": fixture,
