@@ -297,7 +297,8 @@ def generate(out: pathlib.Path) -> None:
     (out / "ground-truth.json").parent.mkdir(parents=True, exist_ok=True)
     gt = out / "ground-truth.json"
     gt.write_text(json.dumps(TRUTH_DOC, indent=1, sort_keys=True) + "\n")
-    cells = [{"cell": f"A/{a}/{s}/L3", "scenario": s, "reasoner": a, "level": 3, "tier": 1, "valid_target": 2, "max_attempts": 4}
+    cells = [{"cell": f"A/{a}/{s}/L3", "scenario": s, "reasoner": a, "level": 3, "tier": 1, "valid_target": 2, "max_attempts": 4,
+              "baseline_ref": "0123456789abcdef0123456789abcdef01234567"}
              for a in ARMS for s in SCENARIOS]  # fmt: skip
     pre = {"clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
            "locust": {"baseline_users": 160, "baseline_rps_per_namespace": 80}, "reasoner": {"expected_index_hash": "ab" * 32}}  # fmt: skip

@@ -52,3 +52,17 @@ metadata:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted
+---
+# The Telegram bot's own namespace (ADR-040 decisions 1 and 6; B1: the tenth namespace). The
+# approver credential (this namespace's ServiceAccount token) is never mounted in nexus-system.
+# Declared here, not in bot/k8s, so the bot's NetworkPolicies and the Secret script find it before
+# the nexus-bot Application syncs. No autonomy level: nothing is remediated in it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexus-bot
+  labels:
+    app.kubernetes.io/part-of: nexus-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

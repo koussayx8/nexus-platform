@@ -32,9 +32,12 @@ bundles:
     incident: inc-8419006b8da738fc-1795121529
     incident_uid: fd17a90a-3848-4627-b455-e2c74bea6cc7
     source: ~/nexus-evidence/block5-2026-11-19/S5-RECORD.md
-    # Corrected after round 3: either kind. This bundle retrieves no runbook chunk (the BM25 query
-    # is built from the metric z-scores, not the log text), so the model cannot know which of the
-    # two escalate-for-investigation kinds a runbook would name; both send the same thing to a human.
+    # Corrected after round 3: either kind. This bundle retrieves no runbook chunk: the BM25 query
+    # adds up to ten log tokens, but only error-type words (containing error, fail, refused, timeout,
+    # denied or oom; bm25.build_query): generic words such as error or failed get in, the words that
+    # name the fault do not (here role, permitted, log in; for N3 and N4 name resolution, certificate,
+    # expired). So the model cannot know which of the two escalate-for-investigation kinds a runbook would name; both send
+    # the same thing to a human.
     truth: {action: escalate, kind: [dependency_investigation, investigate], fault_class: dependency_failure}
     recorded: {chunks: [], estimate: 3949, trim_level: 3, prompt_tokens: 3550}
 

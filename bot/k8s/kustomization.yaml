@@ -1,0 +1,11 @@
+# The Telegram bot (ADR-040): ServiceAccount, configuration and Deployment, deployed by the
+# nexus-bot Application (platform/argocd/applications/nexus-bot.yaml). The namespace nexus-bot is
+# declared by the platform Application (platform/namespaces), with the bot's RBAC
+# (platform/rbac/nexus-bot/) and NetworkPolicies (platform/network/nexus-bot/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml

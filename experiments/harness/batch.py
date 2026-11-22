@@ -70,6 +70,19 @@ What it adds to runner.py (which plans and executes single operations):
   that did not finish, never a discard. The wait ran out with no Incident of the run's own:
   discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
   not go in.
+* The settle before the next reset (protocol #234 §5, 2026-11-21, as trials-2026-11-21/chain.sh
+  did). A reset during verification restarts the pods and fails it (#302), so after the measurement
+  above, and before any run that injected returns (valid, void or discarded), every Incident created
+  since the injection snapshot on the run's target (the counted one and every later one) must be
+  terminal, with the set and its phases unchanged, for SETTLE_S (60 s). The measurement is not
+  changed by it: an Incident still open at wait_s stays `timed_out`, and its later phase is on the
+  record (`settle`). At SETTLE_CAP_S (1,800 s) after the injection the run is void
+  (`incidents_not_terminal_at_settle_cap`) and the batch halts, so no reset follows it blindly: the
+  owner checks the Incidents and resets by hand.
+* C8 is refused (`init`, and `run` for a queue made before): a cell with `C8` as a segment of its id
+  or as its `phase` or `config`. A C8 run is not reset at Escalated (ADR-041 limit 7): the owner's
+  merge of the revert pull request is the fix, and the batch's next reset would come first. C8 runs
+  are attended, outside the batch.
 * The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
   operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
   index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
@@ -78,6 +91,14 @@ What it adds to runner.py (which plans and executes single operations):
   push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
   Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
   that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
+* The S6 void rule (pre-registered on #285, experiments/ground-truth.json scenarios.S6.void_if):
+  an S6 run whose run's Incident (the counted one, above) has an evidence bundle with
+  metrics.zscores.latencyP95 > 3 is void (`s6_latency_p95_z_above_3`) and the cell requeues it.
+  status.evidence does not carry the Z-scores, so the bundle is read from the Flight Recorder by
+  status.evidence.bundleHash (read-only: psql as nexus_reader in flight-recorder-db-0, as
+  scripts/fr-export.sh does). A Z that cannot be read (no bundleHash, no row, null, not a number,
+  the read fails) is never taken as valid: the run is void (`s6_latency_p95_z_unknown`). What was
+  read is on the run record (`s6_void_check`). Other scenarios are never read or voided by it.
 
 Mutations: nothing mutates without --execute AND an approval reference. The reference is the one
 the pre-registration (G16) names for the whole batch; `init` stores it, `run` must be given the same
@@ -94,6 +115,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -116,6 +138,34 @@ RAMP_MARGIN_S = 30
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,127}$")
 STATUSES = ("running", "valid", "void", "discarded")
 
+# The S6 void rule, as #285 pre-registers it (scenarios.S6.void_if.condition, quoted in
+# S6_VOID_CONDITION). Hard-coded until #285 merges at the Block 9 freeze: its condition is prose,
+# so there is no field to read; tests pin these values to the quoted wording and, once the file is
+# on the branch, to the file itself.
+S6_VOID_SCENARIO = "S6"
+S6_VOID_SIGNAL = "latencyP95"
+S6_VOID_Z = 3  # strictly above voids: 3.0 itself is valid
+S6_VOID_CONDITION = (
+    "The counted Incident's evidence bundle has metrics.zscores.latencyP95 > 3."
+)
+S6_VOID_ABOVE = "s6_latency_p95_z_above_3"
+S6_VOID_UNKNOWN = "s6_latency_p95_z_unknown"
+# The Flight Recorder, read as scripts/fr-export.sh reads it (nexus_reader: SELECT only).
+FR_NAMESPACE, FR_POD, FR_CONTAINER = (
+    "nexus-system",
+    "flight-recorder-db-0",
+    "flight-recorder-db",
+)
+FR_USER, FR_DB = "nexus_reader", "nexus_recorder"
+# proposal.hash_of's form; the hash goes into SQL, so nothing else is accepted
+BUNDLE_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# The settle before the next reset (protocol #234 §5, 2026-11-21; trials-2026-11-21/chain.sh):
+# every Incident on the target since the injection terminal, and unchanged, for SETTLE_S; at most
+# SETTLE_CAP_S after the injection (chain.sh's 30 min), else the run is void and the batch halts.
+SETTLE_S = 60
+SETTLE_CAP_S = 1800
+SETTLE_CAP_REASON = "incidents_not_terminal_at_settle_cap"
+
 
 class Refused(Exception):
     """The batch will not run: bad queue, bad approval, bad arguments."""
@@ -131,11 +181,12 @@ class StopBatch(Exception):
 
 
 class Voided(Exception):
-    """Raised from inside a run (guard.check) when the timed-run rule is broken."""
+    """Raised from inside a run (guard.check) when the timed-run rule is broken, or by a void rule.
+    halt=True also halts the batch: the next run's reset must not follow (the settle cap)."""
 
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, halt: bool = False):
         super().__init__(reason)
-        self.reason = reason
+        self.reason, self.halt = reason, halt
 
 
 # ---------------------------------------------------------------- clock and the timed-run rule
@@ -190,7 +241,9 @@ def _utc(t: float | None = None) -> str:
 
 
 def validate_cells(cells) -> list[dict]:
-    """Every cell names its scenario, arm, level, tier, valid-run target and attempt cap."""
+    """Every cell names its scenario, arm, level, tier, valid-run target, attempt cap and the
+    `baseline_ref` its reset restores (ADR-047 addendum: one rule for every cell, the runner's
+    reset rule; a commit-ish with no whitespace that cannot read as a git option)."""
     if not isinstance(cells, list) or not cells:
         raise Refused("cells must be a non-empty list")
     ids = [c.get("cell") if isinstance(c, dict) else None for c in cells]
@@ -204,9 +257,18 @@ def validate_cells(cells) -> list[dict]:
             "tier",
             "valid_target",
             "max_attempts",
+            "baseline_ref",
         ):
             if k not in c:
                 raise Refused(f"cell {c['cell']!r} lacks {k!r}")
+        ref = c["baseline_ref"]
+        if not isinstance(ref, str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._/^~-]*", ref
+        ):
+            raise Refused(
+                f"cell {c['cell']!r}: baseline_ref must be the experiment/dev-state commit its "
+                "reset restores (a commit-ish: no whitespace, not starting with '-')"
+            )
         if c["reasoner"] not in arms.ARMS:
             raise Refused(
                 f"cell {c['cell']!r}: reasoner {c['reasoner']!r} is not an arm ({sorted(arms.ARMS)})"
@@ -223,7 +285,29 @@ def validate_cells(cells) -> list[dict]:
             raise Refused(
                 f"cell {c['cell']!r}: advisory_checks off is for phase D only"
             )
+    refuse_c8(cells)
     return cells
+
+
+def is_c8(cell: dict) -> bool:
+    """A C8 cell: `C8` as a segment of its id (C8, C8/R3/S3/L3), or as its phase or config."""
+    segments = str(cell.get("cell", "")).upper().split("/")
+    return "C8" in segments or any(
+        str(cell.get(k, "")).upper() == "C8" for k in ("phase", "config")
+    )
+
+
+def refuse_c8(cells: list[dict]) -> None:
+    """The batch never runs C8 (protocol #234 §5, ADR-041 limit 7): a C8 run ends `Escalated` with
+    the fault still in, and the fix is the owner's merge of the revert pull request. The batch's
+    next reset would come first and make check 5 refuse. C8 runs are attended, outside the batch."""
+    for c in cells:
+        if isinstance(c, dict) and is_c8(c):
+            raise Refused(
+                f"cell {c.get('cell')!r} is a C8 cell: C8 runs are attended, outside the batch "
+                "(a C8 run is not reset at Escalated; the reset follows the owner's merge of the "
+                "revert pull request, ADR-041 limit 7)"
+            )
 
 
 class Queue:
@@ -466,6 +550,7 @@ def drive(
         raise Refused(
             f"the batch is halted ({queue.doc['halt']['reason']}); clear it with clear-halt"
         )
+    refuse_c8(queue.doc["cells"])  # also a queue created before init refused them
     summary = {"recovered": [], "ran": 0, "stopped": None}
     summary["recovered"] = [r["run_id"] for r in queue.recover(clock())]
     max_gap = queue.doc["max_pause_gap_s"]
@@ -495,6 +580,15 @@ def drive(
                 boot_id_end=end["boot_id"],
                 pause_gap_s=pause_gap(guard.start, end),
             )
+            if v.halt:  # void, and no reset follows it: the owner looks first
+                queue.doc["halt"] = {
+                    "reason": v.reason,
+                    "run_id": rec["run_id"],
+                    "at": _utc(),
+                }
+                queue.save()
+                summary["stopped"] = f"halt:{v.reason}"
+                return summary
             continue
         except StopBatch as s:
             end = clock()
@@ -677,6 +771,28 @@ def run_incident(new: list[dict], namespace: str, injected_at) -> dict | None:
     )
 
 
+def s6_void(scenario: str, z) -> str | None:
+    """The S6 void rule's reason for a run of `scenario` whose counted bundle has latencyP95 Z `z`,
+    or None (the rule does not void it). Only S6 is ever voided; for S6 a Z that is not a number
+    is unknown, never valid."""
+    if scenario.upper() != S6_VOID_SCENARIO:
+        return None
+    if not isinstance(z, int | float) or isinstance(z, bool) or math.isnan(z):
+        return S6_VOID_UNKNOWN
+    return S6_VOID_ABOVE if z > S6_VOID_Z else None
+
+
+def bundle_z_sql(bundle_hash: str) -> str:
+    """One row, {"found": true, "z": <the Z or null>}, for the bundle; no row when it is absent."""
+    if not BUNDLE_HASH_RE.match(bundle_hash):
+        raise ValueError(f"not a bundle hash: {bundle_hash!r}")
+    return (
+        "SELECT json_build_object('found', true, 'z', "
+        f"content->'metrics'->'zscores'->'{S6_VOID_SIGNAL}') "
+        f"FROM evidence_bundles WHERE bundle_hash = '{bundle_hash}'"
+    )
+
+
 class LiveRun:
     """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks,
     breakerEpoch and the cell's reasoner arm), wait for Applications, pre-checks, inject, wait for
@@ -695,10 +811,15 @@ class LiveRun:
         monotonic=time.monotonic,
         wall=time.time,
         stat=precheck._file_mtime,
+        settle_s: int = SETTLE_S,
+        settle_cap_s: int = SETTLE_CAP_S,
     ):
+        if settle_cap_s < wait_s + settle_s:
+            raise ValueError("settle_cap_s must be at least wait_s + settle_s")
         self.stat = stat
         self.r, self.cfg = runner, precheck.normalise(precheck_cfg)
         self.wait_s, self.poll_s = wait_s, poll_s
+        self.settle_s, self.settle_cap_s = settle_s, settle_cap_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
         self.recoveries = 0  # consecutive Locust restarts; a successful run resets it
         # True from a load injection (S2, S4, S6) until a reset has touched Locust. A new process
@@ -729,6 +850,82 @@ class LiveRun:
         if rc != 0:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
+
+    def settle(self, rec: dict, before: set, injected_mono: float) -> None:
+        """Hold the next run's reset (protocol #234 §5, 2026-11-21): return only once every Incident
+        created since the injection snapshot (`before`) that targets the run's namespace (the counted
+        one and every later one) is terminal, and the set and its phases have stayed so for settle_s.
+        A reset during verification restarts the pods and fails the check (#302). At settle_cap_s
+        after the injection the run is void and the batch halts (Voided, halt=True): it is never reset
+        blindly. What it saw is on the run record (`settle`). It does not check the guard: a pause
+        here voids the run at drive's end check, after the hold."""
+        start, deadline = self.monotonic(), injected_mono + self.settle_cap_s
+        since, seen, polls = None, None, 0
+        while True:
+            scope = [
+                i for i in self.incidents()
+                if i["metadata"]["uid"] not in before
+                and ((i.get("spec") or {}).get("target") or {}).get("namespace") == self.r.namespace
+            ]  # fmt: skip
+            polls, now = polls + 1, self.monotonic()
+            briefs = sorted(
+                (incident_brief(i) for i in scope), key=lambda b: b["uid"] or ""
+            )
+            state = tuple((b["uid"], b["phase"]) for b in briefs)
+            open_ = [
+                b["name"] or b["uid"]
+                for b in briefs
+                if b["phase"] not in model.TERMINAL_PHASES
+            ]
+            # an open Incident, a new one or a phase change restarts the 60 s
+            if open_ or state != seen:
+                since = None if open_ else now
+            seen = state
+            rec["settle"] = {
+                "settled": False, "settle_s": self.settle_s, "cap_s": self.settle_cap_s,
+                "polls": polls, "waited_s": now - start, "open": open_, "incidents": briefs,
+            }  # fmt: skip
+            if since is not None and now - since >= self.settle_s:
+                rec["settle"]["settled"] = True
+                return
+            if now >= deadline:
+                print(
+                    f"batch: {rec.get('run_id')}: {SETTLE_CAP_REASON}: still open {open_}; the run is "
+                    "void, the batch halts, and NO reset follows: check the Incidents, reset by hand",
+                    file=sys.stderr,
+                )
+                raise Voided(SETTLE_CAP_REASON, halt=True)
+            self.sleep(self.poll_s)
+
+    def bundle_latency_z(self, incident: dict) -> dict:
+        """Read-only: the counted Incident's bundle latencyP95 Z from the Flight Recorder, by
+        status.evidence.bundleHash. {"bundle_hash", "z", "why"}; `why` says why z is None."""
+        ev = (incident.get("status") or {}).get("evidence") or {}
+        h = ev.get("bundleHash")
+        out = {"bundle_hash": h, "z": None, "why": None}
+        if not isinstance(h, str) or not BUNDLE_HASH_RE.match(h):
+            out["why"] = "no_bundle_hash"
+            return out
+        rc, text = self.r.exec(
+            [runner_mod.CLI, "--context", self.r.context, "-n", FR_NAMESPACE, "exec", FR_POD,
+             "-c", FR_CONTAINER, "--", "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t",
+             "-U", FR_USER, "-d", FR_DB, "-c", bundle_z_sql(h)]
+        )  # fmt: skip
+        if rc != 0:
+            out["why"] = "recorder_unreadable"
+            return out
+        try:
+            row = json.loads(text.strip()) if text.strip() else None
+        except ValueError:
+            out["why"] = "recorder_unparsable"
+            return out
+        if not isinstance(row, dict) or not row.get("found"):
+            out["why"] = "no_bundle_row"
+            return out
+        out["z"] = row.get("z")
+        if s6_void(S6_VOID_SCENARIO, out["z"]) == S6_VOID_UNKNOWN:
+            out["why"] = "z_missing" if out["z"] is None else "z_not_a_number"
+        return out
 
     # ---- Locust recovery: restart the baseline swarm when the pre-check finds Locust stopped or off baseline
     def _recovery_conf(self) -> dict | None:
@@ -973,38 +1170,51 @@ class LiveRun:
         if not self.inject(cell, rec, guard):
             return Outcome(False, discard_reason="injection_not_applied")
         injected_at = model.parse_time(rec["injection_at"])
-        deadline = self.monotonic() + self.wait_s
+        injected_mono = self.monotonic()
+        deadline = injected_mono + self.wait_s
         uid, own, ended = None, None, False
-        while True:
-            guard.check()
-            new = [i for i in self.incidents() if i["metadata"]["uid"] not in before]
-            if uid is None:  # once chosen, the run's Incident does not change
-                own = run_incident(new, r.namespace, injected_at)
-                uid = own["metadata"]["uid"] if own else None
-            else:
-                own = next((i for i in new if i["metadata"]["uid"] == uid), None)
-            if own is not None:
-                rec["incident"] = incident_brief(own)
-            rec["other_incidents"] = sorted(
-                (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
-                key=lambda b: b["uid"],
-            )
-            ended = (
-                own is not None
-                and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
-            )
-            if ended or self.monotonic() >= deadline:
-                break
-            self.sleep(self.poll_s)
+        try:
+            while True:
+                guard.check()
+                new = [
+                    i for i in self.incidents() if i["metadata"]["uid"] not in before
+                ]
+                if uid is None:  # once chosen, the run's Incident does not change
+                    own = run_incident(new, r.namespace, injected_at)
+                    uid = own["metadata"]["uid"] if own else None
+                else:
+                    own = next((i for i in new if i["metadata"]["uid"] == uid), None)
+                if own is not None:
+                    rec["incident"] = incident_brief(own)
+                rec["other_incidents"] = sorted(
+                    (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
+                    key=lambda b: b["uid"],
+                )
+                ended = (
+                    own is not None
+                    and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
+                )
+                if ended or self.monotonic() >= deadline:
+                    break
+                self.sleep(self.poll_s)
+        except Voided as v:
+            # a void run is reset too: hold that reset; the reason is kept if the cap voids it again
+            rec["void_before_settle"] = v.reason
+            self.settle(rec, before, injected_mono)
+            raise
+        # The measurement ends here (phase, timed_out, Locust, rate). The end check: Locust must
+        # still be running at the load the run was measured at.
+        why = self.locust_end_failures(cell) if own is not None else []
+        if own is not None:
+            rec["locust_end"] = {"ok": not why, "failures": why}
+            rec["rate_end"] = self.rate_end()
+        # whatever the run counts as, the next run's reset waits for every Incident to settle
+        self.settle(rec, before, injected_mono)
         if own is None:
             # nothing of the run's own to score (or it was deleted under the run: never by the runner)
             return Outcome(
                 False, discard_reason="incident_gone" if uid else "no_incident"
             )
-        # the end check: Locust must still be running at the load the run was measured at
-        why = self.locust_end_failures(cell)
-        rec["locust_end"] = {"ok": not why, "failures": why}
-        rec["rate_end"] = self.rate_end()
         if why:
             raise Voided("locust_end_check")
         st = own.get("status") or {}
@@ -1018,6 +1228,13 @@ class LiveRun:
         rec["arm"]["mismatch"] = arm_mismatch(cell["reasoner"], seen)
         if rec["arm"]["mismatch"]:
             raise StopBatch("arm_mismatch")
+        # the S6 void rule (#285): only S6 reads the bundle; a Z above 3, or none, voids the run
+        if cell["scenario"].upper() == S6_VOID_SCENARIO:
+            check = self.bundle_latency_z(own)
+            check["void_reason"] = s6_void(cell["scenario"], check["z"])
+            rec["s6_void_check"] = check
+            if check["void_reason"]:
+                raise Voided(check["void_reason"])
         # An Incident still open at the end of the wait is a remediation that did not finish: the
         # run counts, with no terminal phase.
         rec["timed_out"] = not ended

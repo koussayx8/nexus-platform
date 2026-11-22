@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
-**Deadline (owner, 2026-11-12):** everything (code, runs, demo, thesis) done before 2027-01-01; target 2026-12-24. The plan is section "Plan to the defense" below; it replaces the dates of the 2026-11-02 re-plan. M2 complete: `v0.4.0` on `1dfd119` (2026-11-11). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
-**Current phase:** Block 0 of the plan to the defense (2026-11-13). The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
+**Deadline (owner, 2026-11-12):** everything (code, runs, demo, thesis) done before 2027-01-01; target 2026-12-24; the technical work and the demo end by 2026-12-05 (D28). The plan is section "Plan to the defense" below; it replaces the dates of the 2026-11-02 re-plan. M2 complete: `v0.4.0` on `1dfd119` (2026-11-11). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
+**Current phase:** Block 9 prep, the freeze (2026-11-22). The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -869,7 +869,7 @@ its outlines stay as the record.
 | D12 | The harness blockers are six: V1, V2, V3, V4, V5 and V19 (#198). Block 4 fixes all six |
 | D13 | #189 goes in Block 4: its reset and fallback move to `GET /stop` (V19), then it merges. #190 stays held (S2 not measured live) |
 | D14 | #169 and #194 are closed: superseded by the Reasoner rebuild after #199 (Block 3) |
-| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only |
+| D15 | C8's PR is opened from a fork owned by a GitHub machine account; its token has no write access to `koussayx8/nexus-platform`. No ruleset change. Block 6 starts with a 10-minute test: can that token push to the fork and open a PR against `experiment/dev-state`? A fine-grained token first; if it cannot open the PR, a classic token with `public_repo` only. Done 2026-11-21: outcome B (ADR-041) |
 | D16 | Replay: real bundles exist only for S1. The R0 replay starts 11-19; the R1–R3 replay runs on S1 first, then on S3, S5 and S6 as the trial runs produce real bundles; synthetic bundles are labelled as such |
 | D17 | One promotion per block. The operator bump that follows #179 rides with Block 1's `m3-live` promotion |
 | D18 | Block 1's gate adds: a dry-run scale in `nexus-prod` is refused by K1 (`m3-live` also binds the operator's `nexus-prod` grants from #179) |
@@ -879,6 +879,10 @@ its outlines stay as the record.
 | D22 | `/ask`: the bot collects one fixed read-only snapshot, makes ONE LLM call, and shows plain-text advice marked "advice only"; it never acts on it. Built after the Note flow; cut first if late. Not on run days (Groq tokens). CLAUDE.md rule 8 stays: no agent loop |
 | D23 | Runbooks: no new ones. Before the Block 9 freeze, polish `rb-bad-rollout` (own words, source cited: runbooks.prometheus-operator.dev, KubePodCrashLooping) and the `rb-gray-failure` Diagnosis line, then re-check retrieval once. **Done:** polish in #224 (`d61a0ba`, 2026-11-15: `rb-bad-rollout` v2, `rb-gray-failure` v3, floor 3.1739, corpus hash `fad76a74…`); re-checked unchanged 2026-11-20 (ADR-046) |
 | D24 | ITBench: no runs. One desk table in the thesis mapping ITBench fault types to what NEXUS would do (fix, escalate, not seen) |
+| D25 | 2026-11-21: C4, the static baseline, is cut: no `nexus-baseline` build (G10 cut), no live or offline C4 runs. Naive alert-driven automation appears only in the related work (owner, 2026-11-21) |
+| D26 | 2026-11-21: S4/S6's load is the calibrated one: Locust total 170 (`nexus-dev` 90 req/s against its baseline 80, ProdUser 80; about 1.13x the `nexus-dev` load). At 165, 168 and 170 `NexusTrafficAnomaly` fired and `NexusCpuAnomaly` did not, max p95 latency Z at most -0.02 (`~/nexus-evidence/cal-2026-11-21/RESULT.md`). Spec v1.0's "1.5 x baseline" (240 users) was never used: at 240 on 2026-11-20 `NexusCpuAnomaly` fired and R3 scaled `nexus-dev` 2 -> 4 (owner, 2026-11-21) |
+| D27 | Phase D: 10 live R0 runs on S1, advisory checks off (Q3 confirmed, owner 2026-11-22); spec v1.1's 16 is corrected |
+| D28 | 2026-11-22: the project's technical work and demo end by 2026-12-05. Block 8 (Note flow and `/ask`) is cut. No runbook changes at the freeze: the index `fad76a74…` used by the bake-off and every trial is the frozen one, so there is no new Reasoner image. Blocks 9–14 are re-dated below; the thesis follows, and the owner decides when (owner, 2026-11-22). This replaces D1's 12-24 target and D10's Note-flow line for the technical work |
 
 ### Blocks
 
@@ -909,38 +913,47 @@ secrets, `sudo`.
   run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
   kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
   (each trial run feeds the replay).
-- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15). Then the PR opener, the commit
+- [x] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
   token; merging the revert PR. Cut first: the `main` mapping (unused at L1).
+  Live gate run 2026-11-22 (C8 on S3 at L3): `Escalated`, #314 opened by NEXUS, merged by the owner in the GitHub UI
+  (merge commit `fa2e62c…`), `sample-api` back to 2/2 by 08:31. The first attempt failed at the push to the fork,
+  which was behind `experiment/dev-state`; it passed after the owner synced the fork. The refusal case was not run
+  live (covered offline). **Gate passed (owner, 2026-11-22).** Results and findings: ADR-041 "Live gate, 2026-11-22";
+  evidence `~/nexus-evidence/c8-gate-2026-11-22/RECORD.md`. C8 is off in the cluster until the owner re-creates the
+  `nexus-bot-github` Secret.
 - [ ] **Block 7 — 11-28 → 11-30. Bot core.** Pushes; Approve, Reject, Explain; `/status`, `/pods`, `/incident`
   (D21); the Alertmanager Telegram route. **Gate:** an L2 approval from the owner's phone; the Incident and the audit
   log name the owner. Owner: BotFather, the bot token, the Telegram user ID. Cut first: Explain polish; never Approve.
-- [ ] **Block 8 — 12-01 → 12-02. Note flow, then `/ask`.** Hard stop 12-02. **Gate:** a note produces a new proposal
+  Bot core live on 2026-11-21; live gate done (the second-account test skipped, covered by unit tests).
+- [ ] ~~**Block 8 — 12-01 → 12-02. Note flow, then `/ask`.**~~ **Cut (D28, 2026-11-22).** Was: **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
-- [ ] **Block 9 — 12-03 → 12-04. Freeze.** Runbook polish and one retrieval re-check (D23), then the final Reasoner
-  image (the index hash changes); `experiments/ground-truth.yaml`; a one-page run protocol; spec v1.1 (#203, amended
-  for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19). Tag `v0.6.0`. Code freeze.
+- [ ] **Block 9 — 11-23 → 11-24. Freeze.** No runbook changes and no new Reasoner image (D28): the index `fad76a74…` is
+  the frozen one; `experiments/ground-truth.json` (#285, ground-truth/v2); a one-page run protocol; spec v1.1 (#203, amended
+  for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19) the night of 11-23. Tag `v0.6.0` on 11-24. Code freeze.
   **Gate:** the protocol is merged before the first measured run. Owner: approvals, the tag. Cut first: shrink the
   protocol to half a page.
-- [ ] **Block 10 — 12-05 → 12-07. Runs 1.** The live adversarial runs and the containment suite (attended); the live
-  scenario runs start (unattended). **Gate:** suite complete; first cells valid. Owner: the protocol's approval of the
+- [ ] **Block 10 — 11-24. Runs 1.** The containment suite and C7 by day (attended); phase A (the live scenario
+  runs, unattended) from the evening. **Gate:** suite complete; first cells valid. Owner: the protocol's approval of the
   batch of runner mutations; Kill Switch steps. A containment violation is a result: stop and report.
-- [ ] **Block 11 — 12-08 → 12-10. Runs 2.** The remaining live scenario runs; one overnight no-fault window.
+- [ ] **Block 11 — 11-25 → 11-26. Runs 2.** Phase A day and night; the no-fault window the night of 11-26.
   **Gate:** every cell has its valid runs. Owner: pod replacements; the laptop awake. Cut first: the no-fault window
   to 4 hours.
-- [ ] **Block 12 — 12-11 → 12-12. Runs 3.** The L2 and C8 cells (attended); re-runs of voided cells. **Gate:** the
-  matrix is complete. Cut first: the C8 "without PR" comparison.
-- [ ] **Block 13 — 12-13 → 12-15. Results.** `export-results`, `make results`, figures, the wrong-action rate per
+- [ ] **Block 12 — 11-27. Runs 3.** The L2 and C8 cells (attended); re-runs of voided cells. **Gate:** the
+  matrix is complete. Owner, before turning C8 on: press "Sync fork" in the GitHub UI, as `belhouchetkoussay`, for
+  `experiment/dev-state` (once, after the freeze tag; ADR-041 F3), and re-create the `nexus-bot-github` Secret.
+  Cut first: the C8 "without PR" comparison.
+- [ ] **Block 13 — 11-28 → 11-29. Results.** `export-results`, `make results`, figures, the wrong-action rate per
   arm (D20), the Limitations list from #197 and #198. **Gate:** every number in the thesis comes from the export.
-- [ ] **Block 14 — 12-16 → 12-18. Demo.** One command per scenario; the architecture figure; the "denied" beat; the
+- [ ] **Block 14 — 11-30 → 12-02. Demo.** One command per scenario; the architecture figure; the "denied" beat; the
   backup video; the Grafana Incident-timeline panel last (D20). **Gate:** a full rehearsal from a cold start; the
-  video exists. Cut first: the Grafana panel.
-- [ ] **Block 15 — 12-19 → 12-24. Thesis.** Complete draft by 12-21, final by 12-24; slides; the ITBench desk table
-  (D24). Chapters are written in parallel from Block 0 on.
-- 12-25 → 12-31: buffer and rehearsal.
+  video exists. Owner, before the demo: "Sync fork" again for `experiment/dev-state` (ADR-041 F3). Cut first: the
+  Grafana panel.
+- 12-03 → 12-05: buffer. The technical work and the demo end 12-05 (D28).
+- [ ] **Block 15 — Thesis, after 12-05.** The owner decides when (D28); slides; the ITBench desk table (D24).
 
-**Cut order if the plan slips:** `/ask`; the Note flow; the Grafana panel; the C8 comparison cells (the C8 demo
+**Cut order if the plan slips:** `/ask`; the Grafana panel; the C8 comparison cells (the C8 demo
 stays); the no-fault window. **Never cut:** the visible loop (D2), the offline adversarial replay, the live
 adversarial runs, the backup video.
 

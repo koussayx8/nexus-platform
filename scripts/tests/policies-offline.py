@@ -10,6 +10,10 @@ It guards what `kyverno test` cannot see:
     `pass` and a `fail` result ("each policy carries both directions");
   * every test result names a policy and rule that exist, and a resource that exists;
   * approvers-rbac.yaml grants no wildcard, no delete and nothing on incidents/status.
+  * the Telegram bot's RBAC (platform/rbac/nexus-bot, ADR-040 step 7): its impersonation
+    ClusterRole has exactly two rules, verb impersonate only, one resourceNames entry each (user
+    koussay-approver, group nexus-approvers), bound to the bot's ServiceAccount only; no other bot
+    rule has a write verb or impersonate.
 
 Usage: python3 scripts/tests/policies-offline.py [policies-dir]
 """
@@ -125,10 +129,52 @@ for doc in load(ROOT / "approvers-rbac.yaml"):
         if "incidents/status" in res:
             err(f"approvers-rbac.yaml: {doc['metadata']['name']}: grants incidents/status")
 
+# ---------------------------------------------------------------- the bot's RBAC (ADR-040 step 7)
+BOT_RBAC = ROOT.parent / "rbac" / "nexus-bot" / "nexus-bot.yaml"
+BOT_SA = [{"kind": "ServiceAccount", "name": "nexus-bot", "namespace": "nexus-bot"}]
+IMPERSONATE = "nexus-bot-impersonate-approver"
+WANT_IMPERSONATE = {("users", "koussay-approver"), ("groups", "nexus-approvers")}
+bot_docs = load(BOT_RBAC) if BOT_RBAC.exists() else []
+if not bot_docs:
+    err(f"{BOT_RBAC}: missing or empty")
+bot_roles = {(d["kind"], d["metadata"]["name"]): d for d in bot_docs if d["kind"] in ("Role", "ClusterRole")}
+imp = bot_roles.get(("ClusterRole", IMPERSONATE))
+if imp is None:
+    err(f"bot RBAC: ClusterRole {IMPERSONATE} missing")
+else:
+    rules = imp.get("rules") or []
+    if len(rules) != 2:
+        err(f"bot RBAC: {IMPERSONATE} has {len(rules)} rules, want exactly 2")
+    got = set()
+    for r in rules:
+        names = r.get("resourceNames") or []
+        if r.get("verbs") != ["impersonate"]:
+            err(f"bot RBAC: {IMPERSONATE}: verbs {r.get('verbs')}, want [impersonate] only")
+        if r.get("apiGroups") != [""] or len(r.get("resources") or []) != 1:
+            err(f"bot RBAC: {IMPERSONATE}: rule must name one core resource, got {r}")
+        if len(names) != 1:
+            err(f"bot RBAC: {IMPERSONATE}: {len(names)} resourceNames in a rule, want exactly 1")
+        got |= {(res, n) for res in r.get("resources") or [] for n in names}
+    if got != WANT_IMPERSONATE:
+        err(f"bot RBAC: {IMPERSONATE} impersonates {sorted(got)}, want {sorted(WANT_IMPERSONATE)}")
+for (kind, name), d in bot_roles.items():
+    if name == IMPERSONATE:
+        continue
+    for r in d.get("rules") or []:
+        if not set(r["verbs"]) <= {"get", "list"} or "*" in r["resources"] + r["apiGroups"]:
+            err(f"bot RBAC: {kind} {name}: not read-only ({r})")
+imp_bindings = [d for d in bot_docs if d["kind"] in ("RoleBinding", "ClusterRoleBinding")
+                and d["roleRef"]["name"] == IMPERSONATE]
+if [d["kind"] for d in imp_bindings] != ["ClusterRoleBinding"]:
+    err(f"bot RBAC: {IMPERSONATE} must be bound once, by a ClusterRoleBinding")
+for d in bot_docs:
+    if d["kind"] in ("RoleBinding", "ClusterRoleBinding") and d.get("subjects") != BOT_SA:
+        err(f"bot RBAC: {d['kind']} {d['metadata']['name']}: subjects must be the bot's ServiceAccount only")
+
 if errors:
     print("policies-offline: FAIL")
     for e in errors:
         print("  -", e)
     sys.exit(1)
 n = sum(len(v) for v in results.values())
-print(f"policies-offline: ok ({len(rules_of)} policies, {n} test results)")
+print(f"policies-offline: ok ({len(rules_of)} policies, {n} test results, bot RBAC: {len(bot_roles)} roles)")

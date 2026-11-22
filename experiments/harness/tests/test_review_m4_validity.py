@@ -1,7 +1,7 @@
 """Tests for docs/reviews/2026-11-10-m4-validity.md. The finding's id is in each test's comment.
 
-The six blockers (V1-V5, V19) are fixed: their tests are normal tests, each followed by the edge
-cases of the same finding. A test still marked expectedFailure (V11, the escalation metric) states
+The six blockers (V1-V5, V19) and V11 (the escalation metric) are fixed: their tests are normal
+tests, each followed by the edge cases of the same finding. A test marked expectedFailure states
 behaviour the review argues for and fails today; unittest reports an unexpected success as a
 failure, so the decorator is removed in the PR that fixes the finding. Offline: the fakes of
 test_batch.py, no cluster.
@@ -181,15 +181,20 @@ class NotTheRuns(tb.FakeCluster):
 
 
 class SecondIncident(tb.FakeCluster):
-    """Once the run's Incident is terminal, the next alert on the target gets its own Incident."""
+    """Once the run's Incident is terminal, the next alert on the target gets its own Incident,
+    which is Executing for its first three reads and then Resolved."""
+
+    second_reads = 0
 
     def __call__(self, argv, cwd=None):
         rc, out = super().__call__(argv, cwd)
         if "incidents" in argv and self.injected:
             doc = json.loads(out)
             if doc["items"][-1]["status"]["phase"] == "Dismissed":
+                self.second_reads += 1
+                phase = "Executing" if self.second_reads <= 3 else "Resolved"
                 later = batch.model.parse_time(self.detected_at).timestamp() + 60
-                doc["items"].insert(0, _dev_incident("second", batch._utc(later), "Executing"))  # fmt: skip
+                doc["items"].insert(0, _dev_incident("second", batch._utc(later), phase))  # fmt: skip
             out = json.dumps(doc)
         return rc, out
 
@@ -237,6 +242,10 @@ class RunIdentityTest(Live):
         self.assertEqual((r["status"], r["terminal"]), ("valid", "Dismissed"))
         self.assertEqual(r["incident"]["uid"], "new")
         self.assertEqual([i["uid"] for i in r["other_incidents"]], ["second"])
+        # the reset waited for the later Incident (protocol #234 §5); the run's phase did not change
+        self.assertTrue(r["settle"]["settled"])
+        self.assertEqual([(i["uid"], i["phase"]) for i in r["settle"]["incidents"]],
+                         [("new", "Dismissed"), ("second", "Resolved")])  # fmt: skip
 
     # V3
     def test_a_hang_that_was_not_remediated_is_a_valid_run(self):
@@ -332,7 +341,7 @@ class RunIdentityTest(Live):
 
 S3_CELL = [
     {"cell": "C1/S3/L3", "scenario": "S3", "reasoner": "R1", "level": 3, "s3_patch": str(ROOT / runner.S3_PATCH),
-     "tier": 1, "valid_target": 1, "max_attempts": 2},
+     "tier": 1, "valid_target": 1, "max_attempts": 2, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 REVISION = "c0ffee" * 6 + "c0ff"
 OLD_REVISION = "0" * 40
@@ -423,7 +432,7 @@ class S3InjectionTimeTest(Live):
 
 R3_CELL = [
     {"cell": "C2/S1/L3", "scenario": "S1", "reasoner": "R3", "level": 3,
-     "tier": 1, "valid_target": 1, "max_attempts": 2},
+     "tier": 1, "valid_target": 1, "max_attempts": 2, "baseline_ref": "0123456789abcdef0123456789abcdef01234567"},
 ]  # fmt: skip
 
 
@@ -610,8 +619,7 @@ class MetricsTest(unittest.TestCase):
         got = metrics.action_selection_accuracy([ROW], TRUTH)
         self.assertEqual(got["R1/S5"]["k"], 1)
 
-    # V8
-    @unittest.expectedFailure
+    # V11 (fixed: correct_escalation_rate accepts any listed kind, as action_matches)
     def test_the_escalation_metric_accepts_the_same_kinds(self):
         got = metrics.correct_escalation_rate([ROW], TRUTH)
         self.assertEqual(got["R1"]["k"], 1)

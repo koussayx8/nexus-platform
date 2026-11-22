@@ -61,3 +61,25 @@ with at most 2 hangs of 20, not a preview, and a median of at most 300 s. Only N
   the Groq model ids no longer resolve.
 - `prompt/v3` and `evidence/v1.2` are the frozen versions; #234 §1 is updated once, at the freeze.
 - Runs on prompt/v2 or v2.1 (the Block 3 and 5 trials, gpt-oss-120b on Groq) are not comparable with prompt/v3 runs.
+
+## Addendum (2026-11-21): night reliability run, 2026-11-20/21
+
+**What ran.** prompt/v3 on 10 bundles (5 real scenarios, 5 novel ones), six runs about 45–80 minutes apart from
+21:54 local, 60 calls a model (30 real, 30 novel). Evidence: `~/nexus-evidence/bakeoff-2026-11-20/night/run1` … `run6`.
+
+| Model | Live-effective | Real | Novel | Hangs | Median a run | Max |
+| --- | --- | --- | --- | --- | --- | --- |
+| Nemotron 3 Ultra (R3, `r3-primary`) | 42/60 | 28/30 | 14/30 | 0 | 13–20 s | 53 s |
+| Nemotron 3.5 Super (R2, `r2-primary`) | 42/60 | 30/30 | 12/30 | 0 | 19–23 s | 69 s |
+| Gemma 4 31B (R3 backup, `r3-backup`) | 48/60 | 27/30 | 21/30 | 6 | 37–191 s | 274 s |
+
+"Median a run" is the range of the six per-run medians.
+
+**Findings.**
+- (e) Both Nemotrons had 0 hangs in 120 calls with stable latency: the reason they were chosen holds.
+- (f) Gemma answers the novel cases best, but the free tier served it unpredictably (a median of 37–191 s between runs,
+  10% hangs). This repeats finding (a).
+- (g) On the real scenarios the small R2 matched the large R3. This repeats finding (c).
+- (h) One Ultra run dropped to 5/10 at temperature 0, so repeated runs matter: 5 valid runs per cell.
+
+**Decision.** Unchanged: `active: {"R2": "r2-primary", "R3": "r3-primary"}`, with the backups of decision 6.

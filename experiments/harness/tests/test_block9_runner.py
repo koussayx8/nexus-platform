@@ -167,3 +167,51 @@ class BatchCodeGuardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EveryCellNamesItsBaselineTest(unittest.TestCase):
+    """ADR-047 addendum (owner): `init` refuses every cell without baseline_ref, one rule for all
+    cells, the same as the runner's reset."""
+
+    def create(self, cell):
+        with tempfile.TemporaryDirectory() as d:
+            return batch.Queue.create(d, tb.REF, [cell], precheck_cfg=tb.PRE)
+
+    def test_a_cell_without_or_with_a_bad_baseline_ref_is_refused(self):
+        good = dict(tb.CELLS[0])
+        missing = {k: v for k, v in good.items() if k != "baseline_ref"}
+        with self.assertRaises(batch.Refused) as cm:
+            self.create(missing)
+        self.assertIn("lacks 'baseline_ref'", str(cm.exception))
+        for bad in ("", " ", "-x", "--source=evil", "a b", "abc\n", 42, None, True):
+            with self.assertRaises(batch.Refused, msg=repr(bad)):
+                self.create(good | {"baseline_ref": bad})
+
+    def test_every_scenario_needs_it_not_only_s3(self):
+        for sc in ("S1", "S2", "S3", "S4", "S5", "S6"):
+            cell = {k: v for k, v in tb.CELLS[0].items() if k != "baseline_ref"} | {
+                "scenario": sc
+            }
+            with self.assertRaises(batch.Refused, msg=sc):
+                self.create(cell)
+
+    def test_a_commit_or_a_ref_is_accepted_and_reaches_the_reset(self):
+        for ref in (
+            "a3adced",
+            "a3adced2bf00615777002b5e4d943a699c44e57b",
+            "origin/experiment/dev-state~1",
+        ):
+            q = self.create(dict(tb.CELLS[0]) | {"baseline_ref": ref})
+            self.assertEqual(q.doc["cells"][0]["baseline_ref"], ref)
+        r = runner.Runner("ctx", exec_=lambda *a, **k: (0, ""), git_dir="/g")
+        flat = [" ".join(s.argv) for s in r.plan_reset(3, tb.CELLS[0]["baseline_ref"])]
+        self.assertIn(
+            f"git restore --source={tb.CELLS[0]['baseline_ref']} --staged --worktree -- .",
+            flat,
+        )
+
+    def test_the_example_cells_file_names_one_everywhere(self):
+        conf = json.loads(
+            (REPO / "experiments/harness/batch-config.example.json").read_text()
+        )
+        self.assertTrue(all(c.get("baseline_ref") for c in conf["cells"]))

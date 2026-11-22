@@ -1,0 +1,7 @@
+# NetworkPolicies for nexus-bot (ADR-040), listed by platform/network/kustomization.yaml (deployed
+# with platform/m3-live by the platform Application).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - nexus-bot.yaml

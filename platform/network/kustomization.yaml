@@ -11,3 +11,4 @@ resources:
   - prod.yaml
   - reasoner.yaml
   - system.yaml
+  - nexus-bot                 # the Telegram bot: default-deny, outbound only (ADR-040)

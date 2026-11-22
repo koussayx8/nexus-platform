@@ -52,6 +52,7 @@
   "config_snapshot": {
    "approval_ref": "G16/fixture#approval-0",
    "cell": {
+    "baseline_ref": "0123456789abcdef0123456789abcdef01234567",
     "cell": "A/R3/S4/L3",
     "level": 3,
     "max_attempts": 4,
