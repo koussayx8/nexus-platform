@@ -12,16 +12,18 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Item | Value | Held by |
 |---|---|---|
 | Commit | the commit tagged `v0.6.0`, with its digests; nothing is rebuilt after it (Q1) | `git_commit` in every run row |
-| Images | the digests at the `v0.6.0` tag. Today: operator `sha256:9f3380e9…0625c`, Reasoner `sha256:811c1c93…de82`, sample-api `sha256:3321d6fa…f268` (`dev` at `4b077fb`); the operator and the Reasoner are rebuilt before the tag (#242), so these two change | nothing per run (E8) |
+| Images | the digests at the `v0.6.0` tag. **No new Reasoner image (D28):** the measured Reasoner is the one deployed now, `sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c` (`reasoner/k8s/deployment.yaml` on `main` at `49c5565`; bump `b989cba`, 2026-11-21, built from `832cda7`, whose `prompt.py` is `prompt/v3`). It includes #242's fix, which merged earlier. Operator `sha256:9f3380e9…0625c` and sample-api `sha256:3321d6fa…f268` are as of `dev` at `4b077fb`: the operator manifest on `main` now reads `sha256:7c9d1599…95eb`, so both are read again from the manifests at the tag | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
-| Score floor, prompt | 3.1739; `prompt/v2` (ADR-042), with `CHARS_PER_TOKEN` set to the ratio measured on the 2026-11-19 S1 R3 call (TBD, from the owner's Flight Recorder export; ADR-042 addendum) | by hand at each queue start (§4) |
+| Score floor, prompt | 3.1739; `prompt/v3` (ADR-045; `VERSION` in `reasoner/nexus_reasoner/prompt.py`, the version the live Incidents show), `CHARS_PER_TOKEN` 2.5 (same file) | by hand at each queue start (§4) |
 | Models | R2 and R3 **pending the bake-off** (#271). Today R2 = config `r2-groq` (`openai/gpt-oss-20b`), R3 = `r3-groq` (`openai/gpt-oss-120b`), both on Groq, chosen by the Reasoner's `active` (ADR-035 addenda B, D). Effort low, temperature 0, seed 0. Each model has its own `timeoutSeconds` (default 30 s, at most 300 s), the whole call's budget; inside it **one retry** after a network error, an HTTP 5xx, or a 429 with `Retry-After`, only when 5 s of the budget remain (ADR-035 addendum A) | the strict arm check: each call's `modelConfig` and `proposals.model_id` against `arms.py` |
 | Ground truth | sha256 of the file at the freeze | `ground_truth_hash` in every run row |
 | Load | 160 users, spawn rate 4, `DevUser` and `ProdUser`: 80 req/s per namespace; `ProdUser` has `fixed_count = 80`, so every user above 160 goes to `nexus-dev` (#273). S4 and S6: 170 users, `nexus-dev` 90 req/s, `ProdUser` 80 (Q6, §9; `TASKS.md` D26) | pre-check |
 
 The index hash pins the runbooks, not the query builder; the Reasoner digest pins both (ADR-039). The owner verified
-live on 2026-11-15 at 20:05 that the Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`; the
-rebuilt Reasoner (#242) must serve the same two values, since its runbooks and index did not change.
+live on 2026-11-15 at 20:05 that the earlier Reasoner `sha256:811c1c93…` serves this index hash and floor on `/healthz`.
+The deployed `sha256:7d216d96…` must serve the same two values, since its runbooks and index did not change; no record
+of that read was found in the repository (UNVERIFIED), so the owner's by-hand check before each queue start (§4) is the
+proof.
 
 ## 2. Cells
 
@@ -71,6 +73,12 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 - **Locust (#189):** the reset leaves Locust alone unless a load scenario ran or it is off the baseline; then
   `GET /stop` and `POST /swarm` with the frozen baseline. If it is still off, it is started again and every
   pre-check is re-run: at most twice in a row, then the batch halts.
+- **A quiet window (owner, 2026-11-22):** after a reset the batch injects only after `quiet_s` = 360 s with no NEXUS
+  alert pending or firing for `nexus-dev`. The reset replaces the pods, and their warm-up raises Incidents that would
+  otherwise land in the run (the Block 6 gate run, ADR-041 "Live gate, 2026-11-22": two `NexusLatencyAnomaly` Incidents
+  between the reset and the S3 deploy). The cost: 0 after a fault that moved the signals, since the pre-check already
+  waits for them to settle; up to 6 minutes after a clean reset. Not in the batch yet: the code comes in a separate
+  harness PR, and until it merges the pre-check does not enforce this.
 - **The rest:** sample-api 2 of 2 Ready; no open Incident; Kill Switch `active`; every signal |Z| < 1.5 and its
   15-minute standard deviation within 1.5 × the clean baseline (TODO, Q6); node CPU < 60 %, memory < 80 %; no Backstage
   pod; the Reasoner ready with the frozen index hash; the Flight Recorder up; the audit log written in the last 60 s.
