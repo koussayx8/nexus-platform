@@ -883,6 +883,7 @@ its outlines stay as the record.
 | D26 | 2026-11-21: S4/S6's load is the calibrated one: Locust total 170 (`nexus-dev` 90 req/s against its baseline 80, ProdUser 80; about 1.13x the `nexus-dev` load). At 165, 168 and 170 `NexusTrafficAnomaly` fired and `NexusCpuAnomaly` did not, max p95 latency Z at most -0.02 (`~/nexus-evidence/cal-2026-11-21/RESULT.md`). Spec v1.0's "1.5 x baseline" (240 users) was never used: at 240 on 2026-11-20 `NexusCpuAnomaly` fired and R3 scaled `nexus-dev` 2 -> 4 (owner, 2026-11-21) |
 | D27 | Phase D: 10 live R0 runs on S1, advisory checks off (Q3 confirmed, owner 2026-11-22); spec v1.1's 16 is corrected |
 | D28 | 2026-11-22: the project's technical work and demo end by 2026-12-05. Block 8 (Note flow and `/ask`) is cut. No runbook changes at the freeze: the index `fad76a74…` used by the bake-off and every trial is the frozen one, so there is no new Reasoner image. Blocks 9–14 are re-dated below; the thesis follows, and the owner decides when (owner, 2026-11-22). This replaces D1's 12-24 target and D10's Note-flow line for the technical work |
+| D29 | 2026-11-22: the freeze one day early (owner). The freeze PRs (#285, #239, #234) merge on 11-22, the 6-hour idle test (D19) runs the night of 11-22, and `v0.6.0` is tagged on 11-23. Blocks 9–14 each move one day earlier (Block 9 is 11-22 → 11-23, Block 14 is 11-29 → 12-01). The end date stays 12-05, so the buffer grows from 3 days to 4 (12-02 → 12-05). Amends D28 |
 
 ### Blocks
 
@@ -929,28 +930,35 @@ secrets, `sudo`.
   Bot core live on 2026-11-21; live gate done (the second-account test skipped, covered by unit tests).
 - [ ] ~~**Block 8 — 12-01 → 12-02. Note flow, then `/ask`.**~~ **Cut (D28, 2026-11-22).** Was: **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
-- [ ] **Block 9 — 11-23 → 11-24. Freeze.** No runbook changes and no new Reasoner image (D28): the index `fad76a74…` is
-  the frozen one; `experiments/ground-truth.json` (#285, ground-truth/v2); a one-page run protocol; spec v1.1 (#203, amended
-  for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19) the night of 11-23. Tag `v0.6.0` on 11-24. Code freeze.
+- [ ] **Block 9 — 11-22 → 11-23. Freeze (one day early, D29).** No runbook changes and no new Reasoner image (D28): the
+  index `fad76a74…` is the frozen one. The freeze is the `v0.6.0` commit and its digests, with no rebuild after it
+  (#234 Q1). `experiments/ground-truth.json` (#285, ground-truth/v2); a one-page run protocol; spec v1.1 (#203, amended
+  for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19) the night of 11-22. The runner records
+  the operator and Reasoner image digests and the Reasoner `scoreFloor` (from `/healthz`) in every run record, and the
+  export's frozen-values check (E8, `m4-metrics.md` §4) checks them, before Block 10 (owner, #239). The runner's own
+  inject (`runner.py run inject`) must work before Block 10: on 2026-11-19 the permission rules denied it and S1 was
+  injected by hand (owner, 2026-11-19). Tag `v0.6.0` on 11-23. Code freeze.
   **Gate:** the protocol is merged before the first measured run. Owner: approvals, the tag. Cut first: shrink the
   protocol to half a page.
-- [ ] **Block 10 — 11-24. Runs 1.** The containment suite and C7 by day (attended); phase A (the live scenario
+- [ ] **Block 10 — 11-23. Runs 1.** The containment suite and C7 by day (attended); phase A (the live scenario
   runs, unattended) from the evening. **Gate:** suite complete; first cells valid. Owner: the protocol's approval of the
   batch of runner mutations; Kill Switch steps. A containment violation is a result: stop and report.
-- [ ] **Block 11 — 11-25 → 11-26. Runs 2.** Phase A day and night; the no-fault window the night of 11-26.
+- [ ] **Block 11 — 11-24 → 11-25. Runs 2.** Phase A day and night; the no-fault window the night of 11-25.
   **Gate:** every cell has its valid runs. Owner: pod replacements; the laptop awake. Cut first: the no-fault window
   to 4 hours.
-- [ ] **Block 12 — 11-27. Runs 3.** The L2 and C8 cells (attended); re-runs of voided cells. **Gate:** the
+- [ ] **Block 12 — 11-26. Runs 3.** The L2 and C8 cells (attended); re-runs of voided cells. **Gate:** the
   matrix is complete. Owner, before turning C8 on: press "Sync fork" in the GitHub UI, as `belhouchetkoussay`, for
-  `experiment/dev-state` (once, after the freeze tag; ADR-041 F3), and re-create the `nexus-bot-github` Secret.
+  `experiment/dev-state` (once, after the freeze tag; ADR-041 F3), re-create the `nexus-bot-github` Secret
+  (`scripts/nexus-bot-secrets.sh`), then restart the bot, which reads the Secret only at start: its log must say
+  `C8 on`. After the C8 cells: delete the Secret, restart the bot, check `C8 off` (`m4-protocol.md` §5).
   Cut first: the C8 "without PR" comparison.
-- [ ] **Block 13 — 11-28 → 11-29. Results.** `export-results`, `make results`, figures, the wrong-action rate per
+- [ ] **Block 13 — 11-27 → 11-28. Results.** `export-results`, `make results`, figures, the wrong-action rate per
   arm (D20), the Limitations list from #197 and #198. **Gate:** every number in the thesis comes from the export.
-- [ ] **Block 14 — 11-30 → 12-02. Demo.** One command per scenario; the architecture figure; the "denied" beat; the
+- [ ] **Block 14 — 11-29 → 12-01. Demo.** One command per scenario; the architecture figure; the "denied" beat; the
   backup video; the Grafana Incident-timeline panel last (D20). **Gate:** a full rehearsal from a cold start; the
   video exists. Owner, before the demo: "Sync fork" again for `experiment/dev-state` (ADR-041 F3). Cut first: the
   Grafana panel.
-- 12-03 → 12-05: buffer. The technical work and the demo end 12-05 (D28).
+- 12-02 → 12-05: buffer (one day longer, D29). The technical work and the demo end 12-05 (D28).
 - [ ] **Block 15 — Thesis, after 12-05.** The owner decides when (D28); slides; the ITBench desk table (D24).
 
 **Cut order if the plan slips:** `/ask`; the Grafana panel; the C8 comparison cells (the C8 demo
