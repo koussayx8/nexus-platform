@@ -78,6 +78,14 @@ What it adds to runner.py (which plans and executes single operations):
   push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
   Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
   that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
+* The S6 void rule (pre-registered on #285, experiments/ground-truth.json scenarios.S6.void_if):
+  an S6 run whose run's Incident (the counted one, above) has an evidence bundle with
+  metrics.zscores.latencyP95 > 3 is void (`s6_latency_p95_z_above_3`) and the cell requeues it.
+  status.evidence does not carry the Z-scores, so the bundle is read from the Flight Recorder by
+  status.evidence.bundleHash (read-only: psql as nexus_reader in flight-recorder-db-0, as
+  scripts/fr-export.sh does). A Z that cannot be read (no bundleHash, no row, null, not a number,
+  the read fails) is never taken as valid: the run is void (`s6_latency_p95_z_unknown`). What was
+  read is on the run record (`s6_void_check`). Other scenarios are never read or voided by it.
 
 Mutations: nothing mutates without --execute AND an approval reference. The reference is the one
 the pre-registration (G16) names for the whole batch; `init` stores it, `run` must be given the same
@@ -94,6 +102,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -115,6 +124,28 @@ LOAD_SCENARIOS = ("S2", "S4", "S6")  # their injection is a Locust swarm
 RAMP_MARGIN_S = 30
 REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,127}$")
 STATUSES = ("running", "valid", "void", "discarded")
+
+# The S6 void rule, as #285 pre-registers it (scenarios.S6.void_if.condition, quoted in
+# S6_VOID_CONDITION). Hard-coded until #285 merges at the Block 9 freeze: its condition is prose,
+# so there is no field to read; tests pin these values to the quoted wording and, once the file is
+# on the branch, to the file itself.
+S6_VOID_SCENARIO = "S6"
+S6_VOID_SIGNAL = "latencyP95"
+S6_VOID_Z = 3  # strictly above voids: 3.0 itself is valid
+S6_VOID_CONDITION = (
+    "The counted Incident's evidence bundle has metrics.zscores.latencyP95 > 3."
+)
+S6_VOID_ABOVE = "s6_latency_p95_z_above_3"
+S6_VOID_UNKNOWN = "s6_latency_p95_z_unknown"
+# The Flight Recorder, read as scripts/fr-export.sh reads it (nexus_reader: SELECT only).
+FR_NAMESPACE, FR_POD, FR_CONTAINER = (
+    "nexus-system",
+    "flight-recorder-db-0",
+    "flight-recorder-db",
+)
+FR_USER, FR_DB = "nexus_reader", "nexus_recorder"
+# proposal.hash_of's form; the hash goes into SQL, so nothing else is accepted
+BUNDLE_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class Refused(Exception):
@@ -688,6 +719,28 @@ def run_incident(new: list[dict], namespace: str, injected_at) -> dict | None:
     )
 
 
+def s6_void(scenario: str, z) -> str | None:
+    """The S6 void rule's reason for a run of `scenario` whose counted bundle has latencyP95 Z `z`,
+    or None (the rule does not void it). Only S6 is ever voided; for S6 a Z that is not a number
+    is unknown, never valid."""
+    if scenario.upper() != S6_VOID_SCENARIO:
+        return None
+    if not isinstance(z, int | float) or isinstance(z, bool) or math.isnan(z):
+        return S6_VOID_UNKNOWN
+    return S6_VOID_ABOVE if z > S6_VOID_Z else None
+
+
+def bundle_z_sql(bundle_hash: str) -> str:
+    """One row, {"found": true, "z": <the Z or null>}, for the bundle; no row when it is absent."""
+    if not BUNDLE_HASH_RE.match(bundle_hash):
+        raise ValueError(f"not a bundle hash: {bundle_hash!r}")
+    return (
+        "SELECT json_build_object('found', true, 'z', "
+        f"content->'metrics'->'zscores'->'{S6_VOID_SIGNAL}') "
+        f"FROM evidence_bundles WHERE bundle_hash = '{bundle_hash}'"
+    )
+
+
 class LiveRun:
     """One run against the cluster, through runner.Runner: reset (with the operator's advisoryChecks,
     breakerEpoch and the cell's reasoner arm), wait for Applications, pre-checks, inject, wait for
@@ -740,6 +793,36 @@ class LiveRun:
         if rc != 0:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
+
+    def bundle_latency_z(self, incident: dict) -> dict:
+        """Read-only: the counted Incident's bundle latencyP95 Z from the Flight Recorder, by
+        status.evidence.bundleHash. {"bundle_hash", "z", "why"}; `why` says why z is None."""
+        ev = (incident.get("status") or {}).get("evidence") or {}
+        h = ev.get("bundleHash")
+        out = {"bundle_hash": h, "z": None, "why": None}
+        if not isinstance(h, str) or not BUNDLE_HASH_RE.match(h):
+            out["why"] = "no_bundle_hash"
+            return out
+        rc, text = self.r.exec(
+            [runner_mod.CLI, "--context", self.r.context, "-n", FR_NAMESPACE, "exec", FR_POD,
+             "-c", FR_CONTAINER, "--", "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-A", "-t",
+             "-U", FR_USER, "-d", FR_DB, "-c", bundle_z_sql(h)]
+        )  # fmt: skip
+        if rc != 0:
+            out["why"] = "recorder_unreadable"
+            return out
+        try:
+            row = json.loads(text.strip()) if text.strip() else None
+        except ValueError:
+            out["why"] = "recorder_unparsable"
+            return out
+        if not isinstance(row, dict) or not row.get("found"):
+            out["why"] = "no_bundle_row"
+            return out
+        out["z"] = row.get("z")
+        if s6_void(S6_VOID_SCENARIO, out["z"]) == S6_VOID_UNKNOWN:
+            out["why"] = "z_missing" if out["z"] is None else "z_not_a_number"
+        return out
 
     # ---- Locust recovery: restart the baseline swarm when the pre-check finds Locust stopped or off baseline
     def _recovery_conf(self) -> dict | None:
@@ -1029,6 +1112,13 @@ class LiveRun:
         rec["arm"]["mismatch"] = arm_mismatch(cell["reasoner"], seen)
         if rec["arm"]["mismatch"]:
             raise StopBatch("arm_mismatch")
+        # the S6 void rule (#285): only S6 reads the bundle; a Z above 3, or none, voids the run
+        if cell["scenario"].upper() == S6_VOID_SCENARIO:
+            check = self.bundle_latency_z(own)
+            check["void_reason"] = s6_void(cell["scenario"], check["z"])
+            rec["s6_void_check"] = check
+            if check["void_reason"]:
+                raise Voided(check["void_reason"])
         # An Incident still open at the end of the wait is a remediation that did not finish: the
         # run counts, with no terminal phase.
         rec["timed_out"] = not ended
