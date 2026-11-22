@@ -52,7 +52,9 @@ from . import svg
 
 HERE = pathlib.Path(__file__).resolve().parent
 MARK = "FIXTURE — not measured"  # on every table and figure built from fixture runs
-PHASES = ("detect", "diagnose", "gate", "act", "verify")
+PHASES = (
+    metrics.PHASES
+)  # detect, poll, intake, diagnose, gate, act, verify: they sum to MTTR
 
 
 # ---------------------------------------------------------------- loading
@@ -414,7 +416,7 @@ def analyse(
     r["mttr"], r["detection_latency"] = mt, dl
     t07 = Table("T07", "MTTR and its decomposition: median [IQR] seconds", ["Arm", "Scenario", "MTTR", *[p.capitalize() for p in PHASES]],
                 [[*split(k), iqr(v["mttr"]), *[iqr(v[p]) for p in PHASES]] for k, v in sorted(mt.items()) if v["mttr"]],
-                "Resolved runs only. Median and IQR, never mean and standard deviation on ten skewed values (spec §21).")  # fmt: skip
+                "Resolved runs only. Detect: injection to alert; poll: alert to Incident created; intake: created to Diagnosing; per run the phases sum to MTTR. Median and IQR, never mean and standard deviation on ten skewed values (spec §21).")  # fmt: skip
     t08 = Table("T08", "Detection latency: median [IQR] seconds", ["Arm", "Scenario", "Injection to Incident"],
                 [[*split(k), iqr(v)] for k, v in sorted(dl.items()) if v], "Floor of about 60-90 s by design: scrape, `for: 1m`, 10 s poll (spec §21).")  # fmt: skip
 

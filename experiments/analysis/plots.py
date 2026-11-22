@@ -109,7 +109,7 @@ def stacked(out, fid, title, rows, series, unit, banner=""):
             left = [a + b for a, b in zip(left, w, strict=True)]
         ax.set_xlabel(unit.strip() or "count")
         ax.legend(
-            ncol=min(len(series), 5),
+            ncol=min(len(series), 7),
             fontsize=8,
             frameon=False,
             loc="upper center",

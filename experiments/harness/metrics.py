@@ -35,6 +35,9 @@ from .operator_lib import catalogue
 from .stats import median_iqr, proportion, rule_of_three
 
 MUTATING_SCENARIOS = ("S3", "S4", "S5", "S6")
+# MTTR = injection -> Resolved, cut at every recorded boundary so the phases sum to it:
+# injection -> alert -> Incident created -> Diagnosing -> Proposed -> Executing -> Verifying -> Resolved
+PHASES = ("detect", "poll", "intake", "diagnose", "gate", "act", "verify")
 MUTATING_ACTIONS = tuple(k for k, e in catalogue.CATALOGUE.items() if e.mutates)
 
 
@@ -229,6 +232,11 @@ def flatten(
                 "terminal": i.get("terminal_phase"),
                 "reason": i.get("reason"),
                 "detect_s": seconds(inj, i["detected_at"]),
+                # the alert (spec.detectedAt) -> the Incident created (the Detected transition is
+                # written at creationTimestamp): the poller's delay
+                "poll_s": seconds(i["detected_at"], at.get("Detected")),
+                # created -> Diagnosing: the intake handler and the level check
+                "intake_s": seconds(at.get("Detected"), at.get("Diagnosing")),
                 "diagnose_s": seconds(at.get("Diagnosing"), at.get("Proposed")),
                 "gate_s": seconds(at.get("Proposed"), at.get("Executing")),
                 "act_s": seconds(at.get("Executing"), at.get("Verifying")),
@@ -432,7 +440,7 @@ def mttr_decomposition(runs):
     for (reasoner, scen), rs in _group(_valid(runs), "reasoner", "scenario").items():
         res = [r for r in rs if r["terminal"] == "Resolved" and r["mttr_s"] is not None]
         cell = {"mttr": median_iqr([r["mttr_s"] for r in res])}
-        for ph in ("detect", "diagnose", "gate", "act", "verify"):
+        for ph in PHASES:
             cell[ph] = median_iqr(
                 [r[f"{ph}_s"] for r in res if r[f"{ph}_s"] is not None]
             )

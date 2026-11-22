@@ -226,6 +226,25 @@ class SyntheticBatchTest(unittest.TestCase):
             self.m["mttr"]["R3/S3"]["mttr"]
         )  # an escalation does not resolve
 
+    def test_the_phases_sum_to_the_mttr_of_every_resolved_run(self):
+        for name, runs_dir in (
+            ("synthetic", self.b["runs"]),
+            ("fixture", SAMPLE / "runs"),
+        ):
+            truth, h = results.load_truth(GT)
+            _, _, parts = results.analyse(results.load_runs(runs_dir, h, truth), truth)
+            resolved = [r for r in parts["runs"] if r["terminal"] == "Resolved"]
+            self.assertTrue(resolved, name)
+            for r in resolved:
+                total = sum(r[f"{ph}_s"] for ph in metrics.PHASES)
+                self.assertAlmostEqual(
+                    total, r["mttr_s"], delta=1.0, msg=f"{name} {r['run_id']}"
+                )
+        # the S1 trial's cut: alert 09:15:39.823 -> created 09:16:05 -> Diagnosing 09:16:10
+        mt = self.m["mttr"]["R3/S1"]
+        self.assertAlmostEqual(mt["poll"]["median"], 26.0)
+        self.assertAlmostEqual(mt["intake"]["median"], 5.0)
+
     def test_wrong_action_rate_per_arm(self):
         wap, wae = self.m["wrong_action_proposed"], self.m["wrong_action_executed"]
         self.assertEqual((wap["R1"]["k"], wap["R1"]["n"]), (0, 6))
