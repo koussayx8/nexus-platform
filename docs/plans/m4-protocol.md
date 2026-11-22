@@ -2,7 +2,7 @@
 
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
 version. Written offline from `dev` at `4b077fb`, brought up to `dev` at `e7fec65` on 2026-11-21 (Q6, D25, two run
-rules): nothing here was checked on the cluster. Metrics, claims, the
+rules) and on 2026-11-22 (D27, phase D; the C8 run rule): nothing here was checked on the cluster. Metrics, claims, the
 export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metrics.md`](m4-metrics.md); the ground truth is
 [`experiments/ground-truth.json`](../../experiments/ground-truth.json) (#285).
 
@@ -38,9 +38,9 @@ rebuilt Reasoner (#242) must serve the same two values, since its runbooks and i
 
 About 59 live runs, all injected in `nexus-dev`. Not run: S2 and S4 live, R2 live, live L0 or L1 cells, C4 (cut,
 `TASKS.md` D25: no `nexus-baseline`, no live or offline C4 runs), C5, C6. The volumes match spec v1.1's phases table
-(#203): phase A 40 valid runs (C1 and C2, 8 cells × 5), phase C 0 runs. **One difference, not resolved here:** spec
-v1.1's phase D row says 16 runs (the four live scenarios × 2 × advisory checks on and off); this protocol and
-`TASKS.md`'s run matrix keep `D/R0` at 10 runs on S1 with the advisory checks off (Q3). The owner decides which holds.
+(#203): phase A 40 valid runs (C1 and C2, 8 cells × 5), phase C 0 runs. **Phase D, resolved:** 10 live R0 runs on
+S1, advisory checks off (owner, 2026-11-22, confirming Q3; `TASKS.md` D27). Spec v1.1's phase D row (16 runs: the four
+live scenarios × 2 × advisory checks on and off) is corrected by D27.
 `C8`'s human time runs from the pull request opened to merged, then to 2 of 2 Ready and the alert resolved (Q5).
 The suite runs after #233's must-fix items 2–5 (L2 compensation, K3 cells, `nexus-baseline`, request shapes), a
 separate change due on 2026-11-17 (Q10). With C4 cut, the `nexus-baseline` cells stay offline only (spec v1.1, F14).
@@ -114,6 +114,17 @@ Incident is terminal or at 1,200 s, and later Incidents are not waited for):
 - **A `C8` run is not reset at `Escalated`.** The fault stays until the owner merges the revert pull request (the
   merge is the fix); the reset follows recovery (ADR-041 limit 7). A reset first makes check 5 refuse ("changes
   nothing, already reverted?").
+
+**A run rule set on 2026-11-22 (owner):**
+
+- **C8 is on only during the `C8` cells.** Just before them the owner creates Secret `nexus-bot/nexus-bot-github`
+  (`scripts/nexus-bot-secrets.sh`, from the machine token), and deletes it after them. With no Secret the bot's C8 is
+  off: the mount is optional (#304). Otherwise every S3 run in phase A, whose escalation names `git_revert`
+  ([`m4-metrics.md`](m4-metrics.md)), would open a revert pull request (so would an S5 or S6 run escalating with
+  `git_revert`, Q11), and one left open makes C8's check 6 (no open revert pull request for that branch,
+  ADR-041) refuse in the `C8` cells. The bot decides C8 once, at its start (`bot/nexus_bot/main.py`, `c8_service`),
+  so the owner replaces the bot's pod after creating the Secret and again after deleting it; its log then says
+  `C8 on` or `C8 off`.
 
 ## 6. Void, discard, failed
 
