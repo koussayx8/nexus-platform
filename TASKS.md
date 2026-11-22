@@ -910,10 +910,13 @@ secrets, `sudo`.
 - [ ] **Block 4 — 11-21 → 11-22. Harness blockers.** V1–V5 and V19 (D12); #189 moved to `GET /stop`, then merged
   (D13); the Haiku arm and the effort sweep removed from `experiments/harness/arms.py` and its tests. **Gate:** the
   expected-failure tests from #198 pass. Cut first: nothing (mandatory).
-- [ ] **Block 5 — 11-23 → 11-24. Redaction, F5, trial runs.** #197 A1; the F5 decision; `audit-join.py` after every
+- [x] **Block 5 — 11-23 → 11-24. Redaction, F5, trial runs.** #197 A1; the F5 decision; `audit-join.py` after every
   run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
   kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
-  (each trial run feeds the replay).
+  (each trial run feeds the replay). **Gate passed (owner, 2026-11-22).** Trial reruns of 2026-11-21 (R3 at L3), records in
+  `~/nexus-evidence/trials-2026-11-21/<scenario>/RECORD.md`: S1 audit-join completeness 1.0 (2 of 2 matched); S3, S5 and
+  S6 null, because they made no mutation (nothing to join, join exit 0), read as meeting the gate. The pause-gap rule
+  applies to measured runs, not to these trials.
 - [x] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
