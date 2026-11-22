@@ -10,6 +10,12 @@
   "transitions": [],
   "verifications": []
  },
+ "prod_alerts": [
+  {
+   "alertname": "NexusCpuAnomaly",
+   "state": "pending"
+  }
+ ],
  "queue_record": {
   "advisory_checks": "on",
   "approval_ref": "G16/fixture#approval-0",
@@ -41,6 +47,12 @@
    "polls": 3,
    "waited_s": 60.0
   },
+  "prod_alerts": [
+   {
+    "alertname": "NexusCpuAnomaly",
+    "state": "pending"
+   }
+  ],
   "run_id": "A/R1/S1/L3#2",
   "started_at": "2027-01-05T12:00:00+00:00",
   "status": "valid",
@@ -114,5 +126,6 @@
    "verify_s": 131.0
   },
   "wrong_action": false
- }
+ },
+ "void_reason": null
 }

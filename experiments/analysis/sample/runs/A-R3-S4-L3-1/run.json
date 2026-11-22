@@ -1,6 +1,7 @@
 {
  "fixture": true,
  "injection_at": null,
+ "prod_alerts": null,
  "queue_record": {
   "approval_ref": "G16/fixture#approval-0",
   "attempt": 1,
@@ -11,6 +12,7 @@
   "ended_at": "2027-01-06T07:20:00+00:00",
   "fallbackUsed": false,
   "pause_gap_s": 0.0,
+  "prod_alerts": null,
   "run_id": "A/R3/S4/L3#1",
   "started_at": "2027-01-06T07:00:00+00:00",
   "status": "void",
@@ -44,5 +46,6 @@
   "scenario": "S4",
   "started_at": "2027-01-06T07:00:00+00:00"
  },
- "schema": "run-export/v2"
+ "schema": "run-export/v2",
+ "void_reason": "boot_id_changed"
 }

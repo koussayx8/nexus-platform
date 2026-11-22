@@ -10,6 +10,7 @@
   "transitions": [],
   "verifications": []
  },
+ "prod_alerts": [],
  "queue_record": {
   "advisory_checks": "on",
   "approval_ref": "G16/fixture#approval-0",
@@ -47,6 +48,7 @@
    "polls": 3,
    "waited_s": 60.0
   },
+  "prod_alerts": [],
   "run_id": "A/R3/S4/L3#3",
   "started_at": "2027-01-06T09:00:00+00:00",
   "status": "valid",
@@ -126,5 +128,6 @@
    "verify_s": 131.0
   },
   "wrong_action": true
- }
+ },
+ "void_reason": null
 }
