@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from nexus_revert.gitcmd import GitError, SubprocessGit
+from nexus_revert.gitcmd import EXPLANATION_MAX, GitError, SubprocessGit, explanation
 from tests.fixtures import MACHINE, TOKEN
 
 
@@ -63,3 +63,49 @@ def test_file_protocol_is_refused_without_the_test_switch(tmp_path: Path) -> Non
     g(["init", "-q"])
     with pytest.raises(GitError):
         g(["fetch", src.as_uri()])
+
+
+SHA = "5a6d2ecf4db96f13a1ad5b94fc3b2269be0b3b07"
+REFUSAL = (
+    f"To https://github.com/{MACHINE}/nexus-platform.git\n"
+    f" ! [remote rejected] {SHA} -> nexus/revert-inc-ac15ee36af8a7a62-1795335168 "
+    "(refusing to allow a Personal Access Token to create or update workflow `.github/workflows/x.yml` without `workflow` scope)\n"
+    f"error: failed to push some refs to 'https://github.com/{MACHINE}/nexus-platform.git'\n"
+)
+
+
+def stub_push_failure(monkeypatch: pytest.MonkeyPatch, stderr: str) -> None:
+    def fake(argv: list[str], **kw: Any) -> Any:
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(subprocess, "run", fake)
+
+
+def test_a_refused_push_keeps_githubs_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_push_failure(monkeypatch, REFUSAL)
+    g = SubprocessGit(tmp_path, push_url="https://github.com/x/y.git", login=MACHINE, token=TOKEN)
+    with pytest.raises(GitError) as e:
+        g(["push", "origin", "HEAD:refs/heads/nexus/x"], push_auth=True)
+    msg = str(e.value)
+    assert msg.startswith("git push exited 1: ")
+    assert "refusing to allow a Personal Access Token" in msg and "without `workflow` scope" in msg
+    assert "! [remote rejected]" in msg  # the reason comes first; the generic summary after it may be cut
+    assert "To https://" not in msg  # only the explaining lines, not git's "To <url>" line
+    assert len(msg.removeprefix("git push exited 1: ")) <= EXPLANATION_MAX
+
+
+def test_the_explanation_never_carries_the_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    basic = base64.b64encode(f"{MACHINE}:{TOKEN}".encode()).decode()
+    stub_push_failure(monkeypatch, f"remote: bad credentials {TOKEN}\n! [remote rejected] x -> y (Authorization: Basic {basic})\n"
+                                   f"error: failed to push some refs to 'https://{TOKEN}@github.com/x/y.git'\n")
+    g = SubprocessGit(tmp_path, push_url="https://github.com/x/y.git", login=MACHINE, token=TOKEN)
+    with pytest.raises(GitError) as e:
+        g(["push", "origin", "HEAD:refs/heads/nexus/x"], push_auth=True)
+    assert TOKEN not in str(e.value) and basic not in str(e.value) and "<token>" in str(e.value)
+
+
+def test_explanation_is_cut_to_300_and_falls_back_to_the_last_line() -> None:
+    assert len(explanation("error: " + "x" * 500)) == EXPLANATION_MAX
+    assert explanation("hint: a\nsomething odd\n") == "something odd"
+    assert explanation("") == "no stderr"
+    assert explanation("hint: ignore me\nfatal: not a git repository\n") == "fatal: not a git repository"
