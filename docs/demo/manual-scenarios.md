@@ -183,13 +183,16 @@ can also be admitted as a `scale_deployment` when no rollout is in progress. So 
    lists both commands): the same patch as section 3,
    `kubectl --context default -n nexus-system patch configmap nexus-killswitch --type merge -p '{"data":{"state":"halted"}}'`,
    then `runner run reset`. An Incident raised now ends `Blocked` at stage 5 and cannot act.
-2. **Waits** for `sample-api` 2/2 Ready and the level, then **settles** for `NEXUS_DEMO_SETTLE` seconds
-   (default 90: the anomaly alerts' `for: 1m` plus one evaluation, `interval: 30s`, in
-   `platform/observability/alerts/nexus-detection.yaml`).
-3. **Checks, read-only**, that no NEXUS alert fires for `nexus-dev` (Alertmanager's `/api/v2/alerts`
-   through the API server's service proxy, alerts whose `nexus_target` starts with `nexus-dev/`) and that
-   no Incident is open. A failure stops the script with the command to look further and the command to
-   re-activate the Kill Switch; it makes no write.
+2. **Waits** for `sample-api` 2/2 Ready and the level, then **settles**: a quiet window, polled. It passes
+   once no NEXUS alert for `nexus-dev` has been **pending or firing** for `NEXUS_DEMO_SETTLE_QUIET` seconds
+   in a row (default 120), no Incident is open, and `NEXUS_DEMO_SETTLE_MIN` seconds (default 120) have
+   passed since Ready. It reads Prometheus's `/api/v1/alerts` through the service proxy that
+   `scripts/verify-state.sh` uses, alerts whose `nexus_target` starts with `nexus-dev/`: Alertmanager only
+   knows firing alerts, and an alert still in its `for:` window would fire just after the re-activation.
+   A fixed wait does not work: on 2026-11-22 the warm-up alerts fired at +1 m 41 s and +3 m 41 s after
+   Ready, each pending a minute before, and rerunning the script resets again and restarts the warm-up.
+3. **Stops at `NEXUS_DEMO_SETTLE_MAX`** (default 900 s) if it never gets quiet, with the read-only commands
+   to look further and the command to re-activate the Kill Switch; it makes no write.
 4. **Re-activates the Kill Switch** (`state active`) as its own typed step, runs the pre-check again, and
    only then takes the "before" Incident list. Incidents raised during the settle never show in the live
    view.
@@ -209,11 +212,16 @@ can also be admitted as a `scale_deployment` when no rollout is in progress. So 
 S1 and L2 wait for the same alert the warm-up raises, so for them the settle, not the filter, keeps the
 warm-up Incident out of the view.
 
-The pre-check also has a "NEXUS alerts" line: no NEXUS alert firing for `nexus-dev`, to look further:
+The pre-check also has a "NEXUS alerts" line: no NEXUS alert pending or firing for `nexus-dev`, with each
+alert's state. To look further:
 
 ```bash
-kubectl --context default get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-alertmanager:9093/proxy/api/v2/alerts | jq '.[].labels'
+kubectl --context default get --raw /api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/alerts | jq '.data.alerts[] | {labels, state, activeAt}'
 ```
+
+For the defense, prepare before the jury and run the scenario with `NEXUS_DEMO_SKIP_RESET=1` in front of it
+(`scripts/demo/prepare.sh <level>`, then for example `NEXUS_DEMO_SKIP_RESET=1 scripts/demo/s3.sh`;
+[README.md](README.md)), so the jury never waits through the settle.
 
 ### Runner rules that matter on stage (ADR-047)
 

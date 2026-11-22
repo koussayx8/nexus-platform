@@ -18,8 +18,8 @@ count it in a cell.
 
 ## What every script does
 
-1. **Pre-check (read-only).** Kill Switch `active`, no NEXUS alert firing for `nexus-dev` (Alertmanager,
-   through the API server's service proxy), no open Incident, `sample-api` 2/2 Ready, business traffic
+1. **Pre-check (read-only).** Kill Switch `active`, no NEXUS alert pending or firing for `nexus-dev`
+   (Prometheus `/api/v1/alerts` through the API server's service proxy; the line prints each alert's state), no open Incident, `sample-api` 2/2 Ready, business traffic
    (Locust `running` with 160 users), and the autonomy level. It stops with a `FAIL` line if anything is
    wrong. The level is only reported at this point, because the reset commits it.
 2. **Records the baseline**: the `experiment/dev-state` commit in `~/nexus-exp` (a `git fetch`, no change).
@@ -27,11 +27,14 @@ count it in a cell.
    commands: `kubectl --context default -n nexus-system patch configmap nexus-killswitch --type merge -p
    '{"data":{"state":"halted"}}'`, then `runner run reset` (with `--baseline-ref` and `--git-dir`). Then it
    waits until `sample-api` is 2/2 Ready at the level.
-4. **Settles** for `NEXUS_DEMO_SETTLE` seconds (default 90: the anomaly alerts' `for: 1m` plus one 30 s
-   evaluation). The new pods' warm-up can raise an anomaly alert; with the Kill Switch halted its Incident
-   cannot act. Then it checks, read-only, that no NEXUS alert fires for `nexus-dev` and no Incident is
-   open. A failure stops the script with the command to look further (and to re-activate the Kill Switch);
-   it writes nothing.
+4. **Settles**, a quiet window polled every 3 s, not a fixed wait. The new pods' warm-up can raise an
+   anomaly alert (on 2026-11-22: firing at +1 m 41 s and +3 m 41 s after Ready, each pending a minute
+   before); with the Kill Switch halted its Incident cannot act. It passes once no NEXUS alert for
+   `nexus-dev` has been pending or firing for `NEXUS_DEMO_SETTLE_QUIET` seconds in a row (default 120), no
+   Incident is open, and at least `NEXUS_DEMO_SETTLE_MIN` seconds (default 120) have passed since Ready. A
+   live line shows the elapsed time, how long it has been quiet and the alerts seen. After
+   `NEXUS_DEMO_SETTLE_MAX` seconds (default 900) it stops with the read-only commands to look further and
+   the command to re-activate the Kill Switch; it writes nothing.
 5. **Re-activates the Kill Switch** (`state active`, its own typed `yes`), runs the pre-check again, then
    takes the list of existing Incidents. An Incident raised during the settle never shows in the live view.
 6. **Injects** (`runner run inject`). S3 then also asks to refresh Argo CD; S6 resizes the Locust swarm.
@@ -71,7 +74,35 @@ scripts/demo/s1.sh
 Settings, all optional environment variables: `NEXUS_DEMO_EXP_DIR` (default `~/nexus-exp`),
 `NEXUS_DEMO_LOCUST` (default `http://127.0.0.1:18090`), `NEXUS_DEMO_USERS` (160), `NEXUS_DEMO_INTERVAL`
 (refresh seconds, 3), `NEXUS_DEMO_TIMEOUT` (live view limit, 900 s), `NEXUS_DEMO_READY_TIMEOUT` (wait after
-the reset, 300 s), `NEXUS_DEMO_SETTLE` (settle after the reset, 90 s), `NEXUS_DEMO_RUNNER` (tests only).
+the reset, 300 s), `NEXUS_DEMO_SETTLE_QUIET` (120 s), `NEXUS_DEMO_SETTLE_MIN` (120 s), `NEXUS_DEMO_SETTLE_MAX` (900 s),
+`NEXUS_DEMO_SKIP_RESET` (1 after `prepare.sh`, below), `NEXUS_DEMO_RUNNER` (tests only).
+
+## Before the jury: prepare; in front of the jury: the scenario with `NEXUS_DEMO_SKIP_RESET=1`
+
+The settle takes at least 2 minutes and, after a warm-up alert, up to several more. So the jury never waits
+through it:
+
+1. **Before the jury**, prepare the level the scenario runs at (3, or 2 for `l2.sh`). Add `--locust` after
+   S6 or any spike, to restart the baseline swarm:
+
+   ```bash
+   scripts/demo/prepare.sh 3
+   ```
+
+   It runs the pre-check, the halt and reset, the wait until Ready, the settle and the re-activation, with
+   the same functions and typed `yes` as a scenario script, then stops and prints "Ready for the inject".
+2. **In front of the jury**, the scenario without the reset and settle:
+
+   ```bash
+   NEXUS_DEMO_SKIP_RESET=1 scripts/demo/s3.sh
+   ```
+
+   It records the current `experiment/dev-state` head as the baseline (for the printed reset) and requires
+   the strict pre-check: Kill Switch `active`, no NEXUS alert pending or firing, no open Incident,
+   `sample-api` 2/2 Ready and the level. Any `FAIL` stops it before the inject; run `prepare.sh` again.
+
+Between two scenarios, prepare again (the first scenario's fault and its printed reset leave the cluster
+changed).
 
 ## The expected alert (`D_EXPECT_ALERTS`)
 
