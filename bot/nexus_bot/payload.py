@@ -6,6 +6,12 @@
     h32     the first 32 hex of status.proposal.hash, after "sha256:"
 
 The payload is the bot's whole memory of a message: a restart loses nothing.
+
+Two read-only buttons (2026-11-22), handled by the same sender check as a press and answered with a
+Reader only:
+
+    p:<namespace>   /pods for nexus-dev or nexus-prod (the only two values)
+    i:<key>         /incident for the Incident whose UID starts with key (16 hex, as above)
 """
 
 import re
@@ -14,6 +20,8 @@ from dataclasses import dataclass
 from nexus_client.models import Incident
 
 PATTERN = re.compile(r"^[aren]:[0-9a-f]{16}:[0-9a-f]{32}$")
+VIEW = re.compile(r"^(?:p:(nexus-dev|nexus-prod)|i:([0-9a-f]{16}))$")
+PODS, INCIDENT = "pods", "incident"
 APPROVE, REJECT, EXPLAIN, NOTE = "a", "r", "e", "n"
 _HASH = re.compile(r"^sha256:([0-9a-f]{64})$")
 
@@ -50,3 +58,26 @@ def decode(data: object) -> Press | None:
         return None
     action, key, h32 = data.split(":")
     return Press(action, key, h32)
+
+
+@dataclass(frozen=True)
+class View:
+    kind: str  # PODS or INCIDENT
+    arg: str  # a namespace, or a 16-hex UID key
+
+
+def pods_data(namespace: str) -> str | None:
+    data = f"p:{namespace}"
+    return data if VIEW.fullmatch(data) else None
+
+
+def incident_data(inc: Incident) -> str | None:
+    key = uid_key(inc.metadata.uid)
+    return f"i:{key}" if key is not None else None
+
+
+def decode_view(data: object) -> View | None:
+    m = VIEW.fullmatch(data) if isinstance(data, str) else None
+    if m is None:
+        return None
+    return View(PODS, m[1]) if m[1] else View(INCIDENT, m[2])

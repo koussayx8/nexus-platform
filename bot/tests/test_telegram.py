@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from nexus_bot.telegram import MAX_TEXT, HttpTransport, TelegramClient, TelegramError, keyboard
+from nexus_bot.richtext import MAX_TEXT
+from nexus_bot.telegram import HttpTransport, TelegramClient, TelegramError, keyboard
 
 TOKEN = "123456789:" + "A" * 35
 
@@ -100,7 +101,7 @@ def test_text_is_cut_at_4096_with_a_truncation_line(server: str) -> None:
 
 def test_callback_data_over_64_bytes_is_refused() -> None:
     with pytest.raises(ValueError):
-        keyboard([("x", "y" * 65)])
+        keyboard([[("x", "y" * 65)]])
 
 
 def test_token_never_in_error_text_http_error(server: str) -> None:
