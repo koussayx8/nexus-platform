@@ -1,0 +1,18 @@
+# ANALYSIS ONLY: matplotlib for the PNG and SVG figures of `make results` (experiments/analysis/plots.py).
+# Never installed in the cluster, the operator, the Reasoner or any image. Optional: without it,
+# `make results` draws F1-F3 with the standard-library svg.py and says in RESULTS.md that F4, F5 and
+# the PNGs are missing. Exact versions, the set pip resolved on Linux CPython 3.12 (2026-11-22).
+# NOT YET HASH-PINNED (the detectors' file is): add the sha256 of each wheel before Block 13's
+# measured `make results`. Install:
+#   pip install --only-binary=:all: -r experiments/analysis/requirements.txt
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.68.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.5.5
+packaging==26.3
+pillow==13.0.0
+pyparsing==3.3.3
+python-dateutil==4.0.0
+tzdata==2026.6
