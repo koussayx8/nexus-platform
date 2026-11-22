@@ -70,26 +70,19 @@ What it adds to runner.py (which plans and executes single operations):
   that did not finish, never a discard. The wait ran out with no Incident of the run's own:
   discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
   not go in.
+* The settle before the next reset (protocol #234 §5, 2026-11-21, as trials-2026-11-21/chain.sh
+  did). A reset during verification restarts the pods and fails it (#302), so after the measurement
+  above, and before any run that injected returns (valid, void or discarded), every Incident created
+  since the injection snapshot on the run's target (the counted one and every later one) must be
+  terminal, with the set and its phases unchanged, for SETTLE_S (60 s). The measurement is not
+  changed by it: an Incident still open at wait_s stays `timed_out`, and its later phase is on the
+  record (`settle`). At SETTLE_CAP_S (1,800 s) after the injection the run is void
+  (`incidents_not_terminal_at_settle_cap`) and the batch halts, so no reset follows it blindly: the
+  owner checks the Incidents and resets by hand.
 * C8 is refused (`init`, and `run` for a queue made before): a cell with `C8` as a segment of its id
   or as its `phase` or `config`. A C8 run is not reset at Escalated (ADR-041 limit 7): the owner's
   merge of the revert pull request is the fix, and the batch's next reset would come first. C8 runs
   are attended, outside the batch.
-* The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
-  operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
-  index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
-* The injection time is on every run record that injected (`injection_at`, null before that): the
-  wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
-  push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
-  Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
-  that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
-* The S6 void rule (pre-registered on #285, experiments/ground-truth.json scenarios.S6.void_if):
-  an S6 run whose run's Incident (the counted one, above) has an evidence bundle with
-  metrics.zscores.latencyP95 > 3 is void (`s6_latency_p95_z_above_3`) and the cell requeues it.
-  status.evidence does not carry the Z-scores, so the bundle is read from the Flight Recorder by
-  status.evidence.bundleHash (read-only: psql as nexus_reader in flight-recorder-db-0, as
-  scripts/fr-export.sh does). A Z that cannot be read (no bundleHash, no row, null, not a number,
-  the read fails) is never taken as valid: the run is void (`s6_latency_p95_z_unknown`). What was
-  read is on the run record (`s6_void_check`). Other scenarios are never read or voided by it.
 * The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
   operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
   index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
@@ -166,6 +159,12 @@ FR_NAMESPACE, FR_POD, FR_CONTAINER = (
 FR_USER, FR_DB = "nexus_reader", "nexus_recorder"
 # proposal.hash_of's form; the hash goes into SQL, so nothing else is accepted
 BUNDLE_HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# The settle before the next reset (protocol #234 §5, 2026-11-21; trials-2026-11-21/chain.sh):
+# every Incident on the target since the injection terminal, and unchanged, for SETTLE_S; at most
+# SETTLE_CAP_S after the injection (chain.sh's 30 min), else the run is void and the batch halts.
+SETTLE_S = 60
+SETTLE_CAP_S = 1800
+SETTLE_CAP_REASON = "incidents_not_terminal_at_settle_cap"
 
 
 class Refused(Exception):
@@ -182,11 +181,12 @@ class StopBatch(Exception):
 
 
 class Voided(Exception):
-    """Raised from inside a run (guard.check) when the timed-run rule is broken."""
+    """Raised from inside a run (guard.check) when the timed-run rule is broken, or by a void rule.
+    halt=True also halts the batch: the next run's reset must not follow (the settle cap)."""
 
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, halt: bool = False):
         super().__init__(reason)
-        self.reason = reason
+        self.reason, self.halt = reason, halt
 
 
 # ---------------------------------------------------------------- clock and the timed-run rule
@@ -580,6 +580,15 @@ def drive(
                 boot_id_end=end["boot_id"],
                 pause_gap_s=pause_gap(guard.start, end),
             )
+            if v.halt:  # void, and no reset follows it: the owner looks first
+                queue.doc["halt"] = {
+                    "reason": v.reason,
+                    "run_id": rec["run_id"],
+                    "at": _utc(),
+                }
+                queue.save()
+                summary["stopped"] = f"halt:{v.reason}"
+                return summary
             continue
         except StopBatch as s:
             end = clock()
@@ -802,10 +811,15 @@ class LiveRun:
         monotonic=time.monotonic,
         wall=time.time,
         stat=precheck._file_mtime,
+        settle_s: int = SETTLE_S,
+        settle_cap_s: int = SETTLE_CAP_S,
     ):
+        if settle_cap_s < wait_s + settle_s:
+            raise ValueError("settle_cap_s must be at least wait_s + settle_s")
         self.stat = stat
         self.r, self.cfg = runner, precheck.normalise(precheck_cfg)
         self.wait_s, self.poll_s = wait_s, poll_s
+        self.settle_s, self.settle_cap_s = settle_s, settle_cap_s
         self.sleep, self.monotonic, self.wall = sleep, monotonic, wall
         self.recoveries = 0  # consecutive Locust restarts; a successful run resets it
         # True from a load injection (S2, S4, S6) until a reset has touched Locust. A new process
@@ -836,6 +850,52 @@ class LiveRun:
         if rc != 0:
             raise RuntimeError("cannot list Incidents")
         return json.loads(out).get("items", [])
+
+    def settle(self, rec: dict, before: set, injected_mono: float) -> None:
+        """Hold the next run's reset (protocol #234 §5, 2026-11-21): return only once every Incident
+        created since the injection snapshot (`before`) that targets the run's namespace (the counted
+        one and every later one) is terminal, and the set and its phases have stayed so for settle_s.
+        A reset during verification restarts the pods and fails the check (#302). At settle_cap_s
+        after the injection the run is void and the batch halts (Voided, halt=True): it is never reset
+        blindly. What it saw is on the run record (`settle`). It does not check the guard: a pause
+        here voids the run at drive's end check, after the hold."""
+        start, deadline = self.monotonic(), injected_mono + self.settle_cap_s
+        since, seen, polls = None, None, 0
+        while True:
+            scope = [
+                i for i in self.incidents()
+                if i["metadata"]["uid"] not in before
+                and ((i.get("spec") or {}).get("target") or {}).get("namespace") == self.r.namespace
+            ]  # fmt: skip
+            polls, now = polls + 1, self.monotonic()
+            briefs = sorted(
+                (incident_brief(i) for i in scope), key=lambda b: b["uid"] or ""
+            )
+            state = tuple((b["uid"], b["phase"]) for b in briefs)
+            open_ = [
+                b["name"] or b["uid"]
+                for b in briefs
+                if b["phase"] not in model.TERMINAL_PHASES
+            ]
+            # an open Incident, a new one or a phase change restarts the 60 s
+            if open_ or state != seen:
+                since = None if open_ else now
+            seen = state
+            rec["settle"] = {
+                "settled": False, "settle_s": self.settle_s, "cap_s": self.settle_cap_s,
+                "polls": polls, "waited_s": now - start, "open": open_, "incidents": briefs,
+            }  # fmt: skip
+            if since is not None and now - since >= self.settle_s:
+                rec["settle"]["settled"] = True
+                return
+            if now >= deadline:
+                print(
+                    f"batch: {rec.get('run_id')}: {SETTLE_CAP_REASON}: still open {open_}; the run is "
+                    "void, the batch halts, and NO reset follows: check the Incidents, reset by hand",
+                    file=sys.stderr,
+                )
+                raise Voided(SETTLE_CAP_REASON, halt=True)
+            self.sleep(self.poll_s)
 
     def bundle_latency_z(self, incident: dict) -> dict:
         """Read-only: the counted Incident's bundle latencyP95 Z from the Flight Recorder, by
@@ -1110,38 +1170,51 @@ class LiveRun:
         if not self.inject(cell, rec, guard):
             return Outcome(False, discard_reason="injection_not_applied")
         injected_at = model.parse_time(rec["injection_at"])
-        deadline = self.monotonic() + self.wait_s
+        injected_mono = self.monotonic()
+        deadline = injected_mono + self.wait_s
         uid, own, ended = None, None, False
-        while True:
-            guard.check()
-            new = [i for i in self.incidents() if i["metadata"]["uid"] not in before]
-            if uid is None:  # once chosen, the run's Incident does not change
-                own = run_incident(new, r.namespace, injected_at)
-                uid = own["metadata"]["uid"] if own else None
-            else:
-                own = next((i for i in new if i["metadata"]["uid"] == uid), None)
-            if own is not None:
-                rec["incident"] = incident_brief(own)
-            rec["other_incidents"] = sorted(
-                (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
-                key=lambda b: b["uid"],
-            )
-            ended = (
-                own is not None
-                and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
-            )
-            if ended or self.monotonic() >= deadline:
-                break
-            self.sleep(self.poll_s)
+        try:
+            while True:
+                guard.check()
+                new = [
+                    i for i in self.incidents() if i["metadata"]["uid"] not in before
+                ]
+                if uid is None:  # once chosen, the run's Incident does not change
+                    own = run_incident(new, r.namespace, injected_at)
+                    uid = own["metadata"]["uid"] if own else None
+                else:
+                    own = next((i for i in new if i["metadata"]["uid"] == uid), None)
+                if own is not None:
+                    rec["incident"] = incident_brief(own)
+                rec["other_incidents"] = sorted(
+                    (incident_brief(i) for i in new if i["metadata"]["uid"] != uid),
+                    key=lambda b: b["uid"],
+                )
+                ended = (
+                    own is not None
+                    and (own.get("status") or {}).get("phase") in model.TERMINAL_PHASES
+                )
+                if ended or self.monotonic() >= deadline:
+                    break
+                self.sleep(self.poll_s)
+        except Voided as v:
+            # a void run is reset too: hold that reset; the reason is kept if the cap voids it again
+            rec["void_before_settle"] = v.reason
+            self.settle(rec, before, injected_mono)
+            raise
+        # The measurement ends here (phase, timed_out, Locust, rate). The end check: Locust must
+        # still be running at the load the run was measured at.
+        why = self.locust_end_failures(cell) if own is not None else []
+        if own is not None:
+            rec["locust_end"] = {"ok": not why, "failures": why}
+            rec["rate_end"] = self.rate_end()
+        # whatever the run counts as, the next run's reset waits for every Incident to settle
+        self.settle(rec, before, injected_mono)
         if own is None:
             # nothing of the run's own to score (or it was deleted under the run: never by the runner)
             return Outcome(
                 False, discard_reason="incident_gone" if uid else "no_incident"
             )
-        # the end check: Locust must still be running at the load the run was measured at
-        why = self.locust_end_failures(cell)
-        rec["locust_end"] = {"ok": not why, "failures": why}
-        rec["rate_end"] = self.rate_end()
         if why:
             raise Voided("locust_end_check")
         st = own.get("status") or {}
