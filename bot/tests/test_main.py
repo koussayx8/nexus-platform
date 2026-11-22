@@ -40,7 +40,7 @@ def test_command_reply_goes_to_the_owner() -> None:
     bot, _c, t = make(incident_dict())
     bot.handle(message("/status"))
     [msg] = t.sent()
-    assert msg["chat_id"] == OWNER_ID and "Open Incidents: 1" in msg["text"]
+    assert msg["chat_id"] == OWNER_ID and "Open Incidents: 1" in msg["text"] and msg["entities"]
 
 
 def test_approve_press_end_to_end() -> None:
@@ -50,7 +50,7 @@ def test_approve_press_end_to_end() -> None:
     assert methods == ["answerCallbackQuery", "editMessageReplyMarkup", "sendMessage"]
     assert c.items[NAME]["spec"]["approval"]["approvedBy"] == "koussay-approver"
     assert c.items[NAME]["spec"]["approval"]["reason"] == f"telegram:{OWNER_ID}"
-    assert "approved by koussay-approver" in t.sent()[0]["text"]
+    assert "By: koussay-approver" in t.sent()[0]["text"]
 
 
 def test_malformed_payload_is_answered_and_writes_nothing() -> None:

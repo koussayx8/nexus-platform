@@ -34,12 +34,29 @@ def service(repos: Repos, gh: FakeGitHub, *items: dict[str, Any], **over: Any) -
     return svc, notes
 
 
+@pytest.mark.parametrize("url", [None, 7, "javascript:alert(1)", "http://github.com/x/pull/1",
+                                 "https://github.com/x/pull/1 and more"])
+def test_the_opened_line_omits_a_missing_or_odd_link(repos: Repos, url: object) -> None:
+    bad = repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
+    gh = FakeGitHub(repos)
+    svc, _notes = service(repos, gh, incident(bad))
+    create = svc.gh.create_pull
+
+    def no_link(**kw: Any) -> dict[str, Any]:
+        return {**create(**kw), "html_url": url}
+
+    svc.gh.create_pull = no_link  # type: ignore[method-assign]
+    [o] = svc.tick()
+    assert o.pull == 100 and o.text.endswith("NEXUS will not merge it")
+
+
 def test_opens_one_ready_pull_request_and_never_merges(repos: Repos) -> None:
     bad = repos.commit("feat: S3", {"overlays/dev/sample-api-patch.yaml": "readiness: broken\n"})
     gh = FakeGitHub(repos)
     svc, notes = service(repos, gh, incident(bad))
     [o] = svc.tick()
-    assert o.pull == 100 and "NEXUS will not merge it" in o.text
+    assert o.pull == 100
+    assert o.text.endswith(f"NEXUS will not merge it: https://github.com/{UPSTREAM}/pull/100")
     sent = gh.pulls[100]["sent"]
     assert sent["head"] == f"{MACHINE}:nexus/revert-inc-0a1b2c3d-1764585600" and sent["base"] == BRANCH
     assert sent["maintainer_can_modify"] is False and sent["draft"] is False

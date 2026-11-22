@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from nexus_revert.service import Service
 
-from nexus_bot.main import C8_PREFIX, _loop, c8_notifier, c8_service
+from nexus_bot.main import C8_PREFIX, _loop, c8_message, c8_notifier, c8_service
 from nexus_bot.telegram import TelegramClient, TelegramError
 from tests.fakes import OWNER_ID, FakeTransport
 
@@ -140,7 +140,7 @@ def test_c8_is_on_with_both_and_uses_its_configured_interval(tmp_path: Path, mon
 
 # --- the chat ---------------------------------------------------------------------------------------
 
-def test_notifier_sends_one_plain_sanitised_line_to_every_chat(caplog: pytest.LogCaptureFixture) -> None:
+def test_notifier_sends_one_sanitised_message_to_every_chat(caplog: pytest.LogCaptureFixture) -> None:
     t = FakeTransport()
     t.fail["sendMessage"] = TelegramError("sendMessage: HTTP 403: Forbidden")
     notify = c8_notifier(TelegramClient(t), [OWNER_ID, 777])
@@ -148,8 +148,34 @@ def test_notifier_sends_one_plain_sanitised_line_to_every_chat(caplog: pytest.Lo
         notify("inc-x: no revert pull request (check 2): \x1b[2Jnot on\nthe branch")  # a failed send does not raise
     assert [p["chat_id"] for m, p in t.calls] == [OWNER_ID, 777]
     line = C8_PREFIX + "inc-x: no revert pull request (check 2): not on the branch"
-    assert all(p["text"] == line and "parse_mode" not in p for _m, p in t.calls)
+    shown = "⛔ C8: no revert PR\nIncident: inc-x\nno revert pull request (check 2): not on the branch"
+    assert all(p["text"] == shown and "parse_mode" not in p for _m, p in t.calls)
+    quote = [e for e in t.calls[0][1]["entities"] if e["type"] == "blockquote"]
+    assert quote == [{"type": "blockquote", "offset": 35, "length": 51}]  # ⛔ is one UTF-16 unit
     assert line in caplog.text and caplog.text.count("send failed") == 2
+
+
+@pytest.mark.parametrize(("text", "title"), [
+    ("inc-a: revert pull request #7 opened against experiment/dev-state (reverts 0123456789ab, chosen by "
+     "rule A1); NEXUS will not merge it", "🟠 C8: revert PR opened"),
+    ("inc-a: revert pull request #7 merged by koussayx8, merge commit " + "c" * 40, "🟢 C8: revert PR merged"),
+    ("inc-a: revert pull request #7 closed, not merged", "⚪ C8: revert PR closed"),
+    ("inc-a: revert pull request #7 still open after 1 day, 0:00:00; no longer watched",
+     "⚪ C8: revert PR no longer watched"),
+    ("inc-a: no revert pull request (check 3): merged by someone", "⛔ C8: no revert PR"),
+    ("inc-a: revert of 0123456789ab (chosen by rule A1) pushed to the fork; open the pull request: "
+     "https://github.com/x/y/compare/a...b", "🟠 C8: open the revert PR"),
+    ("something else: revert pull request #7 merged by x", "⚪ C8 revert"),
+])
+def test_the_c8_title_comes_from_c8s_own_wording_at_the_start(text: str, title: str) -> None:
+    msg = c8_message(text).build()
+    assert msg.text.split("\n")[0] == title
+    assert [e["type"] for e in msg.entities if e["type"] not in ("bold",)] == ["blockquote"]
+    # the C8 text is untrusted: inside the blockquote, and no bold over any of it
+    (q,) = [e for e in msg.entities if e["type"] == "blockquote"]
+    (u_off, u_len), = msg.untrusted
+    assert q["offset"] <= u_off and u_off + u_len <= q["offset"] + q["length"]
+    assert all(e["offset"] + e["length"] <= u_off for e in msg.entities if e["type"] == "bold")
 
 
 def test_the_chat_shows_a_pull_request_opened_and_a_refusal_with_its_check(tmp_path: Path) -> None:
@@ -164,17 +190,19 @@ def test_the_chat_shows_a_pull_request_opened_and_a_refusal_with_its_check(tmp_p
                   c8_notifier(TelegramClient(t), [OWNER_ID]), now=lambda: NOW, scratch=tmp_path)
     svc.tick()
     texts = [m["text"] for m in t.sent()]
-    assert len(texts) == 2 and all(x.startswith(C8_PREFIX) for x in texts)
+    assert len(texts) == 2 and texts[0].startswith("🟠 C8: revert PR opened\n")
+    assert texts[1].startswith("⛔ C8: no revert PR\nIncident: inc-0a1b…5601\n")
     assert f"revert pull request #100 opened against experiment/dev-state (reverts {bad[:12]}" in texts[0]
-    assert texts[0].endswith("NEXUS will not merge it")
-    assert "inc-0a1b2c3d-1764585601: no revert pull request (check 2)" in texts[1]
+    assert texts[0].endswith("NEXUS will not merge it: https://github.com/koussayx8/nexus-platform/pull/100")
+    assert "\nno revert pull request (check 2)" in texts[1]
     assert not any(fx.TOKEN in x for x in texts)
     # the owner merges; the next tick tells the chat (a notification only, ADR-041 decision 10)
     gh.pulls[100] |= {"state": "closed", "merged": True, "merged_by": {"login": "koussayx8"},
                       "merge_commit_sha": "c" * 40}
     svc.tick()
-    assert t.sent()[-1]["text"] == C8_PREFIX + (
-        f"inc-0a1b2c3d-1764585600: revert pull request #100 merged by koussayx8, merge commit {'c' * 40}")
+    assert t.sent()[-1]["text"] == (
+        "🟢 C8: revert PR merged\nIncident: inc-0a1b…5600\n"
+        f"revert pull request #100 merged by koussayx8, merge commit {'c' * 40}")
 
 
 # --- a C8 error never stops the bot -----------------------------------------------------------------

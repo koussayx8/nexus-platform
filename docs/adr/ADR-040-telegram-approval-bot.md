@@ -56,10 +56,10 @@ refused by K5; a bot that sends a right one adds no power that `nexusctl --as` d
 | 5 | **Reads are made as the bot itself.** The push scan (a `list` of Incidents every `pollSeconds`, 10 s; no `watch`), `/status`, `/pods` and `/incident` use the ServiceAccount's own read-only Roles. Impersonation is used for exactly three writes: approve, reject, create a human Incident. Every audit event with `impersonatedUser.username = koussay-approver` and the bot as `user.username` is then a decision made through the chat. |
 | 6 | **The approver credential is never in the operator pod.** The only credential that can impersonate the approver is the `nexus-bot` ServiceAccount token, projected into the bot pod in namespace `nexus-bot`. Nothing is mounted in `nexus-system`. The operator's RBAC has no pod create, no `pods/exec` and no `serviceaccounts/token` anywhere (review section 1, VERIFIED there on 2026-11-15), so it cannot mint or read that token. Otherwise review finding F8 would become "a compromised operator approves itself" and level 2 would collapse into level 3. |
 | 7 | **Button payload:** action letter + short Incident key + 32 hex of the proposal hash (format below, 51 bytes of Telegram's 64). **Before writing `spec.approval`, the bot re-reads the live Incident** and requires: phase `AwaitingApproval`, no decision yet, and the stored hash starting with those 32 hex. It then writes the **full** hash, with the `resourceVersion` it just read. |
-| 8 | **Read-only commands:** `/status`, `/pods <ns>`, `/incident <name>` (D21). Fixed grammar, fixed namespaces. They write nothing. |
+| 8 | **Read-only commands:** `/status`, `/pods <ns>`, `/incident <name>` (D21). Fixed grammar, fixed namespaces. They write nothing. Since 2026-11-22, `/pods` alone offers the two namespaces as buttons and `/incident` alone the five most recent Incidents; those buttons follow the press rules (decision 3) and lead to the same read-only answers. The bot sets its command menu (`setMyCommands`) at start. |
 | 9 | **Note flow:** reject the open Incident, then create a new human Incident with `spec.source.note` (D9; Block 8). The note is an order to the Reasoner, never to the cluster. **Not built in #252:** a Note press answers "not available"; the CRD has no `note` property yet (B4), and `nexus-client`'s `Source` model already carries `note`. |
 | 10 | **`/ask`:** one fixed read-only snapshot, **one** LLM call, plain-text answer marked "advice only". The bot never parses or acts on the answer. No tool loop (CLAUDE.md rule 8). The call goes to Groq directly from the bot, with a **separate API key in its own Secret**; the Reasoner's key is never mounted in the bot. **Disabled on run days** (D22). Cut first. Since ADR-045 the Reasoner uses NVIDIA NIM only, so a Groq key for /ask shares no key and no limit with the runs; if Groq is not usable at Block 8, /ask is cut (it is cut first in any case). |
-| 11 | **Plain text only.** No `parse_mode`, so Telegram interprets no Markdown or HTML; link previews disabled. Every untrusted string goes through `nexusctl`'s `sanitize` (`nexusctl/src/nexusctl/render/sanitize.py`) and `explain_text` (`render/views.py`), not a second renderer, so Explain shows what `nexusctl explain` shows, the model's reasoning excerpt (ADR-035 addendum C) and the escalation's `suggestedChange` and `runbookGap` (ADR-044) included, each in an UNTRUSTED box. A message over 4,096 characters (counted in UTF-16 units) keeps its start and ends with `(truncated: N of M characters; the full text is in the Flight Recorder)` (`telegram.fit`). |
+| 11 | **Plain text, formatted only by entities the bot computes over its own labels** (amended 2026-11-22; see "Amendment: rich text without a parse mode"). No `parse_mode`, so Telegram interprets no Markdown or HTML; link previews disabled. A message is plain text plus the Bot API's `entities` (bold, italic, code, pre, blockquote, expandable blockquote), offsets in UTF-16 units, computed by `bot/nexus_bot/richtext.py` over the bot's own labels. Every untrusted string (model output, evidence, logs, the Incident's proposal text, reasoning and escalation, error text) goes through `nexusctl`'s `sanitize` (`nexusctl/src/nexusctl/render/sanitize.py`), stays literal, is written only inside a blockquote and gets no entity except that blockquote; instruction-like text is marked ⚠️ (`nexusctl`'s `looks_like_instruction`). Explain shows the model's reasoning excerpt (ADR-035 addendum C) and the escalation's `suggestedChange` and `runbookGap` (ADR-044) in expandable blockquotes titled "Model text: untrusted, never a decision". A message over 4,096 UTF-16 units keeps its start, with every entity clipped inside it and no surrogate pair split, and ends with `(truncated: N of M characters; the full text is in the Flight Recorder)`. |
 | 12 | **Plain alerts go through Alertmanager's `telegram_configs`**, not through bot code. Sending with the same token does not conflict with the bot's long poll. **Written, not enabled** in #252: `platform/observability/alertmanager-telegram-values.yaml` is not in the `observability` Application's `valueFiles`. |
 | 13 | **The thesis reports both identities:** the Incident's `approvedBy` (`koussay-approver`) and the audit log's impersonator (`system:serviceaccount:nexus-bot:nexus-bot`). The bot also writes `reason: "telegram:<from.id>"` into `spec.approval`, so the Incident records which chat account pressed. |
 
@@ -326,7 +326,7 @@ owner reads before deciding.
 | The Telegram bot token is stolen | Reads the updates and competes for them (approvals stall); sends messages as the bot, including a misleading text above a button whose payload is a genuine pending proposal | It cannot forge `from.id`, so it cannot press. A press still approves only the proposal named in the payload, and the bot's confirmation is built from the live Incident | **Accepted limit 3**; rotate through BotFather |
 | Compromised operator approves itself | Nothing: it has no route to the credential (decision 6); K5 `approvers-only` refuses its identity | — | None found |
 | Compromised operator shows a false diagnosis beside a real action | The owner may approve an in-catalogue action for a wrong reason | Target, action and replicas on screen are the K5-bound fields | Review limitation 4 (F4, F8); unchanged by the bot |
-| Reasoner text shaped like a button, a link or a trusted field | Displayed as text in the untrusted box | No Markdown; sanitised; previews off | Social engineering only |
+| Reasoner text shaped like a button, a link or a trusted field | Displayed as literal text inside a blockquote titled "Model text: untrusted, never a decision" | No parse mode; sanitised; no entity of its own; previews off | Social engineering only |
 | A note that tries to command the cluster | It is evidence for an untrusted Reasoner | Safety Gate, catalogue, Kyverno | By design |
 | A stale or replayed press (Telegram redelivers after a bot restart) | Nothing: phase and hash are re-checked; C2 is write-once | — | None |
 | A poisoned `/ask` answer | Text on the owner's screen | It triggers nothing | Social engineering only |
@@ -412,7 +412,7 @@ reported, `/ask` makes exactly one HTTP call and its answer never reaches `decid
 | ConfigMap reads | `nexus-killswitch`, `nexus-operator-config` | `nexus-killswitch` only |
 | Pods and Deployments | `get`, `list` | `list` only |
 | File paths | `platform/rbac/nexus-bot.yaml`, `platform/network/bot.yaml` | `platform/rbac/nexus-bot/`, `platform/network/nexus-bot/`, each with a `kustomization.yaml` |
-| Explain | Cut at 4,096 characters | The reasoning excerpt and the escalation suggestion in their UNTRUSTED boxes; a truncation line (decision 11) |
+| Explain | Cut at 4,096 characters | The reasoning excerpt and the escalation suggestion in their UNTRUSTED boxes; a truncation line (decision 11). Since 2026-11-22: expandable blockquotes (decision 11, amended) |
 | Note, `/ask` | Block 8 | Not built; a Note press answers "not available" |
 | `spec.source.note` | A CRD property before the Note flow (B4) | Unchanged: the CRD has none; `nexus-client`'s `Source.note` exists |
 | Alertmanager route | `telegram_configs` | Written, not enabled (decision 12) |
@@ -439,6 +439,29 @@ Follow-ups:
 
 - `getUpdates` raises `TimeoutError` about once a minute, likely idle connections dropped; try a 25 s long poll.
 - Pushes show `hypothesis: -`: the operator does not copy the hypothesis summary into the Incident status.
+
+## Amendment: rich text without a parse mode (owner, 2026-11-22)
+
+The messages were redesigned for a phone. Decision 11's guarantee is kept: Telegram is never asked to
+parse anything, so no text the bot did not write can format itself, link itself or look like a trusted field.
+
+| Point | Before | Now |
+| --- | --- | --- |
+| Formatting | None: plain text | Plain text plus `entities` the bot computes (`richtext.RichText`): bold labels and titles, italic notes, blockquotes. `parse_mode` is never sent; `TelegramClient._call` refuses a payload that has it, and a test walks every payload the bot builds |
+| Untrusted text | Inside `+-- UNTRUSTED … --+` boxes | `sanitize`d, literal, written only inside a blockquote (`RichText.untrusted` refuses otherwise), with no entity of its own; `build` refuses a formatting entity that overlaps it. Model text sits under the title "Model text: untrusted, never a decision"; error and C8 text in a plain blockquote |
+| K5-bound fields | Above the box, plain | Unchanged: target, action, parameters, hash and level are facts above the model text and the buttons, sanitized, with no entity |
+| `code` entity | — | Only over a value that fully matches an Incident name (`inc-[a-z0-9-]{1,59}`) or a `sha256:` hash (64 hex), in Explain (tap to copy). Any other value stays plain |
+| Titles | `NEXUS <phase> (<reason>)` | A status icon and a fixed string from the CRD phase enum: 🟠 Approval needed, ⏳ in progress, 🟢 Resolved, 🔴 Escalated, ⚪ Dismissed (and Rejected, Expired, Recorded, Recommended), ⛔ Blocked. The CRD has no `Failed` phase |
+| Layout | Aligned columns | One fact per line, a short bold label; hashes and names shortened in pushes, lists and replies (`sha256:14f167…839f5e`, `inc-6695…2289`), in full in Explain; times `HH:MM UTC` |
+| Explain | `nexusctl`'s `explain_text` | The bot's own layout, sections Detection, Evidence, Runbooks, Gate, Approval, Enforcement, Verification, Model; then the proposal and the reasoning excerpt in expandable blockquotes. `sanitize` and the instruction heuristic are still `nexusctl`'s, so there is still one sanitizer |
+| C8 | `C8 revert: <line>` | A title picked from C8's own fixed wording at the start of the line (e.g. 🟠 C8: revert PR opened), the Incident, and the whole line in a blockquote. The log line is unchanged |
+| Truncation | `telegram.fit` | The same line; entities clipped to the kept start, none past the end; the cut is an exact search over UTF-16 prefix lengths (the earlier loop over-cut text with many characters outside the BMP) |
+| URLs | Sent as written | Telegram auto-links URLs even when `entities` is given, so in untrusted text (the proposal, hypothesis, reasoning, escalation fields, error and log text) `richtext.defang` writes `http`/`https` (any case) as `hxxp`/`hxxps`, the host's dots as `[.]` and a bare `www.` as `www[.]` (owner, 2026-11-22); C8's pull request and compare links come from GitHub's API and stay tappable |
+| Buttons | Approve, Reject, Explain | Also `p:<nexus-dev\|nexus-prod>` and `i:<uid16>` (at most 18 bytes), read-only, under the same sender check as a press |
+
+UNVERIFIED (no live Telegram in this change): how the official clients draw `expandable_blockquote` and whether
+the server still auto-links URLs, `@mentions` and `/commands` in plain text when `entities` is given (it did with
+plain text before; previews stay off either way). Settled by a live push in the next bot deployment.
 
 ## Consequences
 

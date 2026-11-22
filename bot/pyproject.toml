@@ -7,7 +7,7 @@ name = "nexus-bot"
 version = "0.1.0"
 description = "The Telegram approval bot (ADR-040): a client like nexusctl; it authorises nothing"
 requires-python = ">=3.12"
-# The renderer is nexusctl's (ADR-040 decision 11), not a second one. Telegram is reached with the
+# The sanitizer is nexusctl's (ADR-040 decision 11), not a second one. Telegram is reached with the
 # standard library, so the bot adds no HTTP dependency. C8 (ADR-041) is the nexus-revert library.
 dependencies = ["nexus-client", "nexusctl", "nexus-revert", "pyyaml>=6,<7"]
 

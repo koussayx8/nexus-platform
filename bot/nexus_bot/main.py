@@ -8,6 +8,7 @@ opened, a refusal and its check, a merge seen) name only Incidents, commits and 
 import json
 import logging
 import os
+import re
 import sys
 import threading
 from collections.abc import Callable
@@ -22,13 +23,14 @@ from nexus_revert.config import load as load_revert
 from nexus_revert.service import IncidentReader, Service
 from nexusctl.render.sanitize import sanitize
 
-from . import commands
+from . import commands, views
 from .auth import Sender, log_ids, sender_of
 from .config import Config, ConfigError, load
 from .decide import handle_press
 from .kube import ApproverFactory, Reader
-from .payload import decode
+from .payload import decode, decode_view
 from .push import Pusher
+from .richtext import RichText
 from .telegram import TelegramClient, TelegramError
 
 log = logging.getLogger("nexus_bot")
@@ -53,11 +55,21 @@ class Bot:
             self._press(update["callback_query"], sender)
         elif isinstance(update.get("message"), dict):
             reply = commands.run(update["message"].get("text"), self.reader, self.cfg.namespaces, self.now)
-            self.tg.send_message(sender.user_id, reply)
+            self.tg.send_message(sender.user_id, reply.message, rows=reply.rows)
 
     def _press(self, cq: dict[str, Any], sender: Sender) -> None:
-        press = decode(cq.get("data"))
         cq_id = str(cq.get("id", ""))
+        view = decode_view(cq.get("data"))
+        if view is not None:  # a /pods or /incident button: read-only, given the Reader only
+            try:
+                self.tg.answer_callback(cq_id)
+            except TelegramError as e:
+                log.warning("cannot answer callback: %s", e)
+            reply = commands.view(view, self.reader, self.cfg.namespaces)
+            log.info("view %s from %s", view.kind, sender.user_id)
+            self.tg.send_message(sender.user_id, reply.message, rows=reply.rows)
+            return
+        press = decode(cq.get("data"))
         if press is None:
             log.info("dropped malformed payload from %s", sender.user_id)
             self.tg.answer_callback(cq_id)
@@ -75,7 +87,7 @@ class Bot:
                 self.tg.remove_buttons(sender.user_id, msg["message_id"])
             except TelegramError as e:
                 log.warning("cannot remove buttons: %s", e)
-        self.tg.send_message(sender.user_id, outcome.text)
+        self.tg.send_message(sender.user_id, outcome.message)
 
     def poll_once(self) -> int:
         """One getUpdates call; handles each update, then advances the offset past it."""
@@ -102,20 +114,50 @@ def _loop(fn: Callable[[], object], pause: float, name: str, stop: threading.Eve
 
 
 C8_PREFIX = "C8 revert: "
+# (pattern over the text after "<incident>: ", title). Only C8's own fixed wording, anchored at the
+# start, picks the title; the rest of the text (a check's reason, a GitHub error, a link) is
+# untrusted and stays in the blockquote.
+C8_TITLES = (
+    (re.compile(r"revert pull request #\d+ opened against "), "🟠 C8: revert PR opened"),
+    (re.compile(r"revert pull request #\d+ merged by "), "🟢 C8: revert PR merged"),
+    (re.compile(r"revert pull request #\d+ closed, not merged"), "⚪ C8: revert PR closed"),
+    (re.compile(r"revert pull request #\d+ still open after "), "⚪ C8: revert PR no longer watched"),
+    (re.compile(r"no revert pull request "), "⛔ C8: no revert PR"),
+    (re.compile(r"revert of [0-9a-f]{12} \(.*\) pushed to the fork; open the pull request: "),
+     "🟠 C8: open the revert PR"),
+    (re.compile(r"the fork has the revert, but the pull request was refused "), "🟠 C8: open the revert PR"),
+)
+_C8_INCIDENT = re.compile(r"^(inc-[a-z0-9-]{1,59}): (.*)$", re.DOTALL)
+
+
+def c8_message(text: str) -> RichText:
+    """C8's line for the chat: a title chosen from C8's fixed wording, the Incident, and the whole
+    line, sanitized, in a blockquote."""
+    line = sanitize(text, 1000)
+    m = _C8_INCIDENT.match(line)
+    rest = m[2] if m else line
+    title = next((t for rx, t in C8_TITLES if m and rx.match(rest)), "⚪ C8 revert")
+    rt = RichText().title(title)
+    if m:
+        rt.fact("Incident", views.short_name(m[1]), 40)
+    with rt.quote():
+        rt.untrusted(rest, 1000, defang_urls=False)  # C8's pull request link, from GitHub's API
+    return rt
 
 
 def c8_notifier(tg: TelegramClient, chats: list[int]) -> Callable[[str], None]:
     """C8's result to the log and to every allowlisted chat (ADR-041 decision 10, "As built"): a pull
-    request opened, a refusal and the check that refused it, a merge or a close seen. Plain text
-    through `sanitize`, as every other untrusted string (ADR-040 decision 11). A failed send is
+    request opened, a refusal and the check that refused it, a merge or a close seen. Sanitized, in
+    a blockquote under a title the bot picks (ADR-040 decision 11, as amended). A failed send is
     logged and not retried: the line is in the log."""
 
     def notify(text: str) -> None:
         line = C8_PREFIX + sanitize(text, 1000)
         log.info("%s", line)
+        msg = c8_message(text)
         for chat in chats:
             try:
-                tg.send_message(chat, line)
+                tg.send_message(chat, msg)
             except TelegramError as e:
                 log.warning("c8: send failed for chat %s: %s", chat, e)
 
@@ -180,6 +222,10 @@ def main() -> int:
     tg = TelegramClient(HttpTransport(cfg.token))
     bot = Bot(cfg, tg, KubeReader(), kube_approver)
     tg.delete_webhook()
+    try:
+        tg.set_commands(commands.COMMANDS)
+    except TelegramError as e:  # the menu is a convenience; typed commands work without it
+        log.warning("cannot set the command menu: %s", e)
     pusher = Pusher(bot.reader, tg, sorted(cfg.allowlist), now=utcnow,
                     catch_up=timedelta(minutes=cfg.catch_up_minutes))
     stop = threading.Event()

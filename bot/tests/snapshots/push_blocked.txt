@@ -1,0 +1,33 @@
+⛔ Blocked
+Incident: inc-6695…2289
+Target: nexus-dev/sample-api
+Level: L2
+Reason: bounds_exceeded
+Action: scale_deployment
+Parameters: replicas=4
+Hash: sha256:14f167…839f5e
+Ended: 09:58 UTC
+
+Model text: untrusted, never a decision
+Proposal
+Fault class: cpu_saturation
+Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)
+
+=== entities (type offset length: covered text) ===
+bold 0 9: "⛔ Blocked"
+bold 10 9: "Incident:"
+bold 34 7: "Target:"
+bold 63 6: "Level:"
+bold 73 7: "Reason:"
+bold 97 7: "Action:"
+bold 122 11: "Parameters:"
+bold 145 5: "Hash:"
+bold 172 6: "Ended:"
+blockquote 190 168: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)"
+bold 190 39: "Model text: untrusted, never a decision"
+italic 230 8: "Proposal"
+bold 239 12: "Fault class:"
+bold 267 11: "Hypothesis:"
+
+=== buttons ===
+Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6]

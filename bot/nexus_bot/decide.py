@@ -14,21 +14,43 @@ from datetime import datetime
 from nexus_client import approval as ap
 from nexus_client.errors import Conflict, Denied, NexusClientError, NotFound, Unreachable, WrongPhase
 from nexus_client.models import Incident
-from nexusctl.render.sanitize import sanitize
 
 from . import views
 from .auth import Sender
 from .kube import ApproverFactory, Reader
 from .payload import APPROVE, EXPLAIN, REJECT, Press, hash_prefix, uid_key
+from .richtext import RichText
 
 DECISION = {APPROVE: "approved", REJECT: "rejected"}
+NOTHING = "Nothing was written."
 
 
 @dataclass(frozen=True)
 class Outcome:
-    text: str
+    message: RichText
     remove_buttons: bool = False
     wrote: bool = False
+
+    @property
+    def text(self) -> str:
+        return self.message.build().text
+
+
+def _say(title: str, inc: Incident | None = None, *, why: str | None = None,
+         error: object = None, audit: object = None, nothing: bool = True) -> RichText:
+    """A short reply: icon and title, the Incident, one sentence, the error in a blockquote."""
+    rt = RichText().title(title)
+    if inc is not None:
+        rt.fact("Incident", views.short_name(inc.metadata.name), 40)
+    if audit:
+        rt.fact("Audit-Id", audit, 64)
+    if why:
+        rt.text(why).nl()
+    if error is not None:
+        views.detail(rt, "Detail", error, 400)
+    if nothing:
+        rt.italic(NOTHING)
+    return rt
 
 
 def _find(reader: Reader, key: str) -> Incident | None:
@@ -41,24 +63,23 @@ def handle_press(press: Press, sender: Sender, *, reader: Reader, approver_for: 
     try:
         inc = _find(reader, press.key)
     except NexusClientError as e:
-        return Outcome(f"error: cannot read Incidents ({sanitize(e, 200)}); nothing was written")
+        return Outcome(_say("🔴 Cannot read Incidents", error=e))
     if inc is None:
-        return Outcome("Incident not found (or not unique); nothing was written")
-    name = sanitize(inc.metadata.name, 80)
+        return Outcome(_say("⚪ Incident not found",
+                            why="No Incident, or more than one, matches this button."))
 
     if press.action == EXPLAIN:
         return Outcome(views.explain(inc))
     if press.action not in DECISION:
-        return Outcome("Note is not available in this build; nothing was written")
+        return Outcome(_say("⚪ Note is not available in this build", inc))
 
     try:
         ap.check_decidable(inc)
     except WrongPhase as e:
-        return Outcome(f"{name}: no longer awaiting approval ({sanitize(e, 120)}); nothing was written",
-                       remove_buttons=True)
+        return Outcome(_say("⚪ No longer awaiting approval", inc, error=e), remove_buttons=True)
     assert inc.status.proposal is not None  # check_decidable
     if hash_prefix(inc.status.proposal.hash) != press.h32:
-        return Outcome(f"{name}: the proposal changed since this message; nothing was written",
+        return Outcome(_say("⚪ Proposal changed", inc, why="The proposal changed since this message."),
                        remove_buttons=True)
 
     decision = DECISION[press.action]
@@ -68,17 +89,16 @@ def handle_press(press: Press, sender: Sender, *, reader: Reader, approver_for: 
         reply = approver_for(sender.approver, group).patch_approval(
             inc.metadata.name, body, inc.metadata.resourceVersion or "")
     except Denied as e:
-        audit = f" (Audit-Id {sanitize(e.audit_id, 64)})" if e.audit_id else ""
-        return Outcome(f"{name}: denied{audit}: {sanitize(e, 400)}")
+        return Outcome(_say("⛔ Denied", inc, error=e, audit=e.audit_id))
     except Conflict:
-        return Outcome(f"{name}: the Incident changed while you were deciding; nothing was written",
-                       remove_buttons=True)
+        return Outcome(_say("⚪ Changed while you were deciding", inc,
+                            why="The Incident changed between the read and the write."), remove_buttons=True)
     except NotFound:
-        return Outcome(f"{name}: the Incident is gone; nothing was written", remove_buttons=True)
+        return Outcome(_say("⚪ Incident gone", inc), remove_buttons=True)
     except Unreachable as e:
-        return Outcome(f"{name}: cannot reach the API server ({sanitize(e, 200)}); nothing was written")
+        return Outcome(_say("🔴 API server unreachable", inc, error=e))
     except NexusClientError as e:
-        return Outcome(f"{name}: error: {sanitize(e, 300)}")
+        return Outcome(_say("🔴 Error", inc, error=e, nothing=False))
 
     try:  # step 8: report what the cluster stored, read back as the bot itself
         stored = reader.get_incident(inc.metadata.name)
@@ -86,11 +106,16 @@ def handle_press(press: Press, sender: Sender, *, reader: Reader, approver_for: 
         stored = reply.incident
     a = stored.spec.approval
     if a is None:
-        return Outcome(f"{name}: the write returned no approval (Audit-Id {sanitize(reply.audit_id or '-')})",
-                       remove_buttons=True, wrote=True)
-    expiry = f"; expires {sanitize(a.expiresAt, 30)}" if a.expiresAt else ""
-    return Outcome(f"{name}: {sanitize(a.decision, 10)} by {sanitize(a.approvedBy or '-', 64)} at "
-                   f"{sanitize(a.approvedAt or '-', 30)}{expiry}; "
-                   f"pinned {sanitize(a.proposalHash or '-', 80)}; "
-                   f"Audit-Id {sanitize(reply.audit_id or '-', 64)}",
-                   remove_buttons=True, wrote=True)
+        return Outcome(_say("🔴 The write returned no approval", inc, audit=reply.audit_id or "-",
+                            nothing=False), remove_buttons=True, wrote=True)
+    title = {"approved": "⏳ Approved", "rejected": "⚪ Rejected"}.get(a.decision, "⚪ Decided")
+    rt = RichText().title(title)
+    rt.fact("Incident", views.short_name(inc.metadata.name), 40)
+    rt.fact("Decision", a.decision, 10)
+    rt.fact("By", a.approvedBy or "-", 64)
+    rt.fact("At", views.hhmm(a.approvedAt), 20)
+    if a.expiresAt:
+        rt.fact("Expires", views.hhmm(a.expiresAt), 20)
+    rt.fact("Pinned", views.short_hash(a.proposalHash or "-"), 40)
+    rt.fact("Audit-Id", reply.audit_id or "-", 64)
+    return Outcome(rt, remove_buttons=True, wrote=True)
