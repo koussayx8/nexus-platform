@@ -31,7 +31,8 @@ REAL_TRUTH = ROOT / "experiments" / "ground-truth.json"
 
 
 def cell(cid, arm, scen, level=3, target=2, cap=4):
-    return {"cell": cid, "scenario": scen, "reasoner": arm, "level": level, "tier": 1, "valid_target": target, "max_attempts": cap}  # fmt: skip
+    return {"cell": cid, "scenario": scen, "reasoner": arm, "level": level, "tier": 1, "valid_target": target, "max_attempts": cap,
+            "baseline_ref": "0123456789abcdef0123456789abcdef01234567"}  # fmt: skip
 
 
 def when(n, s):
@@ -162,7 +163,6 @@ class ClassTest(unittest.TestCase):
             with self.assertRaises(EXPORT.ExportError):
                 EXPORT.load_truth(p)
 
-    @unittest.skipUnless(REAL_TRUTH.exists(), "experiments/ground-truth.json: PR #285")
     def test_the_pre_registered_file_classes_its_own_lists(self):
         truth, _ = EXPORT.load_truth(REAL_TRUTH)
         for scen, sc in truth["scenarios"].items():

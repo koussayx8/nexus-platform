@@ -140,6 +140,7 @@ def load_runs(runs_dir, truth_hash: str, truth: dict | None = None) -> dict:
                 "dir": d.name,
                 "injection_at": doc.get("injection_at"),
                 "queue_record": doc.get("queue_record") or {},
+                "other_incidents": doc.get("other_incidents") or {},
             }
         except (OSError, ValueError, KeyError) as e:
             out["excluded"].append(
@@ -325,9 +326,15 @@ def analyse(
     scored = {row["incident_uid"] for row in runs}
     others = defaultdict(int)
     for it in counted:
-        for i in it["tables"].get("incidents", []):
-            if i["incident_uid"] not in scored:
-                others[f"{it['run']['reasoner']}/{it['run']['scenario']}"] += 1
+        # the export keeps them in run.json (`other_incidents`), apart from the run's own tables
+        seen = {
+            i["incident_uid"]
+            for i in it["tables"].get("incidents", [])
+            + it["other_incidents"].get("incidents", [])
+            if i["incident_uid"] not in scored
+        }
+        if seen:
+            others[f"{it['run']['reasoner']}/{it['run']['scenario']}"] += len(seen)
     r["other_incidents_not_scored"] = dict(sorted(others.items()))
 
     # -- T01 inventory: valid, discarded and excluded per cell
