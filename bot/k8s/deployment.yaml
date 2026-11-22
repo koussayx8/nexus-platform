@@ -1,0 +1,106 @@
+# The Telegram bot (ADR-040), deployed by the nexus-bot Application, with C8, the revert pull
+# request (ADR-041), as its third loop.
+#
+# Image: pinned by index digest. bot.yml's build on main opens a digest-bump pull request into dev
+# that rewrites it; repo-checks step 19 refuses the all-zero placeholder digest in any rendered
+# Application.
+#
+# 1 replica, Recreate: Telegram allows one getUpdates consumer per token, and two pods would compete
+# for the updates. Restricted Pod Security, as the operator: non-root UID 10001, no privilege
+# escalation, all capabilities dropped, read-only root filesystem, RuntimeDefault seccomp. No port
+# and no Service: the bot is outbound only (decision 2). The ServiceAccount token is mounted: it is
+# the bot's only login and its impersonation right (stated limit 2).
+# The Telegram token is the file /var/run/secrets/nexus-bot/telegram/token, from the Secret
+# nexus-bot-telegram that the owner creates outside Git (scripts/nexus-bot-secrets.sh). The mount is not
+# optional: without the Secret the pod does not start.
+# The GitHub token (C8, ADR-041 outcome B: the machine account's classic public_repo token) is the
+# file /var/run/secrets/nexus-bot/github/token, from the Secret nexus-bot-github, created by the same
+# script. That mount is optional: without the Secret the bot runs with C8 off and logs it once.
+# /tmp is an emptyDir, the root filesystem's only writable place: C8's scratch clones, one per
+# attempt, deleted after it (a depth-50 fetch of one branch, a few MiB).
+# No probe: there is no HTTP endpoint, and every loop logs and retries rather than exit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-bot
+  namespace: nexus-bot
+  labels:
+    app.kubernetes.io/name: nexus-bot
+    app.kubernetes.io/part-of: nexus-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-bot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-bot
+        app.kubernetes.io/part-of: nexus-platform
+    spec:
+      serviceAccountName: nexus-bot
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bot
+          image: ghcr.io/koussayx8/nexus-platform/nexus-bot@sha256:c82c5f0ca29a5aed0f799b2d8efb4e641984f73f7f7e25a3841ee634079b5560
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NEXUS_BOT_CONFIG
+              value: /etc/nexus-bot/config.yaml
+            - name: NEXUS_BOT_TOKEN_FILE
+              value: /var/run/secrets/nexus-bot/telegram/token
+            - name: NEXUS_REVERT_CONFIG
+              value: /etc/nexus-bot/revert.yaml
+            - name: NEXUS_REVERT_TOKEN_FILE
+              value: /var/run/secrets/nexus-bot/github/token
+            - name: NEXUS_REVERT_SCRATCH
+              value: /tmp
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nexus-bot
+              readOnly: true
+            - name: telegram
+              mountPath: /var/run/secrets/nexus-bot/telegram
+              readOnly: true
+            - name: github
+              mountPath: /var/run/secrets/nexus-bot/github
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+      volumes:
+        - name: config
+          configMap:
+            name: nexus-bot-config
+        - name: telegram
+          secret:
+            secretName: nexus-bot-telegram
+            defaultMode: 288          # 0440: readable by the pod's fsGroup only
+        - name: github
+          secret:
+            secretName: nexus-bot-github
+            defaultMode: 288          # 0440: readable by the pod's fsGroup only
+            optional: true            # absent: C8 stays off, the bot runs
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

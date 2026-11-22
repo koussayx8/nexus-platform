@@ -1,0 +1,8 @@
+🟢 C8: revert PR merged
+Incident: inc-6695…2289
+revert pull request #312 merged by koussayx8, merge commit cccccccccccccccccccccccccccccccccccccccc
+
+=== entities (type offset length: covered text) ===
+bold 0 23: "🟢 C8: revert PR merged"
+bold 24 9: "Incident:"
+blockquote 48 99: "revert pull request #312 merged by koussayx8, merge commit cccccccccccccccccccccccccccccccccccccccc"

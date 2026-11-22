@@ -1,0 +1,29 @@
+# C8 configuration (ADR-041), for the bot's ConfigMap (bot/k8s/configmap.yaml, key revert.yaml, once
+# #252 merges). Values here are examples; machineAccount is the account the owner creates in the
+# token test (README).
+upstream: koussayx8/nexus-platform
+machineAccount: nexus-machine-example
+# real value: belhouchetkoussay (token test, ADR-041); it goes into the bot's config in Block 6
+# fork: defaults to <machineAccount>/nexus-platform; must be owned by the machine account
+prMode: pull_request          # compare_link if the token test ends in outcome C
+fetchDepth: 50                # check 2, "recent": within the last 50 commits of the tracked branch
+maxAgeHours: 24               # ... and committed within the last 24 hours (owner, 2026-11-19)
+pollSeconds: 30
+mergeTimeoutHours: 24
+catchUpMinutes: 60            # after a restart, older Escalated Incidents are not attempted
+branches:                     # ADR-041 decision 5; any other namespace: no pull request
+  nexus-dev:
+    branch: experiment/dev-state
+    overlay: overlays/dev
+    application: sample-api-dev
+    # check 4b: only the sample-api workload files (same set as experiments/harness/runner.py
+    # S3_ALLOWED), never the Namespace and its autonomy level
+    allow: [overlays/dev/kustomization.yaml, overlays/dev/sample-api*.yaml]
+    exclude: [overlays/dev/namespace.yaml]
+    image: ghcr.io/koussayx8/nexus-platform/sample-api   # check 4c: its newName/newTag/digest may be reverted
+  # nexus-prod (cut first, TASKS.md Block 6; unused at L1):
+  #   branch: main
+  #   overlay: overlays/prod
+  #   application: sample-api-prod
+  #   allow: [overlays/prod/kustomization.yaml, overlays/prod/sample-api*.yaml]
+  #   exclude: [overlays/prod/namespace.yaml]

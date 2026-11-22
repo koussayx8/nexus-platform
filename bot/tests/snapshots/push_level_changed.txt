@@ -1,0 +1,10 @@
+🎚 Autonomy level changed
+Namespace: nexus-dev
+Level: L2 → L1
+Seen: 10:00 UTC
+
+=== entities (type offset length: covered text) ===
+bold 0 25: "🎚 Autonomy level changed"
+bold 26 10: "Namespace:"
+bold 47 6: "Level:"
+bold 62 5: "Seen:"

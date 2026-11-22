@@ -1,0 +1,48 @@
+name: nexus-revert
+
+# C8 (ADR-041): ruff, strict mypy and pytest for libs/nexus-revert. Offline: git runs on file://
+# fixture repositories under the test's tmp directory, GitHub is a fake (and one fake API server on
+# 127.0.0.1). No secret, no network beyond pip. The image is the bot's (#252), not built here.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths: ['libs/nexus-revert/**', 'libs/nexus-client/**', 'nexusctl/**', '.github/workflows/nexus-revert.yml']
+  push:
+    branches: [main, dev]
+    paths: ['libs/nexus-revert/**', 'libs/nexus-client/**', 'nexusctl/**', '.github/workflows/nexus-revert.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-revert-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nexus-revert:
+    name: nexus-revert
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install (the runner's Python 3.12)
+        run: |
+          set -euo pipefail
+          git --version
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl -e libs/nexus-revert
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: ruff
+        run: ruff check libs/nexus-revert
+
+      - name: mypy (strict)
+        run: (cd libs/nexus-revert && mypy nexus_revert tests)
+
+      - name: pytest
+        env:
+          KUBECONFIG: /nonexistent
+        run: (cd libs/nexus-revert && pytest -q)

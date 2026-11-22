@@ -106,10 +106,10 @@ policies_ok; printf '{"spec":{"failurePolicy":"Fail","validationFailureAction":"
 run_case "k2-legacy-field-and-status-ready" 0 'K2 nexus-scale-bounds: ready=true .*enforce=1 ok=true' '' v_policies_enforce
 
 # M17
-netpols_ok; run_case "netpol-all" 0 'present: 17 of 17' 'missing' v_network_policies
+netpols_ok; run_case "netpol-all" 0 'present: 19 of 19' 'missing' v_network_policies
 netpols_ok; rm "$work/fx/np-nexus-reasoner-default-deny"
-run_case "netpol-missing" 1 'present: 16 of 17|missing: nexus-reasoner/default-deny' '' v_network_policies
-rm -f "$work"/fx/np-*; run_case "netpol-none" 1 'present: 0 of 17' '' v_network_policies
+run_case "netpol-missing" 1 'present: 18 of 19|missing: nexus-reasoner/default-deny' '' v_network_policies
+rm -f "$work"/fx/np-*; run_case "netpol-none" 1 'present: 0 of 19' '' v_network_policies
 
 # M18
 reasoner 1 1 ready "$HASH"; run_case "reasoner-ok" 0 'status=ready' 'differs' v_reasoner

@@ -1,0 +1,42 @@
+# The NEXUS alerts to Telegram (ADR-040 decision 12; D9). WRITTEN, NOT ENABLED: the `observability`
+# Application lists only kube-prometheus-stack-values.yaml. To enable (Block 7 live step, owner
+# approval), append this file to that Application's valueFiles, after the base file:
+#     - $values/platform/observability/alertmanager-telegram-values.yaml
+# and, first, create the Secret monitoring/alertmanager-telegram (key `token`, the bot's own token)
+# outside Git, as in bot/README.md step 3, and set chat_id below to the owner's numeric user ID.
+# Then update scripts/tests/test_alertmanager_route.py, which pins "no NEXUS receiver" today.
+#
+# Helm merges maps but replaces lists, so `route` and `receivers` are restated whole: the base
+# file's values with one change, the nexus_target route's receiver. bot/tests/test_alertmanager.py
+# checks that this file equals the base apart from that change, so the two cannot drift.
+# The operator still polls Alertmanager's v2 API; a receiver does not change what it sees.
+# Sending with the bot's token does not conflict with the bot's long poll (getUpdates).
+alertmanager:
+  config:
+    route:
+      group_by: ['namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'null'
+      routes:
+        - receiver: 'null'
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: 'nexus-telegram'
+          matchers:
+            - nexus_target =~ ".+"
+          group_by: ['nexus_target']
+    receivers:
+      - name: 'null'
+      - name: 'nexus-telegram'
+        telegram_configs:
+          - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/token
+            chat_id: 0                 # REPLACE with the owner's numeric Telegram user ID when enabling
+            parse_mode: ''             # plain text, as the bot (ADR-040 decision 11)
+            disable_notifications: false
+            send_resolved: true
+  alertmanagerSpec:
+    # Mounted at /etc/alertmanager/secrets/<name>/ by the Prometheus Operator.
+    secrets:
+      - alertmanager-telegram

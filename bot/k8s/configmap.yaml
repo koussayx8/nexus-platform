@@ -1,0 +1,53 @@
+# The bot's configuration (bot/README.md "Configuration"). The allowlist is the list of who may
+# approve through the chat: one numeric Telegram user ID per approver username, reviewed in Git.
+# One entry: the owner's Telegram user ID (given by the owner on 2026-11-21; the bot is
+# @nexus_pfe_bot), mapped to koussay-approver, the one user the bot may impersonate
+# (platform/rbac/nexus-bot/). A second entry is a second approver.
+#
+# revert.yaml is C8's configuration (ADR-041; libs/nexus-revert/revert.example.yaml). The machine
+# account and its fork are the token test's (2026-11-21, outcome B), so prMode is pull_request.
+# The branch map is static: nexus-dev only. nexus-prod -> main stays commented out (cut first,
+# ADR-041 limit 4). A new entry, a new allow pattern or a new prMode is a review under CODEOWNERS.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-bot-config
+  namespace: nexus-bot
+  labels:
+    app.kubernetes.io/name: nexus-bot
+    app.kubernetes.io/part-of: nexus-platform
+data:
+  config.yaml: |
+    allowlist:
+      "8998653791": koussay-approver
+    approverGroup: nexus-approvers
+    namespaces: [nexus-dev, nexus-prod]
+    pollSeconds: 10
+    catchUpMinutes: 15
+    # The bot's own links (prompt, runbooks, a commit the model named) point here; nothing else
+    # becomes a link. repoRef is main until the freeze; the owner sets v0.6.0 after it.
+    repoUrl: https://github.com/koussayx8/nexus-platform
+    repoRef: main
+  revert.yaml: |
+    upstream: koussayx8/nexus-platform
+    machineAccount: belhouchetkoussay
+    prMode: pull_request
+    fetchDepth: 50
+    maxAgeHours: 24
+    pollSeconds: 30
+    mergeTimeoutHours: 24
+    catchUpMinutes: 60
+    branches:
+      nexus-dev:
+        branch: experiment/dev-state
+        overlay: overlays/dev
+        application: sample-api-dev
+        allow: [overlays/dev/kustomization.yaml, overlays/dev/sample-api*.yaml]
+        exclude: [overlays/dev/namespace.yaml]
+        image: ghcr.io/koussayx8/nexus-platform/sample-api
+      # nexus-prod (cut first, TASKS.md Block 6; unused at L1):
+      #   branch: main
+      #   overlay: overlays/prod
+      #   application: sample-api-prod
+      #   allow: [overlays/prod/kustomization.yaml, overlays/prod/sample-api*.yaml]
+      #   exclude: [overlays/prod/namespace.yaml]

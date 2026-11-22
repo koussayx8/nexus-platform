@@ -39,7 +39,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: reasoner
-          image: ghcr.io/koussayx8/nexus-platform/nexus-reasoner@sha256:c2c3b5d0a57787b63a19e93e845f89e04bb0bbe5e218982e58f20499604a931c
+          image: ghcr.io/koussayx8/nexus-platform/nexus-reasoner@sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

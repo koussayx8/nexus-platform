@@ -2,7 +2,8 @@
 
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
 version. Written offline from `dev` at `4b077fb`, brought up to `dev` at `e7fec65` on 2026-11-21 (Q6, D25, two run
-rules) and on 2026-11-22 (D27, phase D; the C8 run rule): nothing here was checked on the cluster. Metrics, claims, the
+rules), on 2026-11-22 (D27, phase D; the C8 run rule) and again on 2026-11-22 for the freeze, one day early (D29: the
+C8 owner steps, the counted Incident, the idle test, §10): nothing here was checked on the cluster. Metrics, claims, the
 export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metrics.md`](m4-metrics.md); the ground truth is
 [`experiments/ground-truth.json`](../../experiments/ground-truth.json) (#285).
 
@@ -92,11 +93,19 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 | The run's Incident is still open after 1,200 s | valid, `terminal` null, `timed_out` true, only if every Incident on the target is terminal by the settle cap |
 | Some Incident on the target is still open 1,800 s after the injection (#306's settle cap) | void: `incidents_not_terminal_at_settle_cap`; the batch halts and the owner checks the Incidents and resets by hand: no reset follows blindly |
 
-- **Only the first Incident per run counts** (owner, 2026-11-20). The run's Incident is the first one created after
-  the injection that targets `nexus-dev`, is not a smoke Incident, and whose alert started at or after
-  `injection_at`. Every other Incident (the other namespace, a second alert, an absorbed alert raised again after
-  the first Incident ended) is kept beside it and decides nothing: not the phase, not the action, not the metrics.
-- **`injection_at`** is the wall clock just before the first injection step; for S3, Argo CD's `deployedAt`.
+- **Only the first Incident per run counts** (owner, 2026-11-20; `counted_incident` in
+  [`experiments/ground-truth.json`](../../experiments/ground-truth.json), #285; `batch.run_incident`). The run's
+  Incident is the first one created after the pre-injection snapshot that targets `nexus-dev`, is not a smoke
+  Incident, and whose alert started at or after `injection_at` (`spec.detectedAt` is the alert's start). Every other
+  Incident (the other namespace, a second alert, an absorbed alert raised again after the first Incident ended, a
+  warm-up Incident whose alert started before `injection_at`) is kept beside it and decides nothing: not the phase,
+  not the action, not the metrics.
+- **`injection_at`** is the wall clock just before the first injection step; for S3, Argo CD's `deployedAt` for the
+  pushed revision, not the push. The pods the reset replaced warm up in between and may raise Incidents then: they do
+  not count. In the Block 6 gate run of 2026-11-22 (S3 at L3; ADR-041, "Live gate, 2026-11-22") the push was at 08:05:15
+  and `deployedAt` 08:09:15; the `NexusLatencyAnomaly` Incidents of 08:06:39 and 08:08:39 do not count, and the counted
+  one is `NexusRolloutStuck`, from 08:12:48. An Incident from the warm-up after a later reset (08:36) is not the run's
+  either. The reset still waits for all of them (below).
 - **Every attempt counts toward the cap** (V7); a cell at its cap is reported `exhausted`.
 - **After the run, not in the batch (V9):** the audit join must be complete (1.0) and clean, or the run is
   excluded (`not_reconciled`) and re-run in Block 12. Export within 24 h: the audit log kept about 2.2 days at idle
@@ -119,14 +128,21 @@ attended, outside the batch:
 
 **A run rule set on 2026-11-22 (owner):**
 
-- **C8 is on only during the `C8` cells.** Just before them the owner creates Secret `nexus-bot/nexus-bot-github`
-  (`scripts/nexus-bot-secrets.sh`, from the machine token), and deletes it after them. With no Secret the bot's C8 is
-  off: the mount is optional (#304). Otherwise every S3 run in phase A, whose escalation names `git_revert`
-  ([`m4-metrics.md`](m4-metrics.md)), would open a revert pull request (so would an S5 or S6 run escalating with
-  `git_revert`, Q11), and one left open makes C8's check 6 (no open revert pull request for that branch,
-  ADR-041) refuse in the `C8` cells. The bot decides C8 once, at its start (`bot/nexus_bot/main.py`, `c8_service`),
-  so the owner replaces the bot's pod after creating the Secret and again after deleting it; its log then says
-  `C8 on` or `C8 off`.
+- **C8 is on only during the `C8` cells.** With no Secret the bot's C8 is off: the mount is optional (#304).
+  Otherwise every S3 run in phase A, whose escalation names `git_revert` ([`m4-metrics.md`](m4-metrics.md)), would
+  open a revert pull request (so would an S5 or S6 run escalating with `git_revert`, Q11), and one left open makes
+  C8's check 6 (no open revert pull request for that branch, ADR-041) refuse in the `C8` cells. The bot decides C8
+  once, at its start (`bot/nexus_bot/main.py`, `c8_service`), and reads the Secret only then.
+
+**The owner's C8 steps** (ADR-041 F3, `TASKS.md` Block 12). The agent runs none of them: they change the cluster or
+need the owner's GitHub account.
+
+| When | Step | Check |
+|---|---|---|
+| Once, after the `v0.6.0` tag | In the GitHub UI, as `belhouchetkoussay`, press "Sync fork" for `experiment/dev-state` in the fork. No workflow-file change lands after the tag, so one sync covers every `C8` cell. Without it the push to the fork can be refused (ADR-041 F1) | the fork's `experiment/dev-state` is at the upstream commit |
+| Just before the `C8` cells | Re-create Secret `nexus-bot/nexus-bot-github` with `scripts/nexus-bot-secrets.sh` (it reads the machine token file, never prints it), then restart the bot: the bot reads the Secret only at its start | the bot's log says `C8 on` |
+| During the `C8` cells | The bot keeps its C8 attempts in memory only, and a restart re-sends recent Blocked and Escalated messages (duplicates, expected). Do not restart it between cells | |
+| After the `C8` cells | Delete the Secret, then restart the bot | the bot's log says `C8 off` |
 
 ## 6. Void, discard, failed
 
@@ -179,3 +195,34 @@ without `Retry-After`, or one that does not fit, becomes an R1 fallback: provide
 | The run's Incident | Only the first Incident per run counts (§5). |
 | Limitation | **NEXUS must not scale a workload managed by an HPA.** `scale_deployment` writes the Deployment's scale subresource; an HPA on the same Deployment would fight it. `sample-api` has no HPA (none in the repository, none on the cluster on 2026-11-20); the thesis states this as a limitation of the action catalogue, not a tested property. |
 | R3's model | **Pending the bake-off** (#271). Until then R3 is `openai/gpt-oss-120b` on Groq. The chosen model, its provider and its timeout are frozen with the rest at `v0.6.0`. |
+
+## 10. The 6-hour idle test (D19)
+
+Not a measured run: no cell, no queue, no export. It shows that the laptop, Windows, WSL and the cluster stay up for
+six hours with nobody using them, the condition of the overnight runs (D19: the WSL idle setting was changed on
+2026-11-12). On the night of 2026-11-22 (D29), after the freeze PRs merge and before the tag. The owner starts it and
+reads the result.
+
+**Before.** Note the start time. Run `scripts/verify-state.sh --milestone m3 --out <a path outside the repository>`
+(it reads the cluster only; `--out` keeps `docs/CURRENT_STATE.md` untouched; `m3` needs `NEXUS_VERIFY_REASONER_INDEX_HASH`
+set to the frozen index hash of §1) and keep the report. Record the WSL uptime (`uptime -s` and `cat /proc/uptime` in
+WSL) and the Windows boot time (PowerShell: `(Get-CimInstance Win32_OperatingSystem).LastBootUpTime`). List the
+Incidents (`kubectl --context default get incidents -A`, read-only) and note that none is open.
+
+**During (6 hours).** No batch run, no injection, no session running tests, no CPU-heavy work, no commands on the
+cluster. The owner does not touch the machine.
+
+**After.** Run `scripts/verify-state.sh` again with the same arguments. Record the WSL uptime and the Windows boot
+time again. List the Incidents again, with their creation time, alert and outcome.
+
+**It passes when all four hold:**
+
+1. Windows stayed up: its boot time is the same before and after.
+2. WSL stayed up: its boot time is the same, and its uptime grew by at least six hours (`journalctl --list-boots`
+   shows no boot inside the window).
+3. `verify-state.sh` passes at the end (exit 0).
+4. Every Incident opened in the window is explained: a cause named from its record (an alert, a restart, a
+   warm-up after the cluster paused). An Incident with no cause named fails the test. Incidents are never deleted.
+
+Keep the two reports, the uptimes and the Incident list as the test's record (`~/nexus-evidence/`, not in Git).
+If it fails, the cause is found and fixed before the tag, and the test runs again.
