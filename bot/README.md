@@ -7,12 +7,14 @@ write exactly as they decide a `nexusctl approve`.
 
 | What | Status in this change |
 | --- | --- |
-| Long polling (`getUpdates`, 50 s), `deleteWebhook` at start, no inbound socket | built |
+| Long polling (`getUpdates`, 25 s; the client waits 35 s), `deleteWebhook` at start, no inbound socket | built |
 | Sender check: allowlisted numeric user ID, private chat only, `chat.id == from.id` | built |
 | Pushes for `AwaitingApproval`, `Escalated`, `Resolved`, `Blocked` (one per Incident and phase; after a restart, every pending `AwaitingApproval` again, older news only within `catchUpMinutes`; the rest is in `/status`) | built |
 | Buttons Approve, Reject, Explain (payload `<a\|r\|e>:<uid16>:<hash32>`, 51 bytes) | built |
-| `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>` | built, read-only |
+| `/status`, `/pods <nexus-dev\|nexus-prod>`, `/incident <name>`; `/pods` alone offers the two namespaces as buttons (`p:<ns>`), `/incident` alone the 5 most recent Incidents (`i:<uid16>`); the command menu is set at start (`setMyCommands`) | built, read-only |
+| Messages laid out for a phone: plain text plus entities the bot computes (`richtext.py`), never a `parse_mode`; model and log text literal, inside blockquotes (ADR-040 decision 11, amended 2026-11-22) | built |
 | Note, `/ask` | Block 8 (a Note press answers "not available") |
+| C8, the revert pull request (ADR-041; `libs/nexus-revert`): a third loop, `Service.tick` every 30 s; its results in the chat | built (Block 6), **on only when `revert.yaml` and the GitHub token file are both present**; otherwise one log line `C8 off: …` |
 | Image (`bot/Dockerfile`, hashed `requirements.txt`), CI build, Trivy scan, Cosign signing, digest-bump PR (`.github/workflows/bot.yml`) | built; the first image is pushed when this merges to `main` |
 | `bot/k8s/` (ServiceAccount, ConfigMap, Deployment) by the `nexus-bot` Application; the namespace (`platform/namespaces/`), `platform/rbac/nexus-bot/` and `platform/network/nexus-bot/` by the `platform` Application | wired (Block 7 live step); deploys only once the image's digest bump has landed on `main` |
 | Alertmanager Telegram route (`platform/observability/alertmanager-telegram-values.yaml`) | written, **not enabled**: not in the `observability` Application's `valueFiles` |
@@ -31,6 +33,29 @@ write exactly as they decide a `nexusctl approve`.
 7. Re-read and report `approved by <approvedBy> at <approvedAt>`, the pinned hash and the Audit-Id; the
    buttons are removed. A stale, repeated or refused press writes nothing and says why.
 
+## Messages (ADR-040 decision 11, amended 2026-11-22)
+
+No `parse_mode` is ever sent, so Telegram parses nothing. A message is plain text plus `entities`
+that `nexus_bot/richtext.py` computes, offsets in UTF-16 units:
+
+- bold for the bot's own titles and labels, italic for its notes, `code` only over a full Incident
+  name or `sha256:` hash (Explain, tap to copy);
+- untrusted text (the model's fault class, hypothesis, escalation suggestion and reasoning; error text;
+  C8's line) is `sanitize`d, literal, and only inside a blockquote, with no entity of its own; Explain
+  puts the proposal and the reasoning in expandable blockquotes titled "Model text: untrusted, never a
+  decision" and marks instruction-like text ⚠️; URLs in that text are defanged (`hxxps://evil[.]example`,
+  `www[.]…`) because Telegram auto-links them; C8's GitHub links are not;
+- what K5 binds (target, action, parameters, hash) and the level are facts above the model text;
+- titles carry the phase's icon: 🟠 approval needed, ⏳ in progress, 🟢 Resolved, 🔴 Escalated,
+  ⚪ Dismissed, Rejected, Expired, Recorded, Recommended, ⛔ Blocked;
+- pushes, lists and replies shorten hashes and names (`sha256:14f167…839f5e`, `inc-6695…2289`);
+  Explain shows them in full; times are `HH:MM UTC`;
+- over 4,096 UTF-16 units, the start is kept with every entity inside it, then
+  `(truncated: N of M characters; the full text is in the Flight Recorder)`.
+
+The rendered text and entities of every message are snapshots in `tests/snapshots/`
+(`export NEXUS_BOT_UPDATE_SNAPSHOTS=1 && pytest -q tests/test_messages.py` regenerates them).
+
 ## Configuration
 
 `/etc/nexus-bot/config.yaml` (a ConfigMap in Git; `NEXUS_BOT_CONFIG` overrides the path):
@@ -43,6 +68,26 @@ namespaces: [nexus-dev, nexus-prod]   # what /pods and /status may read; no othe
 pollSeconds: 10                        # Incident scan interval for pushes
 catchUpMinutes: 15                     # on start, Escalated/Resolved/Blocked entered longer ago are not pushed
 ```
+
+C8 (ADR-041) reads `/etc/nexus-bot/revert.yaml`, the `revert.yaml` key of the same ConfigMap
+(`libs/nexus-revert/revert.example.yaml`; `NEXUS_REVERT_CONFIG`): machine account
+`belhouchetkoussay`, `prMode: pull_request` (token test outcome B), `nexus-dev` →
+`experiment/dev-state` only. The GitHub token is `/var/run/secrets/nexus-bot/github/token`
+(`NEXUS_REVERT_TOKEN_FILE`), Secret `nexus-bot-github`, mounted **optional**: without it the bot runs
+with C8 off. C8's scratch clones go to `/tmp`, an `emptyDir` (64 Mi); the root filesystem is read-only.
+
+What C8 sends to the chat: a title the bot picks from C8's fixed wording at the start of the line
+(🟠 C8: revert PR opened, ⛔ C8: no revert PR, 🟢 C8: revert PR merged, …), the Incident, and the
+line itself, through `sanitize`, in a blockquote. The log gets the line prefixed `C8 revert: `:
+
+| Line | When |
+| --- | --- |
+| `<incident>: revert pull request #N opened against <branch> (reverts <sha12>, named by the Reasoner \| chosen by rule A1); NEXUS will not merge it: <pull request link>` | the pull request is open; tap the link, review the diff and merge under rule 11 |
+| `<incident>: no revert pull request (check <n>): <reason>` | a check refused (ADR-041 "Commit validation"); nothing was pushed |
+| `<incident>: … open the pull request: <compare link>` | `prMode: compare_link`, or GitHub refused the create |
+| `<incident>: revert pull request #N merged by <login>, merge commit <sha>` / `closed, not merged` / `still open after 1 day, 0:00:00; no longer watched` | seen by the 30 s poll; a notification only, the Incident stays `Escalated` |
+
+An error in a C8 tick is logged (`c8: <type>`) and the loop goes on; it never stops the bot.
 
 The token is read from `/var/run/secrets/nexus-bot/telegram/token` (`NEXUS_BOT_TOKEN_FILE`), a Secret
 mounted as a file. It is never in Git, an environment variable, argv or a log line.
@@ -72,7 +117,14 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
    It creates Secret `nexus-bot-telegram` (key `token`) in `nexus-bot` if it is absent, with
    `kubectl create secret --from-file` (the value is never in argv), and prints only the token's
    length (a bot token is about 46 characters). It refuses if the namespace does not exist yet,
-   and leaves an existing Secret as it is. To rotate: `/revoke` in BotFather, delete the Secret,
+   and leaves an existing Secret as it is. **C8:** if `~/.nexus/github-machine.token` exists (the
+   machine account's classic `public_repo` token, ADR-041 outcome B; mode 0600), it also creates
+   Secret `nexus-bot-github` the same way; otherwise it prints `skipped` and the bot runs with C8
+   off. Save that token at a silent prompt, as above:
+
+   ```bash
+   ( umask 077; read -rs -p 'GitHub machine token: ' T && echo && printf '%s' "$T" > ~/.nexus/github-machine.token )
+   ``` To rotate: `/revoke` in BotFather, delete the Secret,
    replace the file and run it again. The bot calls `deleteWebhook` at every start.
 4. **Your numeric user ID** is in `allowlist` in `bot/k8s/configmap.yaml` (in Git, reviewed),
    mapped to `koussay-approver`: one entry, given by the owner on 2026-11-21. To check an ID, send
@@ -93,10 +145,12 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
 ## Development (offline)
 
 ```bash
-pip install -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl -e bot
+pip install -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl -e libs/nexus-revert -e bot
 export KUBECONFIG=/nonexistent && pytest -q bot
 ```
 
 Telegram is behind `TelegramClient(Transport)` (tests use a recording fake, and a fake Bot API on
 127.0.0.1); Kubernetes is behind `Reader` and `ApproverFactory` (tests use an in-memory cluster whose
 approver stamps `approvedBy` from the impersonated user and enforces write-once, as K5 and C2 do).
+C8's tests (`tests/test_c8.py`) run real git on the `file://` fixture repositories of
+`libs/nexus-revert/tests/fixtures.py` and an in-memory GitHub.

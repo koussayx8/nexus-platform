@@ -50,3 +50,7 @@ Since version 1.0 (2026-09-24), the decisions have piled up in places the spec d
 - The next spec change is version 1.2, by its own ADR.
 - Runs are compared only within one prompt version and one evidence version (ADR-042, ADR-044, ADR-045); the
   spec now says which versions are frozen: `prompt/v3` and `evidence/v1.2`.
+
+## Amendments
+- **2026-11-22 (under decision 4):** `TASKS.md` D27 corrects phase D's volume to 10 live R0 runs on S1, advisory
+  checks off (owner, confirming Q3); section 20's phases table and C7 row, and section 0 table B, say so.

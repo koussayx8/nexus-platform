@@ -22,7 +22,7 @@ def test_awaiting_approval_is_pushed_once_with_three_buttons() -> None:
     labels = [b["text"] for b in msg["reply_markup"]["inline_keyboard"][0]]
     assert labels == ["Approve", "Reject", "Explain"]
     assert all(decode(b["callback_data"]) for b in msg["reply_markup"]["inline_keyboard"][0])
-    assert "scale_deployment" in msg["text"] and "UNTRUSTED: HYPOTHESIS" in msg["text"]
+    assert "Action: scale_deployment" in msg["text"] and "Model text: untrusted, never a decision" in msg["text"]
 
 
 def test_each_push_phase_once_and_others_never() -> None:
@@ -35,7 +35,7 @@ def test_each_push_phase_once_and_others_never() -> None:
         p.tick()
         p.tick()
     texts = [m["text"].splitlines()[0] for m in t.sent()]
-    assert texts == ["NEXUS AwaitingApproval (proposed_escalation)", "NEXUS Resolved (proposed_escalation)"]
+    assert texts == ["🟠 Approval needed", "🟢 Resolved"]
     resolved = t.sent()[1]
     assert [b["text"] for b in resolved["reply_markup"]["inline_keyboard"][0]] == ["Explain"]
 
@@ -45,7 +45,7 @@ def test_restart_does_not_resend_old_news() -> None:
     fresh = incident_dict(name="inc-fresh-1", uid="2" * 32, phase="Blocked", stamp="2026-11-28T09:55:00Z")
     c, t = FakeCluster(old, fresh), FakeTransport()
     assert pusher(c, t).tick() == 1
-    assert t.sent()[0]["text"].startswith("NEXUS Blocked")
+    assert t.sent()[0]["text"].startswith("⛔ Blocked\n")
 
 
 def test_restart_pushes_every_pending_approval_whatever_its_age() -> None:
@@ -54,7 +54,7 @@ def test_restart_pushes_every_pending_approval_whatever_its_age() -> None:
     c, t = FakeCluster(stale, no_stamp), FakeTransport()
     p = pusher(c, t)
     assert p.tick() == 2 and p.tick() == 0
-    assert all(m["text"].startswith("NEXUS AwaitingApproval") for m in t.sent())
+    assert all(m["text"].startswith("🟠 Approval needed\n") for m in t.sent())
     assert all(len(m["reply_markup"]["inline_keyboard"][0]) == 3 for m in t.sent())
 
 

@@ -1,9 +1,9 @@
 """The Telegram Bot API, outbound only (ADR-040 decision 2).
 
-Long polling with `getUpdates`; no webhook, no listening socket. Every message is plain text: no
-`parse_mode` is ever sent, so Telegram interprets no Markdown or HTML, and link previews are off
-(decision 11). The token is part of every request URL, so no exception raised here carries the
-URL, the token or a chained cause.
+Long polling with `getUpdates`; no webhook, no listening socket. No `parse_mode` is ever sent, so
+Telegram interprets no Markdown or HTML; a message is plain text with the `entities` the bot
+computed (`richtext`), and link previews are off (decision 11, as amended). The token is part of
+every request URL, so no exception raised here carries the URL, the token or a chained cause.
 """
 
 import json
@@ -11,10 +11,15 @@ import urllib.error
 import urllib.request
 from typing import Any, Protocol
 
+from .richtext import MAX_TEXT, RichText, cut_point, units
+
 API = "https://api.telegram.org"
-MAX_TEXT = 4096  # Bot API: sendMessage text, after entity parsing
 MAX_CALLBACK_DATA = 64  # Bot API: callback_data, in bytes
-POLL_TIMEOUT = 50  # seconds the server holds a getUpdates call open
+# Seconds the server holds a getUpdates call open. 25, not 50: the live bot logged a getUpdates
+# TimeoutError about once a minute at 50 s, most likely an idle connection dropped on the path
+# before the server answered. The client waits POLL_SLACK longer than the server holds the call.
+POLL_TIMEOUT = 25
+POLL_SLACK = 10
 ALLOWED_UPDATES = ["message", "callback_query"]
 ELLIPSIS = "…"
 
@@ -70,32 +75,23 @@ def cut(text: str, limit: int = MAX_TEXT) -> str:
     return text if len(text) <= limit else text[: limit - 1] + ELLIPSIS
 
 
-def _units(text: str) -> int:
-    """Length in UTF-16 code units: never less than the character count, so a text that fits by
-    this measure fits Telegram's cap whichever way it counts (characters or UTF-16 units)."""
-    return len(text.encode("utf-16-le")) // 2
-
-
 def fit(text: str, limit: int = MAX_TEXT) -> str:
-    """The whole text when it fits one message; otherwise its start and a last line saying how much
-    was shown. The full model text stays in the Flight Recorder (proposals.reasoning)."""
-    if _units(text) <= limit:
+    """The whole text when it fits one message (counted in UTF-16 units); otherwise its start and a
+    last line saying how much was shown. The full model text stays in the Flight Recorder."""
+    if units(text) <= limit:
         return text
-    total = shown = len(text)
-    while True:
-        note = f"\n(truncated: {shown} of {total} characters; the full text is in the Flight Recorder)"
-        over = _units(text[:shown]) + _units(note) - limit
-        if over <= 0:
-            return text[:shown] + note
-        shown = max(0, shown - over)  # each character is at least one unit
+    shown, note = cut_point(text, limit)
+    return text[:shown] + note
 
 
-def keyboard(buttons: list[tuple[str, str]]) -> dict[str, Any]:
-    """One row of inline buttons: (label, callback_data)."""
-    for _label, data in buttons:
-        if len(data.encode()) > MAX_CALLBACK_DATA:
-            raise ValueError("callback_data exceeds 64 bytes")
-    return {"inline_keyboard": [[{"text": label, "callback_data": data} for label, data in buttons]]}
+def keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
+    """Rows of inline buttons: (label, callback_data)."""
+    for row in rows:
+        for _label, data in row:
+            if len(data.encode()) > MAX_CALLBACK_DATA:
+                raise ValueError("callback_data exceeds 64 bytes")
+    return {"inline_keyboard": [[{"text": label, "callback_data": data} for label, data in row]
+                                for row in rows]}
 
 
 class TelegramClient:
@@ -103,7 +99,8 @@ class TelegramClient:
         self._t = transport
 
     def _call(self, method: str, payload: dict[str, Any], timeout: float = 15) -> Any:
-        assert "parse_mode" not in payload  # decision 11: plain text only, by construction
+        if "parse_mode" in payload:  # decision 11; tests check every payload the bot builds
+            raise ValueError("parse_mode is never sent")
         return self._t.call(method, payload, timeout)
 
     def delete_webhook(self) -> None:
@@ -114,15 +111,28 @@ class TelegramClient:
         payload: dict[str, Any] = {"timeout": POLL_TIMEOUT, "allowed_updates": ALLOWED_UPDATES}
         if offset is not None:
             payload["offset"] = offset
-        result = self._call("getUpdates", payload, timeout=POLL_TIMEOUT + 10)
+        result = self._call("getUpdates", payload, timeout=POLL_TIMEOUT + POLL_SLACK)
         return [u for u in (result or []) if isinstance(u, dict) and isinstance(u.get("update_id"), int)]
 
-    def send_message(self, chat_id: int, text: str,
-                     buttons: list[tuple[str, str]] | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"chat_id": chat_id, "text": fit(text),
-                                   "link_preview_options": {"is_disabled": True}}
-        if buttons:
-            payload["reply_markup"] = keyboard(buttons)
+    def set_commands(self, commands: tuple[tuple[str, str], ...]) -> None:
+        """The command menu (default scope): names and short descriptions, the bot's own text."""
+        self._call("setMyCommands", {"commands": [{"command": c, "description": d} for c, d in commands]})
+
+    def send_message(self, chat_id: int, text: str | RichText,
+                     buttons: list[tuple[str, str]] | None = None, *,
+                     rows: list[list[tuple[str, str]]] | None = None) -> dict[str, Any]:
+        """`buttons` is one row; `rows` is several. A RichText is sent with its entities."""
+        payload: dict[str, Any] = {"chat_id": chat_id, "link_preview_options": {"is_disabled": True}}
+        if isinstance(text, RichText):
+            msg = text.build(MAX_TEXT)
+            payload["text"] = msg.text
+            if msg.entities:
+                payload["entities"] = msg.entities
+        else:
+            payload["text"] = fit(text)
+        markup = (rows or []) + ([buttons] if buttons else [])
+        if any(markup):
+            payload["reply_markup"] = keyboard([r for r in markup if r])
         result = self._call("sendMessage", payload)
         return result if isinstance(result, dict) else {}
 

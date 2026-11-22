@@ -178,3 +178,57 @@ def test_appproject_admits_the_namespace() -> None:
     [proj] = docs(ROOT / "platform/argocd/projects/nexus.yaml")
     dests = proj["spec"]["destinations"]
     assert {"server": "https://kubernetes.default.svc", "namespace": "nexus-bot"} in dests
+
+
+# C8 (ADR-041): the GitHub token, the scratch directory and the revert configuration.
+
+
+def test_github_token_is_an_optional_read_only_secret_file() -> None:
+    pod = _deployment()["spec"]["template"]["spec"]
+    [c] = pod["containers"]
+    vols = {v["name"]: v for v in pod["volumes"]}
+    assert vols["github"]["secret"] == {"secretName": "nexus-bot-github", "defaultMode": 0o440, "optional": True}
+    mounts = {m["name"]: m for m in c["volumeMounts"]}
+    assert mounts["github"] == {"name": "github", "mountPath": "/var/run/secrets/nexus-bot/github", "readOnly": True}
+    env = {e["name"]: e["value"] for e in c["env"]}
+    assert env["NEXUS_REVERT_TOKEN_FILE"] == "/var/run/secrets/nexus-bot/github/token"
+    # the token reaches the bot as this file only: no env value, no other mount of the Secret
+    assert sum(1 for v in pod["volumes"] if v.get("secret", {}).get("secretName") == "nexus-bot-github") == 1
+    assert all("nexus-bot-github" not in str(e) for e in c["env"])
+
+
+def test_tmp_is_a_small_emptydir_and_the_root_stays_read_only() -> None:
+    pod = _deployment()["spec"]["template"]["spec"]
+    [c] = pod["containers"]
+    vols = {v["name"]: v for v in pod["volumes"]}
+    assert vols["tmp"] == {"name": "tmp", "emptyDir": {"sizeLimit": "64Mi"}}
+    mounts = {m["name"]: m for m in c["volumeMounts"]}
+    assert mounts["tmp"] == {"name": "tmp", "mountPath": "/tmp"}
+    assert {e["name"]: e["value"] for e in c["env"]}["NEXUS_REVERT_SCRATCH"] == "/tmp"
+    assert c["securityContext"]["readOnlyRootFilesystem"] is True
+    # every other mount is read-only
+    assert all(m.get("readOnly") is True for m in c["volumeMounts"] if m["name"] != "tmp")
+
+
+def test_revert_config_is_the_token_test_outcome_and_maps_nexus_dev_only() -> None:
+    from nexus_revert.config import parse
+
+    [cm] = docs(K8S / "configmap.yaml")
+    raw = yaml.safe_load(cm["data"]["revert.yaml"])
+    assert raw["machineAccount"] == "belhouchetkoussay" and raw["prMode"] == "pull_request"
+    assert raw["upstream"] == "koussayx8/nexus-platform" and "fork" not in raw
+    # the nexus-dev entry exactly as revert.example.yaml has it; nexus-prod (main) is not mapped
+    example = yaml.safe_load((ROOT / "libs/nexus-revert/revert.example.yaml").read_text())
+    assert raw["branches"] == example["branches"] == {"nexus-dev": raw["branches"]["nexus-dev"]}
+    assert {k: v for k, v in raw.items() if k != "machineAccount"} == \
+        {k: v for k, v in example.items() if k != "machineAccount"}
+    cfg = parse(raw, "x" * 40)  # the library's own validation accepts it
+    assert cfg.fork == "belhouchetkoussay/nexus-platform" and cfg.mode == "pull_request"
+    env = {e["name"]: e["value"] for e in _deployment()["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["NEXUS_REVERT_CONFIG"] == "/etc/nexus-bot/revert.yaml"
+
+
+def test_deployment_header_names_no_placeholder_digest() -> None:
+    head = (K8S / "deployment.yaml").read_text().split("apiVersion:")[0]
+    assert "placeholder digest until" not in head
+    assert "sha256:" + "0" * 64 not in (K8S / "deployment.yaml").read_text()

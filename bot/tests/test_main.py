@@ -40,7 +40,7 @@ def test_command_reply_goes_to_the_owner() -> None:
     bot, _c, t = make(incident_dict())
     bot.handle(message("/status"))
     [msg] = t.sent()
-    assert msg["chat_id"] == OWNER_ID and "Open Incidents: 1" in msg["text"]
+    assert msg["chat_id"] == OWNER_ID and "Open Incidents: 1" in msg["text"] and msg["entities"]
 
 
 def test_approve_press_end_to_end() -> None:
@@ -50,7 +50,7 @@ def test_approve_press_end_to_end() -> None:
     assert methods == ["answerCallbackQuery", "editMessageReplyMarkup", "sendMessage"]
     assert c.items[NAME]["spec"]["approval"]["approvedBy"] == "koussay-approver"
     assert c.items[NAME]["spec"]["approval"]["reason"] == f"telegram:{OWNER_ID}"
-    assert "approved by koussay-approver" in t.sent()[0]["text"]
+    assert "By: koussay-approver" in t.sent()[0]["text"]
 
 
 def test_malformed_payload_is_answered_and_writes_nothing() -> None:
@@ -67,5 +67,5 @@ def test_offset_advances_past_a_failing_update() -> None:
     assert bot.poll_once() == 3 and bot.offset == 44
     del t.fail["sendMessage"]
     bot.poll_once()
-    assert t.calls[-1] == ("getUpdates", {"timeout": 50, "allowed_updates": ["message", "callback_query"],
+    assert t.calls[-1] == ("getUpdates", {"timeout": 25, "allowed_updates": ["message", "callback_query"],
                                           "offset": 44})

@@ -1,0 +1,8 @@
+🟠 C8: revert PR opened
+Incident: inc-6695…2289
+revert pull request #312 opened against experiment/dev-state (reverts 0123456789ab, named by the Reasoner); NEXUS will not merge it: https://github.com/koussayx8/nexus-platform/pull/312
+
+=== entities (type offset length: covered text) ===
+bold 0 23: "🟠 C8: revert PR opened"
+bold 24 9: "Incident:"
+blockquote 48 185: "revert pull request #312 opened against experiment/dev-state (reverts 0123456789ab, named by the Reasoner); NEXUS will not merge it: https://github.com/koussayx8/nexus-platform/pull/312"

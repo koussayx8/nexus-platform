@@ -881,6 +881,7 @@ its outlines stay as the record.
 | D24 | ITBench: no runs. One desk table in the thesis mapping ITBench fault types to what NEXUS would do (fix, escalate, not seen) |
 | D25 | 2026-11-21: C4, the static baseline, is cut: no `nexus-baseline` build (G10 cut), no live or offline C4 runs. Naive alert-driven automation appears only in the related work (owner, 2026-11-21) |
 | D26 | 2026-11-21: S4/S6's load is the calibrated one: Locust total 170 (`nexus-dev` 90 req/s against its baseline 80, ProdUser 80; about 1.13x the `nexus-dev` load). At 165, 168 and 170 `NexusTrafficAnomaly` fired and `NexusCpuAnomaly` did not, max p95 latency Z at most -0.02 (`~/nexus-evidence/cal-2026-11-21/RESULT.md`). Spec v1.0's "1.5 x baseline" (240 users) was never used: at 240 on 2026-11-20 `NexusCpuAnomaly` fired and R3 scaled `nexus-dev` 2 -> 4 (owner, 2026-11-21) |
+| D27 | Phase D: 10 live R0 runs on S1, advisory checks off (Q3 confirmed, owner 2026-11-22); spec v1.1's 16 is corrected |
 
 ### Blocks
 
@@ -918,6 +919,7 @@ secrets, `sudo`.
 - [ ] **Block 7 — 11-28 → 11-30. Bot core.** Pushes; Approve, Reject, Explain; `/status`, `/pods`, `/incident`
   (D21); the Alertmanager Telegram route. **Gate:** an L2 approval from the owner's phone; the Incident and the audit
   log name the owner. Owner: BotFather, the bot token, the Telegram user ID. Cut first: Explain polish; never Approve.
+  Bot core live on 2026-11-21; live gate done (the second-account test skipped, covered by unit tests).
 - [ ] **Block 8 — 12-01 → 12-02. Note flow, then `/ask`.** Hard stop 12-02. **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
 - [ ] **Block 9 — 12-03 → 12-04. Freeze.** Runbook polish and one retrieval re-check (D23), then the final Reasoner
