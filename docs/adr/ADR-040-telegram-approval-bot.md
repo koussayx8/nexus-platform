@@ -463,6 +463,29 @@ UNVERIFIED (no live Telegram in this change): how the official clients draw `exp
 the server still auto-links URLs, `@mentions` and `/commands` in plain text when `entities` is given (it did with
 plain text before; previews stay off either way). Settled by a live push in the next bot deployment.
 
+## As built: display changes (2026-11-22)
+
+Read-only additions to decision 11 (as amended) and to the commands of decision 8. The approval path is
+unchanged: `decide.py`, `auth.py`, the K5 pins, the allowlist, `sanitize` and URL defanging of untrusted
+text. The AwaitingApproval push (its text, entities, buttons and callback payloads) is fixed by hand in
+`bot/tests/test_golden_approval.py`, as it was on `dev` at 854a716.
+
+| Point | Built |
+| --- | --- |
+| Trusted links | A `text_link` entity, the only kind the bot adds. Its URL is built by the bot from two new config keys, `repoUrl` (default `https://github.com/koussayx8/nexus-platform`, validated as a github.com repository) and `repoRef` (default `main`; the owner sets `v0.6.0` after the freeze); `RichText.link` refuses any other host. Link text is the bot's own or a value that fully matches `prompt/v[0-9]+` (to `reasoner/nexus_reasoner/prompt.py`) or `rb-[a-z0-9-]+#[0-9]+` (to `runbooks/<name>.md`). Like every formatting entity, a link may not overlap untrusted text |
+| A commit the model named | An exact 40-hex token in the proposal or the escalation gets a trusted line outside the quote, `Commit named by the model (not checked): <first 7>`, linked to `<repoUrl>/commit/<sha>`; at most three. The model's text keeps the token, plain, in its blockquote. Nothing checks that the commit exists or is related (C8 does its own checks, ADR-041) |
+| Buttons | Result pushes and Explain views: Explain, 🧠 Reasoning, 📦 Pods, 📚 Runbooks, 🔗 Commit where each applies; never on the AwaitingApproval push. New read-only payloads (`payload.py`): `t:`/`k:<namespace>`, `m:`/`b:`/`c:<uid16>`, `l:<filter>:<page>`, `v:pods`/`v:inc`, at most 18 bytes, under the same sender check as a press |
+| Explain press | Answered by `main.py` with the Reader, as an `i:<uid16>` button is, so the view carries links and buttons; `decide.py`'s Explain branch is unchanged and no longer reached from the bot loop. Approve and Reject go to `decide.py` exactly as before |
+| 🧠 Reasoning | `status.reasoner.reasoningExcerpt` in an expandable blockquote under "Model text: untrusted, never a decision", then `<reasoningLength> characters in total; the full text is in the Flight Recorder`. Sanitized and defanged once, then split into messages under 4,096 UTF-16 units (the operator stores 300 characters today) |
+| `/incident` | 5 per page, ◀ Newer / Older ▶, filters All / Open / nexus-dev / nexus-prod (the configured namespaces), a header with the count and `as of HH:MM UTC`, each Incident's age. Paging and filters edit the message in place (`editMessageText`); an edit Telegram refuses falls back to a new message |
+| `/pods` | A kubectl-style table in a `pre` block, at most 36 characters a line: per Deployment its READY UP-TO-DATE AVAILABLE AGE, then its pods (NAME READY STATUS RESTARTS AGE) with the Deployment's name dropped from theirs; a column that does not fit is cut with `…`. STATUS is a container's waiting or terminated reason, `Terminating` or the phase, from the same pod list. Table is the default; Cards (the earlier layout) and Refresh edit in place |
+| State pushes | 🛑 Kill Switch halted / 🟢 Kill Switch active, and `🎚 Autonomy level changed` (e.g. L3 → L1), from the reads `/status` already makes; no new RBAC. The first value read after a start is the baseline, with no push. A failed read changes nothing; a failed send is retried on the next scan |
+| `/status` | 📦 Pods and 🗂 Incidents buttons, each opening a new message |
+
+UNVERIFIED (offline only, no live Telegram in this change): how the official clients draw a `text_link`
+inside a `pre`-free line and a `pre` block on a narrow phone, and whether 36 characters fit without
+wrapping in the default font. Settled by the next live deployment.
+
 ## Consequences
 
 - A level-2 approval can be given from a phone, and the Incident and the audit log both say who and through
