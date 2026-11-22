@@ -89,7 +89,8 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 | The Incident's `status.reasoner` contradicts the cell's arm | discarded: `arm_mismatch`; the batch halts |
 | A runner step fails | discarded: `runner_error:<type>`; the batch stops |
 | The run's Incident reaches a terminal phase | valid, with that phase, whatever it is |
-| The run's Incident is still open after 1,200 s | valid, `terminal` null, `timed_out` true |
+| The run's Incident is still open after 1,200 s | valid, `terminal` null, `timed_out` true, only if every Incident on the target is terminal by the settle cap |
+| Some Incident on the target is still open 1,800 s after the injection (#306's settle cap) | void: `incidents_not_terminal_at_settle_cap`; the batch halts and the owner checks the Incidents and resets by hand: no reset follows blindly |
 
 - **Only the first Incident per run counts** (owner, 2026-11-20). The run's Incident is the first one created after
   the injection that targets `nexus-dev`, is not a smoke Incident, and whose alert started at or after
