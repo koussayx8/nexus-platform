@@ -1,0 +1,19 @@
+🗂 Incidents: All
+7 Incidents · page 2 of 2 · as of 10:00 UTC
+
+🟠 inc-0002…4002 · AwaitingApproval
+   nexus-prod/sample-api · scale_deployment · 58m
+🟠 inc-0001…4001 · AwaitingApproval
+   nexus-dev/sample-api · scale_deployment · 59m
+
+Tap one for its Explain view.
+
+=== entities (type offset length: covered text) ===
+bold 0 17: "🗂 Incidents: All"
+italic 235 29: "Tap one for its Explain view."
+
+=== buttons ===
+🟠 inc-0002…4002 [i:2222222222222222]
+🟠 inc-0001…4001 [i:1111111111111111]
+◀ Newer [l:a:0]
+✓ All [l:a:0] | Open [l:o:0] | nexus-dev [l:d:0] | nexus-prod [l:p:0]

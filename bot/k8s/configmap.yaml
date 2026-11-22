@@ -24,6 +24,10 @@ data:
     namespaces: [nexus-dev, nexus-prod]
     pollSeconds: 10
     catchUpMinutes: 15
+    # The bot's own links (prompt, runbooks, a commit the model named) point here; nothing else
+    # becomes a link. repoRef is main until the freeze; the owner sets v0.6.0 after it.
+    repoUrl: https://github.com/koussayx8/nexus-platform
+    repoRef: main
   revert.yaml: |
     upstream: koussayx8/nexus-platform
     machineAccount: belhouchetkoussay

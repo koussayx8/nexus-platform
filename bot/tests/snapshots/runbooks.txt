@@ -1,0 +1,22 @@
+📚 Runbooks
+Incident: inc-6695…2289
+Index: sha256:a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7
+Prompt: prompt/v3
+Chunks the Reasoner retrieved:
+• rb-cpu-saturation#2
+• scale#1
+Links open the runbook at main.
+
+=== entities (type offset length: covered text) ===
+bold 0 11: "📚 Runbooks"
+bold 12 9: "Incident:"
+bold 36 6: "Index:"
+code 43 71: "sha256:a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7"
+bold 115 7: "Prompt:"
+text_link 123 9: "prompt/v3"
+bold 133 30: "Chunks the Reasoner retrieved:"
+text_link 166 19: "rb-cpu-saturation#2"
+italic 196 31: "Links open the runbook at main."
+
+=== buttons ===
+Explain [i:669532275a7b73d2]

@@ -1,15 +1,18 @@
-🗂 Recent Incidents
+🗂 Incidents: All
+2 Incidents · page 1 of 1 · as of 10:00 UTC
+
 🟠 inc-6695…2289 · AwaitingApproval
-   nexus-dev/sample-api · scale_deployment · 09:57 UTC
+   nexus-dev/sample-api · scale_deployment · 3m
 ⏳ inc-0a1b…0000 · Executing
-   nexus-dev/sample-api · scale_deployment · 09:40 UTC
+   nexus-dev/sample-api · scale_deployment · 20m
 
 Tap one for its Explain view.
 
 === entities (type offset length: covered text) ===
-bold 0 19: "🗂 Recent Incidents"
-italic 195 29: "Tap one for its Explain view."
+bold 0 17: "🗂 Incidents: All"
+italic 225 29: "Tap one for its Explain view."
 
 === buttons ===
 🟠 inc-6695…2289 [i:669532275a7b73d2]
 ⏳ inc-0a1b…0000 [i:1111111111111111]
+✓ All [l:a:0] | Open [l:o:0] | nexus-dev [l:d:0] | nexus-prod [l:p:0]
