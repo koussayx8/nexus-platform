@@ -293,7 +293,7 @@ def make_queue_run(
     q = batch.Queue.create(
         tmp / "queue", "G16/test#approval-1", cells, precheck_cfg=pre
     )
-    rec_extra, tables, events, inj = sample_data.run_inputs(
+    rec_extra, tables, events = sample_data.run_inputs(
         1, "R1", "S1", 1, sample_data.behaviour("R1", "S1", 1), False, False
     )
     t0 = sample_data.BASE + sample_data.datetime.timedelta(hours=1)
@@ -309,8 +309,8 @@ def make_queue_run(
     (tmp / "audit.log").write_text(
         "".join(json.dumps(e) + "\n" for e in [*events, *extra_events])
     )
-    (tmp / "gt.json").write_text('{"scenarios": {}}')
-    return {"queue_dir": tmp / "queue", "run_id": rec["run_id"], "injection": inj.isoformat(), "ground_truth": tmp / "gt.json",
+    (tmp / "gt.json").write_text(json.dumps(sample_data.TRUTH_DOC))
+    return {"queue_dir": tmp / "queue", "run_id": rec["run_id"], "ground_truth": tmp / "gt.json",
                 "git_commit": "a" * 40, "out_dir": tmp / "runs", "tables": tmp / "tables.json", "audit": tmp / "audit.log"}  # fmt: skip
 
 
@@ -407,7 +407,7 @@ class ExportTest(unittest.TestCase):
     def test_command_line_exit_codes(self):
         kw = make_queue_run(self.tmp)
         argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
-                "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw["out_dir"])]  # fmt: skip
+                "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw["out_dir"])]  # fmt: skip
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(EXPORT.main(argv), 0)
         with contextlib.redirect_stderr(io.StringIO()):
@@ -418,7 +418,7 @@ class ExportTest(unittest.TestCase):
                 extra_events=[event("rogue", when="2027-01-05T11:05:00+00:00")],
             )
             argv2 = ["--queue", str(kw2["queue_dir"]), "--run-id", kw2["run_id"], "--tables", str(kw2["tables"]), "--audit", str(kw2["audit"]),
-                     "--injection", kw2["injection"], "--ground-truth", str(kw2["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw2["out_dir"])]  # fmt: skip
+                     "--ground-truth", str(kw2["ground_truth"]), "--git-commit", "a" * 40, "--out", str(kw2["out_dir"])]  # fmt: skip
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(
                     EXPORT.main(argv2), 1
@@ -704,7 +704,7 @@ class ExportMetricsTest(unittest.TestCase):
             kw = make_queue_run(t)
             (t / "metrics.json").write_text(json.dumps(self.doc(step_s=-1)))
             argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
-                    "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
+                    "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
                     "--out", str(kw["out_dir"]), "--metrics", str(t / "metrics.json")]  # fmt: skip
             with contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(EXPORT.main(argv), 2)
@@ -799,7 +799,7 @@ class FixtureMarkerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             kw = make_queue_run(pathlib.Path(d))
             argv = ["--queue", str(kw["queue_dir"]), "--run-id", kw["run_id"], "--tables", str(kw["tables"]), "--audit", str(kw["audit"]),
-                    "--injection", kw["injection"], "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
+                    "--ground-truth", str(kw["ground_truth"]), "--git-commit", "a" * 40,
                     "--out", str(kw["out_dir"]), "--fixture"]  # fmt: skip
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(EXPORT.main(argv), 0)

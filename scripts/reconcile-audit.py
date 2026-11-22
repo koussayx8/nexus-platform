@@ -183,8 +183,11 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     d = pathlib.Path(a.run_dir)
     try:
-        run = json.loads((d / "run.json").read_text(encoding="utf-8"))["run"]
+        doc = json.loads((d / "run.json").read_text(encoding="utf-8"))
+        run = doc["run"]
         tables = json.loads((d / "tables.json").read_text(encoding="utf-8"))
+        # the audit extract covers the whole attempt: the other Incidents' actions join too
+        tables["actions"] += (doc.get("other_incidents") or {}).get("actions", [])
         audit = d / "audit.jsonl.gz"
         events = read_events(audit if audit.exists() else d / "audit.jsonl")
         result = reconcile(run, tables, events, a.user)

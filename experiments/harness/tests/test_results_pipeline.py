@@ -164,16 +164,16 @@ def make_batch(root: pathlib.Path, plan=PLAN, not_exported=NOT_EXPORTED) -> dict
             d.mkdir(parents=True)
             (d / "tables.json").write_text(json.dumps(tables))
             (d / "audit.log").write_text("".join(json.dumps(e) + "\n" for e in events))
-            inputs[rec["run_id"]] = (d, iso(inj))
+            inputs[rec["run_id"]] = d
         recs.append((arm, scen, attempt, rec))
     q.doc["runs"] = [r for *_, r in recs]
     q.save()
     for arm, scen, attempt, rec in recs:
         if (arm, scen, attempt) in not_exported:
             continue
-        d, inj = inputs.get(rec["run_id"], (None, iso(T0)))
+        d = inputs.get(rec["run_id"])
         with contextlib.redirect_stderr(io.StringIO()):
-            EXPORT.export(queue_dir=root / "state", run_id=rec["run_id"], injection=inj, ground_truth=GT, git_commit="5e871ea" + "0" * 33,
+            EXPORT.export(queue_dir=root / "state", run_id=rec["run_id"], ground_truth=GT, git_commit="5e871ea" + "0" * 33,
                           out_dir=root / "runs", tables=d / "tables.json" if d else None, audit=d / "audit.log" if d else None)  # fmt: skip
     return {"state": root / "state", "runs": root / "runs"}
 

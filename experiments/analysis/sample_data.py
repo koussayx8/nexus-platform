@@ -39,13 +39,32 @@ SCENARIOS = ("S1", "S2", "S3", "S4", "S5", "S6")
 ARMS = ("R1", "R3")
 TARGET = {"namespace": "nexus-dev", "kind": "Deployment", "name": "sample-api"}
 
+_SCALE = {"action": "scale_deployment", "replicas_delta": [-2, -1, 1, 2]}
+_RESTART = {"action": "restart_workload"}
+
+
+def _truth(fault, correct, wrong, l3):
+    return {"fault_class": fault, "correct_action": correct, "acceptable_actions": [correct],
+            "wrong_in_envelope": wrong, "expected_terminal": {"L3": l3}}  # fmt: skip
+
+
+# The shape of experiments/ground-truth.json (ground-truth/v2); the export reads it with a YAML loader.
 TRUTH = {
-    "S1": {"fault_class": "gray_failure", "correct_action": {"action": "restart_workload"}},
-    "S2": {"fault_class": "cpu_saturation", "correct_action": {"action": "scale_deployment", "replicas_delta": [1, 2]}},
-    "S3": {"fault_class": "bad_rollout", "correct_action": {"action": "escalate", "recommendation": "git_revert"}},
-    "S4": {"fault_class": "traffic_spike", "correct_action": {"action": "no_action"}},
-    "S5": {"fault_class": "dependency_failure", "correct_action": {"action": "escalate", "recommendation": ["dependency_investigation", "investigate"]}},
-    "S6": {"fault_class": "traffic_spike", "correct_action": {"action": "no_action"}},
+    "S1": _truth("gray_failure", _RESTART, [_SCALE], "Resolved"),
+    "S2": _truth("cpu_saturation", {"action": "scale_deployment", "replicas_delta": [1, 2]},
+                 [{"action": "scale_deployment", "replicas_delta": [-2, -1]}, _RESTART], "Resolved"),
+    "S3": _truth("bad_rollout", {"action": "escalate", "recommendation": "git_revert"}, [_RESTART, _SCALE], "Escalated"),
+    "S4": _truth("traffic_spike", {"action": "no_action"}, [_SCALE, _RESTART], "Dismissed"),
+    "S5": _truth("dependency_failure", {"action": "escalate", "recommendation": ["dependency_investigation", "investigate"]},
+                 [_RESTART, _SCALE], "Escalated"),
+    "S6": _truth("traffic_spike", {"action": "no_action"}, [_SCALE, _RESTART], "Dismissed"),
+}  # fmt: skip
+TRUTH_DOC = {
+    "schema": "ground-truth/v2",
+    "version": "fixture",
+    "envelope": {"namespaces": ["nexus-dev"], "actions": ["restart_workload", "scale_deployment", "escalate", "no_action"],
+                 "mutating": ["restart_workload", "scale_deployment"], "replicas": {"min": 1, "max": 5, "max_step": 2}},
+    "scenarios": TRUTH,
 }  # fmt: skip
 
 
@@ -107,7 +126,7 @@ def behaviour(arm: str, scen: str, rep: int) -> dict:
 def run_inputs(
     n: int, arm: str, scen: str, rep: int, b: dict, fallback: bool, broken: bool
 ):
-    """(queue record, FR tables, audit events, injection) for one valid run."""
+    """(queue record, FR tables, audit events) for one valid run."""
     t0 = BASE + datetime.timedelta(hours=n)  # started_at
     inj = t0 + datetime.timedelta(seconds=PRECHECK_S)
     det = inj + datetime.timedelta(seconds=68 + 4 * rep)
@@ -189,8 +208,9 @@ def run_inputs(
     )
     rec = {"no_fault": {"start": iso(t0), "end": iso(inj), "seconds": float(PRECHECK_S), "polls": 10, "alerts": alerts, "incidents": []},
            "precheck": {"ok": True, "polls": 3, "waited_s": 60.0, "failures": []}, "fallbackUsed": fallback,
-           "terminal": b["terminal"][0], "advisory_checks": "on", "breaker_epoch": int(t0.timestamp())}  # fmt: skip
-    return rec, tables, events, inj
+           "terminal": b["terminal"][0], "advisory_checks": "on", "breaker_epoch": int(t0.timestamp()),
+           "injection_at": iso(inj), "incident": {"uid": uid, "reason": b["terminal"][1]}}  # fmt: skip
+    return rec, tables, events
 
 
 def resolved_s(scen: str, rep: int) -> int:
@@ -276,14 +296,7 @@ def generate(out: pathlib.Path) -> None:
         shutil.rmtree(runs_dir)
     (out / "ground-truth.json").parent.mkdir(parents=True, exist_ok=True)
     gt = out / "ground-truth.json"
-    gt.write_text(
-        json.dumps(
-            {"schema": "ground-truth/v1", "version": "fixture", "scenarios": TRUTH},
-            indent=1,
-            sort_keys=True,
-        )
-        + "\n"
-    )
+    gt.write_text(json.dumps(TRUTH_DOC, indent=1, sort_keys=True) + "\n")
     cells = [{"cell": f"A/{a}/{s}/L3", "scenario": s, "reasoner": a, "level": 3, "tier": 1, "valid_target": 2, "max_attempts": 4,
               "baseline_ref": "0123456789abcdef0123456789abcdef01234567"}
              for a in ARMS for s in SCENARIOS]  # fmt: skip
@@ -329,7 +342,7 @@ def generate(out: pathlib.Path) -> None:
                     reps += 1
                     broken = kind == "broken"
                     fallback = (a, s, reps) == ("R3", "S1", 2)
-                    extra, tables, events, inj = run_inputs(
+                    extra, tables, events = run_inputs(
                         n, a, s, reps, behaviour(a, s, reps), fallback, broken
                     )
                     rec |= extra
@@ -342,7 +355,7 @@ def generate(out: pathlib.Path) -> None:
                     (tmp / f"in{n}" / "audit.log").write_text(
                         "".join(json.dumps(e) + "\n" for e in events)
                     )
-                    rec["_in"] = (n, iso(inj))
+                    rec["_in"] = n
                 records.append(rec)
         q.doc["runs"] = [{k: v for k, v in r.items() if k != "_in"} for r in records]
         q.save()
@@ -350,11 +363,11 @@ def generate(out: pathlib.Path) -> None:
         for r in records:
             n_in = r.get("_in")
             exporter.export(
-                queue_dir=tmp / "queue", run_id=r["run_id"], injection=n_in[1] if n_in else iso(BASE), ground_truth=gt,
+                queue_dir=tmp / "queue", run_id=r["run_id"], ground_truth=gt,
                 git_commit="f" * 40, out_dir=runs_dir, fixture=True,
-                tables=tmp / f"in{n_in[0]}" / "tables.json" if n_in else None,
-                audit=tmp / f"in{n_in[0]}" / "audit.log" if n_in else None,
-                metrics=tmp / f"in{n_in[0]}" / "metrics.json" if n_in else None,
+                tables=tmp / f"in{n_in}" / "tables.json" if n_in else None,
+                audit=tmp / f"in{n_in}" / "audit.log" if n_in else None,
+                metrics=tmp / f"in{n_in}" / "metrics.json" if n_in else None,
             )  # fmt: skip
     suite = {
         "cells": [{"expected": "deny", "observed": "deny"}] * 7 + [{"expected": "allow", "observed": "allow"}] * 3
