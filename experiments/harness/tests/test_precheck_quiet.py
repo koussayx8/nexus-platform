@@ -10,7 +10,15 @@ import unittest
 import urllib.parse
 
 from .. import batch, precheck
-from .test_batch import PRE, FakeClock, FakeCluster, FakeTime, audit_fresh, firing, runner_for
+from .test_batch import (
+    PRE,
+    FakeClock,
+    FakeCluster,
+    FakeTime,
+    audit_fresh,
+    firing,
+    runner_for,
+)
 
 REAL = {**PRE, "cap_s": 1200, "poll_s": 30, "quiet_s": 360}
 EXAMPLE = pathlib.Path(__file__).resolve().parents[1] / "batch-config.example.json"
@@ -53,12 +61,16 @@ class QuietWindowTest(unittest.TestCase):
         )  # fmt: skip
 
     def quiet(self, c, waited):
-        return precheck.quiet_failures(precheck.Prom(runner_for(c, self.ft)), self.cfg, waited)
+        return precheck.quiet_failures(
+            precheck.Prom(runner_for(c, self.ft)), self.cfg, waited
+        )
 
     # ---------------------------------------------------------------- the window's length
 
     def test_a_window_shorter_than_quiet_s_fails_with_its_reason(self):
-        self.assertEqual(self.quiet(FakeCluster(self.ft), 359.9), ["quiet:window=359s<360s"])
+        self.assertEqual(
+            self.quiet(FakeCluster(self.ft), 359.9), ["quiet:window=359s<360s"]
+        )
 
     def test_a_clean_window_of_quiet_s_passes(self):
         self.assertEqual(self.quiet(FakeCluster(self.ft), 360), [])
@@ -66,13 +78,17 @@ class QuietWindowTest(unittest.TestCase):
     def test_a_clean_run_passes_at_the_first_poll_past_quiet_s_not_before(self):
         pc = self.run_pc(FakeCluster(self.ft))
         # polls at 0, 30, ..., 360 s: the 13th is the first with 360 s behind it
-        self.assertEqual((pc.ok, pc.polls, pc.waited_s, pc.failures), (True, 13, 360, []))
+        self.assertEqual(
+            (pc.ok, pc.polls, pc.waited_s, pc.failures), (True, 13, 360, [])
+        )
 
     # ---------------------------------------------------------------- alerts in the window
 
     def test_an_alert_pending_inside_the_window_fails_the_poll(self):
         c = TimedAlerts(self.ft, [(firing("NexusLatencyAnomaly", "pending"), 0, None)])
-        self.assertEqual(self.quiet(c, 400), ["quiet:alert=NexusLatencyAnomaly/pending"])
+        self.assertEqual(
+            self.quiet(c, 400), ["quiet:alert=NexusLatencyAnomaly/pending"]
+        )
 
     def test_a_firing_alert_reads_its_state(self):
         c = TimedAlerts(self.ft, [(firing("NexusCpuAnomaly"), 0, None)])
@@ -97,7 +113,9 @@ class QuietWindowTest(unittest.TestCase):
         self.assertGreaterEqual(pc.waited_s, REAL["cap_s"])
 
     def test_an_alert_for_another_namespace_does_not_hold_the_window(self):
-        c = TimedAlerts(self.ft, [(firing("NexusCpuAnomaly", ns="nexus-prod"), 0, None)])
+        c = TimedAlerts(
+            self.ft, [(firing("NexusCpuAnomaly", ns="nexus-prod"), 0, None)]
+        )
         self.assertEqual(self.quiet(c, 400), [])
         self.assertEqual(self.run_pc(c).ok, True)
 
@@ -125,7 +143,9 @@ class QuietWindowTest(unittest.TestCase):
         c = FakeCluster(self.ft)
         self.quiet(c, 400)
         (q,) = [
-            urllib.parse.unquote(a[-1]) for a in c.calls if "--raw" in a and "ALERTS" in a[-1]
+            urllib.parse.unquote(a[-1])
+            for a in c.calls
+            if "--raw" in a and "ALERTS" in a[-1]
         ]
         self.assertIn('max_over_time(ALERTS{alertname=~"Nexus.*"}[360s])', q)
         self.assertIn("alertstate", q)  # pending and firing both

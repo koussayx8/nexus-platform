@@ -308,7 +308,11 @@ def quiet_failures(prom: Prom, cfg: dict, waited: float) -> list[str]:
     if alerts is None:
         return out + ["quiet:alerts:no_answer"]
     return out + sorted(
-        {f"quiet:alert={a['alertname']}/{a['state']}" for a in alerts if a["namespace"] == cfg["namespace"]}
+        {
+            f"quiet:alert={a['alertname']}/{a['state']}"
+            for a in alerts
+            if a["namespace"] == cfg["namespace"]
+        }
     )
 
 
