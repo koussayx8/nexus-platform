@@ -34,6 +34,13 @@ check is READ-ONLY (get / get --raw / GET / stat); none changes anything:
   * the audit log is being written: the file is readable and was modified within `max_age_s`. k3s
     writes every write request to it, lease renewals included (verify-state.sh M7), so a quiet log
     means the audit chain is down. Reading the file is all this does: no probe request is sent.
+  * a quiet window: at least `quiet_s` (360 s, owner, 2026-11-22) since the pre-check window
+    started, and no NEXUS alert pending or firing for the namespace at any time in the last
+    `quiet_s` (Prometheus `ALERTS`, as `window.alerts` reads it). The reset's new pods can warm up
+    into NexusLatencyAnomaly minutes after Ready (+1m41 and +3m41 on 2026-11-22, each pending a
+    minute first; ADR-041 "Live gate, 2026-11-22"); without the window one clean poll at Ready
+    let the injection go first, and the warm-up's Incident, whose alert then started after
+    injection_at, would be the run's counted Incident. No answer fails closed.
 Not implemented: "Hosted Model reachable for LLM arms" (needs the provider key, rule 5).
 
 No-fault data. The window from the first poll to the end of the pre-checks has nothing injected,
@@ -79,6 +86,7 @@ DEFAULTS = {
     "stddev_factor": 1.5,
     "node_cpu_max": 0.60,
     "node_mem_max": 0.80,
+    "quiet_s": 360,  # owner, 2026-11-22: covers the observed warm-up onsets (up to about +5 min)
 }
 SECTION_DEFAULTS = {
     "sample_api": {"namespace": "nexus-dev", "deployment": "sample-api", "replicas": 2},
@@ -137,8 +145,11 @@ def normalise(cfg: dict | None) -> dict:
         "stddev_factor",
         "node_cpu_max",
         "node_mem_max",
+        "quiet_s",
     ):
         _number(out[key], key)
+    if out["quiet_s"] >= out["cap_s"]:
+        raise ConfigError("precheck.quiet_s must be below precheck.cap_s")
     if not isinstance(out["namespace"], str) or not out["namespace"]:
         raise ConfigError("precheck.namespace must be a non-empty string")
     for sec, defaults in SECTION_DEFAULTS.items():
@@ -284,6 +295,21 @@ def fired_alerts(prom: Prom, window_s: float) -> list[dict] | None:
           "namespace": s["metric"].get("namespace")} for s in res),
         key=lambda a: (a["alertname"] or "", a["state"] or ""),
     )  # fmt: skip
+
+
+def quiet_failures(prom: Prom, cfg: dict, waited: float) -> list[str]:
+    """The quiet window: `quiet_s` since the pre-check window started, and no NEXUS alert pending or
+    firing for the namespace at any time in the last `quiet_s` (fired_alerts). No answer fails."""
+    out = []
+    q = cfg["quiet_s"]
+    if waited < q:
+        out.append(f"quiet:window={int(waited)}s<{q:g}s")  # never rounded up to quiet_s
+    alerts = fired_alerts(prom, q)
+    if alerts is None:
+        return out + ["quiet:alerts:no_answer"]
+    return out + sorted(
+        {f"quiet:alert={a['alertname']}/{a['state']}" for a in alerts if a["namespace"] == cfg["namespace"]}
+    )
 
 
 def _kubectl(runner, *args, ns=None) -> tuple[int, str]:
@@ -523,6 +549,7 @@ def run_prechecks(prom: Prom, cfg: dict, incidents, before_uids: set, terminal: 
         failures += recorder_failures(prom)
         failures += audit_failures(cfg, stat, wall)
         waited = monotonic() - start_m
+        failures += quiet_failures(prom, cfg, waited)
         if not failures or waited >= cfg["cap_s"]:
             break
         sleep(cfg["poll_s"])

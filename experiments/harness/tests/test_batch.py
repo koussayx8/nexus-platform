@@ -30,6 +30,7 @@ PRE = {  # the pre-registration's clean baseline (a stddev per signal); the rest
     "clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
     "cap_s": 100,
     "poll_s": 10,
+    "quiet_s": 5,  # below poll_s: a clean run passes on the second poll (the real value is 360)
     "locust": {"baseline_users": 160, "baseline_rps_per_namespace": 80},  # B = 80 per namespace (ADR-026)
     "reasoner": {"expected_index_hash": INDEX_HASH},
 }  # fmt: skip
@@ -851,10 +852,11 @@ class PrecheckTest(unittest.TestCase):
                                       batch.model.TERMINAL_PHASES, level, self.ft.monotonic, self.ft.wall,
                                       self.ft.sleep, stat or audit_fresh(self.ft))  # fmt: skip
 
-    def test_clean_baseline_and_quiet_node_pass_on_the_first_poll(self):
+    def test_clean_baseline_and_quiet_node_pass_once_the_quiet_window_has_run(self):
         pc = self.run_pc(FakeCluster(self.ft))
+        # poll 1 at 0 s is inside quiet_s (5 s in PRE); poll 2 at 10 s passes
         self.assertEqual(
-            (pc.ok, pc.polls, pc.failures, pc.stop_reason), (True, 1, [], None)
+            (pc.ok, pc.polls, pc.failures, pc.stop_reason), (True, 2, [], None)
         )
 
     def test_the_queries_use_baseline_stddev15m_for_every_signal_in_the_namespace(self):
@@ -980,9 +982,12 @@ class PrecheckTest(unittest.TestCase):
             for a in c.calls
             if "--raw" in a and "ALERTS" in a[-1]
         ]
-        self.assertEqual(len(raw), 1)
+        # one read for the record; the others are the quiet window's, one per poll, over [quiet_s]
+        quiet = f"[{PRE['quiet_s']}s]"
+        record = [q for q in raw if quiet not in q]
+        self.assertEqual((len(record), len(raw) - len(record)), (1, w["polls"]))
         self.assertIn(
-            "max_over_time(ALERTS", raw[0]
+            "max_over_time(ALERTS", record[0]
         )  # the whole window, not only the polls
 
     def test_a_quiet_window_is_recorded_as_empty_and_an_unanswered_one_as_null(self):
@@ -1015,7 +1020,8 @@ class LiveRunTest(Base):
 
     def test_happy_path_reads_terminal_phase_fallback_and_the_no_fault_record(self):
         c = FakeCluster(self.ft, phases=("Diagnosing", "Resolved"), fallback=True)
-        c.alerts = [firing("NexusTrafficAnomaly")]
+        # the no-fault record keeps every namespace's alerts; only a nexus-dev one holds the quiet window
+        c.alerts = [firing("NexusTrafficAnomaly", ns="nexus-prod")]
         # only an arm that calls the Reasoner can fall back to R1
         self.q = batch.Queue.create(
             self.dir / "r3", REF, [dict(CELLS[0], reasoner="R3")], precheck_cfg=PRE
@@ -1026,7 +1032,8 @@ class LiveRunTest(Base):
             (r["status"], r["terminal"], r["fallbackUsed"]), ("valid", "Resolved", True)
         )
         self.assertEqual(r["no_fault"]["alerts"][0]["alertname"], "NexusTrafficAnomaly")
-        self.assertEqual((r["precheck"]["ok"], r["precheck"]["polls"]), (True, 1))
+        # the first poll is inside the quiet window (PRE quiet_s 5 < poll_s 10): the second passes
+        self.assertEqual((r["precheck"]["ok"], r["precheck"]["polls"]), (True, 2))
         j = self.joined(c)
         self.assertTrue(all("--context ctx" in x for x in j if x.startswith("kubectl")))
         self.assertFalse(any(" delete " in x for x in j))  # Incidents are never deleted
@@ -1631,9 +1638,9 @@ class SevenPrechecksTest(unittest.TestCase):
         self.assertIsNone(pc.stop_reason)  # a discard, not a halt
         return pc.failures
 
-    def test_everything_clean_passes_on_the_first_poll(self):
+    def test_everything_clean_passes_once_the_quiet_window_has_run(self):
         pc = self.pc(FakeCluster(self.ft))
-        self.assertEqual((pc.ok, pc.polls, pc.failures), (True, 1, []))
+        self.assertEqual((pc.ok, pc.polls, pc.failures), (True, 2, []))
 
     def test_every_check_is_read_only(self):
         c = FakeCluster(self.ft)
@@ -1865,8 +1872,8 @@ class SevenPrechecksTest(unittest.TestCase):
     def test_the_audit_log_check_reads_the_configured_path_and_sends_no_probe(self):
         seen = []
         c = FakeCluster(self.ft)
-        self.pc(c, stat=lambda p: seen.append(p) or self.ft.wall())
-        self.assertEqual(seen, ["/var/log/nexus-audit/audit.log"])
+        pc = self.pc(c, stat=lambda p: seen.append(p) or self.ft.wall())
+        self.assertEqual(seen, ["/var/log/nexus-audit/audit.log"] * pc.polls)
         self.assertFalse(
             any("dry-run" in " ".join(a) or "create" in a for a in c.calls)
         )
