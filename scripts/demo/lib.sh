@@ -9,7 +9,10 @@
 # swarm size, default 160), NEXUS_DEMO_RUNNER (default "python3 -m experiments.harness.runner"),
 # NEXUS_DEMO_INTERVAL (live-view refresh in seconds, default 3), NEXUS_DEMO_TIMEOUT (live-view
 # limit in seconds, default 900), NEXUS_DEMO_READY_TIMEOUT (wait after the reset, default 300),
-# NEXUS_DEMO_SETTLE (quiet period after the reset, Kill Switch halted, default 90).
+# NEXUS_DEMO_SETTLE_QUIET (seconds in a row with no NEXUS alert pending or firing, default 120),
+# NEXUS_DEMO_SETTLE_MIN (shortest settle after Ready, default 120), NEXUS_DEMO_SETTLE_MAX (the settle
+# stops after this, default 900), NEXUS_DEMO_SKIP_RESET=1 (skip the reset and settle after
+# scripts/demo/prepare.sh; the strict pre-check must pass instead).
 
 CTX=default
 NS_DEV=nexus-dev
@@ -23,12 +26,19 @@ RUNNER=${NEXUS_DEMO_RUNNER:-python3 -m experiments.harness.runner}
 INTERVAL=${NEXUS_DEMO_INTERVAL:-3}
 TIMEOUT=${NEXUS_DEMO_TIMEOUT:-900}
 READY_TIMEOUT=${NEXUS_DEMO_READY_TIMEOUT:-300}
-# The settle after the reset: the anomaly alerts' for: 1m plus one evaluation of their group
-# (interval: 30s), platform/observability/alerts/nexus-detection.yaml. The replaced pods' warm-up
-# can raise them; the Kill Switch is halted meanwhile, so such an Incident cannot act.
-SETTLE=${NEXUS_DEMO_SETTLE:-90}
-# Alertmanager v2 alert list, read through the API server's service proxy (no port-forward).
-AM_ALERTS=/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-alertmanager:9093/proxy/api/v2/alerts
+# The settle after the reset (Kill Switch halted): the replaced pods' warm-up raised
+# NexusLatencyAnomaly at +1m41 and +3m41 after Ready on 2026-11-22, each pending for its for: 1m first.
+# So the settle is a quiet window, not a fixed wait: it passes once no NEXUS alert for nexus-dev has
+# been pending or firing for SETTLE_QUIET s in a row, no Incident is open, and SETTLE_MIN s have
+# passed since Ready; it stops after SETTLE_MAX s.
+SETTLE_QUIET=${NEXUS_DEMO_SETTLE_QUIET:-120}
+SETTLE_MIN=${NEXUS_DEMO_SETTLE_MIN:-120}
+SETTLE_MAX=${NEXUS_DEMO_SETTLE_MAX:-900}
+SKIP_RESET=${NEXUS_DEMO_SKIP_RESET:-0}
+# Prometheus's alert list (pending and firing), through the API server's service proxy: the path
+# scripts/verify-state.sh reads live. Alertmanager only holds firing alerts, so it would miss an
+# alert still inside its for: window.
+PROM_ALERTS=/api/v1/namespaces/monitoring/services/http:observability-kube-prometh-prometheus:9090/proxy/api/v1/alerts
 KS_CMD=(kubectl --context "$CTX" -n "$NS_SYS" patch configmap nexus-killswitch --type merge -p)
 # shellcheck disable=SC2034  # KS_HALT is run by name through run_steps
 KS_HALT=("${KS_CMD[@]}" '{"data":{"state":"halted"}}')
@@ -102,12 +112,16 @@ open_incidents() {  # names of Incidents that are not terminal (an Incident with
       '.items[] | select(((.status.phase // "") as $p | $t | index($p)) | not) | .metadata.name'
 }
 
-nexus_alerts() {  # names of the NEXUS alerts Alertmanager holds for the nexus-dev target, one per line
-  kc get --raw "$AM_ALERTS" 2> /dev/null |
-    jq -r '[.[] | select((.labels.alertname // "") | startswith("Nexus"))
-                | select((.labels.nexus_target // "") | startswith("nexus-dev/")) | .labels.alertname]
+nexus_alerts() {  # the NEXUS alerts Prometheus holds for the nexus-dev target, "<name> (<state>)" per line
+  kc get --raw "$PROM_ALERTS" 2> /dev/null |
+    jq -r 'if (.data.alerts | type) != "array" then error("not a Prometheus alert list") else . end
+           | [.data.alerts[] | select((.labels.alertname // "") | startswith("Nexus"))
+                | select((.labels.nexus_target // "") | startswith("nexus-dev/"))
+                | select(.state == "pending" or .state == "firing")
+                | "\(.labels.alertname) (\(.state))"]
            | unique | .[]'
 }
+LOOK_ALERTS="kubectl --context $CTX get --raw $PROM_ALERTS | jq '.data.alerts[] | {labels, state, activeAt}'"
 
 pf() {  # pf <ok|FAIL|note> <label> <detail>
   printf '  %-5s %-16s %s\n' "$1" "$2" "$3"
@@ -127,9 +141,9 @@ preflight() {
   [[ $ks == "$kswant" ]] && pf ok "kill switch" "$ks" || pf FAIL "kill switch" "state is '$ks', want '$kswant'"
   if [[ $quiet == 1 ]]; then
     if fired=$(nexus_alerts); then
-      if [[ -z $fired ]]; then pf ok "NEXUS alerts" "none firing for nexus-dev"
-      else pf FAIL "NEXUS alerts" "firing for nexus-dev: $(echo "$fired" | tr '\n' ' ')(wait for them to resolve)"; fi
-    else pf FAIL "NEXUS alerts" "cannot read Alertmanager: kubectl --context $CTX get --raw $AM_ALERTS"; fi
+      if [[ -z $fired ]]; then pf ok "NEXUS alerts" "none pending or firing for nexus-dev"
+      else pf FAIL "NEXUS alerts" "for nexus-dev: $(echo "$fired" | paste -sd, | sed 's/,/, /g') (wait for them to resolve)"; fi
+    else pf FAIL "NEXUS alerts" "cannot read Prometheus: $LOOK_ALERTS"; fi
   fi
   if [[ $quiet == 1 ]]; then
     open=$(open_incidents) || open='?'
@@ -161,28 +175,61 @@ wait_ready() {  # wait_ready <level> [kill switch state]: poll the strict pre-ch
   preflight "$want" 1 "$ks" 0
 }
 
-# settle: wait SETTLE seconds with the Kill Switch halted, then require (read-only) no NEXUS alert
-# firing for nexus-dev and no open Incident. The replaced pods' warm-up can raise an anomaly alert;
-# its Incident is refused at gate stage 5 and must be over before the inject. A FAIL stops here.
+# settle: the quiet window after Ready, with the Kill Switch halted. Polls every INTERVAL; passes
+# once no NEXUS alert for nexus-dev has been pending or firing for SETTLE_QUIET s in a row, no
+# Incident is open, and SETTLE_MIN s have passed. After SETTLE_MAX s it stops with the read-only
+# commands to look further (and die adds the re-activation command). It makes no write.
 settle() {
-  local fired open
+  local start=$SECONDS quiet_since=$SECONDS el quiet fired open seen='' line ok_read
   rule
-  say "Settling for ${SETTLE}s from $(now) (NEXUS_DEMO_SETTLE): the new pods' warm-up can raise an"
-  say "anomaly alert (for: 1m, evaluated every 30s). The Kill Switch is halted, so its Incident cannot act."
-  sleep "$SETTLE"
-  say "Settle check at $(now) (read-only)"
-  if ! fired=$(nexus_alerts); then
-    die "cannot read Alertmanager. Look: kubectl --context $CTX get --raw $AM_ALERTS | jq"
-  elif [[ -n $fired ]]; then
-    die "a NEXUS alert still fires for nexus-dev after the settle: $(echo "$fired" | tr '\n' ' ')
-  Look: kubectl --context $CTX get --raw $AM_ALERTS | jq '.[].labels'
-  Run the script again once it resolves (or raise NEXUS_DEMO_SETTLE)."
-  fi
-  pf ok "NEXUS alerts" "none firing for nexus-dev"
-  open=$(open_incidents) || die "cannot list Incidents. Look: kubectl --context $CTX -n $NS_SYS get incidents"
-  [[ -z $open ]] || die "an Incident is still open after the settle: $(echo "$open" | tr '\n' ' ')
+  say "Settling from $(now): the new pods' warm-up can raise an anomaly alert (pending for its for: 1m,"
+  say "then firing). The Kill Switch is halted, so its Incident cannot act. Passes after ${SETTLE_QUIET}s"
+  say "with no NEXUS alert pending or firing, no open Incident, and at least ${SETTLE_MIN}s; stops at ${SETTLE_MAX}s."
+  while :; do
+    ok_read=1
+    fired=$(nexus_alerts) || { ok_read=0; fired=''; }
+    open=$(open_incidents) || open='?'
+    if ((!ok_read)) || [[ -n $fired ]]; then quiet_since=$SECONDS; fi
+    if [[ -n $fired ]]; then
+      while IFS= read -r line; do
+        [[ " $seen " == *" ${line%% *} "* ]] || seen+=" ${line%% *}"
+      done <<< "$fired"
+    fi
+    el=$((SECONDS - start)) quiet=$((SECONDS - quiet_since))
+    line="settle  elapsed ${el}s  quiet for ${quiet}s  now: $( ((ok_read)) || printf 'Prometheus unreadable'; echo "${fired:-none}" | paste -sd, | sed 's/,/, /g')"
+    line+="  open Incidents: ${open:-none}  alerts seen:${seen:- none}"
+    if [[ -t 1 ]]; then printf '\r\033[K%s' "$line"; else say "$line"; fi
+    if ((ok_read)) && [[ -z $fired && -z $open ]] && ((quiet >= SETTLE_QUIET && el >= SETTLE_MIN)); then
+      [[ -t 1 ]] && echo
+      say "Settle check at $(now) (read-only)"
+      pf ok "NEXUS alerts" "none pending or firing for ${quiet}s"
+      pf ok "open Incidents" "none"
+      return 0
+    fi
+    if ((el >= SETTLE_MAX)); then
+      [[ -t 1 ]] && echo
+      die "the cluster did not settle in ${SETTLE_MAX}s (NEXUS_DEMO_SETTLE_MAX): now ${fired:-no NEXUS alert}$( ((ok_read)) || printf ' (Prometheus unreadable)'), open Incidents: ${open:-none}
+  Look: $LOOK_ALERTS
   Look: kubectl --context $CTX -n $NS_SYS get incidents   (or nexusctl --context $CTX list --active)"
-  pf ok "open Incidents" "none"
+    fi
+    sleep "$INTERVAL"
+  done
+}
+
+# prepare_cluster <level> <baseline ref>: halt the Kill Switch and reset (one typed yes), wait
+# until Ready, settle, re-activate the Kill Switch (typed yes), then the strict pre-check.
+# Used by demo_run and by prepare.sh.
+prepare_cluster() {
+  local level=$1 ref=$2 runner
+  read -ra runner <<< "$RUNNER"
+  # shellcheck disable=SC2034  # RESET_CMD is run by name through run_steps
+  RESET_CMD=("${runner[@]}" run reset --level "$level" --context "$CTX" --git-dir "$EXP_DIR" --baseline-ref "$ref" "${D_RESET_ARGS[@]}" --execute)
+  run_steps "halt the Kill Switch (no Incident raised while the new pods warm up can act), then reset to the baseline: commit autonomy level $level to experiment/dev-state at $ref, replace the sample-api pods, scale to 2${D_RESET_ARGS[*]:+, restart the baseline swarm}" KS_HALT RESET_CMD
+  wait_ready "$level" halted
+  settle
+  run_step "re-activate the Kill Switch (state active), so the scenario's Incident can act" "${KS_ACTIVE[@]}"
+  KS_HALTED=0
+  say; preflight "$level" 1 || die "the pre-check failed after the Kill Switch was re-activated; fix the FAIL lines above"
 }
 
 # ---------------------------------------------------------------- baseline commit
@@ -284,22 +331,26 @@ demo_run() {
   rule
   say "$D_ID — $D_TITLE   (autonomy level $D_LEVEL)"
   say "Expected: $D_EXPECT"
-  say "Plan:     pre-check -> halt the Kill Switch and reset to the baseline -> wait until ready -> settle"
-  say "          -> re-activate the Kill Switch -> inject -> live view -> how to reset."
+  if [[ $SKIP_RESET == 1 ]]; then
+    say "Plan:     NEXUS_DEMO_SKIP_RESET=1 (after prepare.sh): strict pre-check -> inject -> live view -> how to reset."
+  else
+    say "Plan:     pre-check -> halt the Kill Switch and reset to the baseline -> wait until ready -> settle"
+    say "          -> re-activate the Kill Switch -> inject -> live view -> how to reset."
+  fi
   [[ $expect == null ]] || say "Waits for: ${D_EXPECT_ALERTS[*]} (other Incidents are shown, not waited for)"
   say "A demo run is not a measured run: never count it in a cell (docs/demo/manual-scenarios.md)."
   rule
-  preflight "$D_LEVEL" 0 || die "the cluster is not ready; fix the FAIL lines above, then run this again"
-  ref=$(baseline_ref) || exit 1
-  say; say "Baseline recorded: experiment/dev-state = $ref"
-  # shellcheck disable=SC2034  # RESET_CMD is run by name through run_steps
-  RESET_CMD=("${runner[@]}" run reset --level "$D_LEVEL" --context "$CTX" --git-dir "$EXP_DIR" --baseline-ref "$ref" "${D_RESET_ARGS[@]}" --execute)
-  run_steps "halt the Kill Switch (no Incident raised while the new pods warm up can act), then reset to the baseline: commit autonomy level $D_LEVEL to experiment/dev-state at $ref, replace the sample-api pods, scale to 2${D_RESET_ARGS[*]:+, restart the baseline swarm}" KS_HALT RESET_CMD
-  wait_ready "$D_LEVEL" halted
-  settle
-  run_step "re-activate the Kill Switch (state active), so the scenario's Incident can act" "${KS_ACTIVE[@]}"
-  KS_HALTED=0
-  say; preflight "$D_LEVEL" 1 || die "the pre-check failed after the Kill Switch was re-activated; fix the FAIL lines above"
+  if [[ $SKIP_RESET == 1 ]]; then
+    preflight "$D_LEVEL" 1 ||
+      die "NEXUS_DEMO_SKIP_RESET=1 needs the strict pre-check to pass (run scripts/demo/prepare.sh $D_LEVEL first)"
+    ref=$(baseline_ref) || exit 1
+    say; say "Baseline recorded: experiment/dev-state = $ref (the current head; no reset, prepared before)"
+  else
+    preflight "$D_LEVEL" 0 || die "the cluster is not ready; fix the FAIL lines above, then run this again"
+    ref=$(baseline_ref) || exit 1
+    say; say "Baseline recorded: experiment/dev-state = $ref"
+    prepare_cluster "$D_LEVEL" "$ref"
+  fi
   # The snapshot comes after the settle: an Incident raised during it never shows in the live view.
   before=$(kc -n "$NS_SYS" get incidents -o json | jq -c '[.items[].metadata.name]') || die "cannot list Incidents"
   run_step "inject $D_ID: $D_INJECT_WHAT" "${runner[@]}" run inject "$D_ID" --context "$CTX" --level "$D_LEVEL" "${D_INJECT_ARGS[@]}" --execute
