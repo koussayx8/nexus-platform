@@ -10,7 +10,7 @@ what to say are in [manual-scenarios.md](manual-scenarios.md).
 | `scripts/demo/s3.sh` | S3 bad rollout (a bad commit in Git) | L3 | `Escalated` / `proposed_escalation`, `git_revert`, no mutation | 5–10 min |
 | `scripts/demo/s5.sh` | S5 dependency failure (DB role loses LOGIN) | L3 | `Escalated`, `dependency_investigation`, no mutation | 2–3 min |
 | `scripts/demo/s6.sh` | S6 prompt injection (logs order "scale to 40") | L3 | `Dismissed` / `no_action_required`; then the denied moment | 3–4 min |
-| `scripts/demo/l2.sh` | S1 at L2, with a human approval | L2 | `AwaitingApproval`, then after your approval `Resolved` | 5–7 min |
+| `scripts/demo/l2.sh` | S1 at L2, approved from the phone | L2 | `AwaitingApproval`, then after your approval `Resolved` | 5–7 min |
 | `scripts/demo/denied.sh` | The denied moment alone | any | `scale sample-api to 40` refused, layer named | 1 min |
 
 Times are the measured ones in `manual-scenarios.md` (NIM, R3). A demo run is not a measured run: never
@@ -27,7 +27,7 @@ count it in a cell.
 4. **Injects** (`runner run inject`). S3 then also asks to refresh Argo CD; S6 resizes the Locust swarm.
 5. **Live view**, refreshed every 3 s until every new Incident is terminal: the Incident's phase, reason,
    proposal, gate verdict, the operator's own timestamps, and a log of each phase change with the time
-   this script saw it. At L2 it stops at `AwaitingApproval` and offers the approval.
+   this script saw it. At L2 it reaches `AwaitingApproval` and offers the approval (below).
 6. **Prints how to reset**: the exact `runner run reset` command with the baseline commit it recorded.
    It does not run it.
 
@@ -35,7 +35,7 @@ count it in a cell.
 the exact command, then waits. Only the word `yes` goes on. `y`, `YES`, anything else, or no input stops
 the script before that step. There is no flag to skip it. The steps are: the reset, the inject, S3's Argo
 refresh, L2's approval and the denied dry-run (CLAUDE.md rule 3: the owner approves, and the owner is the
-one who types).
+one who types). The L2 approval has its own typed word, below.
 
 ## Before you start
 
@@ -58,6 +58,20 @@ Settings, all optional environment variables: `NEXUS_DEMO_EXP_DIR` (default `~/n
 `NEXUS_DEMO_LOCUST` (default `http://127.0.0.1:18090`), `NEXUS_DEMO_USERS` (160), `NEXUS_DEMO_INTERVAL`
 (refresh seconds, 3), `NEXUS_DEMO_TIMEOUT` (live view limit, 900 s), `NEXUS_DEMO_READY_TIMEOUT` (wait after
 the reset, 300 s), `NEXUS_DEMO_RUNNER` (tests only).
+
+## The L2 demo: approve from the phone
+
+`l2.sh` sets level 2, injects S1 and, at `AwaitingApproval` (about +2 m 10 s), asks how to approve:
+
+| You type | What happens |
+| --- | --- |
+| `phone` (first option) | The script prints "Approve on Telegram now (@nexus_pfe_bot): the push has Approve / Reject / Explain" and keeps the live view running until the Incident is terminal. It makes **no** `nexusctl` call: the bot writes the approval. Tap Approve on the phone; Reject ends `Rejected` / `approval_rejected`. |
+| `yes` | The fallback if the phone is not at hand: `nexusctl --as koussay-approver --as-group nexus-approvers approve <incident>`, which then asks you to type the target `sample-api`. |
+| anything else, or no input | The script stops before any approval. The Incident stays `AwaitingApproval` until it expires (15 min); read it with `nexusctl explain`. |
+
+The approval is still K5-pinned to the proposal hash and expires in 15 minutes, whichever way it is given.
+The bot's push and buttons are not tested here (UNVERIFIED until the live rehearsal); the tests cover only
+this script's side: that `phone` makes no `nexusctl` call and keeps watching.
 
 ## The denied moment
 

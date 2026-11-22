@@ -145,6 +145,27 @@ for sc in s1:S1:3:Resolved s3:S3:3:Escalated s5:S5:3:Escalated s6:S6:3:Dismissed
   esac
 done
 
+# ---- l2: approve from the phone (no nexusctl, keeps watching to terminal), or other input
+reset_case 3
+seq_file 1 "$(inc new-1 Detected "" "")"
+seq_file 3 "$(inc new-1 AwaitingApproval "" restart_workload)"
+seq_file 4 "$(inc new-1 AwaitingApproval "" restart_workload)"
+seq_file 5 "$(inc new-1 Executing "" restart_workload)"
+seq_file 9 "$(inc new-1 Resolved remediation_verified restart_workload)"
+run l2.sh 'yes\nyes\nphone\n'
+check "l2 phone: exits 0, no nexusctl call" "$(yn bash -c '[[ $1 == 0 && ! -s $2/nexusctl.log ]]' _ "$rc" "$work")" "rc=$rc: $out"
+check "l2 phone: Telegram text, and phone is listed before yes" \
+  "$(yn bash -c 'grep -q "Approve on Telegram now (@nexus_pfe_bot): the push has Approve / Reject / Explain" <<< "$1" && [[ $(grep -n "  phone  " <<< "$1" | head -1 | cut -d: -f1) -lt $(grep -n "  yes    " <<< "$1" | head -1 | cut -d: -f1) ]]' _ "$out")" "$out"
+check "l2 phone: keeps watching to Resolved" \
+  "$(yn bash -c 'grep -q "Executing -> Resolved" <<< "$1" && grep -q "HOW TO RESET" <<< "$1"' _ "$out")" "$out"
+for answer in 'no\n' 'Phone\n' 'y\n' ''; do
+  reset_case 3
+  seq_file 3 "$(inc new-1 AwaitingApproval "" restart_workload)"
+  run l2.sh "yes\nyes\n$answer"
+  check "l2: approval answer '${answer%\\n}' stops, no nexusctl call" \
+    "$(yn bash -c '[[ $1 != 0 && ! -s $2/nexusctl.log ]]' _ "$rc" "$work")" "rc=$rc"
+done
+
 # ---- confirmation is strict: only the typed word yes
 for answer in 'no\n' 'y\n' 'YES\n' 'yes please\n' ''; do
   reset_case 3
