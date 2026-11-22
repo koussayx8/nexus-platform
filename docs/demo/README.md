@@ -18,34 +18,51 @@ count it in a cell.
 
 ## What every script does
 
-1. **Pre-check (read-only).** Kill Switch `active`, no open Incident, `sample-api` 2/2 Ready, business
-   traffic (Locust `running` with 160 users), and the autonomy level. It stops with a `FAIL` line if
-   anything is wrong. The level is only reported at this point, because the reset commits it.
+1. **Pre-check (read-only).** Kill Switch `active`, no NEXUS alert pending or firing for `nexus-dev`
+   (Prometheus `/api/v1/alerts` through the API server's service proxy; the line prints each alert's state), no open Incident, `sample-api` 2/2 Ready, business traffic
+   (Locust `running` with 160 users), and the autonomy level. It stops with a `FAIL` line if anything is
+   wrong. The level is only reported at this point, because the reset commits it.
 2. **Records the baseline**: the `experiment/dev-state` commit in `~/nexus-exp` (a `git fetch`, no change).
-3. **Resets to the baseline** (`runner run reset`, with `--baseline-ref` and `--git-dir`), then waits
-   until the strict pre-check passes, now including the level.
-4. **Injects** (`runner run inject`). S3 then also asks to refresh Argo CD; S6 resizes the Locust swarm.
-5. **Live view**, refreshed every 3 s until every new Incident is terminal: the Incident's phase, reason,
-   proposal, gate verdict, the operator's own timestamps, and a log of each phase change with the time
-   this script saw it. At L2 it reaches `AwaitingApproval` and offers the approval (below).
-6. **Prints how to reset**: the exact `runner run reset` command with the baseline commit it recorded.
+3. **Halts the Kill Switch and resets to the baseline**, one step with one typed `yes` that lists both
+   commands: `kubectl --context default -n nexus-system patch configmap nexus-killswitch --type merge -p
+   '{"data":{"state":"halted"}}'`, then `runner run reset` (with `--baseline-ref` and `--git-dir`). Then it
+   waits until `sample-api` is 2/2 Ready at the level.
+4. **Settles**, a quiet window polled every 3 s, not a fixed wait. The new pods' warm-up can raise an
+   anomaly alert (on 2026-11-22: firing at +1 m 41 s and +3 m 41 s after Ready, each pending a minute
+   before); with the Kill Switch halted its Incident cannot act. It passes once no NEXUS alert for
+   `nexus-dev` has been pending or firing for `NEXUS_DEMO_SETTLE_QUIET` seconds in a row (default 120), no
+   Incident is open, and at least `NEXUS_DEMO_SETTLE_MIN` seconds (default 120) have passed since Ready. A
+   live line shows the elapsed time, how long it has been quiet and the alerts seen. After
+   `NEXUS_DEMO_SETTLE_MAX` seconds (default 900) it stops with the read-only commands to look further and
+   the command to re-activate the Kill Switch; it writes nothing.
+5. **Re-activates the Kill Switch** (`state active`, its own typed `yes`), runs the pre-check again, then
+   takes the list of existing Incidents. An Incident raised during the settle never shows in the live view.
+6. **Injects** (`runner run inject`). S3 then also asks to refresh Argo CD; S6 resizes the Locust swarm.
+7. **Live view**, refreshed every 3 s until the expected alert's Incident is terminal (`D_EXPECT_ALERTS`,
+   below): the Incident's alert name, phase, reason, proposal, gate verdict, the operator's own
+   timestamps, and a log of each phase change with the time this script saw it. At L2 it reaches
+   `AwaitingApproval` and offers the approval (below).
+8. **Prints how to reset**: the exact `runner run reset` command with the baseline commit it recorded.
    It does not run it.
 
 **Typed `yes`.** Before each step that changes the cluster or Git, the script prints what it will do and
 the exact command, then waits. Only the word `yes` goes on. `y`, `YES`, anything else, or no input stops
-the script before that step. There is no flag to skip it. The steps are: the reset, the inject, S3's Argo
+the script before that step. There is no flag to skip it. The steps are: the halt and reset, the re-activation, the inject, S3's Argo
 refresh, L2's approval and the denied dry-run (CLAUDE.md rule 3: the owner approves, and the owner is the
 one who types). The L2 approval has its own typed word, below.
 
 ## Before you start
 
-Once per session (section 0 of `manual-scenarios.md`): a clean fetched checkout of `dev`, because
-`runner --execute` refuses any other (#266); `~/nexus-exp` at `experiment/dev-state`; the Locust
-port-forward on 18090; the watch terminal if you want it beside the script.
+**First, before any script:** the Locust port-forward, in its own terminal, left open. The scripts read
+`http://127.0.0.1:18090` (`NEXUS_DEMO_LOCUST`) and their pre-check fails without it:
 
 ```bash
-kubectl --context default -n nexus-load port-forward svc/locust-master 18090:8089
+kubectl --context default -n nexus-load port-forward --address 127.0.0.1 svc/locust-master 18090:8089
 ```
+
+Then, once per session (section 0 of `manual-scenarios.md`): a clean fetched checkout of `dev`, because
+`runner --execute` refuses any other (#266); `~/nexus-exp` at `experiment/dev-state`; the watch terminal
+if you want it beside the script.
 
 `l2.sh` also needs `nexusctl` (`. .venv/bin/activate && pip install -e libs/nexus-client -e nexusctl`).
 Needs `kubectl`, `jq`, `curl`, `git` and `python3` on the PATH.
@@ -57,7 +74,54 @@ scripts/demo/s1.sh
 Settings, all optional environment variables: `NEXUS_DEMO_EXP_DIR` (default `~/nexus-exp`),
 `NEXUS_DEMO_LOCUST` (default `http://127.0.0.1:18090`), `NEXUS_DEMO_USERS` (160), `NEXUS_DEMO_INTERVAL`
 (refresh seconds, 3), `NEXUS_DEMO_TIMEOUT` (live view limit, 900 s), `NEXUS_DEMO_READY_TIMEOUT` (wait after
-the reset, 300 s), `NEXUS_DEMO_RUNNER` (tests only).
+the reset, 300 s), `NEXUS_DEMO_SETTLE_QUIET` (120 s), `NEXUS_DEMO_SETTLE_MIN` (120 s), `NEXUS_DEMO_SETTLE_MAX` (900 s),
+`NEXUS_DEMO_SKIP_RESET` (1 after `prepare.sh`, below), `NEXUS_DEMO_RUNNER` (tests only).
+
+## Before the jury: prepare; in front of the jury: the scenario with `NEXUS_DEMO_SKIP_RESET=1`
+
+The settle takes at least 2 minutes and, after a warm-up alert, up to several more. So the jury never waits
+through it:
+
+1. **Before the jury**, prepare the level the scenario runs at (3, or 2 for `l2.sh`). Add `--locust` after
+   S6 or any spike, to restart the baseline swarm:
+
+   ```bash
+   scripts/demo/prepare.sh 3
+   ```
+
+   It runs the pre-check, the halt and reset, the wait until Ready, the settle and the re-activation, with
+   the same functions and typed `yes` as a scenario script, then stops and prints "Ready for the inject".
+2. **In front of the jury**, the scenario without the reset and settle:
+
+   ```bash
+   NEXUS_DEMO_SKIP_RESET=1 scripts/demo/s3.sh
+   ```
+
+   It records the current `experiment/dev-state` head as the baseline (for the printed reset) and requires
+   the strict pre-check: Kill Switch `active`, no NEXUS alert pending or firing, no open Incident,
+   `sample-api` 2/2 Ready and the level. Any `FAIL` stops it before the inject; run `prepare.sh` again.
+
+Between two scenarios, prepare again (the first scenario's fault and its printed reset leave the cluster
+changed).
+
+## The expected alert (`D_EXPECT_ALERTS`)
+
+Each scenario script sets the alerts its fault raises (the Signal line of each scenario in
+`manual-scenarios.md`). The live view settles only once a new Incident whose `spec.source.alertname` is in
+that list is terminal, twice in a row. Any other new Incident is shown, with its alert name and "not the
+expected alert", and never ends the view. While waiting, the view says which alert it waits for and why it
+can take minutes.
+
+| Script | Waits for | Why it can take minutes |
+| --- | --- | --- |
+| `s1.sh`, `l2.sh` | `NexusLatencyAnomaly` | its `for: 1m`; about 1 m 50 s after the inject |
+| `s3.sh` | `NexusRolloutStuck` or `NexusCrashLooping` | Argo CD polls Git every 3 min, then the rule's `for: 3m`; about 9–10 min after the inject |
+| `s5.sh` | `NexusErrorRateAnomaly` | its `for: 1m`; about 1 m 40 s |
+| `s6.sh` | `NexusTrafficAnomaly` | its `for: 1m` |
+
+S1 and L2 wait for the alert the warm-up also raises: for them the settle, not the filter, keeps a
+warm-up Incident out of the view. `NEXUS_DEMO_TIMEOUT` (900 s) covers S3: about 9 min to the alert and
+under a minute to the terminal phase in the trials (`manual-scenarios.md`, S3 timelines).
 
 ## The L2 demo: approve from the phone
 
