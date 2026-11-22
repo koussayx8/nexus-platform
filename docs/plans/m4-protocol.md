@@ -105,8 +105,9 @@ All must hold within 20 minutes of the reset (`precheck.py`):
   invalid output) counts against the arm. One the provider caused (429, 5xx, timeout) is reported apart, kept out of
   the arm's rates, and re-run in Block 12.
 
-**Two run rules learned on 2026-11-21** (not yet in `batch.py` on `dev` at `e7fec65`: its wait ends when the counted
-Incident is terminal or at 1,200 s, and later Incidents are not waited for):
+**Two run rules learned on 2026-11-21**, both in `batch.py` on `dev` since #306 (merge `4be49da`): the reset waits
+for every Incident, with the settle cap (the void row above), and the batch refuses `C8` cells, so `C8` runs stay
+attended, outside the batch:
 
 - **The reset waits for every Incident.** A run's reset starts only after the counted Incident and every later one
   are terminal. A reset during verification restarts the pods and fails `restart_v2`: seen in the L2 bot test
