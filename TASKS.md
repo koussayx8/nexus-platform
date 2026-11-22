@@ -913,15 +913,16 @@ secrets, `sudo`.
   run (D5). One trial run each of S3, S5 and S6; their bundles feed the replay (D16). **Gate:** one valid run per
   kept scenario, each with audit-join completeness 1.0. Owner: pod replacement after L1 runs. Cut first: nothing
   (each trial run feeds the replay).
-- [ ] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
+- [x] **Block 6 — 11-25 → 11-27. C8.** First the 10-minute token test (D15; done 2026-11-21, outcome B). Then the PR opener, the commit
   validation, merge recognition. S3 end to end: `Escalated`, PR opened, owner merges, recovery. **Gate:** the merged
   PR restores the service; the chat (or the log, before Block 7) shows it. Owner: the machine account, its fork and
   token; merging the revert PR. Cut first: the `main` mapping (unused at L1).
   Live gate run 2026-11-22 (C8 on S3 at L3): `Escalated`, #314 opened by NEXUS, merged by the owner in the GitHub UI
   (merge commit `fa2e62c…`), `sample-api` back to 2/2 by 08:31. The first attempt failed at the push to the fork,
   which was behind `experiment/dev-state`; it passed after the owner synced the fork. The refusal case was not run
-  live. Results and findings: ADR-041 "Live gate, 2026-11-22"; evidence `~/nexus-evidence/c8-gate-2026-11-22/RECORD.md`.
-  The tick waits for the owner's gate approval.
+  live (covered offline). **Gate passed (owner, 2026-11-22).** Results and findings: ADR-041 "Live gate, 2026-11-22";
+  evidence `~/nexus-evidence/c8-gate-2026-11-22/RECORD.md`. C8 is off in the cluster until the owner re-creates the
+  `nexus-bot-github` Secret.
 - [ ] **Block 7 — 11-28 → 11-30. Bot core.** Pushes; Approve, Reject, Explain; `/status`, `/pods`, `/incident`
   (D21); the Alertmanager Telegram route. **Gate:** an L2 approval from the owner's phone; the Incident and the audit
   log name the owner. Owner: BotFather, the bot token, the Telegram user ID. Cut first: Explain polish; never Approve.
@@ -940,12 +941,15 @@ secrets, `sudo`.
   **Gate:** every cell has its valid runs. Owner: pod replacements; the laptop awake. Cut first: the no-fault window
   to 4 hours.
 - [ ] **Block 12 — 11-27. Runs 3.** The L2 and C8 cells (attended); re-runs of voided cells. **Gate:** the
-  matrix is complete. Cut first: the C8 "without PR" comparison.
+  matrix is complete. Owner, before turning C8 on: press "Sync fork" in the GitHub UI, as `belhouchetkoussay`, for
+  `experiment/dev-state` (once, after the freeze tag; ADR-041 F3), and re-create the `nexus-bot-github` Secret.
+  Cut first: the C8 "without PR" comparison.
 - [ ] **Block 13 — 11-28 → 11-29. Results.** `export-results`, `make results`, figures, the wrong-action rate per
   arm (D20), the Limitations list from #197 and #198. **Gate:** every number in the thesis comes from the export.
 - [ ] **Block 14 — 11-30 → 12-02. Demo.** One command per scenario; the architecture figure; the "denied" beat; the
   backup video; the Grafana Incident-timeline panel last (D20). **Gate:** a full rehearsal from a cold start; the
-  video exists. Cut first: the Grafana panel.
+  video exists. Owner, before the demo: "Sync fork" again for `experiment/dev-state` (ADR-041 F3). Cut first: the
+  Grafana panel.
 - 12-03 → 12-05: buffer. The technical work and the demo end 12-05 (D28).
 - [ ] **Block 15 — Thesis, after 12-05.** The owner decides when (D28); slides; the ITBench desk table (D24).
 
@@ -1407,13 +1411,6 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   end `Recommended` at L1, but a live L1 proposal of `escalate` ends `Escalated / proposed_escalation` (E1 attempt 2,
   2026-11-07, `inc-a676334b7210ccba-1794045159`; `docs/plans/m2-exit-record.md`). Decide which is right and record it
   in spec v1.1.
-
-- [→ Block 12 / demo] **C8 needs the fork current** (Block 6 live gate, 2026-11-22; ADR-041 F1–F3). The bot pushes
-  to `belhouchetkoussay/nexus-platform`; when its `experiment/dev-state` is behind commits that change
-  `.github/workflows/`, GitHub refuses the push and C8 opens no pull request (the machine token has no `workflow`
-  scope). Decide how the fork is kept current before the C8 cells and the demo (the owner syncs it; a step in the run
-  scripts; or the scope, which widens outcome B). Also: `SubprocessGit` reports only git's last stderr line, which
-  hid this reason (`libs/nexus-revert/nexus_revert/gitcmd.py:89-90`).
 
 ### Hygiene — one pull request that gates nothing
 
