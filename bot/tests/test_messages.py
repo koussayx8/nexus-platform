@@ -143,7 +143,8 @@ SCENARIOS: dict[str, Any] = {
     "approval_denied": lambda: pressed(sample(), "a", deny),
     "usage": lambda: command("/help"),
     "c8_opened": lambda: c8(f"{NAME}: revert pull request #312 opened against experiment/dev-state "
-                            "(reverts 0123456789ab, named by the Reasoner); NEXUS will not merge it"),
+                            "(reverts 0123456789ab, named by the Reasoner); NEXUS will not merge it: "
+                            "https://github.com/koussayx8/nexus-platform/pull/312"),
     "c8_refused": lambda: c8(f"{NAME}: no revert pull request (check 2): commit 0123456789ab is not on "
                              "experiment/dev-state"),
     "c8_merged": lambda: c8(f"{NAME}: revert pull request #312 merged by koussayx8, merge commit " + "c" * 40),
@@ -342,3 +343,12 @@ def test_view_callback_data_is_short_and_fixed() -> None:
     assert pods_data("nexus-dev") == "p:nexus-dev" and pods_data("kube-system") is None
     d = incident_data(Incident.model_validate(sample()))
     assert d is not None and VIEW.fullmatch(d) and len(d.encode()) == 18
+
+
+def test_the_c8_opened_message_carries_its_pull_request_link_intact() -> None:
+    payload = SCENARIOS["c8_opened"]()
+    text, link = payload["text"], "https://github.com/koussayx8/nexus-platform/pull/312"
+    assert text.startswith("🟠 C8: revert PR opened\n") and text.endswith(f"NEXUS will not merge it: {link}")
+    start = len(text.encode("utf-16-le")) // 2 - len(link)
+    # no formatting entity over the link: Telegram's auto-link makes it tappable as plain text
+    assert all(e["offset"] + e["length"] <= start for e in payload["entities"] if e["type"] != "blockquote")

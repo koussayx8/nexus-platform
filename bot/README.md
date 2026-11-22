@@ -82,7 +82,7 @@ line itself, through `sanitize`, in a blockquote. The log gets the line prefixed
 
 | Line | When |
 | --- | --- |
-| `<incident>: revert pull request #N opened against <branch> (reverts <sha12>, named by the Reasoner \| chosen by rule A1); NEXUS will not merge it` | the pull request is open; you review the diff and merge under rule 11 |
+| `<incident>: revert pull request #N opened against <branch> (reverts <sha12>, named by the Reasoner \| chosen by rule A1); NEXUS will not merge it: <pull request link>` | the pull request is open; tap the link, review the diff and merge under rule 11 |
 | `<incident>: no revert pull request (check <n>): <reason>` | a check refused (ADR-041 "Commit validation"); nothing was pushed |
 | `<incident>: … open the pull request: <compare link>` | `prMode: compare_link`, or GitHub refused the create |
 | `<incident>: revert pull request #N merged by <login>, merge commit <sha>` / `closed, not merged` / `still open after 1 day, 0:00:00; no longer watched` | seen by the 30 s poll; a notification only, the Incident stays `Escalated` |

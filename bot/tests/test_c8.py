@@ -193,7 +193,7 @@ def test_the_chat_shows_a_pull_request_opened_and_a_refusal_with_its_check(tmp_p
     assert len(texts) == 2 and texts[0].startswith("🟠 C8: revert PR opened\n")
     assert texts[1].startswith("⛔ C8: no revert PR\nIncident: inc-0a1b…5601\n")
     assert f"revert pull request #100 opened against experiment/dev-state (reverts {bad[:12]}" in texts[0]
-    assert texts[0].endswith("NEXUS will not merge it")
+    assert texts[0].endswith("NEXUS will not merge it: https://github.com/koussayx8/nexus-platform/pull/100")
     assert "\nno revert pull request (check 2)" in texts[1]
     assert not any(fx.TOKEN in x for x in texts)
     # the owner merges; the next tick tells the chat (a notification only, ADR-041 decision 10)
