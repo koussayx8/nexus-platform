@@ -70,6 +70,26 @@ What it adds to runner.py (which plans and executes single operations):
   that did not finish, never a discard. The wait ran out with no Incident of the run's own:
   discarded (`no_incident`), since nothing tells a fault that was not detected from one that did
   not go in.
+* C8 is refused (`init`, and `run` for a queue made before): a cell with `C8` as a segment of its id
+  or as its `phase` or `config`. A C8 run is not reset at Escalated (ADR-041 limit 7): the owner's
+  merge of the revert pull request is the fix, and the batch's next reset would come first. C8 runs
+  are attended, outside the batch.
+* The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
+  operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
+  index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
+* The injection time is on every run record that injected (`injection_at`, null before that): the
+  wall clock read just before the first injection step, the "injection start" of spec §21. S3 is a
+  push, and its fault starts when Argo CD applies the pushed revision, so for S3 `injection_at` is
+  Argo CD's own `deployedAt` for that revision (`injection_pushed_at` keeps the push); a revision
+  that Argo CD has not applied within the run's wait discards the run (`injection_not_applied`).
+* The S6 void rule (pre-registered on #285, experiments/ground-truth.json scenarios.S6.void_if):
+  an S6 run whose run's Incident (the counted one, above) has an evidence bundle with
+  metrics.zscores.latencyP95 > 3 is void (`s6_latency_p95_z_above_3`) and the cell requeues it.
+  status.evidence does not carry the Z-scores, so the bundle is read from the Flight Recorder by
+  status.evidence.bundleHash (read-only: psql as nexus_reader in flight-recorder-db-0, as
+  scripts/fr-export.sh does). A Z that cannot be read (no bundleHash, no row, null, not a number,
+  the read fails) is never taken as valid: the run is void (`s6_latency_p95_z_unknown`). What was
+  read is on the run record (`s6_void_check`). Other scenarios are never read or voided by it.
 * The frozen values are on every run record, discarded or not (`frozen`, m4-protocol §1, E8): the
   operator and Reasoner image digests from their Deployments, and the score floor, prompt version and
   index hash the Reasoner's /healthz serves, read after the pre-checks. What cannot be read is null.
@@ -265,7 +285,29 @@ def validate_cells(cells) -> list[dict]:
             raise Refused(
                 f"cell {c['cell']!r}: advisory_checks off is for phase D only"
             )
+    refuse_c8(cells)
     return cells
+
+
+def is_c8(cell: dict) -> bool:
+    """A C8 cell: `C8` as a segment of its id (C8, C8/R3/S3/L3), or as its phase or config."""
+    segments = str(cell.get("cell", "")).upper().split("/")
+    return "C8" in segments or any(
+        str(cell.get(k, "")).upper() == "C8" for k in ("phase", "config")
+    )
+
+
+def refuse_c8(cells: list[dict]) -> None:
+    """The batch never runs C8 (protocol #234 §5, ADR-041 limit 7): a C8 run ends `Escalated` with
+    the fault still in, and the fix is the owner's merge of the revert pull request. The batch's
+    next reset would come first and make check 5 refuse. C8 runs are attended, outside the batch."""
+    for c in cells:
+        if isinstance(c, dict) and is_c8(c):
+            raise Refused(
+                f"cell {c.get('cell')!r} is a C8 cell: C8 runs are attended, outside the batch "
+                "(a C8 run is not reset at Escalated; the reset follows the owner's merge of the "
+                "revert pull request, ADR-041 limit 7)"
+            )
 
 
 class Queue:
@@ -508,6 +550,7 @@ def drive(
         raise Refused(
             f"the batch is halted ({queue.doc['halt']['reason']}); clear it with clear-halt"
         )
+    refuse_c8(queue.doc["cells"])  # also a queue created before init refused them
     summary = {"recovered": [], "ran": 0, "stopped": None}
     summary["recovered"] = [r["run_id"] for r in queue.recover(clock())]
     max_gap = queue.doc["max_pause_gap_s"]
