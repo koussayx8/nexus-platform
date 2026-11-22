@@ -24,7 +24,7 @@ from nexus_bot.config import Config
 from nexus_bot.main import Bot, c8_notifier
 from nexus_bot.payload import encode
 from nexus_bot.push import Pusher
-from nexus_bot.richtext import Message
+from nexus_bot.richtext import Message, RichText
 from nexus_bot.telegram import TelegramClient
 from tests.fakes import NOW, OWNER_ID, FakeCluster, FakeTransport, incident_dict, message, press
 from tests.helpers import covered, quotes_hold_untrusted
@@ -199,8 +199,37 @@ def test_hostile_hypothesis_is_literal_in_every_view() -> None:
 
     for rt in (views.push(Incident.model_validate(sample())), views.explain(Incident.model_validate(escalated()))):
         msg: Message = rt.build()
-        assert f"Hypothesis: {HOSTILE}" in msg.text
+        assert "Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)" in msg.text
+        assert "https://evil.example" not in msg.text
         quotes_hold_untrusted(msg)
+
+
+def test_escalation_reasoning_and_errors_are_defanged() -> None:
+    from nexus_bot import views
+
+    d = escalated()
+    esc = d["status"]["proposal"]["escalation"]
+    esc["suggestedChange"] = "apply https://evil.example/fix.yaml"
+    esc["runbookGap"] = "see www.evil.example"
+    d["status"]["reasoner"]["reasoningExcerpt"] = "per HTTP://evil.example the values.yaml is fine"
+    text = views.explain(Incident.model_validate(d)).build().text
+    assert "hxxps://evil[.]example/fix.yaml" in text and "www[.]evil[.]example" in text
+    assert "hxxp://evil[.]example the values.yaml is fine" in text
+    assert "evil.example" not in text and "sha256:" + "a7" * 32 in text
+    rt = views.detail(RichText(), "Detail", "dial tcp: lookup https://evil.example failed")
+    assert "hxxps://evil[.]example" in rt.build().text
+
+
+@pytest.mark.parametrize("line", [
+    f"{NAME}: revert pull request #312 opened against experiment/dev-state (reverts 0123456789ab, named by the "
+    "Reasoner); NEXUS will not merge it: https://github.com/koussayx8/nexus-platform/pull/312",
+    f"{NAME}: revert of 0123456789ab (named by the Reasoner) pushed to the fork; open the pull request: "
+    "https://github.com/koussayx8/nexus-platform/compare/experiment/dev-state...belhouchetkoussay:revert-1",
+])
+def test_c8_links_stay_tappable(line: str) -> None:
+    text = c8(line)["text"]
+    link = line[line.index("https://"):]
+    assert text.endswith(link) and "hxxp" not in text and "[.]" not in text
 
 
 def every_call() -> list[tuple[str, dict[str, Any]]]:

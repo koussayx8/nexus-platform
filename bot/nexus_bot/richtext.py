@@ -10,6 +10,9 @@ itself. No `parse_mode` is ever sent, so Telegram parses nothing in the text: a 
   reasoning and escalation, error text) is written only inside `quote()`, so the one entity that
   may cover it is the blockquote that contains it. `build` refuses a formatting entity that
   overlaps untrusted text.
+- URLs in untrusted text are defanged (`defang`): Telegram auto-links URLs even when `entities` is
+  given, so a URL from the model or a log must not be tappable. C8's own pull request link is the
+  one exception (its caller passes `defang_urls=False`).
 - `ident` is a value that may be shown as `code` (tap to copy) only when it matches a strict
   pattern: an Incident name or a `sha256:` hash. Anything else is a plain value.
 
@@ -38,6 +41,21 @@ IDENT = (
     re.compile(r"inc-[a-z0-9-]{1,59}"),       # an Incident name (the /incident grammar)
     re.compile(r"sha256:[0-9a-f]{64}"),       # a proposal, bundle or index hash
 )
+
+
+# a URL with an http(s) scheme (any case) and its host part, or a bare "www." host
+_URL = re.compile(r"(?i)\b(https?)://([^\s/?#\\]*)|(?<![\w.\[])www\.([^\s/?#\\]*)")
+
+
+def defang(text: str) -> str:
+    """http(s) -> hxxp(s), the dots of the host part -> [.], a bare "www." -> "www[.]" (with the
+    dots of the rest of its host). A hash or a file name such as values.yaml is unchanged."""
+    def one(m: re.Match[str]) -> str:
+        if m[1] is not None:
+            return f"hxxp{m[1][4:].lower()}://" + m[2].replace(".", "[.]")
+        return "www[.]" + m[3].replace(".", "[.]")
+
+    return _URL.sub(one, text)
 
 
 def units(text: str) -> int:
@@ -124,12 +142,14 @@ class RichText:
         text = sanitize(v, n)
         return self._put(text, "code" if any(p.fullmatch(text) for p in IDENT) else None)
 
-    def untrusted(self, v: object, n: int) -> "RichText":
-        """Model, evidence or log text: sanitized, flagged when instruction-like, never formatted,
-        and only inside a quote."""
+    def untrusted(self, v: object, n: int, *, defang_urls: bool = True) -> "RichText":
+        """Model, evidence or log text: sanitized, URLs defanged, flagged when instruction-like,
+        never formatted, and only inside a quote."""
         if self._quote is None:
             raise ValueError("untrusted text is written only inside a quote")
         text = sanitize(v, n)
+        if defang_urls:
+            text = defang(text)
         if looks_like_instruction(text):
             self.flagged += 1
             self._put(FLAG)

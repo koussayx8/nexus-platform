@@ -13,7 +13,7 @@ Approve pins this action, these parameters and this hash for at most 15 minutes 
 Model text: untrusted, never a decision
 Proposal
 Fault class: cpu_saturation
-Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](https://evil.example)
+Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)
 
 === entities (type offset length: covered text) ===
 bold 0 18: "🟠 Approval needed"
@@ -27,7 +27,7 @@ bold 158 5: "Hash:"
 bold 185 5: "Gate:"
 bold 209 9: "Detected:"
 italic 229 93: "Approve pins this action, these parameters and this hash for at most 15 minutes (Kyverno K5)."
-blockquote 324 166: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](https://evil.example)"
+blockquote 324 168: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)"
 bold 324 39: "Model text: untrusted, never a decision"
 italic 364 8: "Proposal"
 bold 373 12: "Fault class:"

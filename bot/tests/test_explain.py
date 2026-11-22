@@ -8,7 +8,7 @@ from typing import Any
 from nexus_client.models import Incident
 
 from nexus_bot import views
-from nexus_bot.richtext import MAX_TEXT, units
+from nexus_bot.richtext import MAX_TEXT, defang, units
 from nexus_bot.telegram import TelegramClient, fit
 from tests.fakes import incident_dict
 from tests.helpers import covered, quotes_hold_untrusted
@@ -54,9 +54,11 @@ def test_markup_looking_model_text_stays_literal_and_unformatted() -> None:
     payload = sent(incident(reasoning=MARKUP, suggested=MARKUP, gap="**gap** " + MARKUP))
     text, entities = payload["text"], payload["entities"]
     assert "parse_mode" not in payload and payload["link_preview_options"] == {"is_disabled": True}
-    assert "Suggested change (never applied): " + MARKUP in text
-    assert "Runbook gap (never applied): **gap** " + MARKUP in text
-    assert "Excerpt: " + MARKUP in text
+    shown = defang(MARKUP)  # literal, with its URLs defanged
+    assert "hxxps://evil[.]example" in shown and "https://" not in text
+    assert "Suggested change (never applied): " + shown in text
+    assert "Runbook gap (never applied): **gap** " + shown in text
+    assert "Excerpt: " + shown in text
     assert "Reasoning: 9000 characters; the full text is in the Flight Recorder" in text
     quotes = [e for e in entities if e["type"] == "expandable_blockquote"]
     assert len(quotes) == 2

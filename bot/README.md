@@ -43,7 +43,8 @@ that `nexus_bot/richtext.py` computes, offsets in UTF-16 units:
 - untrusted text (the model's fault class, hypothesis, escalation suggestion and reasoning; error text;
   C8's line) is `sanitize`d, literal, and only inside a blockquote, with no entity of its own; Explain
   puts the proposal and the reasoning in expandable blockquotes titled "Model text: untrusted, never a
-  decision" and marks instruction-like text ⚠️;
+  decision" and marks instruction-like text ⚠️; URLs in that text are defanged (`hxxps://evil[.]example`,
+  `www[.]…`) because Telegram auto-links them; C8's GitHub links are not;
 - what K5 binds (target, action, parameters, hash) and the level are facts above the model text;
 - titles carry the phase's icon: 🟠 approval needed, ⏳ in progress, 🟢 Resolved, 🔴 Escalated,
   ⚪ Dismissed, Rejected, Expired, Recorded, Recommended, ⛔ Blocked;

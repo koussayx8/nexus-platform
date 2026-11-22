@@ -3,7 +3,7 @@ unformatted, truncation that keeps every entity inside the text."""
 
 import pytest
 
-from nexus_bot.richtext import MAX_TEXT, RichText, units
+from nexus_bot.richtext import MAX_TEXT, RichText, defang, units
 from tests.helpers import covered, quotes_hold_untrusted
 
 HOSTILE = ["<b>bold</b>", "*star*", "`tick`", "[link](x)", "_it_", "~~s~~", "||spoiler||",
@@ -110,3 +110,27 @@ def test_truncation_inside_a_surrogate_heavy_quote() -> None:
 def test_a_text_that_fits_is_untouched() -> None:
     msg = RichText().bold("a").text("b" * (MAX_TEXT - 1)).build()
     assert len(msg.text) == MAX_TEXT and "truncated" not in msg.text
+
+
+@pytest.mark.parametrize(("raw", "shown"), [
+    ("[docs](https://evil.example)", "[docs](hxxps://evil[.]example)"),
+    ("see HTTP://Evil.Example.com/a.b?x=y.z", "see hxxp://Evil[.]Example[.]com/a.b?x=y.z"),
+    ("HtTpS://user@evil.example:8443/p", "hxxps://user@evil[.]example:8443/p"),
+    ("go to www.evil.example/x.html now", "go to www[.]evil[.]example/x.html now"),
+    ("https://www.evil.example", "hxxps://www[.]evil[.]example"),
+    ("https://10.0.0.1/", "hxxps://10[.]0[.]0[.]1/"),
+    ("sha256:" + "ab" * 32, "sha256:" + "ab" * 32),
+    ("edit values.yaml and overlays/dev/sample-api-patch.yaml", "edit values.yaml and overlays/dev/sample-api-patch.yaml"),
+    ("version 1.2.3, hxxps://already[.]defanged", "version 1.2.3, hxxps://already[.]defanged"),
+])
+def test_defang(raw: str, shown: str) -> None:
+    assert defang(raw) == shown
+
+
+def test_untrusted_text_is_defanged_unless_the_caller_says_otherwise() -> None:
+    rt = RichText()
+    with rt.quote():
+        rt.untrusted("https://evil.example", 100).nl().untrusted("https://github.com/x/y/pull/1", 100,
+                                                                   defang_urls=False)
+    assert rt.build().text == "hxxps://evil[.]example\nhttps://github.com/x/y/pull/1"
+    assert defang(defang("https://a.b")) == defang("https://a.b")  # idempotent

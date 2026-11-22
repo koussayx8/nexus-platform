@@ -13,7 +13,7 @@ Ended: 10:25 UTC
 Model text: untrusted, never a decision
 Proposal
 Fault class: cpu_saturation
-Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](https://evil.example)
+Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)
 
 === entities (type offset length: covered text) ===
 bold 0 12: "🔴 Escalated"
@@ -27,7 +27,7 @@ bold 152 5: "Hash:"
 bold 179 10: "Execution:"
 bold 200 13: "Verification:"
 bold 233 6: "Ended:"
-blockquote 251 166: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](https://evil.example)"
+blockquote 251 168: "Model text: untrusted, never a decision\nProposal\nFault class: cpu_saturation\nHypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)"
 bold 251 39: "Model text: untrusted, never a decision"
 italic 291 8: "Proposal"
 bold 300 12: "Fault class:"

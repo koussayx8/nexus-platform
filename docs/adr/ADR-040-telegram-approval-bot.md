@@ -456,6 +456,7 @@ parse anything, so no text the bot did not write can format itself, link itself 
 | Explain | `nexusctl`'s `explain_text` | The bot's own layout, sections Detection, Evidence, Runbooks, Gate, Approval, Enforcement, Verification, Model; then the proposal and the reasoning excerpt in expandable blockquotes. `sanitize` and the instruction heuristic are still `nexusctl`'s, so there is still one sanitizer |
 | C8 | `C8 revert: <line>` | A title picked from C8's own fixed wording at the start of the line (e.g. 🟠 C8: revert PR opened), the Incident, and the whole line in a blockquote. The log line is unchanged |
 | Truncation | `telegram.fit` | The same line; entities clipped to the kept start, none past the end; the cut is an exact search over UTF-16 prefix lengths (the earlier loop over-cut text with many characters outside the BMP) |
+| URLs | Sent as written | Telegram auto-links URLs even when `entities` is given, so in untrusted text (the proposal, hypothesis, reasoning, escalation fields, error and log text) `richtext.defang` writes `http`/`https` (any case) as `hxxp`/`hxxps`, the host's dots as `[.]` and a bare `www.` as `www[.]` (owner, 2026-11-22); C8's pull request and compare links come from GitHub's API and stay tappable |
 | Buttons | Approve, Reject, Explain | Also `p:<nexus-dev\|nexus-prod>` and `i:<uid16>` (at most 18 bytes), read-only, under the same sender check as a press |
 
 UNVERIFIED (no live Telegram in this change): how the official clients draw `expandable_blockquote` and whether

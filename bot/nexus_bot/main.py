@@ -141,7 +141,7 @@ def c8_message(text: str) -> RichText:
     if m:
         rt.fact("Incident", views.short_name(m[1]), 40)
     with rt.quote():
-        rt.untrusted(rest, 1000)
+        rt.untrusted(rest, 1000, defang_urls=False)  # C8's pull request link, from GitHub's API
     return rt
 
 
