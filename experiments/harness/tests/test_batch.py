@@ -1020,8 +1020,9 @@ class LiveRunTest(Base):
 
     def test_happy_path_reads_terminal_phase_fallback_and_the_no_fault_record(self):
         c = FakeCluster(self.ft, phases=("Diagnosing", "Resolved"), fallback=True)
-        # the no-fault record keeps every namespace's alerts; only a nexus-dev one holds the quiet window
-        c.alerts = [firing("NexusTrafficAnomaly", ns="nexus-prod")]
+        # the no-fault record keeps every namespace's alerts; only a nexus-dev one holds the quiet window.
+        # Pending, not firing: a firing nexus-prod alert in the measurement voids (host_disturbance)
+        c.alerts = [firing("NexusTrafficAnomaly", "pending", ns="nexus-prod")]
         # only an arm that calls the Reasoner can fall back to R1
         self.q = batch.Queue.create(
             self.dir / "r3", REF, [dict(CELLS[0], reasoner="R3")], precheck_cfg=PRE

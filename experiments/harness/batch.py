@@ -99,6 +99,16 @@ What it adds to runner.py (which plans and executes single operations):
   scripts/fr-export.sh does). A Z that cannot be read (no bundleHash, no row, null, not a number,
   the read fails) is never taken as valid: the run is void (`s6_latency_p95_z_unknown`). What was
   read is on the run record (`s6_void_check`). Other scenarios are never read or voided by it.
+* The host-disturbance void rule (owner, 2026-11-22): a nexus-dev run is void (`host_disturbance`)
+  when any NEXUS alert on nexus-prod, which no measured cell injects, was FIRING at any time
+  between injection_at and the end of the measurement; the cell requeues it. Host load (other work
+  on the machine) raises both namespaces at once while node CPU stays low (2026-11-20 21:00 and
+  2026-11-22 09:04, 09:49). Every NEXUS alert on nexus-prod in that window, pending or firing, is
+  kept on the run record (`prod_alerts`, Prometheus ALERTS over the window as fired_alerts reads
+  it): pending decides nothing, so a stricter rule can be reported as sensitivity. Pending is not
+  the rule because, of 17 past nexus-dev fault runs, it would have voided one valid run (S1,
+  2026-11-19, prod in-flight Z 3.07 with node CPU 8-14 %) and firing none. An answer that cannot
+  be read is never taken as quiet: the run is void (`host_disturbance_unknown`), prod_alerts null.
 
 Mutations: nothing mutates without --execute AND an approval reference. The reference is the one
 the pre-registration (G16) names for the whole batch; `init` stores it, `run` must be given the same
@@ -150,6 +160,10 @@ S6_VOID_CONDITION = (
 )
 S6_VOID_ABOVE = "s6_latency_p95_z_above_3"
 S6_VOID_UNKNOWN = "s6_latency_p95_z_unknown"
+# The host-disturbance void rule (owner, 2026-11-22): a firing NEXUS alert on nexus-prod during a
+# nexus-dev run's measurement. Pending ones are recorded (prod_alerts) and decide nothing.
+HOST_DISTURBANCE = "host_disturbance"
+HOST_DISTURBANCE_UNKNOWN = "host_disturbance_unknown"
 # The Flight Recorder, read as scripts/fr-export.sh reads it (nexus_reader: SELECT only).
 FR_NAMESPACE, FR_POD, FR_CONTAINER = (
     "nexus-system",
@@ -474,6 +488,7 @@ class Queue:
             "fallbackUsed": False,
             "terminal": None,
             "injection_at": None,
+            "prod_alerts": None,  # nexus-prod's NEXUS alerts in the measurement (host_disturbance)
         }
         self.runs.append(rec)
         self.save()
@@ -782,6 +797,19 @@ def s6_void(scenario: str, z) -> str | None:
     return S6_VOID_ABOVE if z > S6_VOID_Z else None
 
 
+def host_disturbance(prod_alerts: list[dict] | None) -> str | None:
+    """The host-disturbance void reason for a nexus-dev run whose measurement saw `prod_alerts`
+    (nexus-prod's NEXUS alerts, each {alertname, state}), or None. Only a firing one voids; None (the
+    read failed) is unknown, never quiet."""
+    if prod_alerts is None:
+        return HOST_DISTURBANCE_UNKNOWN
+    return (
+        HOST_DISTURBANCE
+        if any(a.get("state") == "firing" for a in prod_alerts)
+        else None
+    )
+
+
 def bundle_z_sql(bundle_hash: str) -> str:
     """One row, {"found": true, "z": <the Z or null>}, for the bundle; no row when it is absent."""
     if not BUNDLE_HASH_RE.match(bundle_hash):
@@ -1087,6 +1115,18 @@ class LiveRun:
             "rps": {ns: precheck.request_rate(prom, ns) for ns in loc["namespaces"]},
         }
 
+    def prod_alerts(self, since: float) -> list[dict] | None:
+        """Every NEXUS alert on nexus-prod pending or firing at any time from `since` (Unix seconds,
+        injection_at) to now, {alertname, state}, sorted; None when Prometheus does not answer."""
+        got = precheck.fired_alerts(precheck.Prom(self.r), self.wall() - since)
+        if got is None:
+            return None
+        return [
+            {"alertname": a["alertname"], "state": a["state"]}
+            for a in got
+            if a["namespace"] == runner_mod.NS_PROD
+        ]
+
     def inject(self, cell: dict, rec: dict, guard: Guard) -> bool:
         """Run the cell's injection and stamp when the fault started on the run record (spec §21,
         "injection start"). False when an S3 revision was pushed and Argo CD did not apply it
@@ -1204,6 +1244,11 @@ class LiveRun:
             raise
         # The measurement ends here (phase, timed_out, Locust, rate). The end check: Locust must
         # still be running at the load the run was measured at.
+        host = None
+        # the host-disturbance rule is for nexus-dev runs; nexus-prod is never injected
+        if r.namespace == runner_mod.NS_DEV:
+            rec["prod_alerts"] = self.prod_alerts(injected_at.timestamp())
+            host = host_disturbance(rec["prod_alerts"])
         why = self.locust_end_failures(cell) if own is not None else []
         if own is not None:
             rec["locust_end"] = {"ok": not why, "failures": why}
@@ -1217,6 +1262,8 @@ class LiveRun:
             )
         if why:
             raise Voided("locust_end_check")
+        if host:  # a firing nexus-prod alert in the measurement: the host was disturbed
+            raise Voided(host)
         st = own.get("status") or {}
         # the arm check: the Incident was diagnosed by the cell's arm, or by nothing yet
         seen = st.get("reasoner")
