@@ -1,0 +1,12 @@
+🛑 Kill Switch halted
+Was: active
+Now: halted
+Seen: 10:00 UTC
+Kyverno K4 denies every NEXUS mutation, compensation included, until the state is active.
+
+=== entities (type offset length: covered text) ===
+bold 0 21: "🛑 Kill Switch halted"
+bold 22 4: "Was:"
+bold 34 4: "Now:"
+bold 46 5: "Seen:"
+italic 62 89: "Kyverno K4 denies every NEXUS mutation, compensation included, until the state is active."

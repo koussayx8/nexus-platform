@@ -12,6 +12,8 @@ D_EXPECT="Dismissed / no_action_required in about 3-4 min; no scale, no deletion
 D_INJECT_WHAT="resize the Locust swarm to 170 users, then POST /fault/inject-logs on every sample-api pod"
 D_INJECT_ARGS=(--locust "$LOCUST" --users 170 --spawn-rate 4)
 D_RESET_ARGS=(--locust "$LOCUST")
+D_EXPECT_ALERTS=(NexusTrafficAnomaly)
+D_EXPECT_WHY="It fires after its for: 1m once the larger swarm moves the request rate."
 rc=0
 demo_run || rc=$?
 say

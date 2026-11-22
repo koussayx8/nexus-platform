@@ -2,7 +2,7 @@
 
 **Status:** Proposed (accepted when its pull request, #237, merges). Owner answers of 2026-11-17 and 2026-11-19 are
 recorded below. Aligned on 2026-11-21 with C8 as built in #255 (draft until Block 6); "As built" below lists every
-point where the build differs from the first draft.
+point where the build differs from the first draft. The Block 6 live gate ran on 2026-11-22: "Live gate, 2026-11-22".
 **Date:** 2026-11-16
 **Spec:** §13 (GitOps boundary, spec:1005), §19 (rulesets), §20 (configuration C8, spec:1788), AD-16. C8 moves
 from SHOULD to in scope. Spec v1.1 (#203, ADR-048) states the decision (rows D8, D15 and X13) and names this ADR as
@@ -251,7 +251,7 @@ Reported, not adapted silently. The rows that change the spec are in the spec v1
 | U3 | Whether the ruleset on `experiment/dev-state` blocks a plain push (plan 3.3). No longer decisive: the token has no upstream write | `gh api repos/koussayx8/nexus-platform/rulesets` |
 | U4 | The exact paths of the fault class, confidence, arm and model in `status` (`act.py:395` shows `bundleHash`; `act.py:558-564` the recommendation) | **VERIFIED, 2026-11-21**, from the S3 trial rerun (`~/nexus-evidence/trials-2026-11-21/S3/RECORD.md` and the Incident JSON there): `status.proposal.faultClass` and `confidence`, `status.reasoner.mode` and `modelId`, `status.evidence.bundleHash` and `status.proposal.hash` are all present on `inc-ac15ee36af8a7a62-1795253568` |
 | U5 | The S3 injector's commits touch only `overlays/dev` (rule A2) | **VERIFIED, 2026-11-21**, from the S3 trial rerun (`~/nexus-evidence/trials-2026-11-21/S3/RECORD.md`): the injector commits only `overlays/dev/kustomization.yaml` (`inject.json`: `git add -- overlays/dev/kustomization.yaml`; commit `86dc5e79c12ba7fd292e16a3dbd8ead270a6a9f6` changes that one file) |
-| U6 | ArgoCD pickup time after a merge into `experiment/dev-state` | Measured in the Block 6 end-to-end run |
+| U6 | ArgoCD pickup time after a merge into `experiment/dev-state` | **MEASURED, 2026-11-22**: 65 s from the merge (08:26:17Z) to Argo CD deploying the merge commit (08:27:22Z, `status.history`); one run (see "Live gate, 2026-11-22") |
 | U7 | The required check on `main` runs on a fork pull request without secrets and can pass | The first pull request against `main`, or cut the mapping |
 
 ## Build checklist — Block 6, 10 hours (+2 moved from Block 7)
@@ -309,12 +309,69 @@ gate (S3 end to end).
 | The loop | A third thread in the bot (`bot/nexus_bot/main.py`, `c8_service`) runs `Service.tick` every `pollSeconds` of `revert.yaml` (30 s). It reads Incidents as the bot's own ServiceAccount (`nexus_revert.main.KubeIncidentReader`, the existing `nexus-bot-read` Role; no new RBAC) |
 | On or off | On only when `/etc/nexus-bot/revert.yaml` **and** `/var/run/secrets/nexus-bot/github/token` are present. Otherwise, or when either is unusable (the library's `ConfigError`, which never holds the token), or the start fails: one log line `C8 off: …`, and the bot runs without C8 |
 | Errors | An exception in a tick is logged (`c8: <type>`) and the loop goes on after 5 s; it runs in its own thread, so it never reaches the Telegram poll or the push scan |
-| The chat | Every line C8 notifies — `revert pull request #N opened against <branch> (reverts <sha12>, named by the Reasoner \| chosen by rule A1); NEXUS will not merge it`, `no revert pull request (check <n>): <reason>`, the compare link (outcome C or a refused create), `merged by <login>, merge commit <sha>`, `closed, not merged`, the 24 h timeout — goes to the log and, prefixed `C8 revert: `, through `sanitize` as plain text to every allowlisted chat. A failed send is logged, not retried |
+| The chat | Every line C8 notifies goes to the log and, as plain text through `sanitize`, to every allowlisted chat, under a title chosen from C8's fixed wording (`C8_TITLES` in `bot/nexus_bot/main.py`; the Incident name and the whole line follow in a blockquote): `🟠 C8: revert PR opened`, `🟢 C8: revert PR merged`, `⚪ C8: revert PR closed`, `⚪ C8: revert PR no longer watched`, `⛔ C8: no revert PR`, `🟠 C8: open the revert PR` (the compare link, outcome C or a refused create); any other C8 line is `⚪ C8 revert`. The log lines keep the prefix `C8 revert: `. A failed send is logged, not retried |
 | The token | Secret `nexus-bot/nexus-bot-github`, key `token`, at `/var/run/secrets/nexus-bot/github/token`, read-only, mode 0440 (the pod's fsGroup), **`optional: true`**: the Telegram Secret stays required, the GitHub one only turns C8 on. Created by `scripts/nexus-bot-secrets.sh` from the owner's `github-machine.token` file under `~/.nexus/` when it exists (length only, never the value) |
 | The config | Key `revert.yaml` in `nexus-bot-config` (`bot/k8s/configmap.yaml`): `revert.example.yaml` with `machineAccount: belhouchetkoussay` and `prMode: pull_request` (outcome B); `nexus-dev` only, `nexus-prod` commented out (limit 4) |
 | Scratch | `emptyDir` at `/tmp`, `sizeLimit: 64Mi` (`NEXUS_REVERT_SCRATCH`); the root filesystem stays read-only. `experiment/dev-state`'s tree is about 6 MiB (`git ls-tree -r -l`, 2026-11-21) |
 | The image | `git` (Debian package, no recommended packages; unpinned version on the digest-pinned base) and `nexus_revert` copied as source; still UID 10001. `bot.yml` rebuilds on `libs/nexus-revert/nexus_revert/**`, not on `bot/README.md` or `bot/tests/**` |
 | Also | `getUpdates` long poll 25 s, not 50 (ADR-040 "As built") |
+
+## Live gate, 2026-11-22 (Block 6)
+
+C8 on S3 at L3 with the rules above. NEXUS opened the revert pull request (#314); the owner merged it in the GitHub UI;
+the service recovered. The first attempt failed at the push to the fork (F1). This is the gate run, not one of the
+Block 12 C8 cells. Owner decision, 2026-11-22: the Block 6 gate passes, with the refusal case covered offline. Evidence: `~/nexus-evidence/c8-gate-2026-11-22/RECORD.md` (with `bot.log`, `incidents.json`,
+`sample-api-after.txt`; sha256 in the record). Times UTC. VERIFIED = read from a command in the review session or from
+the evidence files; REPORTED = the owner's or the reviewer's statement.
+
+Baseline `experiment/dev-state` `8fd1c35703deb060082ff4ac557d1e2035e00af2`. `scripts/demo/s3.sh`, level 3: reset (pods
+replaced about 08:04:40, 2/2 Ready 08:04:58), S3 commit `72b76974d8e255b63513aeb1e22d80f4f5c6aa16` pushed 08:05:15.
+
+| Gate item | Result | Status |
+|---|---|---|
+| S3 ends `Escalated` | `inc-ac15ee36af8a7a62-1795335168`: `NexusRolloutStuck` from 08:12:48; `Escalated / proposed_escalation` at 08:13:53; `bad_rollout`, 0.95; `git_revert` naming `72b7697`; chunks `rb-bad-rollout#1`, `#3`; gate allowed, dry run allowed; no mutation | VERIFIED (`incidents.json`) |
+| A pull request from the fork | #314 opened 08:22:42 against `experiment/dev-state`; ready, `maintainerCanModify` false; "named by the Reasoner" | VERIFIED (`bot.log`, `gh pr view 314`) |
+| The diff is the inverse of the S3 commit | One commit `5a6d2ecf4db96f13a1ad5b94fc3b2269be0b3b07` by `nexus-revert`, parent `72b7697`, `overlays/dev/kustomization.yaml` minus 3 lines (readinessProbe `/readyz`). The tree after the merge equals `8fd1c35`'s (`4508829250add95ad777aa145dd2c20be13a8295`) | VERIFIED (`git diff`, `git rev-parse <sha>^{tree}`) |
+| The owner merges | Merged in the GitHub UI by `koussayx8` at 08:26:17, merge commit `fa2e62cae35310a8ee5d70b35307a02b90720708` (parents `72b7697`, `5a6d2ec`). The bot logged "merged by koussayx8, merge commit fa2e62c…" at 08:26:25. Rule 11 binds sessions; the owner's own merge is the gate's "the owner merges it" | VERIFIED |
+| ArgoCD syncs, the service recovers, the alert resolves | Argo CD deployed `fa2e62c` at 08:27:22; `NexusRolloutStuck` last firing at the 08:27:45 sample, gone by 08:28:00; `sample-api` 2/2 on the pre-injection ReplicaSet `6f45fb765d`, the stuck pod gone, 0 restarts (08:31) | VERIFIED (Application history, Prometheus `query_range`, `sample-api-after.txt`) |
+| The refusal case (a SHA not on the branch opens no pull request) | Not run live; covered offline by check 2's tests in `libs/nexus-revert/tests/test_revert.py` (`test_check2_sha_not_in_the_repository`, `test_check2_sha_on_another_branch`, `test_check2_older_than_the_depth`) and by `test_service.py::test_refused_check_pushes_nothing`. The live run also showed the fail-safe side once: with the push refused (F1) there was no pull request and one chat message, and the retry's check 6 passed ("the working branch does not exist in the fork"), so the refused push left no branch behind | Offline VERIFIED (read in the files; not re-run here). Live: REPORTED, and VERIFIED for the retry (`bot.log`) |
+
+Other Incidents in the run (both from the warm-up of the pods the reset replaced, before Argo CD deployed the S3
+revision at 08:09:15; ground-truth v2 would not count them: `counted_incident` (`experiments/ground-truth.json` at #285's head `88864156e373f89d00151eef5938a3bc8a09d107`, read here) counts the first Incident whose alert started at or after `injection_at`, and for S3 `injection_at` is Argo CD's `deployedAt` for the revision, 08:09:15; the counted one would be `NexusRolloutStuck`. #285 is open, so the rule is not on `dev` yet):
+
+| Incident | Alert started | Outcome |
+|---|---|---|
+| `inc-669532275a7b73d2-1795334799` | 08:06:39 `NexusLatencyAnomaly` | Dismissed / `no_action_required` (`gray_failure`) |
+| `inc-669532275a7b73d2-1795334919` | 08:08:39 `NexusLatencyAnomaly` | Blocked / `precondition_failed`: `scale_deployment` replicas 3, gate stage 6 "a rollout is in progress", no mutation |
+| `inc-669532275a7b73d2-1795336569` | about 08:36 (`spec.detectedAt` 08:36:09) `NexusLatencyAnomaly` | Escalated / `proposed_escalation`: fault class `unknown`, confidence 0.3, no runbook chunk retrieved, gate allowed, no mutation. The warm-up of the pods the 08:34 reset replaced (reviewer's reading) |
+
+**C8 times** (the metric of spec §20, C8; from outside NEXUS): `Escalated` to pull request 8 min 49 s, mostly the
+diagnosis of the failed push and the owner's fork sync (the first attempt's chat message reached the owner's phone at
+08:14, under a minute after `Escalated` at 08:13:53; minute precision, REPORTED); pull request to merge 3 min 35 s; merge to Argo CD deploy 65 s; merge to alert gone at most
+1 min 43 s; pull request to alert gone at most 5 min 18 s. One run. The alert's exact resolve time is UNKNOWN (the first
+15 s step without a firing sample is 08:28:00).
+
+### What went wrong, and what it changes
+
+| # | Finding | Status |
+|---|---|---|
+| F1 | **The first attempt (about 08:14) failed at the push to the fork:** "no revert pull request (push to the fork failed): git push exited 1: error: failed to push some refs to 'https://github.com/belhouchetkoussay/nexus-platform.git'". Checks 1–6 had passed. Cause, by elimination: the fork's `experiment/dev-state` was at `eca2031`, 121 commits behind `72b7697`, and those commits change 3 files under `.github/workflows/` (+349 lines). GitHub refuses a push that brings workflow-file changes from a token without the `workflow` scope, and the machine token is the classic `public_repo`-only token (outcome B) | The failure is REPORTED (the pod's log is gone). The counts are VERIFIED (`git rev-list`, `git diff --stat`). The cause is INFERRED: git's rejection line was not captured. A push of a test branch to the unsynced fork would settle it |
+| F2 | **`SubprocessGit` keeps only the last line of git's stderr** (`libs/nexus-revert/nexus_revert/gitcmd.py:89-90`, the tail in `GitError`), so the chat line did not say why | VERIFIED in the source. **Fixed in #318**: `GitError` keeps the `!`, `remote:`, `error:` and `fatal:` lines, redacted, at most 300 characters |
+| F3 | **The fork must be current before each C8 run.** The owner fast-forwarded the fork's `experiment/dev-state` to `72b7697` in the GitHub UI (as `belhouchetkoussay`) and restarted the bot at about 08:22; C8 keeps its attempts in memory only (catch-up 60 min), so it retried and opened #314 | REPORTED (the sync); the retry VERIFIED (`bot.log`) |
+
+**Owner decision, 2026-11-22 (F3):** the owner keeps the fork current by hand: the "Sync fork" button in the GitHub UI,
+as `belhouchetkoussay`, for `experiment/dev-state`, once after the freeze tag (no workflow-file change lands after it, so one
+sync covers every Block 12 C8 cell) and once before the demo. No `workflow` scope on the token (decision 3 and limit 1
+stand); no script step (it would need a credential for the fork). These are owner steps in `TASKS.md` (Blocks 12 and 14).
+
+The bot's restart at 08:22 re-sent the recent Blocked and Escalated messages (push catch-up 15 min): duplicates,
+expected (REPORTED). At 08:34 the owner ran the reset that `s3.sh` printed; both commits were skipped (no diff), the
+pods were replaced and the roles restored. It was not needed: the merged revert had already restored the baseline
+(limit 7 stands: the reset follows recovery). About 08:36 the owner halted the kill switch for the warm-up, deleted the Secret
+`nexus-bot-github` and restarted the bot; the new pod (started 08:36:24) logged at 08:36:39 "C8 off: the GitHub token file absent"
+(`kubectl logs`). **C8 is therefore off in the cluster until the owner re-creates the Secret** (`scripts/nexus-bot-secrets.sh`).
+A timer (`~/nexus-evidence/killswitch-timer.sh`) re-activated the kill switch at 08:49:27 once no Incident was open; the
+ConfigMap reads `active` (`metadata.managedFields`: `kubectl-patch`, 08:49:27Z, which replaced the time of the halt).
 
 ## Consequences
 

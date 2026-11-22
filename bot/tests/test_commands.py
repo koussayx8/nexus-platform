@@ -32,9 +32,11 @@ def test_status_missing_killswitch_is_named() -> None:
 
 
 def test_pods_reads_an_allowed_namespace() -> None:
-    out = run(FakeCluster(), "/pods nexus-dev")
-    assert "sample-api: 2/3 ready" in out and "sample-api-7d9-abc: Running, ready, 4 restarts" in out
-    assert "sample-api-7d9-def: Pending, not ready, 0 restarts" in out
+    out = run(FakeCluster(), "/pods nexus-dev")  # a table by default
+    assert "7d9-abc 1/1   Running 4        2h" in out and "7d9-def 0/1   Pending 0        3m" in out
+    cards = commands.pods(FakeCluster(), NS, ["nexus-dev"], NOW, cards=True).message.build().text
+    assert "sample-api: 2/3 ready" in cards and "sample-api-7d9-abc: Running, ready, 4 restarts" in cards
+    assert "sample-api-7d9-def: Pending, not ready, 0 restarts" in cards
 
 
 def test_pods_with_no_argument_offers_the_two_namespaces() -> None:
@@ -59,10 +61,12 @@ def test_incident_with_no_argument_lists_the_five_most_recent() -> None:
         d["metadata"]["creationTimestamp"] = f"2026-11-28T09:0{i}:00Z"
     r = reply(FakeCluster(*items), "/incident")
     text = r.message.build().text
-    assert [row[0][1] for row in r.rows] == [f"i:{f'{i:x}' * 16}" for i in (7, 6, 5, 4, 3)]
-    assert all(len(row) == 1 for row in r.rows)
+    assert [row[0][1] for row in r.rows[:5]] == [f"i:{f'{i:x}' * 16}" for i in (7, 6, 5, 4, 3)]
+    assert all(len(row) == 1 for row in r.rows[:5])
     assert r.rows[0][0][0] == "🟠 inc-0007…4007"
-    assert text.startswith("🗂 Recent Incidents") and "09:07 UTC" in text and "inc-0002" not in text
+    assert r.rows[5] == [("Older ▶", "l:a:1")] and not r.edit
+    assert text.startswith("🗂 Incidents: All\n7 Incidents · page 1 of 2 · as of 10:00 UTC")
+    assert "· 53m" in text and "inc-0002" not in text
 
 
 @pytest.mark.parametrize("name", ["foo", "inc-", "inc-UPPER", "inc-../x", "inc-a b", "inc-" + "a" * 60])

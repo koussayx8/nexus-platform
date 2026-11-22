@@ -18,6 +18,12 @@ NAMESPACES = ("nexus-dev", "nexus-prod")  # D21: the only namespaces /pods and /
 
 _TOKEN = re.compile(r"^[0-9]{5,16}:[A-Za-z0-9_-]{30,64}$")
 _USERNAME = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$")
+# The repository the bot's own links point at (prompt, runbooks, a commit). The bot builds every
+# link from these two values; no link is ever taken from model or cluster text.
+DEFAULT_REPO_URL = "https://github.com/koussayx8/nexus-platform"
+DEFAULT_REPO_REF = "main"  # the owner sets the release tag (v0.6.0) after the freeze
+_REPO_URL = re.compile(r"^https://github\.com/[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
+_REPO_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$")
 
 
 class ConfigError(Exception):
@@ -31,6 +37,8 @@ class Config:
     namespaces: tuple[str, ...] = NAMESPACES
     poll_seconds: float = 10.0
     catch_up_minutes: float = 15.0
+    repo_url: str = DEFAULT_REPO_URL
+    repo_ref: str = DEFAULT_REPO_REF
     token: str = field(default="", repr=False)
 
 
@@ -67,8 +75,15 @@ def parse(data: Any, token: str) -> Config:
     catch_up = float(data.get("catchUpMinutes", 15))
     if not 0 <= catch_up <= 60:
         raise ConfigError("catchUpMinutes must be between 0 and 60")
+    repo_url = data.get("repoUrl", DEFAULT_REPO_URL)
+    if not isinstance(repo_url, str) or not _REPO_URL.fullmatch(repo_url):
+        raise ConfigError("repoUrl must be https://github.com/<owner>/<repository>")
+    repo_ref = data.get("repoRef", DEFAULT_REPO_REF)
+    if not isinstance(repo_ref, str) or not _REPO_REF.fullmatch(repo_ref) or ".." in repo_ref:
+        raise ConfigError("repoRef must be a branch or tag name")
     return Config(allowlist=_allowlist(data.get("allowlist")), approver_group=group,
-                  namespaces=namespaces, poll_seconds=poll, catch_up_minutes=catch_up, token=token)
+                  namespaces=namespaces, poll_seconds=poll, catch_up_minutes=catch_up,
+                  repo_url=repo_url, repo_ref=repo_ref, token=token)
 
 
 def load(env: dict[str, str] | None = None) -> Config:

@@ -1,0 +1,15 @@
+🔗 Commit
+Incident: inc-6695…2289
+Commit named by the model (not checked): 0123456
+Named in: Suggested change
+NEXUS did not check that this commit exists or relates to the Incident.
+
+=== entities (type offset length: covered text) ===
+bold 0 9: "🔗 Commit"
+bold 10 9: "Incident:"
+text_link 75 7: "0123456"
+bold 83 9: "Named in:"
+italic 110 71: "NEXUS did not check that this commit exists or relates to the Incident."
+
+=== buttons ===
+Explain [i:669532275a7b73d2]
