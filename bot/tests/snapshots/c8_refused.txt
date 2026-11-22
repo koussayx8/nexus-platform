@@ -1,0 +1,8 @@
+⛔ C8: no revert PR
+Incident: inc-6695…2289
+no revert pull request (check 2): commit 0123456789ab is not on experiment/dev-state
+
+=== entities (type offset length: covered text) ===
+bold 0 18: "⛔ C8: no revert PR"
+bold 19 9: "Incident:"
+blockquote 43 84: "no revert pull request (check 2): commit 0123456789ab is not on experiment/dev-state"

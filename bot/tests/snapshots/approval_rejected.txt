@@ -1,0 +1,16 @@
+⚪ Rejected
+Incident: inc-6695…2289
+Decision: rejected
+By: koussay-approver
+At: 10:00 UTC
+Pinned: sha256:14f167…839f5e
+Audit-Id: aud-ok
+
+=== entities (type offset length: covered text) ===
+bold 0 10: "⚪ Rejected"
+bold 11 9: "Incident:"
+bold 35 9: "Decision:"
+bold 54 3: "By:"
+bold 75 3: "At:"
+bold 89 7: "Pinned:"
+bold 118 9: "Audit-Id:"

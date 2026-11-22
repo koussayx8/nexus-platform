@@ -1,0 +1,13 @@
+⛔ Denied
+Incident: inc-6695…2289
+Audit-Id: aud-1
+Detail: K5 approvers-only: only group nexus-approvers may set spec.approval
+Nothing was written.
+
+=== entities (type offset length: covered text) ===
+bold 0 8: "⛔ Denied"
+bold 9 9: "Incident:"
+bold 33 9: "Audit-Id:"
+blockquote 49 75: "Detail: K5 approvers-only: only group nexus-approvers may set spec.approval"
+bold 49 7: "Detail:"
+italic 125 20: "Nothing was written."

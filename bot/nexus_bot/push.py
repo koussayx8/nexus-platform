@@ -86,7 +86,7 @@ class Pusher:
                     self._sent.add(key)
                     continue
                 try:
-                    self._tg.send_message(chat, views.push_text(inc), buttons(inc) or None)
+                    self._tg.send_message(chat, views.push(inc), buttons(inc) or None)
                 except TelegramError as e:
                     log.warning("push: send failed for chat %s: %s", chat, e)
                     continue

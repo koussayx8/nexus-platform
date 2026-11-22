@@ -100,8 +100,11 @@ class Service:
             return Outcome(req.name, f"{req.name}: the fork has the revert, but the pull request was refused "
                                      f"({e}); open it here: {link}")
         self.watch.track(pr["number"], req.name)
+        url = pr.get("html_url")  # GitHub's own link to the pull request, for the chat
+        where = f": {url}" if isinstance(url, str) and url.startswith("https://") and " " not in url else ""
         return Outcome(req.name, f"{req.name}: revert pull request #{pr['number']} opened against {p.base} "
-                                 f"(reverts {p.sha[:12]}, {chosen}); NEXUS will not merge it", pr["number"])
+                                 f"(reverts {p.sha[:12]}, {chosen}); NEXUS will not merge it{where}",
+                       pr["number"])
 
     def recover(self) -> int:
         try:

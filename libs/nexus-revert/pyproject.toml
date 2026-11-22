@@ -18,6 +18,9 @@ nexus-revert = "nexus_revert.main:main"
 where = ["."]
 include = ["nexus_revert*"]
 
+[tool.setuptools.package-data]
+nexus_revert = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

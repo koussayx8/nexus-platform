@@ -6,16 +6,21 @@ name: NEXUS Bot
 # main the image is pushed, scanned by digest, signed with Cosign keyless, and a digest-bump pull
 # request into dev is opened for bot/k8s/deployment.yaml, which no Argo CD Application references
 # yet: merged is not deployed.
-# The image carries nexus-client and nexusctl's renderer (see bot/Dockerfile), so the push paths
-# include them. Pull requests also run on the bot's manifests, RBAC, NetworkPolicies and the
-# Alertmanager values, which the tests check. Every action is pinned by commit SHA.
+# The image carries nexus-client, nexusctl's renderer and C8's nexus_revert (see bot/Dockerfile), so
+# the push paths include them; the bot's README and tests build no image, so a docs or test change
+# on main does not rebuild and bump. Pull requests also run on the bot's manifests, RBAC,
+# NetworkPolicies and the Alertmanager values, which the tests check. Every action is pinned by
+# commit SHA.
 on:
   push:
     branches: [main]
     paths:
       - 'bot/**'
       - '!bot/k8s/**'   # deploy manifests build no image; without this a merged digest bump would rebuild and bump again
+      - '!bot/README.md'
+      - '!bot/tests/**'
       - 'libs/nexus-client/src/**'
+      - 'libs/nexus-revert/nexus_revert/**'
       - 'nexusctl/src/nexusctl/__init__.py'
       - 'nexusctl/src/nexusctl/render/**'
       - '.github/workflows/bot.yml'
@@ -24,6 +29,7 @@ on:
     paths:
       - 'bot/**'
       - 'libs/nexus-client/**'
+      - 'libs/nexus-revert/**'
       - 'nexusctl/**'
       - 'platform/rbac/nexus-bot/**'
       - 'platform/network/nexus-bot/**'
@@ -59,7 +65,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           # The hashed runtime set exactly as the image gets it, then the unhashed dev tools.
           "$RUNNER_TEMP/venv/bin/pip" install --quiet --only-binary=:all: --require-hashes -r bot/requirements.txt
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl -e bot
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet -r nexusctl/requirements-dev.txt -e libs/nexus-client -e nexusctl -e libs/nexus-revert -e bot
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
       - name: ruff
@@ -127,7 +133,9 @@ jobs:
           user=$(docker run --rm --entrypoint python "$IMAGE" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_name)')
           test "$user" = nexus-bot
           # the renderer comes from nexusctl's source; typer and rich are not in the image
-          docker run --rm --entrypoint python "$IMAGE" -c 'import sys, nexus_bot.main, nexus_bot.kube, nexusctl.render.views; assert "typer" not in sys.modules and "rich" not in sys.modules'
+          docker run --rm --entrypoint python "$IMAGE" -c 'import sys, nexus_bot.main, nexus_bot.kube, nexusctl.render.views, nexus_revert.service; assert "typer" not in sys.modules and "rich" not in sys.modules'
+          # C8 runs the system git (ADR-041), as the non-root user
+          docker run --rm --read-only --network none --entrypoint git "$IMAGE" --version
           # no config and no token: the entrypoint exits 2 without making any call
           set +e
           docker run --rm --read-only --network none "$IMAGE"

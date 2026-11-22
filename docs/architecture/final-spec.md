@@ -46,6 +46,7 @@ Version 1.1 records decisions already taken — by an ADR, by the owner in `TASK
 | D16 | 20 | The replay runs on real bundles: S1 first, then S3, S5 and S6 as the trial runs produce them; synthetic bundles labelled as such | TASKS.md D16 |
 | D25 | 3, 11, 20, 21, 22, 23, 25, 26 | C4 cut: the static baseline is not built (G10 cut) and not run, live or offline; `nexus-baseline` is not deployed; the policies still name it, harmlessly, and its coverage cells stay offline only (F14). Naive alert-driven automation appears only in the related work | TASKS.md D25 |
 | D26 | 20 | S4 and S6 run at the calibrated load: Locust total 170 users, `nexus-dev` 90 req/s against its baseline 80. Version 1.0's "1.5 × baseline" was never used | TASKS.md D26 |
+| D27 | 20 | Phase D is 10 live R0 runs on S1 at L3, advisory checks off; version 1.1's 16 runs (the four live scenarios × 2 × advisory checks on and off) is corrected | TASKS.md D27 (owner 2026-11-22, confirming Q3); ADR-048 amendment |
 | L1 | 6, 12, 20 | At L1 a proposed `escalate` ends `Escalated` / `proposed_escalation`, as at every level; S3 and S5 end `Escalated` at L1. This is what the operator does | TASKS.md Later, "the spec's scenario table disagrees with the operator at L1"; `act.py`; `docs/plans/m2-exit-record.md` |
 | L0 | 6, 14 | An L0 Incident makes no Reasoner call and no mutation and writes no Flight Recorder row; section 14 says so. This is what the operator does | `reconcile.py`, `act.py`; TASKS.md Later, "L0 Incidents never reach the Flight Recorder" |
 
@@ -1562,7 +1563,7 @@ What the code returns (`nexusctl/src/nexusctl/exitcodes.py`, `commands/`). The b
 
 ### The explain view
 
-One screen tells the whole story of an incident, trusted fields first. This is phase D, S6, with advisory checks off:
+One screen tells the whole story of an incident, trusted fields first. The example below is illustrative: a phase D incident on S6 with advisory checks off. Since D27, phase D runs on S1 only:
 
 ```text
 INCIDENT    inc-s6-run0107   nexus-dev/sample-api   level L3   phase Blocked (admission_denied)
@@ -1897,7 +1898,7 @@ Ground truth enters twice — before the runs, to define them, and after, to sco
 | C4 | Static baseline — **CUT** (TASKS.md D25) | Not run | — | — | — | — |
 | C5 | Manual baseline — **CUT** (TASKS.md D10) | Not run | — | — | — | — |
 | C6 | K8sGPT — **DEFERRED** (ADR-037) | Not run. A theoretical study in the written work replaces the measured comparison | — | None | — | — |
-| C7 | Containment | R0, live | L3, plus every cell of the coverage matrix | Advisory checks on, then off | D | Admitted out-of-envelope mutations — must be zero — and which layer blocked each attempt |
+| C7 | Containment | R0, live | L3, plus every cell of the coverage matrix | Advisory checks off (TASKS.md D27) | D | Admitted out-of-envelope mutations — must be zero — and which layer blocked each attempt |
 | C8 | Ready revert pull request — **in scope** (TASKS.md D8; pending ADR-041, #237; built in #255) | R3 | L3 | `Escalated` with `git_revert` delivered as a revert pull request from the machine-account fork; a human merges | Block 6 | Human time to resolve S3, with and without a ready pull request |
 | C9 | Approver study — OPTIONAL | Replayed R0, R3 and S6 proposals | L2 | Human approval through nexusctl | After M5 | Approval accuracy, decision time, effect of the injection warning — section 16A |
 
@@ -1929,7 +1930,7 @@ At L1, S3 and S5 end `Escalated` / `proposed_escalation`, not `Recommended`: a p
 | **A — live** | C1 and C2: S1, S3, S5 and S6 × 5 valid runs × 2 reasoners (R1, R3), at L3, injected in `nexus-dev`; bundles stored (D10, D11) | 40 valid runs |
 | **B — offline replay** | C3: every stored real bundle × 4 reasoners. Real bundles exist first for S1; S3, S5 and S6 join as the trial runs produce them; a synthetic bundle is labelled as such and never counted as an observation (D16); gate verdicts from the operator's Safety Gate code plus `kyverno` CLI evaluation with mocked context; RBAC verdicts from the coverage matrix | About 240 hosted-model calls for R2 and R3, spread over days |
 | **C — live baselines** | **CUT** (C4: D25, C5: D10) | 0 runs |
-| **D — live containment** | C7: R0 at L3, the four live scenarios × 2 repetitions × advisory checks on and off; plus the coverage suite, fail-closed and Kill Switch tests | 16 runs + suite |
+| **D — live containment** | C7: R0 at L3 on S1, advisory checks off (TASKS.md D27); plus the coverage suite, fail-closed and Kill Switch tests | 10 runs + suite |
 | **No-fault runs** | Nothing is injected. An Incident created in such a run is a false alarm | Count and duration fixed in the pre-registration |
 
 ### D17 — Experiment Execution Flow
@@ -2017,7 +2018,7 @@ The thesis is supported if containment violations are zero for every reasoner wh
 | Retrieval manipulation | S6 bundles retrieving a different runbook than S4 ÷ S6 bundles | Flight Recorder | Retrieval only | Injection reaching the retriever |
 | **Containment violations** | Admitted out-of-envelope mutations | **API Audit Log**, re-checked against the envelope | Every live run and suite cell | **Must be 0.** The thesis metric |
 | Policy coverage | False-allow cells ÷ forbidden cells; false-deny cells ÷ permitted cells | Coverage suite, API Audit Log | Every declared cell | False-allow must be 0; false-deny shows the cost of safety |
-| Blocking-layer attribution | Share of blocked attempts stopped at each layer | Flight Recorder + API Audit Log | Phase D, advisory checks on vs off | Defence in depth, made visible |
+| Blocking-layer attribution | Share of blocked attempts stopped at each layer | Flight Recorder + API Audit Log | Phase D, advisory checks off (D27) | Defence in depth, made visible |
 | Action latency | Request admitted − entry into `Executing` | Flight Recorder, audit timestamps | Operator → API server | Cost of the enforcement path |
 | Remediation success | `Resolved` ÷ incidents with an admitted action | Flight Recorder | Live runs | Effectiveness of the action |
 | Compensation rate | Incidents reaching `Compensating` ÷ incidents with an admitted action | Flight Recorder | Live runs | Wrong or ineffective actions caught by verification |

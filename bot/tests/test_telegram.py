@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from nexus_bot.telegram import MAX_TEXT, HttpTransport, TelegramClient, TelegramError, keyboard
+from nexus_bot.richtext import MAX_TEXT
+from nexus_bot.telegram import HttpTransport, TelegramClient, TelegramError, keyboard
 
 TOKEN = "123456789:" + "A" * 35
 
@@ -68,7 +69,7 @@ def test_offset_handling(server: str) -> None:
     assert tg.get_updates(7) == []
     first, second = FakeBotApi.calls[0][1], FakeBotApi.calls[1][1]
     assert "offset" not in first and second["offset"] == 7
-    assert first["allowed_updates"] == ["message", "callback_query"] and first["timeout"] == 50
+    assert first["allowed_updates"] == ["message", "callback_query"] and first["timeout"] == 25
 
 
 def test_delete_webhook_and_paths(server: str) -> None:
@@ -100,7 +101,7 @@ def test_text_is_cut_at_4096_with_a_truncation_line(server: str) -> None:
 
 def test_callback_data_over_64_bytes_is_refused() -> None:
     with pytest.raises(ValueError):
-        keyboard([("x", "y" * 65)])
+        keyboard([[("x", "y" * 65)]])
 
 
 def test_token_never_in_error_text_http_error(server: str) -> None:
@@ -117,3 +118,19 @@ def test_token_never_in_error_text_unreachable() -> None:
         client("http://127.0.0.1:1").send_message(1, "x")  # nothing listens on port 1
     assert TOKEN not in str(e.value) and e.value.__cause__ is None
     assert TOKEN not in repr(HttpTransport(TOKEN))
+
+
+def test_long_poll_is_25_s_and_the_client_waits_longer() -> None:
+    from nexus_bot.telegram import POLL_TIMEOUT
+
+    seen: list[tuple[str, dict[str, Any], float]] = []
+
+    class Recording:
+        def call(self, method: str, payload: dict[str, Any], timeout: float) -> Any:
+            seen.append((method, payload, timeout))
+            return []
+
+    TelegramClient(Recording()).get_updates(None)
+    [(method, payload, timeout)] = seen
+    assert method == "getUpdates" and payload["timeout"] == POLL_TIMEOUT == 25
+    assert timeout > POLL_TIMEOUT

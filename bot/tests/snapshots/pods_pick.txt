@@ -1,0 +1,8 @@
+📦 Pods
+Which namespace?
+
+=== entities (type offset length: covered text) ===
+bold 0 7: "📦 Pods"
+
+=== buttons ===
+nexus-dev [p:nexus-dev] | nexus-prod [p:nexus-prod]
