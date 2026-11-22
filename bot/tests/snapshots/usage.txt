@@ -1,7 +1,7 @@
 NEXUS bot
 /status: Open Incidents, levels, Kill Switch
 /pods: Deployments and pods of nexus-dev or nexus-prod
-/incident: One Incident, or the 5 most recent
+/incident: One Incident, or the list, 5 per page
 
 === entities (type offset length: covered text) ===
 bold 0 9: "NEXUS bot"

@@ -53,7 +53,7 @@ def test_a_formatting_entity_over_untrusted_text_is_refused() -> None:
     rt = RichText()
     with rt.quote():
         rt.untrusted("model", 10)
-    rt._spans.append(("bold", 0, 3))  # what a wrong call site would produce
+    rt._spans.append(("bold", 0, 3, None))  # what a wrong call site would produce
     with pytest.raises(ValueError):
         rt.build()
 

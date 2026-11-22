@@ -136,6 +136,17 @@ class TelegramClient:
         result = self._call("sendMessage", payload)
         return result if isinstance(result, dict) else {}
 
+    def edit_message(self, chat_id: int, message_id: int, text: RichText,
+                     rows: list[list[tuple[str, str]]] | None = None) -> None:
+        """Replace a message the bot sent (a list page, a filter, Refresh), entities and buttons."""
+        msg = text.build(MAX_TEXT)
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": msg.text,
+                                   "link_preview_options": {"is_disabled": True},
+                                   "reply_markup": keyboard([r for r in rows or [] if r])}
+        if msg.entities:
+            payload["entities"] = msg.entities
+        self._call("editMessageText", payload)
+
     def answer_callback(self, callback_id: str, text: str = "") -> None:
         self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": cut(text, 200)})
 

@@ -1,0 +1,21 @@
+🗂 Incidents: nexus-prod
+3 Incidents · page 1 of 1 · as of 10:00 UTC
+
+🟢 inc-0006…4006 · Resolved
+   nexus-prod/sample-api · scale_deployment · 54m
+🟠 inc-0004…4004 · AwaitingApproval
+   nexus-prod/sample-api · scale_deployment · 56m
+🟠 inc-0002…4002 · AwaitingApproval
+   nexus-prod/sample-api · scale_deployment · 58m
+
+Tap one for its Explain view.
+
+=== entities (type offset length: covered text) ===
+bold 0 24: "🗂 Incidents: nexus-prod"
+italic 321 29: "Tap one for its Explain view."
+
+=== buttons ===
+🟢 inc-0006…4006 [i:6666666666666666]
+🟠 inc-0004…4004 [i:4444444444444444]
+🟠 inc-0002…4002 [i:2222222222222222]
+All [l:a:0] | Open [l:o:0] | nexus-dev [l:d:0] | ✓ nexus-prod [l:p:0]

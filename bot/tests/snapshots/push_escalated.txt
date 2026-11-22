@@ -14,6 +14,7 @@ Model text: untrusted, never a decision
 Proposal
 Fault class: cpu_saturation
 Hypothesis: CPU <b>saturation</b> on *sample-api*; `kubectl` [docs](hxxps://evil[.]example)
+Commit named by the model (not checked): 0123456
 
 === entities (type offset length: covered text) ===
 bold 0 12: "🔴 Escalated"
@@ -32,6 +33,8 @@ bold 251 39: "Model text: untrusted, never a decision"
 italic 291 8: "Proposal"
 bold 300 12: "Fault class:"
 bold 328 11: "Hypothesis:"
+text_link 461 7: "0123456"
 
 === buttons ===
-Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6]
+Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6] | 🧠 Reasoning [m:669532275a7b73d2]
+📦 Pods [p:nexus-dev] | 📚 Runbooks [b:669532275a7b73d2] | 🔗 Commit [c:669532275a7b73d2]

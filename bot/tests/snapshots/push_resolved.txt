@@ -34,4 +34,5 @@ bold 324 12: "Fault class:"
 bold 352 11: "Hypothesis:"
 
 === buttons ===
-Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6]
+Explain [e:669532275a7b73d2:14f1670a2b3c4d5e6f708192a3b4c5d6] | 🧠 Reasoning [m:669532275a7b73d2]
+📦 Pods [p:nexus-dev] | 📚 Runbooks [b:669532275a7b73d2]

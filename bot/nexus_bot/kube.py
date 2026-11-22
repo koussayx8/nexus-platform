@@ -22,6 +22,9 @@ class Deploy:
     name: str
     ready: int
     desired: int
+    updated: int = 0  # kubectl's UP-TO-DATE
+    available: int = 0
+    created: str | None = None  # RFC 3339
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,10 @@ class Pod:
     phase: str
     restarts: int
     ready: bool
+    containers: int = 0
+    ready_containers: int = 0
+    status: str = ""  # kubectl's STATUS: Terminating, a waiting or terminated reason, or the phase
+    created: str | None = None  # RFC 3339
 
 
 class Reader(Protocol):
@@ -68,6 +75,24 @@ def _wrap(fn: Any, *args: Any, **kw: Any) -> Any:
         raise Unreachable(str(e)) from None
 
 
+def _iso(t: Any) -> str | None:
+    return t.isoformat() if t is not None and hasattr(t, "isoformat") else None
+
+
+def _pod_status(p: Any) -> str:
+    """The STATUS column as kubectl approximates it, from the same pod read (no extra permission)."""
+    if p.metadata.deletion_timestamp is not None:
+        return "Terminating"
+    reason = p.status.reason or p.status.phase or "-"
+    for c in p.status.container_statuses or []:
+        state = c.state
+        if state is not None and state.waiting is not None and state.waiting.reason:
+            return str(state.waiting.reason)
+        if state is not None and state.terminated is not None and state.terminated.reason:
+            reason = str(state.terminated.reason)
+    return str(reason)
+
+
 class KubeReader:
     """In-cluster, as system:serviceaccount:nexus-bot:nexus-bot. No impersonation header."""
 
@@ -97,7 +122,9 @@ class KubeReader:
 
     def deployments(self, namespace: str) -> list[Deploy]:
         items = _wrap(self._apps.list_namespaced_deployment, namespace).items
-        return [Deploy(d.metadata.name, d.status.ready_replicas or 0, d.spec.replicas or 0) for d in items]
+        return [Deploy(d.metadata.name, d.status.ready_replicas or 0, d.spec.replicas or 0,
+                       d.status.updated_replicas or 0, d.status.available_replicas or 0,
+                       _iso(d.metadata.creation_timestamp)) for d in items]
 
     def pods(self, namespace: str) -> list[Pod]:
         out = []
@@ -105,7 +132,10 @@ class KubeReader:
             statuses = p.status.container_statuses or []
             out.append(Pod(p.metadata.name, p.status.phase or "-",
                            sum(c.restart_count or 0 for c in statuses),
-                           bool(statuses) and all(c.ready for c in statuses)))
+                           bool(statuses) and all(c.ready for c in statuses),
+                           len(p.spec.containers or []) if p.spec else len(statuses),
+                           sum(1 for c in statuses if c.ready), _pod_status(p),
+                           _iso(p.metadata.creation_timestamp)))
         return out
 
 

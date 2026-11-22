@@ -28,10 +28,11 @@ from .auth import Sender, log_ids, sender_of
 from .config import Config, ConfigError, load
 from .decide import handle_press
 from .kube import ApproverFactory, Reader
-from .payload import decode, decode_view
+from .payload import EXPLAIN, decode, decode_view
 from .push import Pusher
 from .richtext import RichText
 from .telegram import TelegramClient, TelegramError
+from .views import Links
 
 log = logging.getLogger("nexus_bot")
 
@@ -44,6 +45,7 @@ class Bot:
     def __init__(self, cfg: Config, tg: TelegramClient, reader: Reader, approver_for: ApproverFactory,
                  now: Callable[[], datetime] = utcnow) -> None:
         self.cfg, self.tg, self.reader, self.approver_for, self.now = cfg, tg, reader, approver_for, now
+        self.links = Links(cfg.repo_url, cfg.repo_ref)
         self.offset: int | None = None
 
     def handle(self, update: dict[str, Any]) -> None:
@@ -54,8 +56,24 @@ class Bot:
         if isinstance(update.get("callback_query"), dict):
             self._press(update["callback_query"], sender)
         elif isinstance(update.get("message"), dict):
-            reply = commands.run(update["message"].get("text"), self.reader, self.cfg.namespaces, self.now)
-            self.tg.send_message(sender.user_id, reply.message, rows=reply.rows)
+            reply = commands.run(update["message"].get("text"), self.reader, self.cfg.namespaces, self.now,
+                                 self.links)
+            self._reply(sender.user_id, reply)
+
+    def _reply(self, chat: int, reply: commands.Reply, message_id: object = None) -> None:
+        """Edit the pressed message for paging, filters, toggles and Refresh; otherwise send. An edit
+        Telegram refuses (too old, deleted) falls back to a new message; "not modified" is no news."""
+        if reply.edit and isinstance(message_id, int):
+            try:
+                self.tg.edit_message(chat, message_id, reply.message, reply.rows)
+                return
+            except TelegramError as e:
+                if "not modified" in str(e):
+                    return
+                log.warning("cannot edit message: %s", e)
+        for lead in reply.leading:
+            self.tg.send_message(chat, lead)
+        self.tg.send_message(chat, reply.message, rows=reply.rows)
 
     def _press(self, cq: dict[str, Any], sender: Sender) -> None:
         cq_id = str(cq.get("id", ""))
@@ -65,9 +83,9 @@ class Bot:
                 self.tg.answer_callback(cq_id)
             except TelegramError as e:
                 log.warning("cannot answer callback: %s", e)
-            reply = commands.view(view, self.reader, self.cfg.namespaces)
+            reply = commands.view(view, self.reader, self.cfg.namespaces, self.now, self.links)
             log.info("view %s from %s", view.kind, sender.user_id)
-            self.tg.send_message(sender.user_id, reply.message, rows=reply.rows)
+            self._reply(sender.user_id, reply, (cq.get("message") or {}).get("message_id"))
             return
         press = decode(cq.get("data"))
         if press is None:
@@ -78,6 +96,13 @@ class Bot:
             self.tg.answer_callback(cq_id, "Working…")
         except TelegramError as e:
             log.warning("cannot answer callback: %s", e)
+        if press.action == EXPLAIN:
+            # read-only, as an i:<key> button: the Explain view with its links and buttons, given the
+            # Reader only. Approve and Reject go to decide.py, unchanged.
+            reply = commands.incident_by_key(self.reader, press.key, self.cfg.namespaces, self.links)
+            log.info("press %s from %s: wrote=False", press.action, sender.user_id)
+            self._reply(sender.user_id, reply)
+            return
         outcome = handle_press(press, sender, reader=self.reader, approver_for=self.approver_for,
                                group=self.cfg.approver_group, now=self.now)
         log.info("press %s from %s: wrote=%s", press.action, sender.user_id, outcome.wrote)
@@ -227,7 +252,8 @@ def main() -> int:
     except TelegramError as e:  # the menu is a convenience; typed commands work without it
         log.warning("cannot set the command menu: %s", e)
     pusher = Pusher(bot.reader, tg, sorted(cfg.allowlist), now=utcnow,
-                    catch_up=timedelta(minutes=cfg.catch_up_minutes))
+                    catch_up=timedelta(minutes=cfg.catch_up_minutes), namespaces=cfg.namespaces,
+                    links=bot.links)
     stop = threading.Event()
     threading.Thread(target=_loop, args=(pusher.tick, cfg.poll_seconds, "push", stop), daemon=True).start()
     c8 = c8_service(c8_notifier(tg, sorted(cfg.allowlist)))
