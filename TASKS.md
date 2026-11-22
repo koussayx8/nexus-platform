@@ -1451,6 +1451,7 @@ go"). Items move verbatim; closed items keep their text. Re-plan (2026-11-02): e
   - **GATE M2-0:** Hygiene: test coverage only; it gates nothing.
 - [→ Not tasked] `bootstrap.sh` hardening part (1), the mounts preflight. The item is under M2-3 (ADR-030 track); WSL2 stays the fallback host.
 - [→ Not tasked; README status goes in PR descriptions] Stale status lines (GATE M2-0 report j): the README M1b row still reads "In progress" (M1b closed at `v0.3.0`, 2026-10-14), and the M1b-9 L2 and closing-PR boxes in this file are unticked.
+- [→ After the measured runs] Two comment fixes under `reasoner/`, left alone until the runs are done because a change there rebuilds the Reasoner image, against D28 (owner, 2026-11-22): the `reasoner/nexus_reasoner/adapter.py` module docstring says a model's `timeoutSeconds` is "at most 180 s", while `config.py` (`MAX_TIMEOUT_S`) allows 300 s; and the header of `reasoner/k8s/deployment.yaml` still says "Image: PLACEHOLDER digest", while the file pins a real one.
 
 ### Cut (owner, 2026-11-02)
 
