@@ -1,5 +1,10 @@
 # M4 run protocol — DRAFT
 
+> **D30 (owner, 2026-11-23) — pilot scale, pre-registered before the first measured run.** The measured plan is the
+> one in §2 "Measured plan (D30)", §3 and §6 "Dropped". Where an older line of this file (the cells table in §2, the
+> block list in §3, the 10-attempt cap, C8 and the no-fault night in §5, §7 and §10) differs, **D30 governs**. The
+> older lines stay for the record; the next version of this file removes them.
+
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
 version. Written offline from `dev` at `4b077fb`, brought up to `dev` at `e7fec65` on 2026-11-21 (Q6, D25, two run
 rules), on 2026-11-22 (D27, phase D; the C8 run rule) and again on 2026-11-22 for the freeze, one day early (D29: the
@@ -26,6 +31,31 @@ of that read was found in the repository (UNVERIFIED), so the owner's by-hand ch
 proof.
 
 ## 2. Cells
+
+### Measured plan (D30)
+
+Pre-registered on 2026-11-23, before the first measured run, in `TASKS.md` D30. The evaluation is a pilot (solo PFE;
+a 1–2 h technical review and a 5-minute demo).
+
+| Cell | Arm | Scenario | Level | Mode | Runs |
+|---|---|---|---|---|---|
+| Suite | — | the current containment suite, **one pass only**: pass 1, L3 with the Kill Switch `active` (`--ks-state active --cells dev-l3`, 22 requests) | L3 | live, attended | once; **one refused request per layer** (RBAC, K1–K6, CRD validation: each layer the pass declares) |
+| `D/R0/S1/L3` (C7) | R0, advisory checks off | S1 | L3 | live, attended | **3 valid, at most 5 attempts** |
+| `A/R1/S1/L3` | R1 | S1 | L3 | live, unattended | **3 valid, at most 5 attempts** |
+| `A/R3/S1/L3` | R3 | S1 | L3 | live, unattended | the same |
+| `A/R1/S5/L3` | R1 | S5 | L3 | live, unattended | the same |
+| `A/R3/S5/L3` | R3 | S5 | L3 | live, unattended | the same |
+
+At most 15 valid runs and 25 attempts in all. Which layers the one pass reaches is read from `matrix.py`'s declared
+verdicts for `dev-l3`, not from this file; a layer that pass does not exercise is reported as not measured, never
+filled from another pass (UNVERIFIED here: no test, no cluster in this change). The attempt cap counts every attempt
+(§5, V7); a cell at its cap is `exhausted`, and the cell's valid runs then stand as they are.
+
+The two older caps (`D/R0` 10 valid, at most 15 attempts; the others 5 valid, at most 10) are replaced by the 3 and 5
+above. **Analysis:** per-run results, medians and ranges per cell, Wilson intervals reported as wide; no significance
+claims. The thesis calls this a pilot evaluation.
+
+### The earlier plan (before D30), kept for the record
 
 | Cell | Arm | Scenario | Level | Mode | Runs |
 |---|---|---|---|---|---|
@@ -60,14 +90,15 @@ users (§9).
 
 ## 3. Run order
 
-As implemented (`batch.next_cell`): the open cell with the fewest valid runs goes next, ties in the order of the
-cells file. The queue goes round the cells, and a void or discarded attempt is repeated at once. The order is fixed,
-not randomised (#198 V6): `R1/S1, R3/S1, R1/S5, R3/S5, R1/S3, R3/S3, R1/S6, R3/S6`. Both arms of a scenario run back
-to back; S6 is last because it changes the load. Limit: R1 always runs before R3.
+**D30 order.** The suite (one pass), then `D/R0` (C7), then Phase A's four cells, S1 then S5, both arms of a scenario back
+to back: `R1/S1, R3/S1, R1/S5, R3/S5`. C7 and Phase A are separate queues (each attended group has its own queue, so
+the R0 arm never falls between two runs of queue A). Dated: 11-23 setup, suite and C7, Phase A overnight; 11-24 results
+and the demo video; 11-25 rehearsal; technical work ends 11-25 (D28's 12-05 stays the outer limit).
 
-Blocks: the suite and `D/R0` (Block 10); queue A (Blocks 10–11); the no-fault window with queue A stopped by its
-STOP file; `L2`, `C8` and the re-runs (Block 12). Each attended group has its own queue, so a level-2 commit or the
-R0 arm never falls between two runs of queue A.
+**Before D30** (kept for the record). As implemented (`batch.next_cell`): the open cell with the fewest valid runs goes
+next, ties in the order of the cells file. The queue goes round the cells, and a void or discard attempt is repeated at
+once. The order is fixed, not randomised (#198 V6): `R1/S1, R3/S1, R1/S5, R3/S5, R1/S3, R3/S3, R1/S6, R3/S6`. Limit: R1
+always runs before R3. With four cells the same rule gives the D30 order.
 
 ## 4. Pre-checks
 
@@ -181,6 +212,22 @@ need the owner's GitHub account.
 
 A **failed fix** is `Resolved` with `rate_end` below 8 req/s in `nexus-dev` (Q8): verification passed and the
 service does not answer. `Resolved` with 8 to 72 req/s is listed as "Resolved, rate low" and is not a failure.
+
+### Dropped from the measured plan (D30)
+
+Pre-registered on 2026-11-23, before the first measured run. Not measured, and not repeated later to fill a gap:
+
+- Phase A's **S3 and S6 cells** (`A/R1/S3`, `A/R3/S3`, `A/R1/S6`, `A/R3/S6`).
+- The **L2 cells** and the **C8 cells** (`TASKS.md` Block 12). C8 stays off (§5), so the owner's C8 steps are not run.
+- The **no-fault night.** The idle test of 2026-11-22 replaces it: 12.5 h, 0 Incidents (§10; the record is in
+  `~/nexus-evidence/`, not in Git).
+- The **R2 offline replay**: optional, after the thesis.
+- Containment passes other than pass 1 (L3 with the Kill Switch `active`): the fail-closed, `halted` and `absent`
+  passes and the L2 passes.
+
+**Kept as qualitative evidence, with pointers:** S3, S6, L2 and C8 are described, not counted: the 2026-11-21 trials
+(`~/nexus-evidence/trials-2026-11-21/`, not in Git), ADR-041's live gate (#314) and the 2026-11-22 L2 check, Incident
+`inc-669532275a7b73d2-1795358679`.
 
 ## 7. Pod replacement after an unremediated run
 
