@@ -39,17 +39,20 @@ a 1–2 h technical review and a 5-minute demo).
 
 | Cell | Arm | Scenario | Level | Mode | Runs |
 |---|---|---|---|---|---|
-| Suite | — | the current containment suite, **one pass only**: pass 1, L3 with the Kill Switch `active` (`--ks-state active --cells dev-l3`, 22 requests) | L3 | live, attended | once; **one refused request per layer** (RBAC, K1–K6, CRD validation: each layer the pass declares) |
+| Suite | — | the current containment suite, **one pass**: every live cell except `dev-l2-*` (`dev-l3`, `prod-l1`, `data-l0`, `kube-system`, `unlabelled`), Kill Switch `active` then `halted`, 110 requests each | L3 | live, attended | once: 220 server-side dry-run requests; **one refused request per measured layer** |
 | `D/R0/S1/L3` (C7) | R0, advisory checks off | S1 | L3 | live, attended | **3 valid, at most 5 attempts** |
 | `A/R1/S1/L3` | R1 | S1 | L3 | live, unattended | **3 valid, at most 5 attempts** |
 | `A/R3/S1/L3` | R3 | S1 | L3 | live, unattended | the same |
 | `A/R1/S5/L3` | R1 | S5 | L3 | live, unattended | the same |
 | `A/R3/S5/L3` | R3 | S5 | L3 | live, unattended | the same |
 
-At most 15 valid runs and 25 attempts in all. Which layers the one pass reaches is read from `matrix.py`'s declared
-verdicts for `dev-l3`, not from this file; a layer that pass does not exercise is reported as not measured, never
-filled from another pass (UNVERIFIED here: no test, no cluster in this change). The attempt cap counts every attempt
-(§5, V7); a cell at its cap is `exhausted`, and the cell's valid runs then stand as they are.
+At most 15 valid runs and 25 attempts in all, besides the suite's 220 dry-run requests. **The suite measures** RBAC,
+K1, K2, K4 (`halted` only) and CRD validation C3, as the matrix declares them for these five cells (counts in
+[`block10-runsheet.md`](block10-runsheet.md) 2.2), and the admits. **It leaves unmeasured** K3 (only the `dev-l2-*`
+cells and the K3 specials reach it), K5, K6 and C2, the fail-closed behaviour with Kyverno down, the `absent` Kill Switch
+state, and K4's effect on the approver. The declared layers come from `matrix.plan()` read offline on 2026-11-23; no
+request has been sent (UNVERIFIED on the cluster). The attempt cap counts every attempt (§5, V7); a cell at its cap is
+`exhausted`, and the cell's valid runs then stand as they are.
 
 The two older caps (`D/R0` 10 valid, at most 15 attempts; the others 5 valid, at most 10) are replaced by the 3 and 5
 above. **Analysis:** per-run results, medians and ranges per cell, Wilson intervals reported as wide; no significance
@@ -222,8 +225,8 @@ Pre-registered on 2026-11-23, before the first measured run. Not measured, and n
 - The **no-fault night.** The idle test of 2026-11-22 replaces it: 12.5 h, 0 Incidents (§10; the record is in
   `~/nexus-evidence/`, not in Git).
 - The **R2 offline replay**: optional, after the thesis.
-- Containment passes other than pass 1 (L3 with the Kill Switch `active`): the fail-closed, `halted` and `absent`
-  passes and the L2 passes.
+- Containment: the `dev-l2-*` cells, the K3 specials, the compensation specials, `--special fail-closed` and the
+  `absent` state. Their layers (K3, K5, K6, C2, fail-closed) are unmeasured (§2).
 
 **Kept as qualitative evidence, with pointers:** S3, S6, L2 and C8 are described, not counted: the 2026-11-21 trials
 (`~/nexus-evidence/trials-2026-11-21/`, not in Git), ADR-041's live gate (#314) and the 2026-11-22 L2 check, Incident
