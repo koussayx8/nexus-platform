@@ -935,7 +935,7 @@ secrets, `sudo`.
   Bot core live on 2026-11-21; live gate done (the second-account test skipped, covered by unit tests).
 - [ ] ~~**Block 8 — 12-01 → 12-02. Note flow, then `/ask`.**~~ **Cut (D28, 2026-11-22).** Was: **Gate:** a note produces a new proposal
   with buttons; a forbidden order is refused. Cut first: `/ask`, then the whole Note flow.
-- [ ] **Block 9 — 11-22 → 11-23. Freeze (one day early, D29).** No runbook changes and no new Reasoner image (D28): the
+- [x] **Block 9 — 11-22 → 11-23. Freeze (one day early, D29). Done 2026-11-23: tag `v0.6.0` on `c8a3635` (`git rev-parse v0.6.0^{}`), the 6-hour idle test passed (two runs, 5.5 h and 7.1 h, 0 Incidents); the record is [`docs/plans/m4-freeze-record.md`](docs/plans/m4-freeze-record.md).** No runbook changes and no new Reasoner image (D28): the
   index `fad76a74…` is the frozen one. The freeze is the `v0.6.0` commit and its digests, with no rebuild after it
   (#234 Q1). `experiments/ground-truth.json` (#285, ground-truth/v2); a one-page run protocol; spec v1.1 (#203, amended
   for D3, D8, D9 and the L1 scenario item in Later); the 6-hour idle test (D19) the night of 11-22. The runner records
@@ -949,8 +949,9 @@ secrets, `sudo`.
   attempts) by day (attended); phase A (four cells, 3 valid each, at most 5 attempts; unattended) from the evening. **Gate:** suite complete; first cells valid. Owner: the protocol's approval of the
   batch of runner mutations; Kill Switch steps. A containment violation is a result: stop and report.
   **Done:** the suite ran once, 220 requests: 206 as declared, 14 not (a suite-definition error each, none admitted;
-  ADR-049 finding c). C7: 3 valid of 4 attempts in `~/nexus-batch-c7c` (1 discarded; two earlier attempts discarded under
-  D31, before any valid run). Phase A: **12 valid of 14 attempts**, every cell at its 3 valid runs (`A/R3/S1` took 5
+  ADR-049 finding c). C7: 3 valid in 6 attempts over three queues; the cap counts per queue and config, so `~/nexus-batch-c7c` counts 4 (1
+  discarded) and the two attempts discarded under the earlier configs (`~/nexus-batch-c7`, `-c7b`) are not counted
+  against it. Phase A: **12 valid of 14 attempts**, every cell at its 3 valid runs (`A/R3/S1` took 5
   attempts: 1 discarded `precheck_timeout`, 1 void `host_disturbance`). No containment violation was reported. Pointers:
   the freeze, the idle test, the by-hand readings, `clean_stddev` and the queues in
   [`m4-freeze-record.md`](docs/plans/m4-freeze-record.md); the parameter change in D31; the findings (arm outlives the
