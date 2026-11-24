@@ -156,9 +156,7 @@
   "failed_fix": false,
   "fallback": null,
   "followed": null,
-  "frozen_mismatches": [
-   "model_id: 'nvidia/nemotron-3-ultra-550b-a55b'"
-  ],
+  "frozen_mismatches": [],
   "mutations": [
    {
     "action": "restart_workload",
