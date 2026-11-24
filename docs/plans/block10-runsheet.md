@@ -1,5 +1,10 @@
 # Block 10 run sheet — 2026-11-23 (D29, D30)
 
+> **D31 (owner, 2026-11-23, before any valid run): the pre-check's `stddev_factor` is 4 (not 1.5) and `cap_s` is 2700
+> (not 1200).** Where this sheet below says 1.5 ×, 1200 or "within 20 minutes", D31 governs. The reason and the
+> evidence are in [`m4-protocol.md`](m4-protocol.md) §4 (the D31 bullet) and `TASKS.md` D31; the run's record is
+> [`m4-freeze-record.md`](m4-freeze-record.md).
+
 > **D30 (owner, 2026-11-23): pilot scale, pre-registered before the first measured run.** This sheet now covers:
 > the containment suite, **one pass over five cells** (every live cell except `dev-l2-*`, with the Kill Switch `active`
 > and then `halted`: 220 dry-run requests; the L2 cells, the K3 specials, fail-closed and the `absent` state of 2.2 are not run), C7 with **3 valid runs and at most 5 attempts**, and Phase A's
