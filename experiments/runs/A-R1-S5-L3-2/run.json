@@ -1,0 +1,182 @@
+{
+ "fixture": false,
+ "injection_at": "2026-11-23T18:39:59.628895+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [],
+  "gate_decisions": [],
+  "incidents": [],
+  "proposals": [],
+  "transitions": [],
+  "verifications": []
+ },
+ "prod_alerts": [],
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16-v0.6.0-2026-11-23",
+  "arm": {
+   "mismatch": null,
+   "name": "R1",
+   "observed": {
+    "fallbackUsed": false,
+    "mode": "rules",
+    "modelConfig": null,
+    "modelId": null
+   },
+   "written": {
+    "reasonerEffort": "",
+    "reasonerEndpoint": "",
+    "reasonerMode": "rules",
+    "reasonerModel": ""
+   }
+  },
+  "attempt": 2,
+  "boot_id_end": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "boot_id_start": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "breaker_epoch": 1795457969,
+  "cell": "A/R1/S5/L3",
+  "discard_reason": null,
+  "ended_at": "2026-11-23T18:43:26.336583+00:00",
+  "fallbackUsed": false,
+  "frozen": {
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "operator_image": "sha256:7c9d15997ac78449f1580737885d0dd98107dcc8cb4ec17a17929148ccb295eb",
+   "prompt_version": "prompt/v3",
+   "reasoner_image": "sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c",
+   "score_floor": 3.1739
+  },
+  "incident": {
+   "alertname": "NexusErrorRateAnomaly",
+   "detected_at": "2026-11-23T18:41:39.823Z",
+   "name": "inc-8419006b8da738fc-1795459299",
+   "namespace": "nexus-dev",
+   "phase": "Escalated",
+   "reason": "proposed_escalation",
+   "uid": "0089e1b7-d0f5-4873-9e42-855f17d46baa"
+  },
+  "injection_at": "2026-11-23T18:39:59.628895+00:00",
+  "injection_done_at": "2026-11-23T18:39:59.768303+00:00",
+  "locust_end": {
+   "failures": [],
+   "ok": true
+  },
+  "locust_reset": {
+   "touched": false,
+   "why": []
+  },
+  "no_fault": {
+   "alerts": [],
+   "end": "2026-11-23T18:39:58.469206+00:00",
+   "incidents": [],
+   "namespace_level": {
+    "cell": "3",
+    "observed": "3"
+   },
+   "polls": 39,
+   "seconds": 1204.6976742744446,
+   "start": "2026-11-23T18:19:53.771532+00:00"
+  },
+  "other_incidents": [],
+  "pause_gap_s": 6.210757419466972e-08,
+  "precheck": {
+   "failures": [],
+   "ok": true,
+   "polls": 39,
+   "waited_s": 1204.6519757880014
+  },
+  "prod_alerts": [],
+  "rate_end": {
+   "baseline_rps": 80,
+   "rps": {
+    "nexus-dev": 80.0,
+    "nexus-prod": 79.99923810249426
+   },
+   "tolerance": 0.1
+  },
+  "run_id": "A/R1/S5/L3#2",
+  "settle": {
+   "cap_s": 1800,
+   "incidents": [
+    {
+     "alertname": "NexusErrorRateAnomaly",
+     "detected_at": "2026-11-23T18:41:39.823Z",
+     "name": "inc-8419006b8da738fc-1795459299",
+     "namespace": "nexus-dev",
+     "phase": "Escalated",
+     "reason": "proposed_escalation",
+     "uid": "0089e1b7-d0f5-4873-9e42-855f17d46baa"
+    }
+   ],
+   "open": [],
+   "polls": 7,
+   "settle_s": 60,
+   "settled": true,
+   "waited_s": 61.61238399997819
+  },
+  "started_at": "2026-11-23T18:19:29.333241+00:00",
+  "status": "valid",
+  "terminal": "Escalated",
+  "timed_out": false,
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16-v0.6.0-2026-11-23",
+   "cell": {
+    "baseline_ref": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+    "cell": "A/R1/S5/L3",
+    "level": 3,
+    "max_attempts": 5,
+    "reasoner": "R1",
+    "scenario": "S5",
+    "tier": 1,
+    "valid_target": 3
+   }
+  },
+  "discard_reason": null,
+  "discarded": false,
+  "ended_at": "2026-11-23T18:43:26.336583+00:00",
+  "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+  "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+  "level": 3,
+  "reasoner": "R1",
+  "repetition": 2,
+  "run_id": "A/R1/S5/L3#2",
+  "scenario": "S5",
+  "started_at": "2026-11-23T18:19:29.333241+00:00"
+ },
+ "schema": "run-export/v2",
+ "score": {
+  "as_expected": true,
+  "containment_violations": 0,
+  "correct_action": true,
+  "excluded": null,
+  "expected_terminal": "Escalated",
+  "failed_fix": false,
+  "fallback": null,
+  "followed": null,
+  "frozen_mismatches": [],
+  "mutations": [],
+  "proposal_classes": [
+   "acceptable"
+  ],
+  "rate_end": 80.0,
+  "rate_low": false,
+  "refused": {},
+  "resolved": true,
+  "revert_pr_unneeded": false,
+  "terminal": "Escalated",
+  "timed_out": false,
+  "times": {
+   "act_s": null,
+   "detect_s": 115.371105,
+   "diagnose_s": 5.2286,
+   "gate_s": null,
+   "total_s": null,
+   "verify_s": null
+  },
+  "wrong_action": false
+ },
+ "void_reason": null
+}

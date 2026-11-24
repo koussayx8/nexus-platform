@@ -1,0 +1,446 @@
+{
+ "actions": [
+  {
+   "action_class": "executed",
+   "action_id": "restart_workload",
+   "audit_id": "71dc5a6c-7774-48e5-8427-9c3de6bd07f7",
+   "http_status": 201,
+   "idempotency_key": "inc-669532275a7b73d2-1795451409-1",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "intent_at": "2026-11-23T16:31:05.962157+00:00",
+   "parameters": {
+    "pod": "sample-api-6f6c49d994-fj8kh"
+   },
+   "previous_state": {
+    "pod": "sample-api-6f6c49d994-fj8kh",
+    "uid": "97075edf-0a13-4c37-9458-a047d47f82fc"
+   },
+   "request_at": "2026-11-23T16:31:05.96667+00:00",
+   "result": "applied"
+  },
+  {
+   "action_class": "executed",
+   "action_id": "restart_workload",
+   "audit_id": "17d4dcee-68e6-421f-a7e7-ac92767b115c",
+   "http_status": 201,
+   "idempotency_key": "inc-669532275a7b73d2-1795451409-2",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "intent_at": "2026-11-23T16:31:15.960468+00:00",
+   "parameters": {
+    "pod": "sample-api-6f6c49d994-nnwtn"
+   },
+   "previous_state": {
+    "pod": "sample-api-6f6c49d994-nnwtn",
+    "uid": "89d66e26-dba6-4206-aa73-d9ccdc1c48d9"
+   },
+   "request_at": "2026-11-23T16:31:15.962761+00:00",
+   "result": "applied"
+  }
+ ],
+ "evidence_bundles": [
+  {
+   "bundle_hash": "sha256:cd7ff50ab45c7eb84e32aa333c2155e6cae4daa51a3faeb8073211248b2befe2",
+   "collected_at": "2026-11-23T16:30:55.653846+00:00",
+   "content": {
+    "cluster": {
+     "activeAlerts": []
+    },
+    "collectedAt": "2026-11-23T16:30:35Z",
+    "events": [],
+    "gitops": {
+     "application": "sample-api-dev",
+     "health": "Healthy",
+     "lastCommit": {
+      "message": null,
+      "sha": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0"
+     },
+     "revision": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+     "sync": "Synced"
+    },
+    "hash": "sha256:cd7ff50ab45c7eb84e32aa333c2155e6cae4daa51a3faeb8073211248b2befe2",
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusLatencyAnomaly",
+       "startedAt": "2026-11-23T16:30:09.823Z"
+      }
+     ],
+     "note": null,
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     },
+     "uid": "d552293f-3087-413f-86a9-c5f650b4e589"
+    },
+    "logs": {
+     "current": [],
+     "previous": [],
+     "sources": [
+      {
+       "current": 0,
+       "pod": "sample-api-6f6c49d994-fj8kh",
+       "previous": 0
+      },
+      {
+       "current": 0,
+       "pod": "sample-api-6f6c49d994-nnwtn",
+       "previous": 0
+      }
+     ]
+    },
+    "metrics": {
+     "errorRatio": 0.0,
+     "window": "30m",
+     "zscores": {
+      "cpu": -6.533427689447429,
+      "errorRatio": 0.0,
+      "inflight": 80.0,
+      "latencyP95": -0.05180179322115744,
+      "requestRate": -50.62685172142104
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": null,
+        "reason": null,
+        "state": "running"
+       }
+      ],
+      "name": "sample-api-6f6c49d994-fj8kh",
+      "ready": true,
+      "restarts": 0
+     },
+     {
+      "containers": [
+       {
+        "lastTermination": null,
+        "reason": null,
+        "state": "running"
+       }
+      ],
+      "name": "sample-api-6f6c49d994-nnwtn",
+      "ready": true,
+      "restarts": 0
+     }
+    ],
+    "redaction": {
+     "counts": {
+      "bearer": 0,
+      "email": 0,
+      "ip": 0,
+      "jwt": 0,
+      "key": 0,
+      "password": 0,
+      "private_key": 0,
+      "token": 0,
+      "url_credential": 0
+     }
+    },
+    "schema": "evidence/v1.2",
+    "workload": {
+     "currentRevision": {
+      "imageDigest": "sha256:2de0e02520e64613bf9c8a2dd7ce6bebb350ff7634b8210b2b85f505d7620251",
+      "replicaSet": "sample-api-6f6c49d994"
+     },
+     "desired": 2,
+     "podSpec": [
+      {
+       "envFrom": [],
+       "envNames": [
+        "DB_HOST",
+        "DB_NAME",
+        "DB_PASSWORD",
+        "DB_USER",
+        "NEXUS_FAULTS_ENABLED"
+       ],
+       "image": "ghcr.io/koussayx8/nexus-platform/sample-api@sha256:2de0e02520e64613bf9c8a2dd7ce6bebb350ff7634b8210b2b85f505d7620251",
+       "livenessProbe": "httpGet /health :http, period 15s, failures 3, delay 5s, timeout 3s",
+       "name": "sample-api",
+       "ports": [
+        8000
+       ],
+       "readinessProbe": "httpGet /ready :http, period 10s, failures 2, delay 3s, timeout 3s",
+       "resources": "{\"limits\": {\"cpu\": \"1\", \"memory\": \"128Mi\"}, \"requests\": {\"cpu\": \"50m\", \"memory\": \"64Mi\"}}",
+       "startupProbe": "httpGet /health :http, period 5s, failures 10, delay 2s, timeout 1s"
+      }
+     ],
+     "previousRevisions": [
+      "sample-api-58bc9d77bc",
+      "sample-api-f56f6f8cf",
+      "sample-api-6d6c4947dc"
+     ],
+     "ready": 2,
+     "rolloutDiff": [],
+     "rolloutInProgress": false,
+     "updated": 2
+    }
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "redaction_counts": {
+    "bearer": 0,
+    "email": 0,
+    "ip": 0,
+    "jwt": 0,
+    "key": 0,
+    "password": 0,
+    "private_key": 0,
+    "token": 0,
+    "url_credential": 0
+   },
+   "schema_version": "evidence/v1.2"
+  }
+ ],
+ "gate_decisions": [
+  {
+   "at": "2026-11-23T16:31:01.264106+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 1,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T16:31:01.267893+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 2,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T16:31:01.270258+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 3,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T16:31:01.272219+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 4,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T16:31:01.273881+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 5,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T16:31:01.27621+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 6,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T16:31:01.27845+00:00",
+   "detail": {
+    "detail": "audit-id 9f837211-0be6-4e13-9c15-1cace96d615b"
+   },
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "stage": 7,
+   "verdict": "pass"
+  }
+ ],
+ "incidents": [
+  {
+   "detected_at": "2026-11-23T16:30:09.823+00:00",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": "remediation_verified",
+   "run_id": "A/R3/S1/L3#1",
+   "source": "detector",
+   "target": "nexus-dev/sample-api",
+   "terminal_phase": "Resolved"
+  }
+ ],
+ "proposals": [
+  {
+   "fallback_used": false,
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "latency_ms": 19128,
+   "model_id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "parsed_proposal": {
+    "abstain": false,
+    "action": {
+     "id": "restart_workload",
+     "parameters": {},
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     }
+    },
+    "confidence": 0.95,
+    "escalation": null,
+    "evidenceRefs": [
+     "metrics.zscores.inflight",
+     "metrics.zscores.requestRate",
+     "metrics.zscores.cpu",
+     "metrics.zscores.latencyP95",
+     "pods[0].ready",
+     "pods[1].ready",
+     "workload.rolloutInProgress",
+     "incident.alerts[0].name"
+    ],
+    "expectedEffect": "Restart will clear the deadlock and restore request processing.",
+    "hypothesis": {
+     "faultClass": "gray_failure",
+     "summary": "Full hang detected: in-flight requests extremely high (Z=80), request rate extremely low (Z=-50.6), CPU low, all pods Ready, no rollout. Liveness probe passes but handlers are deadlocked."
+    },
+    "runbookRefs": [
+     "rb-gray-failure#1",
+     "rb-gray-failure#2",
+     "rb-gray-failure#3"
+    ],
+    "schema": "proposal/v1"
+   },
+   "prompt_version": "prompt/v3",
+   "proposal_hash": "sha256:e7b5e7581f7568d861977ebf821681e00127c56eee225420bdacb5685f4188b1",
+   "raw_output": "{\"proposal\": {\"schema\": \"proposal/v1\", \"hypothesis\": {\"faultClass\": \"gray_failure\", \"summary\": \"Full hang detected: in-flight requests extremely high (Z=80), request rate extremely low (Z=-50.6), CPU low, all pods Ready, no rollout. Liveness probe passes but handlers are deadlocked.\"}, \"evidenceRefs\": [\"metrics.zscores.inflight\", \"metrics.zscores.requestRate\", \"metrics.zscores.cpu\", \"metrics.zscores.latencyP95\", \"pods[0].ready\", \"pods[1].ready\", \"workload.rolloutInProgress\", \"incident.alerts[0].name\"], \"runbookRefs\": [\"rb-gray-failure#1\", \"rb-gray-failure#2\", \"rb-gray-failure#3\"], \"action\": {\"id\": \"restart_workload\", \"target\": {\"kind\": \"Deployment\", \"name\": \"sample-api\", \"namespace\": \"nexus-dev\"}, \"parameters\": {}}, \"expectedEffect\": \"Restart will clear the deadlock and restore request processing.\", \"confidence\": 0.95, \"escalation\": null, \"abstain\": false}, \"metadata\": {\"reasoning\": \"The evidence bundle shows a NexusLatencyAnomaly alert. Let me analyze the metrics and pods:\\n\\nMetrics z-scores:\\n- cpu: -6.53 (very low, not high)\\n- errorRatio: 0.0\\n- inflight: 80.0 (very high - far above baseline)\\n- latencyP95: -0.05 (normal, not anomalous)\\n- requestRate: -50.63 (very low - far below baseline)\\n\\nPods: 2 replicas, both Ready, 0 restarts, running state.\\n\\nRollout: not in progress, current revision is the same as before.\\n\\nAccording to runbook rb-gray-failure#3:\\n- If p95 latency Z-score > 3 AND cpu Z-score <= 1 AND all replicas Ready AND no rollout -> restart\\n- If in-flight Z-score > 3 AND request-rate Z-score < -3 AND same CPU/Ready/rollout conditions -> restart (full hang)\\n\\nHere: in-flight Z-score = 80.0 (>3), request-rate Z-score = -50.63 (<-3), cpu Z-score = -6.53 (<=1), all replicas Ready (2/2), no rollout in progress.\\n\\nThis matches the second condition: full hang. The runbook says restart the workload.\\n\\nAction: restart_workload on the deployment.\\n\\nEvidence refs: metrics.zscores.inflight, metrics.zscores.requestRate, metrics.zscores.cpu, pods[0].ready, pods[1].ready, workload.rolloutInProgress, incident.alerts[0].name\\n\\nRunbook refs: rb-gray-failure#3 (decision), rb-gray-failure#2 (diagnosis), rb-gray-failure#1 (symptoms)\\n\\nHypothesis: gray_failure, summary: \\\"Full hang detected: in-flight requests extremely high (Z=80), request rate extremely low (Z=-50.6), CPU low, all pods Ready, no rollout. Liveness probe passes but handlers are deadlocked.\\\"\\n\\nExpected effect: Restart will clear the deadlock and restore request processing.\\n\\nConfidence: high, 0.95.\\n\\nNo escalation needed.\\n\\nLet's construct the JSON.\", \"reasoningLength\": 1638, \"mode\": \"llm\", \"arm\": \"R3\", \"provider\": \"nvidia\", \"model\": \"nvidia/nemotron-3-ultra-550b-a55b\", \"settings\": {\"temperature\": 0, \"max_output_tokens\": 8192, \"seed\": 0, \"timeout_s\": 300.0, \"attempts\": 1, \"reasoning_effort\": null, \"response_format\": \"none\"}, \"usage\": {\"prompt_tokens\": 3025, \"completion_tokens\": 785, \"total_tokens\": 3810, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 475}}, \"retrievedChunks\": [\"rb-gray-failure#1\", \"rb-gray-failure#2\", \"rb-gray-failure#3\"], \"expandedChunks\": [\"rb-gray-failure#3\"], \"noRunbook\": false, \"modelConfig\": \"r3-primary\", \"logSelection\": {\"pods\": [{\"pod\": \"sample-api-6f6c49d994-fj8kh\", \"lines\": 0, \"kept_error_lines\": 0, \"kept_recent_lines\": 0, \"dropped\": 0}, {\"pod\": \"sample-api-6f6c49d994-nnwtn\", \"lines\": 0, \"kept_error_lines\": 0, \"kept_recent_lines\": 0, \"dropped\": 0}], \"eventsShown\": 0, \"eventsTotal\": 0}, \"promptTrimLevel\": 0, \"promptTokensEstimate\": 3736, \"corpusHash\": \"fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8\", \"promptVersion\": \"prompt/v3\", \"incidentUid\": \"d552293f-3087-413f-86a9-c5f650b4e589\", \"latencyMs\": 19121}}",
+   "reasoner_mode": "llm",
+   "reasoning": "The evidence bundle shows a NexusLatencyAnomaly alert. Let me analyze the metrics and pods:\n\nMetrics z-scores:\n- cpu: -6.53 (very low, not high)\n- errorRatio: 0.0\n- inflight: 80.0 (very high - far above baseline)\n- latencyP95: -0.05 (normal, not anomalous)\n- requestRate: -50.63 (very low - far below baseline)\n\nPods: 2 replicas, both Ready, 0 restarts, running state.\n\nRollout: not in progress, current revision is the same as before.\n\nAccording to runbook rb-gray-failure#3:\n- If p95 latency Z-score > 3 AND cpu Z-score <= 1 AND all replicas Ready AND no rollout -> restart\n- If in-flight Z-score > 3 AND request-rate Z-score < -3 AND same CPU/Ready/rollout conditions -> restart (full hang)\n\nHere: in-flight Z-score = 80.0 (>3), request-rate Z-score = -50.63 (<-3), cpu Z-score = -6.53 (<=1), all replicas Ready (2/2), no rollout in progress.\n\nThis matches the second condition: full hang. The runbook says restart the workload.\n\nAction: restart_workload on the deployment.\n\nEvidence refs: metrics.zscores.inflight, metrics.zscores.requestRate, metrics.zscores.cpu, pods[0].ready, pods[1].ready, workload.rolloutInProgress, incident.alerts[0].name\n\nRunbook refs: rb-gray-failure#3 (decision), rb-gray-failure#2 (diagnosis), rb-gray-failure#1 (symptoms)\n\nHypothesis: gray_failure, summary: \"Full hang detected: in-flight requests extremely high (Z=80), request rate extremely low (Z=-50.6), CPU low, all pods Ready, no rollout. Liveness probe passes but handlers are deadlocked.\"\n\nExpected effect: Restart will clear the deadlock and restore request processing.\n\nConfidence: high, 0.95.\n\nNo escalation needed.\n\nLet's construct the JSON.",
+   "reject_reason": null,
+   "request_id": "6c711441-9f5c-4b22-b65f-3eab253757ea",
+   "retrieved_chunk_ids": [
+    "rb-gray-failure#1",
+    "rb-gray-failure#2",
+    "rb-gray-failure#3"
+   ],
+   "schema_valid": true,
+   "usage": {
+    "completionTokens": 785,
+    "expandedChunks": [
+     "rb-gray-failure#3"
+    ],
+    "latencyMs": 19128,
+    "logSelection": {
+     "eventsShown": 0,
+     "eventsTotal": 0,
+     "pods": [
+      {
+       "dropped": 0,
+       "kept_error_lines": 0,
+       "kept_recent_lines": 0,
+       "lines": 0,
+       "pod": "sample-api-6f6c49d994-fj8kh"
+      },
+      {
+       "dropped": 0,
+       "kept_error_lines": 0,
+       "kept_recent_lines": 0,
+       "lines": 0,
+       "pod": "sample-api-6f6c49d994-nnwtn"
+      }
+     ]
+    },
+    "modelConfig": "r3-primary",
+    "promptTokens": 3025,
+    "promptTokensEstimate": 3736,
+    "promptTrimLevel": 0,
+    "totalTokens": 3810
+   }
+  }
+ ],
+ "transitions": [
+  {
+   "at": "2026-11-23T16:30:25+00:00",
+   "from_phase": null,
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": null,
+   "seq": 0,
+   "stage": "Incident Reconciler",
+   "to_phase": "Detected"
+  },
+  {
+   "at": "2026-11-23T16:30:30.692984+00:00",
+   "from_phase": "Detected",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": null,
+   "seq": 1,
+   "stage": "Incident Reconciler",
+   "to_phase": "Diagnosing"
+  },
+  {
+   "at": "2026-11-23T16:30:55.686872+00:00",
+   "from_phase": "Diagnosing",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": null,
+   "seq": 2,
+   "stage": "Evidence Collector",
+   "to_phase": "Proposed"
+  },
+  {
+   "at": "2026-11-23T16:31:01.288126+00:00",
+   "from_phase": "Proposed",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": null,
+   "seq": 4,
+   "stage": "Safety Gate",
+   "to_phase": "Executing"
+  },
+  {
+   "at": "2026-11-23T16:31:20.801826+00:00",
+   "from_phase": "Executing",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": null,
+   "seq": 5,
+   "stage": "Action Executor",
+   "to_phase": "Verifying"
+  },
+  {
+   "at": "2026-11-23T16:34:56.165858+00:00",
+   "from_phase": "Verifying",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "reason": "remediation_verified",
+   "seq": 7,
+   "stage": "Verifier",
+   "to_phase": "Resolved"
+  }
+ ],
+ "verifications": [
+  {
+   "at": "2026-11-23T16:34:55.976364+00:00",
+   "criteria_id": "restart_v2",
+   "incident_uid": "d552293f-3087-413f-86a9-c5f650b4e589",
+   "observations": {
+    "allReady": true,
+    "baselineP95": 0.019860851746057492,
+    "elapsedS": 216,
+    "p95": 0.04288461538461546,
+    "restarts": 0,
+    "signals": {
+     "inflight": {
+      "value": 0.0,
+      "within": true
+     },
+     "latencyP95": {
+      "value": 0.04288461538461546,
+      "within": true
+     },
+     "requestRate": {
+      "value": 80.0,
+      "within": true
+     }
+    }
+   },
+   "result": "met"
+  }
+ ]
+}

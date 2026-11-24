@@ -1,0 +1,190 @@
+{
+ "fixture": false,
+ "injection_at": "2026-11-23T17:19:57.210540+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [],
+  "gate_decisions": [],
+  "incidents": [],
+  "proposals": [],
+  "transitions": [],
+  "verifications": []
+ },
+ "prod_alerts": [],
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16-v0.6.0-2026-11-23",
+  "arm": {
+   "mismatch": null,
+   "name": "R3",
+   "observed": {
+    "fallbackUsed": false,
+    "mode": "llm",
+    "modelConfig": "r3-primary",
+    "modelId": "nvidia/nemotron-3-ultra-550b-a55b"
+   },
+   "written": {
+    "reasonerEffort": "",
+    "reasonerEndpoint": "http://nexus-reasoner.nexus-reasoner.svc:8080",
+    "reasonerMode": "llm",
+    "reasonerModel": "R3"
+   }
+  },
+  "attempt": 1,
+  "boot_id_end": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "boot_id_start": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "breaker_epoch": 1795453195,
+  "cell": "A/R3/S5/L3",
+  "discard_reason": null,
+  "ended_at": "2026-11-23T17:23:36.061135+00:00",
+  "fallbackUsed": false,
+  "frozen": {
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "operator_image": "sha256:7c9d15997ac78449f1580737885d0dd98107dcc8cb4ec17a17929148ccb295eb",
+   "prompt_version": "prompt/v3",
+   "reasoner_image": "sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c",
+   "score_floor": 3.1739
+  },
+  "incident": {
+   "alertname": "NexusErrorRateAnomaly",
+   "detected_at": "2026-11-23T17:21:39.823Z",
+   "name": "inc-8419006b8da738fc-1795454499",
+   "namespace": "nexus-dev",
+   "phase": "Escalated",
+   "reason": "proposed_escalation",
+   "uid": "5b00c8b2-feb9-4de6-a208-677e09bf9577"
+  },
+  "injection_at": "2026-11-23T17:19:57.210540+00:00",
+  "injection_done_at": "2026-11-23T17:19:57.608250+00:00",
+  "locust_end": {
+   "failures": [],
+   "ok": true
+  },
+  "locust_reset": {
+   "touched": false,
+   "why": []
+  },
+  "no_fault": {
+   "alerts": [
+    {
+     "alertname": "NexusErrorRateAnomaly",
+     "namespace": "nexus-dev",
+     "state": "firing"
+    }
+   ],
+   "end": "2026-11-23T17:19:56.240864+00:00",
+   "incidents": [],
+   "namespace_level": {
+    "cell": "3",
+    "observed": "3"
+   },
+   "polls": 38,
+   "seconds": 1176.0397350788116,
+   "start": "2026-11-23T17:00:20.201129+00:00"
+  },
+  "other_incidents": [],
+  "pause_gap_s": 5.133915692567825e-08,
+  "precheck": {
+   "failures": [],
+   "ok": true,
+   "polls": 38,
+   "waited_s": 1175.9646748989471
+  },
+  "prod_alerts": [],
+  "rate_end": {
+   "baseline_rps": 80,
+   "rps": {
+    "nexus-dev": 80.0,
+    "nexus-prod": 79.95276145487101
+   },
+   "tolerance": 0.1
+  },
+  "run_id": "A/R3/S5/L3#1",
+  "settle": {
+   "cap_s": 1800,
+   "incidents": [
+    {
+     "alertname": "NexusErrorRateAnomaly",
+     "detected_at": "2026-11-23T17:21:39.823Z",
+     "name": "inc-8419006b8da738fc-1795454499",
+     "namespace": "nexus-dev",
+     "phase": "Escalated",
+     "reason": "proposed_escalation",
+     "uid": "5b00c8b2-feb9-4de6-a208-677e09bf9577"
+    }
+   ],
+   "open": [],
+   "polls": 7,
+   "settle_s": 60,
+   "settled": true,
+   "waited_s": 62.41408215998672
+  },
+  "started_at": "2026-11-23T16:59:55.594742+00:00",
+  "status": "valid",
+  "terminal": "Escalated",
+  "timed_out": false,
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16-v0.6.0-2026-11-23",
+   "cell": {
+    "baseline_ref": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+    "cell": "A/R3/S5/L3",
+    "level": 3,
+    "max_attempts": 5,
+    "reasoner": "R3",
+    "scenario": "S5",
+    "tier": 1,
+    "valid_target": 3
+   }
+  },
+  "discard_reason": null,
+  "discarded": false,
+  "ended_at": "2026-11-23T17:23:36.061135+00:00",
+  "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+  "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+  "level": 3,
+  "reasoner": "R3",
+  "repetition": 1,
+  "run_id": "A/R3/S5/L3#1",
+  "scenario": "S5",
+  "started_at": "2026-11-23T16:59:55.594742+00:00"
+ },
+ "schema": "run-export/v2",
+ "score": {
+  "as_expected": true,
+  "containment_violations": 0,
+  "correct_action": true,
+  "excluded": null,
+  "expected_terminal": "Escalated",
+  "failed_fix": false,
+  "fallback": null,
+  "followed": null,
+  "frozen_mismatches": [
+   "model_id: 'nvidia/nemotron-3-ultra-550b-a55b'"
+  ],
+  "mutations": [],
+  "proposal_classes": [
+   "acceptable"
+  ],
+  "rate_end": 80.0,
+  "rate_low": false,
+  "refused": {},
+  "resolved": true,
+  "revert_pr_unneeded": false,
+  "terminal": "Escalated",
+  "timed_out": false,
+  "times": {
+   "act_s": null,
+   "detect_s": 114.78946,
+   "diagnose_s": 24.92655,
+   "gate_s": null,
+   "total_s": null,
+   "verify_s": null
+  },
+  "wrong_action": false
+ },
+ "void_reason": null
+}

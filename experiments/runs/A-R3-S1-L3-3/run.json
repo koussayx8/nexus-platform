@@ -1,0 +1,100 @@
+{
+ "fixture": false,
+ "injection_at": null,
+ "prod_alerts": null,
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16-v0.6.0-2026-11-23",
+  "arm": {
+   "name": "R3",
+   "written": {
+    "reasonerEffort": "",
+    "reasonerEndpoint": "http://nexus-reasoner.nexus-reasoner.svc:8080",
+    "reasonerMode": "llm",
+    "reasonerModel": "R3"
+   }
+  },
+  "attempt": 3,
+  "boot_id_end": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "boot_id_start": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "breaker_epoch": 1795462690,
+  "cell": "A/R3/S1/L3",
+  "discard_reason": "precheck_timeout",
+  "ended_at": "2026-11-23T20:23:28.698988+00:00",
+  "fallbackUsed": false,
+  "frozen": {
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "operator_image": "sha256:7c9d15997ac78449f1580737885d0dd98107dcc8cb4ec17a17929148ccb295eb",
+   "prompt_version": "prompt/v3",
+   "reasoner_image": "sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c",
+   "score_floor": 3.1739
+  },
+  "injection_at": null,
+  "locust_reset": {
+   "touched": false,
+   "why": []
+  },
+  "no_fault": {
+   "alerts": [
+    {
+     "alertname": "NexusRolloutStuck",
+     "namespace": "nexus-dev",
+     "state": "pending"
+    }
+   ],
+   "end": "2026-11-23T20:23:28.465144+00:00",
+   "incidents": [],
+   "namespace_level": {
+    "cell": "3",
+    "observed": "3"
+   },
+   "polls": 86,
+   "seconds": 2702.2312071323395,
+   "start": "2026-11-23T19:38:26.233937+00:00"
+  },
+  "pause_gap_s": 4.014582373201847e-07,
+  "precheck": {
+   "failures": [
+    "baseline:latencyP95:stddev=0.009455>4x0.0005073"
+   ],
+   "ok": false,
+   "polls": 86,
+   "waited_s": 2702.1864848490222
+  },
+  "prod_alerts": null,
+  "run_id": "A/R3/S1/L3#3",
+  "started_at": "2026-11-23T19:38:10.546045+00:00",
+  "status": "discarded",
+  "terminal": null,
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16-v0.6.0-2026-11-23",
+   "cell": {
+    "baseline_ref": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+    "cell": "A/R3/S1/L3",
+    "level": 3,
+    "max_attempts": 5,
+    "reasoner": "R3",
+    "scenario": "S1",
+    "tier": 1,
+    "valid_target": 3
+   }
+  },
+  "discard_reason": "precheck_timeout",
+  "discarded": true,
+  "ended_at": "2026-11-23T20:23:28.698988+00:00",
+  "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+  "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+  "level": 3,
+  "reasoner": "R3",
+  "repetition": 3,
+  "run_id": "A/R3/S1/L3#3",
+  "scenario": "S1",
+  "started_at": "2026-11-23T19:38:10.546045+00:00"
+ },
+ "schema": "run-export/v2",
+ "void_reason": null
+}

@@ -1,0 +1,14 @@
+{
+ "files": {
+  "audit.jsonl.gz": "77223debf6fe4ec13f0c99dfa50b88a1bc9c40ed43f1782ddce5681e6946a343",
+  "audit_links.jsonl": "501348f1fe93b91da4c7da3a003a26f539d019a7454042239f0f4f643c33bafa",
+  "reconciliation.json": "d52ea49697f4102ce2509b2b2d8767354b0fa328c67c9b65e6615301fccc6135",
+  "run.json": "6ab450505267fccadd052f8bdcb69aed4a4b6c75966161d6481df502bed267bf",
+  "tables.json": "912b12014da0f20915d58cee5eaf32b07b2f4d088af2688839c75e7047740e53"
+ },
+ "fixture": false,
+ "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+ "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+ "run_id": "A/R1/S1/L3#3",
+ "schema": "run-export/v2"
+}

@@ -1,0 +1,402 @@
+{
+ "actions": [
+  {
+   "action_class": "executed",
+   "action_id": "restart_workload",
+   "audit_id": "1bbcba8e-cfad-42e7-9e40-b92c019c3f82",
+   "http_status": 201,
+   "idempotency_key": "inc-669532275a7b73d2-1795455939-1",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "intent_at": "2026-11-23T17:46:19.340227+00:00",
+   "parameters": {
+    "pod": "sample-api-8584d9b79c-74bjk"
+   },
+   "previous_state": {
+    "pod": "sample-api-8584d9b79c-74bjk",
+    "uid": "cc39b388-c34f-46f7-99c6-3c97d3d80921"
+   },
+   "request_at": "2026-11-23T17:46:19.344276+00:00",
+   "result": "applied"
+  },
+  {
+   "action_class": "executed",
+   "action_id": "restart_workload",
+   "audit_id": "c6b63222-9e22-464c-ada2-ab6abcadf120",
+   "http_status": 201,
+   "idempotency_key": "inc-669532275a7b73d2-1795455939-2",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "intent_at": "2026-11-23T17:46:30.241215+00:00",
+   "parameters": {
+    "pod": "sample-api-8584d9b79c-gt7g5"
+   },
+   "previous_state": {
+    "pod": "sample-api-8584d9b79c-gt7g5",
+    "uid": "1d151ff8-bfdb-4a54-91d7-e3851f405a0b"
+   },
+   "request_at": "2026-11-23T17:46:30.243962+00:00",
+   "result": "applied"
+  }
+ ],
+ "evidence_bundles": [
+  {
+   "bundle_hash": "sha256:890007ba957de3581bb7ccf479af62a11355ccbf875e6d13201f01150268dafc",
+   "collected_at": "2026-11-23T17:46:09.188813+00:00",
+   "content": {
+    "cluster": {
+     "activeAlerts": []
+    },
+    "collectedAt": "2026-11-23T17:46:09Z",
+    "events": [],
+    "gitops": {
+     "application": "sample-api-dev",
+     "health": "Healthy",
+     "lastCommit": {
+      "message": null,
+      "sha": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0"
+     },
+     "revision": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+     "sync": "Synced"
+    },
+    "hash": "sha256:890007ba957de3581bb7ccf479af62a11355ccbf875e6d13201f01150268dafc",
+    "incident": {
+     "alerts": [
+      {
+       "name": "NexusLatencyAnomaly",
+       "startedAt": "2026-11-23T17:45:39.823Z"
+      }
+     ],
+     "note": null,
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     },
+     "uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe"
+    },
+    "logs": {
+     "current": [],
+     "previous": [],
+     "sources": [
+      {
+       "current": 0,
+       "pod": "sample-api-8584d9b79c-74bjk",
+       "previous": 0
+      },
+      {
+       "current": 0,
+       "pod": "sample-api-8584d9b79c-gt7g5",
+       "previous": 0
+      }
+     ]
+    },
+    "metrics": {
+     "errorRatio": 0.0,
+     "window": "30m",
+     "zscores": {
+      "cpu": -7.189861896154557,
+      "errorRatio": 0.0,
+      "inflight": 80.0,
+      "latencyP95": -0.021259095344761808,
+      "requestRate": -61.9047619047619
+     }
+    },
+    "pods": [
+     {
+      "containers": [
+       {
+        "lastTermination": null,
+        "reason": null,
+        "state": "running"
+       }
+      ],
+      "name": "sample-api-8584d9b79c-74bjk",
+      "ready": true,
+      "restarts": 0
+     },
+     {
+      "containers": [
+       {
+        "lastTermination": null,
+        "reason": null,
+        "state": "running"
+       }
+      ],
+      "name": "sample-api-8584d9b79c-gt7g5",
+      "ready": true,
+      "restarts": 0
+     }
+    ],
+    "redaction": {
+     "counts": {
+      "bearer": 0,
+      "email": 0,
+      "ip": 0,
+      "jwt": 0,
+      "key": 0,
+      "password": 0,
+      "private_key": 0,
+      "token": 0,
+      "url_credential": 0
+     }
+    },
+    "schema": "evidence/v1.2",
+    "workload": {
+     "currentRevision": {
+      "imageDigest": "sha256:2de0e02520e64613bf9c8a2dd7ce6bebb350ff7634b8210b2b85f505d7620251",
+      "replicaSet": "sample-api-8584d9b79c"
+     },
+     "desired": 2,
+     "podSpec": [
+      {
+       "envFrom": [],
+       "envNames": [
+        "DB_HOST",
+        "DB_NAME",
+        "DB_PASSWORD",
+        "DB_USER",
+        "NEXUS_FAULTS_ENABLED"
+       ],
+       "image": "ghcr.io/koussayx8/nexus-platform/sample-api@sha256:2de0e02520e64613bf9c8a2dd7ce6bebb350ff7634b8210b2b85f505d7620251",
+       "livenessProbe": "httpGet /health :http, period 15s, failures 3, delay 5s, timeout 3s",
+       "name": "sample-api",
+       "ports": [
+        8000
+       ],
+       "readinessProbe": "httpGet /ready :http, period 10s, failures 2, delay 3s, timeout 3s",
+       "resources": "{\"limits\": {\"cpu\": \"1\", \"memory\": \"128Mi\"}, \"requests\": {\"cpu\": \"50m\", \"memory\": \"64Mi\"}}",
+       "startupProbe": "httpGet /health :http, period 5s, failures 10, delay 2s, timeout 1s"
+      }
+     ],
+     "previousRevisions": [
+      "sample-api-6b4c9d66",
+      "sample-api-569d9c96bf",
+      "sample-api-6f6c49d994"
+     ],
+     "ready": 2,
+     "rolloutDiff": [],
+     "rolloutInProgress": false,
+     "updated": 2
+    }
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "redaction_counts": {
+    "bearer": 0,
+    "email": 0,
+    "ip": 0,
+    "jwt": 0,
+    "key": 0,
+    "password": 0,
+    "private_key": 0,
+    "token": 0,
+    "url_credential": 0
+   },
+   "schema_version": "evidence/v1.2"
+  }
+ ],
+ "gate_decisions": [
+  {
+   "at": "2026-11-23T17:46:14.356525+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 1,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T17:46:14.358895+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 2,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T17:46:14.360696+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 3,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T17:46:14.362631+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 4,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T17:46:14.364042+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 5,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T17:46:14.365429+00:00",
+   "detail": {
+    "detail": ""
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 6,
+   "verdict": "pass"
+  },
+  {
+   "at": "2026-11-23T17:46:14.366895+00:00",
+   "detail": {
+    "detail": "audit-id b6740400-11ac-4578-a0dd-25f83c2f718e"
+   },
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "stage": 7,
+   "verdict": "pass"
+  }
+ ],
+ "incidents": [
+  {
+   "detected_at": "2026-11-23T17:45:39.823+00:00",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": "remediation_verified",
+   "run_id": "A/R1/S1/L3#2",
+   "source": "detector",
+   "target": "nexus-dev/sample-api",
+   "terminal_phase": "Resolved"
+  }
+ ],
+ "proposals": [
+  {
+   "fallback_used": false,
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "index_hash": null,
+   "latency_ms": null,
+   "model_id": null,
+   "parsed_proposal": {
+    "abstain": false,
+    "action": {
+     "id": "restart_workload",
+     "parameters": {},
+     "target": {
+      "kind": "Deployment",
+      "name": "sample-api",
+      "namespace": "nexus-dev"
+     }
+    },
+    "confidence": 1.0,
+    "escalation": null,
+    "evidenceRefs": [
+     "metrics.zscores.inflight",
+     "metrics.zscores.requestRate",
+     "metrics.zscores.cpu"
+    ],
+    "expectedEffect": "Requests pile up in flight while the completed rate drops; CPU is flat and every pod is Ready",
+    "hypothesis": {
+     "faultClass": "gray_failure",
+     "summary": "Requests pile up in flight while the completed rate drops; CPU is flat and every pod is Ready"
+    },
+    "runbookRefs": [],
+    "schema": "proposal/v1"
+   },
+   "prompt_version": null,
+   "proposal_hash": "sha256:0f58988868ee4e4822c6b6c836205c5cbe670e99e5f7f7d1bf430a5f3024d3a6",
+   "raw_output": null,
+   "reasoner_mode": "rules",
+   "reasoning": null,
+   "reject_reason": null,
+   "request_id": null,
+   "retrieved_chunk_ids": [],
+   "schema_valid": true,
+   "usage": null
+  }
+ ],
+ "transitions": [
+  {
+   "at": "2026-11-23T17:45:54+00:00",
+   "from_phase": null,
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": null,
+   "seq": 0,
+   "stage": "Incident Reconciler",
+   "to_phase": "Detected"
+  },
+  {
+   "at": "2026-11-23T17:46:04.302497+00:00",
+   "from_phase": "Detected",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": null,
+   "seq": 1,
+   "stage": "Incident Reconciler",
+   "to_phase": "Diagnosing"
+  },
+  {
+   "at": "2026-11-23T17:46:09.428635+00:00",
+   "from_phase": "Diagnosing",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": null,
+   "seq": 2,
+   "stage": "Evidence Collector",
+   "to_phase": "Proposed"
+  },
+  {
+   "at": "2026-11-23T17:46:14.374924+00:00",
+   "from_phase": "Proposed",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": null,
+   "seq": 4,
+   "stage": "Safety Gate",
+   "to_phase": "Executing"
+  },
+  {
+   "at": "2026-11-23T17:46:34.346705+00:00",
+   "from_phase": "Executing",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": null,
+   "seq": 5,
+   "stage": "Action Executor",
+   "to_phase": "Verifying"
+  },
+  {
+   "at": "2026-11-23T17:50:19.445238+00:00",
+   "from_phase": "Verifying",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "reason": "remediation_verified",
+   "seq": 7,
+   "stage": "Verifier",
+   "to_phase": "Resolved"
+  }
+ ],
+ "verifications": [
+  {
+   "at": "2026-11-23T17:50:19.359564+00:00",
+   "criteria_id": "restart_v2",
+   "incident_uid": "8feea0e0-9736-4ddf-9f84-3e02f40c62fe",
+   "observations": {
+    "allReady": true,
+    "baselineP95": 0.01932087120822468,
+    "elapsedS": 225,
+    "p95": 0.025773275862068963,
+    "restarts": 0,
+    "signals": {
+     "inflight": {
+      "value": 0.0,
+      "within": true
+     },
+     "latencyP95": {
+      "value": 0.025773275862068963,
+      "within": true
+     },
+     "requestRate": {
+      "value": 80.02857142857142,
+      "within": true
+     }
+    }
+   },
+   "result": "met"
+  }
+ ]
+}
