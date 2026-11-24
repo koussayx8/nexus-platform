@@ -1,0 +1,10 @@
+Metric,Value
+false_retrieval_rate_at_floor,0
+false_retrieval_rate_no_floor,1
+in_corpus_queries,24
+mrr,0.8583
+out_of_corpus_queries,6
+proposed_floor,3.174
+recall_at_1,0.7917
+recall_at_1_at_floor,0.5417
+recall_at_3,0.9167

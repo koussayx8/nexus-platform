@@ -1,0 +1,5 @@
+Cell,State,Valid,Counted,Target,Attempts,Cap,Void,Discarded
+A/R1/S1/L3,done,3,3,3,3,5,0,0
+A/R3/S1/L3,done,3,3,3,5,5,1,1
+A/R1/S5/L3,done,3,3,3,3,5,0,0
+A/R3/S5/L3,done,3,3,3,3,5,0,0

@@ -1,0 +1,209 @@
+{
+ "fixture": false,
+ "injection_at": "2026-11-23T21:11:59.535125+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [],
+  "gate_decisions": [],
+  "incidents": [],
+  "proposals": [],
+  "transitions": [],
+  "verifications": []
+ },
+ "prod_alerts": [],
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16-v0.6.0-2026-11-23",
+  "arm": {
+   "mismatch": null,
+   "name": "R3",
+   "observed": {
+    "fallbackUsed": false,
+    "mode": "llm",
+    "modelConfig": "r3-primary",
+    "modelId": "nvidia/nemotron-3-ultra-550b-a55b"
+   },
+   "written": {
+    "reasonerEffort": "",
+    "reasonerEndpoint": "http://nexus-reasoner.nexus-reasoner.svc:8080",
+    "reasonerMode": "llm",
+    "reasonerModel": "R3"
+   }
+  },
+  "attempt": 5,
+  "boot_id_end": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "boot_id_start": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "breaker_epoch": 1795467087,
+  "cell": "A/R3/S1/L3",
+  "discard_reason": null,
+  "ended_at": "2026-11-23T21:18:56.065946+00:00",
+  "fallbackUsed": false,
+  "frozen": {
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "operator_image": "sha256:7c9d15997ac78449f1580737885d0dd98107dcc8cb4ec17a17929148ccb295eb",
+   "prompt_version": "prompt/v3",
+   "reasoner_image": "sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c",
+   "score_floor": 3.1739
+  },
+  "incident": {
+   "alertname": "NexusLatencyAnomaly",
+   "detected_at": "2026-11-23T21:13:09.823Z",
+   "name": "inc-669532275a7b73d2-1795468389",
+   "namespace": "nexus-dev",
+   "phase": "Resolved",
+   "reason": "remediation_verified",
+   "uid": "e807f4e3-77f0-48e1-b4d2-667e0125dbd5"
+  },
+  "injection_at": "2026-11-23T21:11:59.535125+00:00",
+  "injection_done_at": "2026-11-23T21:12:00.387305+00:00",
+  "locust_end": {
+   "failures": [],
+   "ok": true
+  },
+  "locust_reset": {
+   "touched": false,
+   "why": []
+  },
+  "no_fault": {
+   "alerts": [
+    {
+     "alertname": "NexusLatencyAnomaly",
+     "namespace": "nexus-prod",
+     "state": "firing"
+    }
+   ],
+   "end": "2026-11-23T21:11:58.320319+00:00",
+   "incidents": [],
+   "namespace_level": {
+    "cell": "3",
+    "observed": "3"
+   },
+   "polls": 39,
+   "seconds": 1205.6249210834503,
+   "start": "2026-11-23T20:51:52.695398+00:00"
+  },
+  "other_incidents": [],
+  "pause_gap_s": -5.402835085988045e-07,
+  "precheck": {
+   "failures": [],
+   "ok": true,
+   "polls": 39,
+   "waited_s": 1205.5662655750057
+  },
+  "prod_alerts": [],
+  "rate_end": {
+   "baseline_rps": 80,
+   "rps": {
+    "nexus-dev": 79.99999999999999,
+    "nexus-prod": 79.99999999999999
+   },
+   "tolerance": 0.1
+  },
+  "run_id": "A/R3/S1/L3#5",
+  "settle": {
+   "cap_s": 1800,
+   "incidents": [
+    {
+     "alertname": "NexusLatencyAnomaly",
+     "detected_at": "2026-11-23T21:13:09.823Z",
+     "name": "inc-669532275a7b73d2-1795468389",
+     "namespace": "nexus-dev",
+     "phase": "Resolved",
+     "reason": "remediation_verified",
+     "uid": "e807f4e3-77f0-48e1-b4d2-667e0125dbd5"
+    }
+   ],
+   "open": [],
+   "polls": 7,
+   "settle_s": 60,
+   "settled": true,
+   "waited_s": 63.59446515300078
+  },
+  "started_at": "2026-11-23T20:51:27.813509+00:00",
+  "status": "valid",
+  "terminal": "Resolved",
+  "timed_out": false,
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16-v0.6.0-2026-11-23",
+   "cell": {
+    "baseline_ref": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+    "cell": "A/R3/S1/L3",
+    "level": 3,
+    "max_attempts": 5,
+    "reasoner": "R3",
+    "scenario": "S1",
+    "tier": 1,
+    "valid_target": 3
+   }
+  },
+  "discard_reason": null,
+  "discarded": false,
+  "ended_at": "2026-11-23T21:18:56.065946+00:00",
+  "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+  "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+  "level": 3,
+  "reasoner": "R3",
+  "repetition": 5,
+  "run_id": "A/R3/S1/L3#5",
+  "scenario": "S1",
+  "started_at": "2026-11-23T20:51:27.813509+00:00"
+ },
+ "schema": "run-export/v2",
+ "score": {
+  "as_expected": true,
+  "containment_violations": 0,
+  "correct_action": true,
+  "excluded": null,
+  "expected_terminal": "Resolved",
+  "failed_fix": false,
+  "fallback": null,
+  "followed": null,
+  "frozen_mismatches": [],
+  "mutations": [
+   {
+    "action": "restart_workload",
+    "audit_id": "6249dec7-fe1a-4c86-bb97-6a05f22f6030",
+    "before_injection": false,
+    "class": "acceptable",
+    "incident_uid": "e807f4e3-77f0-48e1-b4d2-667e0125dbd5",
+    "parameters": {
+     "pod": "sample-api-54f76597dd-nwsjz"
+    }
+   },
+   {
+    "action": "restart_workload",
+    "audit_id": "cfafe67e-de35-406c-9dfd-bd2c29bf9ec5",
+    "before_injection": false,
+    "class": "acceptable",
+    "incident_uid": "e807f4e3-77f0-48e1-b4d2-667e0125dbd5",
+    "parameters": {
+     "pod": "sample-api-54f76597dd-m7sxv"
+    }
+   }
+  ],
+  "proposal_classes": [
+   "acceptable"
+  ],
+  "rate_end": 79.99999999999999,
+  "rate_low": false,
+  "refused": {},
+  "resolved": true,
+  "revert_pr_unneeded": false,
+  "terminal": "Resolved",
+  "timed_out": false,
+  "times": {
+   "act_s": 19.961233,
+   "detect_s": 84.464875,
+   "diagnose_s": 14.894546,
+   "gate_s": 5.124085,
+   "total_s": 350.74644,
+   "verify_s": 220.78789
+  },
+  "wrong_action": false
+ },
+ "void_reason": null
+}

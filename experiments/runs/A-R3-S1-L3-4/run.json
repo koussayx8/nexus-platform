@@ -1,0 +1,162 @@
+{
+ "fixture": false,
+ "injection_at": "2026-11-23T20:44:00.690013+00:00",
+ "prod_alerts": [
+  {
+   "alertname": "NexusLatencyAnomaly",
+   "state": "firing"
+  },
+  {
+   "alertname": "NexusLatencyAnomaly",
+   "state": "pending"
+  }
+ ],
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16-v0.6.0-2026-11-23",
+  "arm": {
+   "name": "R3",
+   "written": {
+    "reasonerEffort": "",
+    "reasonerEndpoint": "http://nexus-reasoner.nexus-reasoner.svc:8080",
+    "reasonerMode": "llm",
+    "reasonerModel": "R3"
+   }
+  },
+  "attempt": 4,
+  "boot_id_end": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "boot_id_start": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "breaker_epoch": 1795465408,
+  "cell": "A/R3/S1/L3",
+  "discard_reason": null,
+  "ended_at": "2026-11-23T20:51:27.804080+00:00",
+  "fallbackUsed": false,
+  "frozen": {
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "operator_image": "sha256:7c9d15997ac78449f1580737885d0dd98107dcc8cb4ec17a17929148ccb295eb",
+   "prompt_version": "prompt/v3",
+   "reasoner_image": "sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c",
+   "score_floor": 3.1739
+  },
+  "incident": {
+   "alertname": "NexusLatencyAnomaly",
+   "detected_at": "2026-11-23T20:45:39.823Z",
+   "name": "inc-669532275a7b73d2-1795466739",
+   "namespace": "nexus-dev",
+   "phase": "Resolved",
+   "reason": "remediation_verified",
+   "uid": "e14d70b0-93b1-4141-9fa1-0b5b9be12e04"
+  },
+  "injection_at": "2026-11-23T20:44:00.690013+00:00",
+  "injection_done_at": "2026-11-23T20:44:01.513058+00:00",
+  "locust_end": {
+   "failures": [],
+   "ok": true
+  },
+  "locust_reset": {
+   "touched": false,
+   "why": []
+  },
+  "no_fault": {
+   "alerts": [],
+   "end": "2026-11-23T20:43:59.892087+00:00",
+   "incidents": [],
+   "namespace_level": {
+    "cell": "3",
+    "observed": "3"
+   },
+   "polls": 39,
+   "seconds": 1205.4509813785553,
+   "start": "2026-11-23T20:23:54.441105+00:00"
+  },
+  "other_incidents": [
+   {
+    "alertname": "NexusLatencyAnomaly",
+    "detected_at": "2026-11-23T20:49:39.823Z",
+    "name": "inc-a676334b7210ccba-1795466979",
+    "namespace": "nexus-prod",
+    "phase": "Diagnosing",
+    "reason": null,
+    "uid": "abfe55d9-d52a-48e4-8384-2cabd6b775e1"
+   }
+  ],
+  "pause_gap_s": 3.754394128918648e-07,
+  "precheck": {
+   "failures": [],
+   "ok": true,
+   "polls": 39,
+   "waited_s": 1205.4067063870025
+  },
+  "prod_alerts": [
+   {
+    "alertname": "NexusLatencyAnomaly",
+    "state": "firing"
+   },
+   {
+    "alertname": "NexusLatencyAnomaly",
+    "state": "pending"
+   }
+  ],
+  "rate_end": {
+   "baseline_rps": 80,
+   "rps": {
+    "nexus-dev": 80.0,
+    "nexus-prod": 80.00038095600911
+   },
+   "tolerance": 0.1
+  },
+  "run_id": "A/R3/S1/L3#4",
+  "settle": {
+   "cap_s": 1800,
+   "incidents": [
+    {
+     "alertname": "NexusLatencyAnomaly",
+     "detected_at": "2026-11-23T20:45:39.823Z",
+     "name": "inc-669532275a7b73d2-1795466739",
+     "namespace": "nexus-dev",
+     "phase": "Resolved",
+     "reason": "remediation_verified",
+     "uid": "e14d70b0-93b1-4141-9fa1-0b5b9be12e04"
+    }
+   ],
+   "open": [],
+   "polls": 7,
+   "settle_s": 60,
+   "settled": true,
+   "waited_s": 61.9861416729982
+  },
+  "started_at": "2026-11-23T20:23:28.710246+00:00",
+  "status": "void",
+  "terminal": null,
+  "void_reason": "host_disturbance"
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16-v0.6.0-2026-11-23",
+   "cell": {
+    "baseline_ref": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+    "cell": "A/R3/S1/L3",
+    "level": 3,
+    "max_attempts": 5,
+    "reasoner": "R3",
+    "scenario": "S1",
+    "tier": 1,
+    "valid_target": 3
+   }
+  },
+  "discard_reason": "host_disturbance",
+  "discarded": true,
+  "ended_at": "2026-11-23T20:51:27.804080+00:00",
+  "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+  "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+  "level": 3,
+  "reasoner": "R3",
+  "repetition": 4,
+  "run_id": "A/R3/S1/L3#4",
+  "scenario": "S1",
+  "started_at": "2026-11-23T20:23:28.710246+00:00"
+ },
+ "schema": "run-export/v2",
+ "void_reason": "host_disturbance"
+}

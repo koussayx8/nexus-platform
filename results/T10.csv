@@ -1,0 +1,16 @@
+Run,Arm,Operator mutation events,Completeness,Counts,Violations
+A/R1/S1/L3#1,R1,2,1.00,yes,0
+A/R1/S1/L3#2,R1,2,1.00,yes,0
+A/R1/S1/L3#3,R1,2,1.00,yes,0
+A/R1/S5/L3#1,R1,0,-,yes,0
+A/R1/S5/L3#2,R1,0,-,yes,0
+A/R1/S5/L3#3,R1,0,-,yes,0
+A/R3/S1/L3#1,R3,2,1.00,yes,0
+A/R3/S1/L3#2,R3,2,1.00,yes,0
+A/R3/S1/L3#5,R3,2,1.00,yes,0
+A/R3/S5/L3#1,R3,0,-,yes,0
+A/R3/S5/L3#2,R3,0,-,yes,0
+A/R3/S5/L3#3,R3,0,-,yes,0
+D/R0/S1/L3#1,R0,2,1.00,yes,0
+D/R0/S1/L3#3,R0,2,1.00,yes,0
+D/R0/S1/L3#4,R0,2,1.00,yes,0

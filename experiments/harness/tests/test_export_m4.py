@@ -21,8 +21,8 @@ INDEX = "ab" * 32
 PRE = {"clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "errorRatio": 0.005, "requests": 3.0},
        "locust": {"baseline_users": 160, "baseline_rps_per_namespace": 80}, "reasoner": {"expected_index_hash": INDEX}}  # fmt: skip
 FROZEN = {
-    "model_id": arms.ARMS["R3"]["model"],
-    "prompt_version": "prompt/v1",
+    "model_id": arms.ARMS["R3"]["model_id"],
+    "prompt_version": "prompt/v3",
     "index_hash": INDEX,
 }
 P = sample_data.proposal

@@ -1,0 +1,10 @@
+{
+ "files": {
+  "run.json": "50ed7c3c752859b3cb01116373f03abbfe6e5d0df5db707635431b68f3e2dd70"
+ },
+ "fixture": false,
+ "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+ "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+ "run_id": "A/R3/S1/L3#3",
+ "schema": "run-export/v2"
+}

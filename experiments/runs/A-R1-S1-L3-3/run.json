@@ -1,0 +1,605 @@
+{
+ "fixture": false,
+ "injection_at": "2026-11-23T19:29:12.971430+00:00",
+ "other_incidents": {
+  "actions": [],
+  "evidence_bundles": [
+   {
+    "bundle_hash": "sha256:c1406fb057a829d73416c608a92c127ceba1d8da1d974033b03130ee6fef6fa8",
+    "collected_at": "2026-11-23T19:36:55.977584+00:00",
+    "content": {
+     "cluster": {
+      "activeAlerts": []
+     },
+     "collectedAt": "2026-11-23T19:36:55Z",
+     "events": [
+      {
+       "count": 3,
+       "lastSeen": "2026-11-23T19:31:48Z",
+       "reason": "Unhealthy",
+       "type": "Warning"
+      },
+      {
+       "count": 3,
+       "lastSeen": "2026-11-23T19:31:42Z",
+       "reason": "Unhealthy",
+       "type": "Warning"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:26Z",
+       "reason": "Pulled",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:26Z",
+       "reason": "Created",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:26Z",
+       "reason": "Started",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:25Z",
+       "reason": "Scheduled",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:25Z",
+       "reason": "Killing",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:25Z",
+       "reason": "SuccessfulCreate",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:16Z",
+       "reason": "Scheduled",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:16Z",
+       "reason": "Pulled",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:16Z",
+       "reason": "Created",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:16Z",
+       "reason": "Started",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:16Z",
+       "reason": "SuccessfulCreate",
+       "type": "Normal"
+      },
+      {
+       "count": 1,
+       "lastSeen": "2026-11-23T19:31:15Z",
+       "reason": "Killing",
+       "type": "Normal"
+      }
+     ],
+     "gitops": {
+      "application": "sample-api-dev",
+      "health": "Healthy",
+      "lastCommit": {
+       "message": null,
+       "sha": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0"
+      },
+      "revision": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+      "sync": "Synced"
+     },
+     "hash": "sha256:c1406fb057a829d73416c608a92c127ceba1d8da1d974033b03130ee6fef6fa8",
+     "incident": {
+      "alerts": [
+       {
+        "name": "NexusLatencyAnomaly",
+        "startedAt": "2026-11-23T19:34:39.823Z"
+       }
+      ],
+      "note": null,
+      "target": {
+       "kind": "Deployment",
+       "name": "sample-api",
+       "namespace": "nexus-dev"
+      },
+      "uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6"
+     },
+     "logs": {
+      "current": [
+       "INFO:     Started server process [1]",
+       "INFO:     Waiting for application startup.",
+       "INFO:     Application startup complete.",
+       "INFO:     Uvicorn running on http://[REDACTED:ip]:8000 (Press CTRL+C to quit)",
+       "INFO:     Started server process [1]",
+       "INFO:     Waiting for application startup.",
+       "INFO:     Application startup complete.",
+       "INFO:     Uvicorn running on http://[REDACTED:ip]:8000 (Press CTRL+C to quit)"
+      ],
+      "previous": [],
+      "sources": [
+       {
+        "current": 4,
+        "pod": "sample-api-66b98b4456-87lwq",
+        "previous": 0
+       },
+       {
+        "current": 4,
+        "pod": "sample-api-66b98b4456-hqrcf",
+        "previous": 0
+       }
+      ]
+     },
+     "metrics": {
+      "errorRatio": 0.0,
+      "window": "30m",
+      "zscores": {
+       "cpu": 1.5752241138962193,
+       "errorRatio": 0.0,
+       "inflight": -0.4000000000000001,
+       "latencyP95": 3.511225626898091,
+       "requestRate": 0.5508891077630782
+      }
+     },
+     "pods": [
+      {
+       "containers": [
+        {
+         "lastTermination": null,
+         "reason": null,
+         "state": "running"
+        }
+       ],
+       "name": "sample-api-66b98b4456-87lwq",
+       "ready": true,
+       "restarts": 0
+      },
+      {
+       "containers": [
+        {
+         "lastTermination": null,
+         "reason": null,
+         "state": "running"
+        }
+       ],
+       "name": "sample-api-66b98b4456-hqrcf",
+       "ready": true,
+       "restarts": 0
+      }
+     ],
+     "redaction": {
+      "counts": {
+       "bearer": 0,
+       "email": 0,
+       "ip": 2,
+       "jwt": 0,
+       "key": 0,
+       "password": 0,
+       "private_key": 0,
+       "token": 0,
+       "url_credential": 0
+      }
+     },
+     "schema": "evidence/v1.2",
+     "workload": {
+      "currentRevision": {
+       "imageDigest": "sha256:2de0e02520e64613bf9c8a2dd7ce6bebb350ff7634b8210b2b85f505d7620251",
+       "replicaSet": "sample-api-66b98b4456"
+      },
+      "desired": 2,
+      "podSpec": [
+       {
+        "envFrom": [],
+        "envNames": [
+         "DB_HOST",
+         "DB_NAME",
+         "DB_PASSWORD",
+         "DB_USER",
+         "NEXUS_FAULTS_ENABLED"
+        ],
+        "image": "ghcr.io/koussayx8/nexus-platform/sample-api@sha256:2de0e02520e64613bf9c8a2dd7ce6bebb350ff7634b8210b2b85f505d7620251",
+        "livenessProbe": "httpGet /health :http, period 15s, failures 3, delay 5s, timeout 3s",
+        "name": "sample-api",
+        "ports": [
+         8000
+        ],
+        "readinessProbe": "httpGet /ready :http, period 10s, failures 2, delay 3s, timeout 3s",
+        "resources": "{\"limits\": {\"cpu\": \"1\", \"memory\": \"128Mi\"}, \"requests\": {\"cpu\": \"50m\", \"memory\": \"64Mi\"}}",
+        "startupProbe": "httpGet /health :http, period 5s, failures 10, delay 2s, timeout 1s"
+       }
+      ],
+      "previousRevisions": [
+       "sample-api-54d4494477",
+       "sample-api-7744c9c656",
+       "sample-api-779dc5cbf4"
+      ],
+      "ready": 2,
+      "rolloutDiff": [],
+      "rolloutInProgress": false,
+      "updated": 2
+     }
+    },
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "redaction_counts": {
+     "bearer": 0,
+     "email": 0,
+     "ip": 2,
+     "jwt": 0,
+     "key": 0,
+     "password": 0,
+     "private_key": 0,
+     "token": 0,
+     "url_credential": 0
+    },
+    "schema_version": "evidence/v1.2"
+   }
+  ],
+  "gate_decisions": [
+   {
+    "at": "2026-11-23T19:37:01.272332+00:00",
+    "detail": {
+     "detail": ""
+    },
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "stage": 1,
+    "verdict": "pass"
+   },
+   {
+    "at": "2026-11-23T19:37:01.275967+00:00",
+    "detail": {
+     "detail": ""
+    },
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "stage": 2,
+    "verdict": "pass"
+   },
+   {
+    "at": "2026-11-23T19:37:01.278335+00:00",
+    "detail": {
+     "detail": ""
+    },
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "stage": 3,
+    "verdict": "pass"
+   }
+  ],
+  "incidents": [
+   {
+    "detected_at": "2026-11-23T19:34:39.823+00:00",
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "reason": "proposed_escalation",
+    "run_id": null,
+    "source": "detector",
+    "target": "nexus-dev/sample-api",
+    "terminal_phase": "Escalated"
+   }
+  ],
+  "proposals": [
+   {
+    "fallback_used": false,
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "index_hash": null,
+    "latency_ms": null,
+    "model_id": null,
+    "parsed_proposal": {
+     "abstain": false,
+     "action": {
+      "id": "escalate",
+      "parameters": {},
+      "target": {
+       "kind": "Deployment",
+       "name": "sample-api",
+       "namespace": "nexus-dev"
+      }
+     },
+     "confidence": 1.0,
+     "escalation": {
+      "reason": "No rule matches the evidence",
+      "recommendation": {
+       "detail": "No rule matches the evidence",
+       "kind": "investigate"
+      }
+     },
+     "evidenceRefs": [
+      "metrics.zscores"
+     ],
+     "expectedEffect": "No rule matches the evidence",
+     "hypothesis": {
+      "faultClass": "unknown",
+      "summary": "No rule matches the evidence"
+     },
+     "runbookRefs": [],
+     "schema": "proposal/v1"
+    },
+    "prompt_version": null,
+    "proposal_hash": "sha256:3a69b42e8761478689fe05819d332f3f7e0bb16cabd8834d07ad178536dbf7bb",
+    "raw_output": null,
+    "reasoner_mode": "rules",
+    "reasoning": null,
+    "reject_reason": null,
+    "request_id": null,
+    "retrieved_chunk_ids": [],
+    "schema_valid": true,
+    "usage": null
+   }
+  ],
+  "transitions": [
+   {
+    "at": "2026-11-23T19:36:41+00:00",
+    "from_phase": null,
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "reason": null,
+    "seq": 0,
+    "stage": "Incident Reconciler",
+    "to_phase": "Detected"
+   },
+   {
+    "at": "2026-11-23T19:36:51.258667+00:00",
+    "from_phase": "Detected",
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "reason": null,
+    "seq": 1,
+    "stage": "Incident Reconciler",
+    "to_phase": "Diagnosing"
+   },
+   {
+    "at": "2026-11-23T19:36:56.372331+00:00",
+    "from_phase": "Diagnosing",
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "reason": null,
+    "seq": 2,
+    "stage": "Evidence Collector",
+    "to_phase": "Proposed"
+   },
+   {
+    "at": "2026-11-23T19:37:01.280916+00:00",
+    "from_phase": "Proposed",
+    "incident_uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6",
+    "reason": "proposed_escalation",
+    "seq": 7,
+    "stage": "Safety Gate",
+    "to_phase": "Escalated"
+   }
+  ],
+  "verifications": []
+ },
+ "prod_alerts": [],
+ "queue_record": {
+  "advisory_checks": "on",
+  "approval_ref": "G16-v0.6.0-2026-11-23",
+  "arm": {
+   "mismatch": null,
+   "name": "R1",
+   "observed": {
+    "fallbackUsed": false,
+    "mode": "rules",
+    "modelConfig": null,
+    "modelId": null
+   },
+   "written": {
+    "reasonerEffort": "",
+    "reasonerEndpoint": "",
+    "reasonerMode": "rules",
+    "reasonerModel": ""
+   }
+  },
+  "attempt": 3,
+  "boot_id_end": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "boot_id_start": "2fe844df-9031-4a99-b8c6-9581d3dabc59",
+  "breaker_epoch": 1795460923,
+  "cell": "A/R1/S1/L3",
+  "discard_reason": null,
+  "ended_at": "2026-11-23T19:38:10.533443+00:00",
+  "fallbackUsed": false,
+  "frozen": {
+   "index_hash": "fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8",
+   "operator_image": "sha256:7c9d15997ac78449f1580737885d0dd98107dcc8cb4ec17a17929148ccb295eb",
+   "prompt_version": "prompt/v3",
+   "reasoner_image": "sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c",
+   "score_floor": 3.1739
+  },
+  "incident": {
+   "alertname": "NexusLatencyAnomaly",
+   "detected_at": "2026-11-23T19:30:39.823Z",
+   "name": "inc-669532275a7b73d2-1795462239",
+   "namespace": "nexus-dev",
+   "phase": "Escalated",
+   "reason": "verification_failed",
+   "uid": "4ee6fd62-d289-4821-b51d-f175b118fc3f"
+  },
+  "injection_at": "2026-11-23T19:29:12.971430+00:00",
+  "injection_done_at": "2026-11-23T19:29:13.924683+00:00",
+  "locust_end": {
+   "failures": [],
+   "ok": true
+  },
+  "locust_reset": {
+   "touched": false,
+   "why": []
+  },
+  "no_fault": {
+   "alerts": [
+    {
+     "alertname": "NexusErrorRateAnomaly",
+     "namespace": "nexus-dev",
+     "state": "firing"
+    },
+    {
+     "alertname": "NexusRolloutStuck",
+     "namespace": "nexus-dev",
+     "state": "pending"
+    }
+   ],
+   "end": "2026-11-23T19:29:12.354781+00:00",
+   "incidents": [],
+   "namespace_level": {
+    "cell": "3",
+    "observed": "3"
+   },
+   "polls": 39,
+   "seconds": 1203.8583979606628,
+   "start": "2026-11-23T19:09:08.496383+00:00"
+  },
+  "other_incidents": [
+   {
+    "alertname": "NexusLatencyAnomaly",
+    "detected_at": "2026-11-23T19:34:39.823Z",
+    "name": "inc-669532275a7b73d2-1795462479",
+    "namespace": "nexus-dev",
+    "phase": null,
+    "reason": null,
+    "uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6"
+   }
+  ],
+  "pause_gap_s": 2.968590706586838e-07,
+  "precheck": {
+   "failures": [],
+   "ok": true,
+   "polls": 39,
+   "waited_s": 1203.8119438429712
+  },
+  "prod_alerts": [],
+  "rate_end": {
+   "baseline_rps": 80,
+   "rps": {
+    "nexus-dev": 79.99999999999999,
+    "nexus-prod": 80.0003809560091
+   },
+   "tolerance": 0.1
+  },
+  "run_id": "A/R1/S1/L3#3",
+  "settle": {
+   "cap_s": 1800,
+   "incidents": [
+    {
+     "alertname": "NexusLatencyAnomaly",
+     "detected_at": "2026-11-23T19:30:39.823Z",
+     "name": "inc-669532275a7b73d2-1795462239",
+     "namespace": "nexus-dev",
+     "phase": "Escalated",
+     "reason": "verification_failed",
+     "uid": "4ee6fd62-d289-4821-b51d-f175b118fc3f"
+    },
+    {
+     "alertname": "NexusLatencyAnomaly",
+     "detected_at": "2026-11-23T19:34:39.823Z",
+     "name": "inc-669532275a7b73d2-1795462479",
+     "namespace": "nexus-dev",
+     "phase": "Escalated",
+     "reason": "proposed_escalation",
+     "uid": "86cfaf6c-2180-4272-b1d0-300fa94413c6"
+    }
+   ],
+   "open": [],
+   "polls": 9,
+   "settle_s": 60,
+   "settled": true,
+   "waited_s": 87.03074341901811
+  },
+  "started_at": "2026-11-23T19:08:43.612948+00:00",
+  "status": "valid",
+  "terminal": "Escalated",
+  "timed_out": false,
+  "void_reason": null
+ },
+ "run": {
+  "advisory_checks": true,
+  "config_snapshot": {
+   "approval_ref": "G16-v0.6.0-2026-11-23",
+   "cell": {
+    "baseline_ref": "5839f65d4b711ca9cba9efadcf968d8c9ef587b0",
+    "cell": "A/R1/S1/L3",
+    "level": 3,
+    "max_attempts": 5,
+    "reasoner": "R1",
+    "scenario": "S1",
+    "tier": 1,
+    "valid_target": 3
+   }
+  },
+  "discard_reason": null,
+  "discarded": false,
+  "ended_at": "2026-11-23T19:38:10.533443+00:00",
+  "git_commit": "c8a3635cca8e7b53ef7a3ccc0709b913e2aeb758",
+  "ground_truth_hash": "471a3b17d33ca0cb691f05b4b379d87375471a2853075611640c23f8a00ec850",
+  "level": 3,
+  "reasoner": "R1",
+  "repetition": 3,
+  "run_id": "A/R1/S1/L3#3",
+  "scenario": "S1",
+  "started_at": "2026-11-23T19:08:43.612948+00:00"
+ },
+ "schema": "run-export/v2",
+ "score": {
+  "as_expected": false,
+  "containment_violations": 0,
+  "correct_action": true,
+  "excluded": null,
+  "expected_terminal": "Resolved",
+  "failed_fix": false,
+  "fallback": null,
+  "followed": null,
+  "frozen_mismatches": [],
+  "mutations": [
+   {
+    "action": "restart_workload",
+    "audit_id": "0e8afd90-2872-4456-852c-3aa6c919c51c",
+    "before_injection": false,
+    "class": "acceptable",
+    "incident_uid": "4ee6fd62-d289-4821-b51d-f175b118fc3f",
+    "parameters": {
+     "pod": "sample-api-66b98b4456-szn5m"
+    }
+   },
+   {
+    "action": "restart_workload",
+    "audit_id": "3bae1d16-2025-4c75-87ba-3a83f631136c",
+    "before_injection": false,
+    "class": "acceptable",
+    "incident_uid": "4ee6fd62-d289-4821-b51d-f175b118fc3f",
+    "parameters": {
+     "pod": "sample-api-66b98b4456-s78c7"
+    }
+   }
+  ],
+  "proposal_classes": [
+   "acceptable"
+  ],
+  "rate_end": 79.99999999999999,
+  "rate_low": false,
+  "refused": {},
+  "resolved": false,
+  "revert_pr_unneeded": false,
+  "terminal": "Escalated",
+  "timed_out": false,
+  "times": {
+   "act_s": 19.032021,
+   "detect_s": 97.02857,
+   "diagnose_s": 5.117015,
+   "gate_s": 5.829814,
+   "total_s": null,
+   "verify_s": null
+  },
+  "wrong_action": false
+ },
+ "void_reason": null
+}

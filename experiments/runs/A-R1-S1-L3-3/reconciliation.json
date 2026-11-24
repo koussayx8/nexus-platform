@@ -1,0 +1,39 @@
+{
+ "containment_violations": 0,
+ "counts": true,
+ "envelope": {
+  "checked": 2,
+  "unverified": [],
+  "violations": []
+ },
+ "join": {
+  "actions": 2,
+  "completeness": 1.0,
+  "counts": {
+   "matched": 2
+  },
+  "dry_run_events_ignored": 1,
+  "ok": true,
+  "operator_mutation_events": 2,
+  "verdicts": [
+   {
+    "action": "inc-669532275a7b73d2-1795462239-1",
+    "audit_id": "3bae1d16-2025-4c75-87ba-3a83f631136c",
+    "verdict": "matched"
+   },
+   {
+    "action": "inc-669532275a7b73d2-1795462239-2",
+    "audit_id": "0e8afd90-2872-4456-852c-3aa6c919c51c",
+    "verdict": "matched"
+   }
+  ]
+ },
+ "run_id": "A/R1/S1/L3#3",
+ "schema": "reconciliation/v1",
+ "unexplained": [],
+ "user": "system:serviceaccount:nexus-system:nexus-operator",
+ "window": {
+  "since": "2026-11-23T19:08:43.612948+00:00",
+  "until": "2026-11-23T19:38:10.533443+00:00"
+ }
+}

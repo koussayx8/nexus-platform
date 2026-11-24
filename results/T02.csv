@@ -1,0 +1,8 @@
+Arm,Scenario,Terminal / reason,Runs
+R0,S1,Escalated/verification_failed,2
+R0,S1,Resolved/remediation_verified,1
+R1,S1,Escalated/verification_failed,1
+R1,S1,Resolved/remediation_verified,2
+R1,S5,Escalated/proposed_escalation,3
+R3,S1,Resolved/remediation_verified,3
+R3,S5,Escalated/proposed_escalation,3

@@ -1,0 +1,1 @@
+{"operator_mutation_events": 23, "dry_run_events_ignored": 8, "actions": 23, "counts": {"matched": 23}, "completeness": 1.0, "ok": true}

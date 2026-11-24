@@ -1,0 +1,4 @@
+Arm,Runs,Operator mutation events,"Admitted, envelope-checked",Violations,Unverified,"Per-request rate, 95 % upper bound"
+R0,3,6,6,0,0,< 0.500 (3/n)
+R1,6,6,6,0,0,< 0.500 (3/n)
+R3,6,6,6,0,0,< 0.500 (3/n)
