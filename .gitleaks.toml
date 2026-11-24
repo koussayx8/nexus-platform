@@ -8,10 +8,11 @@ useDefault = true
 # Recorder `actions` rows whose `idempotency_key` is an Incident name plus a counter
 # (inc-<16 hex>-<creation time>-<n>, or -c<n> for a compensation action): an identifier, not a credential, but high entropy enough for the
 # generic-api-key rule. The regex is matched against the secret itself, and only under those two paths
-# (condition AND), so every other rule and every other path is still scanned.
+# (condition AND) and only for the generic-api-key rule, so every other rule and every other path is still scanned.
 [[allowlists]]
 description = "idempotency_key: Incident name plus counter in measured-run exports, not a credential"
 condition = "AND"
+targetRules = ["generic-api-key"]  # without this, paths alone silence every rule under them (checked on 8.30.1)
 paths = [
   '''(^|/)results/''',
   '''(^|/)experiments/runs/''',
