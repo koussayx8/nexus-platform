@@ -1,7 +1,7 @@
 # TASKS — NEXUS
 
 **Deadline (owner, 2026-11-12):** everything (code, runs, demo, thesis) done before 2027-01-01; target 2026-12-24; the technical work and the demo end by 2026-12-05 (D28). The plan is section "Plan to the defense" below; it replaces the dates of the 2026-11-02 re-plan. M2 complete: `v0.4.0` on `1dfd119` (2026-11-11). M0 complete: `v0.1.0` on `8f4eaac`. M1 complete: `v0.2.0` on `ce2b174`. M1b complete: `v0.3.0` on `86cea844` (2026-10-14).
-**Current phase:** Block 9 prep, the freeze (2026-11-22). The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
+**Current phase:** Block 11, results and demo (2026-11-24); Block 10's runs are done and recorded. The 2026-11-02 re-plan, the GATE M2-0 record and the M1 and M1b phase records are in their sections below.
 **Rules:** `CLAUDE.md`. **Evidence:** `docs/CURRENT_STATE.md` (the from-empty M0-5 rebuild report, 2026-09-26; M0-1 snapshot `docs/state/20260925T064759Z/`).
 
 **Strategy — converge in Git, then rebuild.** The cluster holds no persistent data (no PV, no PVC),
@@ -885,6 +885,7 @@ its outlines stay as the record.
 | D28 | 2026-11-22: the project's technical work and demo end by 2026-12-05. Block 8 (Note flow and `/ask`) is cut. No runbook changes at the freeze: the index `fad76a74…` used by the bake-off and every trial is the frozen one, so there is no new Reasoner image. Blocks 9–14 are re-dated below; the thesis follows, and the owner decides when (owner, 2026-11-22). This replaces D1's 12-24 target and D10's Note-flow line for the technical work |
 | D29 | 2026-11-22: the freeze one day early (owner). The freeze PRs (#285, #239, #234) merge on 11-22, the 6-hour idle test (D19) runs the night of 11-22, and `v0.6.0` is tagged on 11-23. Blocks 9–14 each move one day earlier (Block 9 is 11-22 → 11-23, Block 14 is 11-29 → 12-01). The end date stays 12-05, so the buffer grows from 3 days to 4 (12-02 → 12-05). Amends D28 |
 | D30 | 2026-11-23, before any measured run: the M4 evaluation is reduced to a **pilot scale** (owner; solo PFE, a 1–2 h technical review, a 5-minute demo). Pre-registered in [`m4-protocol.md`](docs/plans/m4-protocol.md) §2, §3 and §6. **Measured:** the containment suite, one pass: every live cell except `dev-l2-*` (`dev-l3`, `prod-l1`, `data-l0`, `kube-system`, `unlabelled`), Kill Switch `active` then `halted`, 220 server-side dry-run requests, with one refused request per measured layer (RBAC, K1, K2, K4, C3; K3, K5, K6, C2, fail-closed and the `absent` state are not measured); C7 (`D/R0/S1/L3`) 3 valid runs, at most 5 attempts; Phase A's four cells `A/R1/S1/L3`, `A/R3/S1/L3`, `A/R1/S5/L3`, `A/R3/S5/L3`, each 3 valid runs, at most 5 attempts, S1 then S5, both arms back to back. **Dropped from the measured plan:** Phase A's S3 and S6 cells, the L2 cells and the C8 cells (Block 12), the no-fault night (replaced by the 2026-11-22 idle test: 12.5 h, 0 Incidents), and the R2 offline replay (optional, after the thesis). S3, S6, L2 and C8 stay as qualitative evidence: the 2026-11-21 trials, ADR-041's live gate (#314), the 2026-11-22 L2 check (`inc-669532275a7b73d2-1795358679`). Analysis: per-run results, medians and ranges, Wilson intervals reported as wide, no significance claims; a pilot evaluation. Schedule: 11-23 setup, suite, C7 and Phase A overnight; 11-24 results and the demo video; 11-25 rehearsal; technical work ends 11-25 (D28's 12-05 stays the outer limit). Amends D1, D10, D28 and D29 |
+| D31 | 2026-11-23, before any valid run (owner; 10:35:47Z and, amended, 11:30:38Z): the pre-check's `stddev_factor` **1.5 → 4** and `cap_s` **1200 → 2700** (45 min). Pre-registered in [`m4-protocol.md`](docs/plans/m4-protocol.md) §4 (the D31 bullet), §7 and the header. **Why:** daytime host activity moves sample-api's signals with no fault (the Feedback Hub writing 68 MB/s; four dry-run gates failed the old limit on `requests`), and after a reset the pods' warm-up needs about 18 to 20 minutes to leave the 15-minute window, so a 20-minute cap left no margin. **Evidence:** C7 attempt #1 (`~/nexus-batch-c7`) discarded on `precheck_timeout`, `latencyP95` stddev 0.00122 above 1.5 × 0.0005073; the first attempt in `~/nexus-batch-c7b`, under factor 4 and the old cap, discarded the same way, `requests` stddev 0.5921 above 4 × 0.008985. Both queues are kept; C7 restarted in `~/nexus-batch-c7c`. The `clean_stddev` values and their source are in [`m4-freeze-record.md`](docs/plans/m4-freeze-record.md) §4; the run-day findings in [ADR-049](docs/adr/ADR-049-block10-findings.md). Amends D30's pre-check parameters |
 
 ### Blocks
 
@@ -944,13 +945,23 @@ secrets, `sudo`.
   injected by hand (owner, 2026-11-19). Tag `v0.6.0` on 11-23. Code freeze.
   **Gate:** the protocol is merged before the first measured run. Owner: approvals, the tag. Cut first: shrink the
   protocol to half a page.
-- [ ] **Block 10 — 11-23. Runs 1 (pilot scale, D30).** The containment suite (five cells, `active` and `halted`), and C7 (3 valid, at most 5
+- [x] **Block 10 — 11-23. Runs 1 (pilot scale, D30). Done 2026-11-23 (recorded 2026-11-24).** The containment suite (five cells, `active` and `halted`), and C7 (3 valid, at most 5
   attempts) by day (attended); phase A (four cells, 3 valid each, at most 5 attempts; unattended) from the evening. **Gate:** suite complete; first cells valid. Owner: the protocol's approval of the
   batch of runner mutations; Kill Switch steps. A containment violation is a result: stop and report.
-- [ ] **Block 11 — 11-24 → 11-25. Results and demo (D30; was Runs 2).** Phase A finishes overnight; 11-24 results
-  (`export-results`, medians, ranges, Wilson intervals) and the demo video; 11-25 the rehearsal. The no-fault night is
-  dropped (the idle test of 2026-11-22 replaces it). **Gate:** every Phase A cell has its 3 valid runs or is reported
-  `exhausted`. Owner: pod replacements; the laptop awake.
+  **Done:** the suite ran once, 220 requests: 206 as declared, 14 not (a suite-definition error each, none admitted;
+  ADR-049 finding c). C7: 3 valid of 4 attempts in `~/nexus-batch-c7c` (1 discarded; two earlier attempts discarded under
+  D31, before any valid run). Phase A: **12 valid of 14 attempts**, every cell at its 3 valid runs (`A/R3/S1` took 5
+  attempts: 1 discarded `precheck_timeout`, 1 void `host_disturbance`). No containment violation was reported. Pointers:
+  the freeze, the idle test, the by-hand readings, `clean_stddev` and the queues in
+  [`m4-freeze-record.md`](docs/plans/m4-freeze-record.md); the parameter change in D31; the findings (arm outlives the
+  run, `r3-check.sh`, the suite's two definition errors, host load) in [ADR-049](docs/adr/ADR-049-block10-findings.md);
+  the files in `~/nexus-evidence/block10-2026-11-23/` (not in Git). The per-run results belong to Block 11's export.
+- [ ] **Block 11 — 11-24 → 11-25. Results and demo (D30; was Runs 2).** Phase A finished on 11-23 (its last Incident at
+  22:05Z), so no overnight run remains. **Remaining:** 11-24 results (`export-results`, medians, ranges, Wilson
+  intervals; the analysis outputs and `RESULTS.md` are another session's) and the demo video; 11-25 the rehearsal. The
+  no-fault night is dropped (the idle test of 2026-11-22 replaces it). Rules now in force (ADR-049): halt the Kill
+  Switch while a queue is paused; pause Windows updates before an overnight run. **Gate:** every Phase A cell has its 3
+  valid runs or is reported `exhausted` (met: 4 of 4 cells at 3 valid). Owner: pod replacements; the laptop awake.
 - [ ] ~~**Block 12 — 11-26. Runs 3.**~~ **Dropped from the measured plan (D30, 2026-11-23).** Was: the L2 and C8 cells
   (attended) and re-runs of voided cells. L2 and C8 stay as qualitative evidence (ADR-041's live gate, #314; the
   2026-11-22 L2 check, `inc-669532275a7b73d2-1795358679`). The owner's C8 steps (`m4-protocol.md` §5) are not needed

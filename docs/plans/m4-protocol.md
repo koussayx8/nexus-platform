@@ -4,6 +4,11 @@
 > one in §2 "Measured plan (D30)", §3 and §6 "Dropped". Where an older line of this file (the cells table in §2, the
 > block list in §3, the 10-attempt cap, C8 and the no-fault night in §5, §7 and §10) differs, **D30 governs**. The
 > older lines stay for the record; the next version of this file removes them.
+>
+> **D31 (owner, 2026-11-23) — two pre-check parameters changed before any valid run:** `stddev_factor` 1.5 → 4 (§4) and
+> `cap_s` 1200 → 2700 (§4, §7). Where §4 or §7 below still say 1.5 × or 18 to 20 minutes as the whole cap, D31 governs.
+> The clean values (§2) and the freeze (§1, §10) are recorded in [`m4-freeze-record.md`](m4-freeze-record.md); the
+> run-day findings in [ADR-049](../adr/ADR-049-block10-findings.md).
 
 Plan Block 9, pulled forward. Merged before the first measured run; after that it changes only as a new, disclosed
 version. Written offline from `dev` at `4b077fb`, brought up to `dev` at `e7fec65` on 2026-11-21 (Q6, D25, two run
@@ -17,7 +22,7 @@ export changes and the owner's decisions Q1–Q11 (2026-11-16) are in [`m4-metri
 | Item | Value | Held by |
 |---|---|---|
 | Commit | the commit tagged `v0.6.0`, with its digests; nothing is rebuilt after it (Q1) | `git_commit` in every run row |
-| Images | the digests at the `v0.6.0` tag. **No new Reasoner image (D28):** the measured Reasoner is the one deployed now, `sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c` (`reasoner/k8s/deployment.yaml` on `main` at `49c5565`; bump `b989cba`, 2026-11-21, built from `832cda7`, whose `prompt.py` is `prompt/v3`). It includes #242's fix, which merged earlier. Operator `sha256:9f3380e9…0625c` and sample-api `sha256:3321d6fa…f268` are as of `dev` at `4b077fb`: the operator manifest on `main` now reads `sha256:7c9d1599…95eb`, so both are read again from the manifests at the tag | nothing per run (E8) |
+| Images | the digests at the `v0.6.0` tag. **No new Reasoner image (D28):** the measured Reasoner is the one deployed now, `sha256:7d216d96c9128dd7e30e3789989716938f533317adbe1b53a86aa843246e386c` (`reasoner/k8s/deployment.yaml` on `main` at `49c5565`; bump `b989cba`, 2026-11-21, built from `832cda7`, whose `prompt.py` is `prompt/v3`). It includes #242's fix, which merged earlier. Operator `sha256:9f3380e9…0625c` and sample-api `sha256:3321d6fa…f268` are as of `dev` at `4b077fb`: the operator manifest on `main` now reads `sha256:7c9d1599…95eb`, so both are read again from the manifests at the tag. **Read at the tag (2026-11-24):** operator `sha256:7c9d1599…95eb`, sample-api `sha256:2de0e025…0251`, nexus-bot `sha256:c82c5f0c…5560`, the Reasoner unchanged; full values and the tag `v0.6.0` = `c8a3635` in [`m4-freeze-record.md`](m4-freeze-record.md) §1 | nothing per run (E8) |
 | Index hash | `fad76a74d15f075c8a8818d63fbce6d9911cdb45161ffc4a0984ef53d917e6d8` | pre-check, every run |
 | Score floor, prompt | 3.1739; `prompt/v3` (ADR-045; `VERSION` in `reasoner/nexus_reasoner/prompt.py`, the version the live Incidents show), `CHARS_PER_TOKEN` 2.5 (same file) | by hand at each queue start (§4) |
 | Models | **NVIDIA NIM only** (ADR-045: owner, 2026-11-20, after bake-off round 4 of #271; the R2 and R3 choice is final; the Groq configs are retired). Each arm is served by the config `active` names in `reasoner/k8s/configmap.yaml` on `main`, and `experiments/harness/arms.py` names the config and model id each arm expects. **R0** and **R1** call no model: R0 is the seeded adversarial generator, R1 the rules baseline. **R2** = `r2-primary`, `nvidia/nemotron-3.5-super-vl-120b-a12b` (a preview model), timeout 120 s, 8,192 output tokens; offline replay only, never live (D10). **R3** = `r3-primary`, `nvidia/nemotron-3-ultra-550b-a55b`, thinking on (its default), timeout 300 s, 8,192 output tokens; live in phase A and in the replay. Backups, used only if `active` is switched: `r2-backup` (the Ultra model, thinking off, UNTESTED) and `r3-backup` (`google/gemma-4-31b-it`, 300 s). Temperature 0, seed 0, no effort setting (NIM gets none). The timeout is the whole call's budget; inside it **one retry**, after a network error or an HTTP 5xx (1 s later) or after a 429's `Retry-After`, only when 5 s of the budget remain; a timeout and a 429 without `Retry-After` are never retried (`reasoner/nexus_reasoner/adapter.py`, ADR-035 addendum A). The operator's `reasonerTimeoutSeconds` is 300, so Diagnosing ends at 330 s (ConfigMap comment, ADR-045); its live value is UNVERIFIED here (the owner sets it in the live ConfigMap). The trial reruns of 2026-11-21 ran R3 as `r3-primary` on `prompt/v3`: six live calls, median 16.4 s, no fallback and no retry (`~/nexus-evidence/trials-2026-11-21/NIM-TIMINGS-FOR-287.md`, not in Git). Whether the live Reasoner's `active` still reads `r2-primary` and `r3-primary` at the tag is UNVERIFIED: no cluster in this change | the strict arm check: each call's `modelConfig` and `proposals.model_id` against `arms.py` |
@@ -85,8 +90,11 @@ separate change due on 2026-11-17 (Q10). With C4 cut, the `nexus-baseline` cells
 and arm patches, the pushes to `experiment/dev-state`) is `G16-v0.6.0-2026-11-23` (owner, 2026-11-22). **Attempt caps:**
 `D/R0` is 10 valid runs and at most 15 attempts (the outline's pre-registration); every other cell keeps Q2's 10.
 
-**TODO (Q6):** `clean_stddev` per signal, from the 6-hour idle test of 2026-11-22 (§10; the method is in
-[`block10-runsheet.md`](block10-runsheet.md)); the values are recorded here once read. Decided: `baseline_ref` is
+**`clean_stddev` (Q6), read 2026-11-23 from the second run of the idle test (§10; method in
+[`block10-runsheet.md`](block10-runsheet.md); 815 samples each):** `cpu` 0.006036, `latencyP95` 0.0005073, `inflight`
+0.7483, `requests` 0.008985, and `errorRatio` measured 0, for which the owner set a floor of 0.001 (a limit that is a
+multiple of 0 would refuse every live value). The limits are these values × `stddev_factor` 4 (D31). Source and the
+p99 beside each: [`m4-freeze-record.md`](m4-freeze-record.md) §4. Decided: `baseline_ref` is
 `5839f65d4b711ca9cba9efadcf968d8c9ef587b0` (`experiment/dev-state` after the freeze forward merge, its tree equal to
 `main` at `c8a3635`; owner, 2026-11-22); S3's patch is `experiments/faults/s3-bad-rollout.patch`; S4/S6's load is 170
 users (§9).
@@ -105,7 +113,7 @@ always runs before R3. With four cells the same rule gives the D30 order.
 
 ## 4. Pre-checks
 
-All must hold within 20 minutes of the reset (`precheck.py`):
+All must hold within 45 minutes of the reset (`precheck.py`, `cap_s` 2700; was 20 minutes, 1200 s, until D31):
 
 - **Level:** the label `nexus.io/autonomy-level` on `nexus-dev` equals the cell's level; a missing label reads L0.
   Only the reset changes it, by a commit on `experiment/dev-state` (#233 F1).
@@ -123,6 +131,17 @@ All must hold within 20 minutes of the reset (`precheck.py`):
 - **The rest:** sample-api 2 of 2 Ready; no open Incident; Kill Switch `active`; every signal |Z| < 1.5 and its
   15-minute standard deviation within 1.5 × the clean baseline (TODO, Q6); node CPU < 60 %, memory < 80 %; no Backstage
   pod; the Reasoner ready with the frozen index hash; the Flight Recorder up; the audit log written in the last 60 s.
+- **D31 (owner, 2026-11-23, before any valid run).** The two values changed: `stddev_factor` **1.5 → 4**, so "within
+  1.5 × the clean baseline" above reads "within 4 ×" (the `clean_stddev` values are in §2), and `cap_s` **1200 → 2700**
+  (45 minutes). Why: (1) host activity in the daytime moves the signals with no fault: the Feedback Hub was writing
+  68 MB/s, and four dry-run gates failed the old limit on `requests`, three also on `cpu` and `latencyP95`
+  (ADR-049 finding d); (2) after a reset the new pods' warm-up needs about 18 to 20 minutes to leave the 15-minute
+  standard-deviation window, which a 20-minute cap left no margin for. Evidence: C7 attempt #1 in `~/nexus-batch-c7`
+  was discarded on `precheck_timeout` (`latencyP95` standard deviation 0.00122 above 1.5 × 0.0005073 = 0.00076); the
+  first C7 attempt in `~/nexus-batch-c7b`, under factor 4 and the old cap, was discarded the same way (`requests`
+  0.5921 above 4 × 0.008985 = 0.0359). Both queues are kept as they are; C7 restarted in `~/nexus-batch-c7c`. The
+  decisions are in `~/nexus-evidence/block10-2026-11-23/decisions.txt` (10:35:47Z and 11:30:38Z). **Not changed:**
+  `quiet_s` 360, the `|Z|` limit of 1.5, the other checks.
 - **By hand, read-only, before each queue start** (not implemented): seven ClusterPolicies Ready with K1–K6 in
   Enforce; one successful call to the R3 model, `r3-primary` on NVIDIA NIM (R2 is replay only, so it needs none live);
   `/healthz` shows the frozen index hash, floor 3.1739 and `prompt/v3` (§1).
@@ -238,8 +257,8 @@ S1's hang has no reset: only a new process ends it. A run is unremediated when t
 did not end `Resolved` with traffic back, every `D/R0` and refused `L2` run, a void or discard after the injection.
 
 - **Inside a queue** the next run's reset replaces the `nexus-dev` pods, restores the database roles and, after S3,
-  the baseline tree. The 15-minute baseline still holds the fault, so the pre-check waits 18 to 20 minutes, its whole
-  cap: a timeout there costs an attempt (Q2). Incidents raised by the recovery are recorded as no-fault data.
+  the baseline tree. The 15-minute baseline still holds the fault, so the pre-check waits 18 to 20 minutes (its whole
+  cap before D31, now 45 minutes, §4): a timeout there costs an attempt (Q2). Incidents raised by the recovery are recorded as no-fault data.
 - **When a queue stops after an injection** (halt, error, STOP, last run) nothing resets (V16). Before leaving the
   cluster the owner runs `runner.py run reset --level 3 --context default --git-dir DIR --execute`, or replaces
   the pods one at a time. The agent cannot: `kubectl delete` and `rollout` are denied to it.
@@ -307,3 +326,8 @@ time again. List the Incidents again, with their creation time, alert and outcom
 
 Keep the two reports, the uptimes and the Incident list as the test's record (`~/nexus-evidence/`, not in Git).
 If it fails, the cause is found and fixed before the tag, and the test runs again.
+
+**Result (2026-11-22/23).** It ran as two runs, 5.5 h (17:09 to 22:40Z) and 7.1 h (22:44 to 05:51Z), on the same WSL
+boot, with no Incident created in either window and `verify-state.sh` at exit 0 before and after each. The Windows boot
+time was read before each run (2026-11-01 06:58) but not after; the owner reports it unchanged and no sleep events.
+The files, the criteria one by one and the gap are in [`m4-freeze-record.md`](m4-freeze-record.md) §2.
