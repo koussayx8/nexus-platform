@@ -1,0 +1,22 @@
+# GitLeaks configuration for .github/scripts/repo-checks.sh (the default rules plus one narrow allowlist).
+title = "nexus-platform"
+
+[extend]
+useDefault = true
+
+# One allowlist, and only this one. Measured-run exports under results/ and experiments/runs/ hold Flight
+# Recorder `actions` rows whose `idempotency_key` is an Incident name plus a counter
+# (inc-<16 hex>-<creation time>-<n>, or -c<n> for a compensation action): an identifier, not a credential, but high entropy enough for the
+# generic-api-key rule. The regex is matched against the secret itself, and only under those two paths
+# (condition AND), so every other rule and every other path is still scanned.
+[[allowlists]]
+description = "idempotency_key: Incident name plus counter in measured-run exports, not a credential"
+condition = "AND"
+paths = [
+  '''(^|/)results/''',
+  '''(^|/)experiments/runs/''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^inc-[0-9a-f]{16}-[0-9]{9,11}(-c?[0-9]+)?$''',
+]
