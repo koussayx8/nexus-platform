@@ -94,7 +94,7 @@ SCHEMA = "run-export/v2"
 TRUTH_SCHEMA = "ground-truth/v2"
 NAMESPACE = "nexus-dev"  # every measured run is injected there (m4-protocol.md §2)
 FAILED_FIX_RPS, RATE_LOW_RPS = 8, 72  # req/s at the end of a Resolved run (Q8)
-PROMPT_VERSION = "prompt/v1"  # frozen (m4-protocol.md §1)
+PROMPT_VERSION = "prompt/v3"  # frozen (m4-protocol.md §1; /healthz promptVersion, by-hand.txt 2026-11-23T08:15Z)
 # A fallback the provider or the infrastructure caused: reported apart, re-run, out of the arm's
 # rates (Q7; transport and http_404 added by the owner on #239: not the model's diagnosis).
 PROVIDER = re.compile(r"timeout|transport|http_(404|429|5\d\d)")

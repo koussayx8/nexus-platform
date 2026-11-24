@@ -22,7 +22,7 @@ PRE = {"clean_stddev": {"cpu": 0.05, "latencyP95": 0.02, "inflight": 2.0, "error
        "locust": {"baseline_users": 160, "baseline_rps_per_namespace": 80}, "reasoner": {"expected_index_hash": INDEX}}  # fmt: skip
 FROZEN = {
     "model_id": arms.ARMS["R3"]["model"],
-    "prompt_version": "prompt/v1",
+    "prompt_version": "prompt/v3",
     "index_hash": INDEX,
 }
 P = sample_data.proposal
