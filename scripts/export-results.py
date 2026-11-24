@@ -345,7 +345,7 @@ def score(
         want = {
             "index_hash": _bare_hash(index_hash),
             "prompt_version": PROMPT_VERSION,
-            "model_id": arm["model"],
+            "model_id": arm["model_id"],
         }
         frozen = sorted(
             {
