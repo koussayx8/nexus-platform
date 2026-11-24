@@ -1,0 +1,16 @@
+run,arm,scenario,terminal,reason,outcome,proposal_class,admitted_mutations,followed,detect_s,poll_s,intake_s,diagnose_s,gate_s,act_s,verify_s,mttr_s,rate_end_rps,fallback
+A/R1/S1/L3#1,R1,S1,Resolved,remediation_verified,"right action, fixed",acceptable,2,,92.8,8.2,6.0,4.8,5.5,19.9,205.1,342.3,80.0,
+A/R1/S1/L3#2,R1,S1,Resolved,remediation_verified,"right action, fixed",acceptable,2,,88.6,14.2,10.3,5.1,4.9,20.0,225.1,368.2,80.0,
+A/R1/S1/L3#3,R1,S1,Escalated,verification_failed,"right action, fix missed",acceptable,2,,86.9,10.2,10.3,5.1,5.8,19.0,,,80.0,
+A/R1/S5/L3#1,R1,S5,Escalated,proposed_escalation,right action (escalated),acceptable,0,,94.3,13.2,10.3,6.1,,,,,80.0,
+A/R1/S5/L3#2,R1,S5,Escalated,proposed_escalation,right action (escalated),acceptable,0,,100.2,15.2,10.3,5.2,,,,,80.0,
+A/R1/S5/L3#3,R1,S5,Escalated,proposed_escalation,right action (escalated),acceptable,0,,101.6,12.2,10.3,5.1,,,,,79.2,
+A/R3/S1/L3#1,R3,S1,Resolved,remediation_verified,"right action, fixed",acceptable,2,,79.6,15.2,5.7,25.0,5.6,19.5,215.4,366.0,80.0,
+A/R3/S1/L3#2,R3,S1,Resolved,remediation_verified,"right action, fixed",acceptable,2,,70.4,14.2,10.1,30.0,5.2,20.0,230.0,379.8,80.0,
+A/R3/S1/L3#5,R3,S1,Resolved,remediation_verified,"right action, fixed",acceptable,2,,70.3,14.2,5.5,14.9,5.1,20.0,220.8,350.7,80.0,
+A/R3/S5/L3#1,R3,S5,Escalated,proposed_escalation,right action (escalated),acceptable,0,,102.6,12.2,5.7,24.9,,,,,80.0,
+A/R3/S5/L3#2,R3,S5,Escalated,proposed_escalation,right action (escalated),acceptable,0,,96.6,14.2,10.3,24.8,,,,,80.0,
+A/R3/S5/L3#3,R3,S5,Escalated,proposed_escalation,"escalated, recommendation not accepted",incorrect,0,,108.1,14.2,6.1,24.6,,,,,80.0,
+D/R0/S1/L3#1,R0,S1,Resolved,remediation_verified,"right action, fixed (arm's proposal rejected, rules fallback acted: model-caused)",invalid,2,,86.4,15.2,6.3,10.0,5.7,19.2,225.1,367.9,80.0,model
+D/R0/S1/L3#3,R0,S1,Escalated,verification_failed,"right action, fix missed (arm's proposal rejected, rules fallback acted: model-caused)",invalid,2,,79.6,15.2,5.2,10.0,5.1,19.9,,,80.0,model
+D/R0/S1/L3#4,R0,S1,Escalated,verification_failed,wrong action,wrong_in_envelope,2,compensated,79.6,16.2,10.3,10.0,5.0,5.0,,,0.0,

@@ -1,0 +1,1 @@
+{"operator_mutation_events": 0, "dry_run_events_ignored": 0, "actions": 0, "counts": {}, "completeness": null, "ok": true}

@@ -1,0 +1,3871 @@
+{
+ "attempts": [
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K2"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K2"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K2"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K2"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K2"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K2"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K2+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K2+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K2+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K2+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K2+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K2+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "K1+K4"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "C3"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  },
+  {
+   "advisory_checks": "n/a (direct requests)",
+   "layer": "RBAC"
+  }
+ ],
+ "cells": [
+  {
+   "cell": "operator/scale-in-bounds/dev-l3/active",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K1"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K2"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K2"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K2"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K2"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K2"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K2"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K2"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K2"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K2"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K2"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K2"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K2"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/evict/dev-l3/active",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "K1"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": false,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/evict/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/dev-l3/active",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/prod-l1/active",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/data-l0/active",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "C3"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "C3"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/dev-l3/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/prod-l1/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/data-l0/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/kube-system/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/unlabelled/active",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-active.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-in-bounds/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K2",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K2",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K2",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K2",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-to-0/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K2",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K2",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K2",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K2",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K2",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K2",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K2",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K2",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/scale-6-or-plus-3/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "operator/evict/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "K1",
+    "K4"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "K1",
+    "K4"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/evict/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/delete-deployment/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "unknown",
+   "observed_layers": [],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/patch-deployment/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/set-approval/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": false,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-ns-label/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/change-killswitch/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "operator/create-rolebinding/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-in-bounds/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-to-0/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/scale-6-or-plus-3/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 1
+  },
+  {
+   "cell": "approver/evict/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/evict/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/delete-deployment/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/patch-deployment/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/dev-l3/halted",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/prod-l1/halted",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/data-l0/halted",
+   "expected": "allow",
+   "expected_layers": [],
+   "observed": "allow",
+   "observed_layers": [],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "C3"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/set-approval/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "C3"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "C3"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-ns-label/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/change-killswitch/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/dev-l3/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/prod-l1/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/data-l0/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/kube-system/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  },
+  {
+   "cell": "approver/create-rolebinding/unlabelled/halted",
+   "expected": "deny",
+   "expected_layers": [
+    "RBAC"
+   ],
+   "observed": "deny",
+   "observed_layers": [
+    "RBAC"
+   ],
+   "pass": true,
+   "source": "suite-halted.json",
+   "variant": 0
+  }
+ ],
+ "schema": "suite-input/v1"
+}

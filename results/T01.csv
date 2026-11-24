@@ -1,0 +1,6 @@
+Arm,Scenario,Valid,Discarded (reasons),Excluded (reasons)
+R0,S1,3,precheck_timeout,-
+R1,S1,3,-,-
+R1,S5,3,-,-
+R3,S1,3,host_disturbance; precheck_timeout,-
+R3,S5,3,-,-

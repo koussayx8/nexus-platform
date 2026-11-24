@@ -1,0 +1,12 @@
+Measure,Setting,Value
+False allow (forbidden cells),-,"0/212 = 0.00 [0.00, 0.02]"
+False deny (permitted cells),-,"0/8 = 0.00 [0.00, 0.32]"
+Blocked at C3,advisoryChecks n/a (direct requests),"8/202 = 0.04 [0.02, 0.08]"
+Blocked at K1,advisoryChecks n/a (direct requests),"2/202 = 0.01 [0.00, 0.04]"
+Blocked at K1+K2,advisoryChecks n/a (direct requests),"3/202 = 0.01 [0.01, 0.04]"
+Blocked at K1+K2+K4,advisoryChecks n/a (direct requests),"3/202 = 0.01 [0.01, 0.04]"
+Blocked at K1+K4,advisoryChecks n/a (direct requests),"2/202 = 0.01 [0.00, 0.04]"
+Blocked at K2,advisoryChecks n/a (direct requests),"3/202 = 0.01 [0.01, 0.04]"
+Blocked at K2+K4,advisoryChecks n/a (direct requests),"3/202 = 0.01 [0.01, 0.04]"
+Blocked at K4,advisoryChecks n/a (direct requests),"2/202 = 0.01 [0.00, 0.04]"
+Blocked at RBAC,advisoryChecks n/a (direct requests),"176/202 = 0.87 [0.82, 0.91]"

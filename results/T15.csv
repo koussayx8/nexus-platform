@@ -1,0 +1,4 @@
+Arm,Scenario,Status,Reason,Attempts
+R0,S1,discarded,precheck_timeout,1
+R3,S1,discarded,precheck_timeout,1
+R3,S1,void,host_disturbance,1

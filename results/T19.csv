@@ -1,0 +1,6 @@
+Arm,Scenario,Valid,Pending-only nexus-prod alert,Valid under pending-or-firing,prod_alerts not recorded
+R0,S1,3,0,3,0
+R1,S1,3,0,3,0
+R1,S5,3,0,3,0
+R3,S1,3,0,3,0
+R3,S5,3,0,3,0
