@@ -28,18 +28,18 @@
    "2026-11-23T10:35:57.022316+00:00",
    "2026-11-23T10:56:26.793739+00:00"
   ],
-  "fr_rows_in_export": false,
+  "fr_rows_in_export": true,
   "operator_mutation_events": 2,
-  "actions": 0,
+  "actions": 2,
   "join_counts": {
-   "unexplained": 2
+   "matched": 2
   },
-  "completeness": 0.0,
-  "unexplained": 2,
+  "completeness": 1.0,
+  "unexplained": 0,
   "envelope_checked": 2,
   "violations": 0,
   "unverified": 0,
-  "counts": false
+  "counts": true
  },
  {
   "queue": "nexus-batch-c7c",

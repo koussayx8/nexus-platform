@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """reconcile-audit's reconcile() over EVERY attempt of the pilot (valid, void, discarded; the two earlier
 discarded-only C7 queues too), with the Flight Recorder rows and the audit log of its window.
-Usage: reconcile-all-attempts.py REPO TABLES AUDIT OUT.json   (REPO: a checkout with scripts/ and experiments/)"""
+Usage: reconcile-all-attempts.py REPO TABLES AUDIT OUT.json   (REPO: a checkout with scripts/ and experiments/;
+TABLES: one or more files joined by commas, merged table by table)"""
 import importlib.util, json, pathlib, sys
 repo, tables_f, audit_f, out_f = map(pathlib.Path, sys.argv[1:5])
 sys.path.insert(0, str(repo))
@@ -9,7 +10,10 @@ def load(n):
     s = importlib.util.spec_from_file_location(n.replace("-", "_"), repo / "scripts" / f"{n}.py"); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
 aj, recon, ex = load("audit-join"), load("reconcile-audit"), load("export-results")
 from experiments.harness import batch
-tables = json.loads(tables_f.read_text())
+tables = {}
+for f in str(tables_f).split(","):
+    for t, rows in json.loads(pathlib.Path(f).read_text()).items():
+        tables.setdefault(t, []).extend(rows)
 events_all = [e for e in aj.read_jsonl(str(audit_f)) if (e.get("user") or {}).get("username") == aj.OPERATOR]
 res = []
 home = pathlib.Path.home()

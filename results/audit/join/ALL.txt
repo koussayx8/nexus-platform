@@ -1,3 +1,1 @@
-{"operator_mutation_events": 23, "dry_run_events_ignored": 8, "actions": 21, "counts": {"matched": 21, "unexplained": 2}, "completeness": 0.9130434782608695, "ok": false}
-{"audit_id": "6c1a6186-fad8-4af6-9077-a92becfea0cb", "action": null, "verdict": "unexplained", "event": "create nexus-dev/sample-api-69954f7dbd-9lj2w/eviction -> 201 at 2026-11-23T10:38:24.021894Z"}
-{"audit_id": "cf6a5881-d9bb-4643-aa46-01b81237409b", "action": null, "verdict": "unexplained", "event": "create nexus-dev/sample-api-69954f7dbd-wqgj4/eviction -> 201 at 2026-11-23T10:38:34.047438Z"}
+{"operator_mutation_events": 23, "dry_run_events_ignored": 8, "actions": 23, "counts": {"matched": 23}, "completeness": 1.0, "ok": true}
