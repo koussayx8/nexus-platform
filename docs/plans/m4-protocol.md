@@ -329,5 +329,6 @@ If it fails, the cause is found and fixed before the tag, and the test runs agai
 
 **Result (2026-11-22/23).** It ran as two runs, 5.5 h (17:09 to 22:40Z) and 7.1 h (22:44 to 05:51Z), on the same WSL
 boot, with no Incident created in either window and `verify-state.sh` at exit 0 before and after each. The Windows boot
-time was read before each run (2026-11-01 06:58) but not after; the owner reports it unchanged and no sleep events.
-The files, the criteria one by one and the gap are in [`m4-freeze-record.md`](m4-freeze-record.md) §2.
+time, read by the owner in PowerShell, is 2026-11-01 06:58 before each run and 06:58:52 after run 2, with no
+Power-Troubleshooter events. The test passes; the files and the criteria one by one are in
+[`m4-freeze-record.md`](m4-freeze-record.md) §2.

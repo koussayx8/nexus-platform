@@ -33,19 +33,19 @@ Files: `~/nexus-evidence/idle-test-2026-11-22/` (`run1-before.txt`, `run1-after.
 | 1 | 2026-11-22 17:09:01Z | 2026-11-22 22:40:32Z | 5.5 h |
 | 2 | 2026-11-22 22:44:14Z | 2026-11-23 05:51:41Z | 7.1 h |
 
-Run 1 ended short of six hours; the owner started run 2 four minutes after it. Together the two cover 12.6 h
-(`TASKS.md` D30 says 12.5 h). Run 2 alone is longer than six hours and is the one `clean_stddev` is read from.
+Run 1 ended short of six hours; the owner started run 2 four minutes after it. Together the two cover **12.6 h**
+(5.5 + 7.1). `TASKS.md` D30 says 12.5 h and is left as written, as history. Run 2 alone is longer than six hours and is
+the one `clean_stddev` is read from.
 
 | Criterion (§10) | Result | Source |
 |---|---|---|
-| 1. Windows stayed up | The boot time read before each run is 2026-11-01 06:58:50 and 06:58:52 (local time, PowerShell). **No Windows boot time was read after either run:** the snapshot script's `powershell.exe` call fails inside WSL ("command not found", seen in `after.txt`), so the `Windows boot:` line is empty in all four files and the two readings above were added by hand to the before files. The owner reports the same boot at the end and no sleep events; that is the owner's statement, not a file | `run1-before.txt` line 143, `before.txt` line 143; owner |
+| 1. Windows stayed up | The boot time read before each run is 2026-11-01 06:58:50 and 06:58:52 (local time, PowerShell). The snapshot script's `powershell.exe` call fails inside WSL ("command not found", `after.txt` line 3), so the `Windows boot:` line is empty in all four files and the readings are the owner's, added by hand. **After run 2** the owner read it again on 2026-11-23 at 06:54 local time: `2026-11-01 06:58:52`, the same boot as before run 2, and `Get-WinEvent` Power-Troubleshooter events since the start: none (no wake from sleep). No separate Windows reading was taken at the end of run 1; a reboot between the two readings would have changed the boot time | `run1-before.txt` line 143, `before.txt` line 143, `after.txt` line 142 (owner's readings) |
 | 2. WSL stayed up | `WSL boot: 2026-11-18 13:49:09` in all four files; uptime 361,192 s at the start of run 1 and 406,951 s at the end of run 2 (+45,759 s, 12.7 h). `journalctl --list-boots` lists boot 0 with the same id (`2fe844df…`, started 2026-11-17 05:44:19 CET) in all four files, with no boot inside either window | the four `*.txt` files |
-| 3. `verify-state.sh` passes at the end | exit 0 | owner; the `verify-*.md` reports (not read here: mode 600) |
+| 3. `verify-state.sh` passes at the end | exit 0, "19 passed, 0 failed", at the end of run 1 and of run 2 (and at both starts) | `run1-after.txt` lines 141–142, `after.txt` lines 140–141; the `verify-*.md` reports were not read for this record |
 | 4. Every Incident explained | **No Incident was created in either window.** The `-- Incidents` list is the same twelve rows in all four files (identical checksums); the newest was created 2026-11-22T14:52:26Z, before run 1 began at 17:09Z, so there is nothing to explain | the `-- Incidents` block of each file |
 
-Result: the test passes on criteria 2 and 4 from the files, on criterion 3 by the owner's report, and on criterion 1
-on the owner's report only. The Windows reading after the run is the one gap; it does not change the result the
-owner reported.
+Result: the test passes. Criteria 1, 2 and 4 are shown by the files (criterion 1 by the owner's PowerShell readings
+recorded in them); criterion 3 by the `verify-state exit: 0` lines in the four snapshot files (`19 passed, 0 failed`).
 
 ## 3. By-hand readings before the queues (2026-11-23)
 
@@ -91,18 +91,23 @@ analysis, not to this record.
 | Part | Result | Source |
 |---|---|---|
 | Containment suite | 220 dry-run requests (110 `active`, 110 `halted`): 206 as the matrix declared, 14 not (7 per state, ADR-049 finding c): 10 reached no answer because their target does not exist, 4 were refused by C3 where the matrix declares RBAC. None of the 14 was admitted | `suite/suite-active.json`, `suite-halted.json`, `suite/data-l0-manual.txt` |
-| C7 `D/R0/S1/L3` | 3 valid of 4 attempts in the final queue (`~/nexus-batch-c7c`), 1 discarded; two earlier attempts were discarded under D31 before any valid run (below) | `c7/status.txt`, `c7/run1.json`, `c7/c7c-run1.json` |
+| C7 `D/R0/S1/L3` | 3 valid in 6 attempts over three queues: 3 discarded (two under the earlier config, not counted against `c7c`'s cap of 5; one in `c7c`) (table below) | `c7/status.txt`, `c7/run1.json`, `c7/c7c-run1.json` |
 | Phase A | 12 valid of 14 attempts: `A/R1/S1`, `A/R1/S5`, `A/R3/S5` 3 valid in 3; `A/R3/S1` 3 valid in 5 (attempt 3 discarded, `precheck_timeout`; attempt 4 void, `host_disturbance`). The first run's Incident was created 2026-11-23T14:59Z, the last run's 22:05Z (the numeric suffix of the Incident name is its creation time) | `a/status.txt`, `a/runs.tsv` |
 
-### The C7 queues before the valid runs
+### The C7 attempts, all six
 
-| Queue | Attempt | Outcome | Cause | Config |
-|---|---|---|---|---|
-| `~/nexus-batch-c7` | #1 | discarded, `precheck_timeout` (waited 1,207 s) | `latencyP95` stddev 0.00122 above 1.5 × 0.0005073 = 0.00076, under the old config | `config-sha256.txt` |
-| `~/nexus-batch-c7b` | #1 | discarded, `precheck_timeout` | `requests` stddev 0.5921 above 4 × 0.008985 = 0.0359: the reset's pod warm-up needs about 18 to 20 minutes to leave the 15-minute window, and the cap was 1,200 s | `config-sha256-d31.txt` |
-| `~/nexus-batch-c7c` | #1–#4 | 3 valid, 1 discarded | `cap_s` 2700 | `config-sha256-d31b.txt` |
+The cap of 5 counts per queue and config (owner, 2026-11-24): `c7c` counts 4 attempts, and the two attempts discarded
+under the earlier configs are recorded as discarded and not counted against it. Source: the three `queue.json` files
+and `decisions.txt`.
 
-Both discarded attempts ended in the pre-check, before any injection (`injection_at` is null in `c7/run1.json`, the
-first one), so no fault ran in them. Both causes and decisions are in `decisions.txt`.
-Whether they count against C7's cap of 5 is the owner's reading of D31 ("C7 restarts in …c7b / …c7c"): the final
-queue counts 4 attempts, and the two discarded queues are kept, uncounted, in their directories.
+| # | Queue | Attempt | Outcome | Cause | Config |
+|---|---|---|---|---|---|
+| 1 | `~/nexus-batch-c7` | #1 | discarded, `precheck_timeout` (waited 1,207 s) | `latencyP95` stddev 0.001222 above 1.5 × 0.0005073 = 0.00076, under the original config | `config-sha256.txt` |
+| 2 | `~/nexus-batch-c7b` | #1 | discarded, `precheck_timeout` (waited 1,205 s) | `requests` stddev 0.5921 above 4 × 0.008985 = 0.0359: the reset's pod warm-up needs about 18 to 20 minutes to leave the 15-minute window, and the cap was 1,200 s | `config-sha256-d31.txt` |
+| 3 | `~/nexus-batch-c7c` | #1 | valid; injection 2026-11-23T11:51:13Z (waited 1,209 s) | | `config-sha256-d31b.txt` |
+| 4 | `~/nexus-batch-c7c` | #2 | discarded, `precheck_timeout` (waited 2,713 s, 86 polls, past the 2,700 s cap) | `cpu` 0.04071, `latencyP95` 0.01187 and `requests` 0.1615 above 4 × their clean values, and `sample_api` desired/ready/updated = 3/3/3 where 2 are wanted | `config-sha256-d31b.txt` |
+| 5 | `~/nexus-batch-c7c` | #3 | valid; injection 2026-11-23T13:40:50Z | | `config-sha256-d31b.txt` |
+| 6 | `~/nexus-batch-c7c` | #4 | valid; injection 2026-11-23T14:09:50Z | | `config-sha256-d31b.txt` |
+
+The two earlier discards ended in the pre-check, before any injection (`injection_at` is null), so no fault ran in
+them; #4 is the same. The valid runs' outcomes belong to the export, not to this record.
