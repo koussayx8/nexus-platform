@@ -21,6 +21,9 @@ spec:
         releaseName: observability
         valueFiles:
           - $values/platform/observability/kube-prometheus-stack-values.yaml
+          # The NEXUS alerts to Telegram (ADR-040 decision 12). After the base file: it restates
+          # route and receivers whole. Needs the Secret monitoring/alertmanager-telegram first.
+          - $values/platform/observability/alertmanager-telegram-values.yaml
     # 2. This repository as the source of $values.
     - repoURL: https://github.com/koussayx8/nexus-platform.git
       targetRevision: main
