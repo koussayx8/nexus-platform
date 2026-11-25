@@ -60,7 +60,7 @@ refused by K5; a bot that sends a right one adds no power that `nexusctl --as` d
 | 9 | **Note flow:** reject the open Incident, then create a new human Incident with `spec.source.note` (D9; Block 8). The note is an order to the Reasoner, never to the cluster. **Not built in #252:** a Note press answers "not available"; the CRD has no `note` property yet (B4), and `nexus-client`'s `Source` model already carries `note`. |
 | 10 | **`/ask`:** one fixed read-only snapshot, **one** LLM call, plain-text answer marked "advice only". The bot never parses or acts on the answer. No tool loop (CLAUDE.md rule 8). The call goes to Groq directly from the bot, with a **separate API key in its own Secret**; the Reasoner's key is never mounted in the bot. **Disabled on run days** (D22). Cut first. Since ADR-045 the Reasoner uses NVIDIA NIM only, so a Groq key for /ask shares no key and no limit with the runs; if Groq is not usable at Block 8, /ask is cut (it is cut first in any case). |
 | 11 | **Plain text, formatted only by entities the bot computes over its own labels** (amended 2026-11-22; see "Amendment: rich text without a parse mode"). No `parse_mode`, so Telegram interprets no Markdown or HTML; link previews disabled. A message is plain text plus the Bot API's `entities` (bold, italic, code, pre, blockquote, expandable blockquote), offsets in UTF-16 units, computed by `bot/nexus_bot/richtext.py` over the bot's own labels. Every untrusted string (model output, evidence, logs, the Incident's proposal text, reasoning and escalation, error text) goes through `nexusctl`'s `sanitize` (`nexusctl/src/nexusctl/render/sanitize.py`), stays literal, is written only inside a blockquote and gets no entity except that blockquote; instruction-like text is marked ⚠️ (`nexusctl`'s `looks_like_instruction`). Explain shows the model's reasoning excerpt (ADR-035 addendum C) and the escalation's `suggestedChange` and `runbookGap` (ADR-044) in expandable blockquotes titled "Model text: untrusted, never a decision". A message over 4,096 UTF-16 units keeps its start, with every entity clipped inside it and no surrogate pair split, and ends with `(truncated: N of M characters; the full text is in the Flight Recorder)`. |
-| 12 | **Plain alerts go through Alertmanager's `telegram_configs`**, not through bot code. Sending with the same token does not conflict with the bot's long poll. **Written, not enabled** in #252: `platform/observability/alertmanager-telegram-values.yaml` is not in the `observability` Application's `valueFiles`. |
+| 12 | **Plain alerts go through Alertmanager's `telegram_configs`**, not through bot code. Sending with the same token does not conflict with the bot's long poll. **Written, not enabled** in #252: `platform/observability/alertmanager-telegram-values.yaml` is not in the `observability` Application's `valueFiles`. Enabled later: see "Alertmanager route enabled". |
 | 13 | **The thesis reports both identities:** the Incident's `approvedBy` (`koussay-approver`) and the audit log's impersonator (`system:serviceaccount:nexus-bot:nexus-bot`). The bot also writes `reason: "telegram:<from.id>"` into `spec.approval`, so the Incident records which chat account pressed. |
 
 ## RBAC — the exact YAML
@@ -485,6 +485,18 @@ text. The AwaitingApproval push (its text, entities, buttons and callback payloa
 UNVERIFIED (offline only, no live Telegram in this change): how the official clients draw a `text_link`
 and a `pre` block on a narrow phone, and whether 36 characters fit without
 wrapping in the default font. Settled by the next live deployment.
+
+## Alertmanager route enabled (2026-11-25)
+
+`platform/observability/alertmanager-telegram-values.yaml` is the second entry of the `observability` Application's
+`valueFiles`. The chat ID is not in this file: `chat_id_file` reads it from the key `chat_id` of the Secret
+`monitoring/alertmanager-telegram`, beside `token`. Alertmanager has it since 0.31.0 and the Prometheus Operator since
+0.90.0; the cluster runs 0.32.2 and 0.91.0 (read on 2026-11-25).
+
+| Finding | Evidence | Consequence |
+| --- | --- | --- |
+| **`parse_mode: ''` does not reach Alertmanager.** Contradicts the values file's "plain text, as the bot" | Prometheus Operator v0.91.0 rewrites the config (the live `alertmanagerConfigSelector` is `{}`, not null) through a struct with `parse_mode,omitempty` (`pkg/alertmanager/types.go:400`); Alertmanager v0.32.2 defaults `ParseMode` to `HTML` (`config/notifiers.go:188`) | The receiver uses HTML; Alertmanager renders it through its HTML template (`TmplHTML`). Decision 11 covers the bot's messages, not these. Settled live by `/api/v2/status`. Owner's decision |
+| **The Secret is a required volume** | `alertmanagerSpec.secrets`; the pod waits in `ContainerCreating` without it | Create the Secret before the route reaches `main`. A from-empty rebuild needs it too: `scripts/bootstrap.sh` does not create it |
 
 ## Consequences
 
