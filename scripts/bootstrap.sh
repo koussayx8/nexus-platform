@@ -15,7 +15,7 @@
 #   0. merge-order guard (preflight — before touching anything, and re-checked before step e)
 #   a. k3s (pinned version, §14 audit policy, audit-log pre-created for group-readable rotation)
 #   b. kubeconfig
-#   c. monitoring namespace + grafana-admin Secret
+#   c. monitoring namespace + grafana-admin Secret + alertmanager-telegram Secret
 #   d. ArgoCD (pinned version)
 #   e. merge-order guard (again), then the AppProject and the root Application
 #   f. wait for the platform Application
@@ -70,6 +70,11 @@ NEXUS_DIR=$HOME/.nexus
 # platform/observability/kube-prometheus-stack-values.yaml:78-81) are exactly the keys the Secret
 # below is created with.
 GRAFANA_DEPLOYMENT=observability-grafana
+# The Alertmanager Telegram route (ADR-040 decision 12): the bot's token and the owner's numeric
+# Telegram user ID, both written by the owner at a silent prompt (bot/README.md owner steps 3, 6).
+# The Prometheus Operator mounts the Secret as a required volume: without it Alertmanager does not start.
+TELEGRAM_TOKEN_FILE=$NEXUS_DIR/telegram-bot.token
+TELEGRAM_CHAT_ID_FILE=$NEXUS_DIR/telegram-chat-id
 EXPECTED_APPS=(root platform kyverno observability sample-api-dev sample-api-prod dependency-db nexus)
 REPO_URL=https://github.com/koussayx8/nexus-platform.git
 APPS_STABLE_JQ=scripts/lib/apps-stable.jq   # relative to REPO_ROOT, the working directory
@@ -378,6 +383,46 @@ step_c_monitoring() {
         || fatal "creating the grafana-admin Secret failed"
     fi
   fi
+
+  step_c_alertmanager_telegram
+}
+
+# owner_file_ok <path>: present, a regular file, not empty, mode 0600 or tighter.
+# Reads only the mode and the size, never the content.
+owner_file_ok() {
+  local file=$1 mode
+  [[ -f $file ]] || fatal "$file is missing; the alertmanager-telegram Secret is not created without both files (bot/README.md owner step 6)"
+  [[ -s $file ]] || fatal "$file is empty; the alertmanager-telegram Secret is not created without both values"
+  mode=$(stat -c %a "$file") || fatal "reading the mode of $file failed"
+  (( (8#$mode & 8#077) == 0 )) || fatal "$file has mode $mode; make it 0600 (chmod 600)"
+}
+
+# c2. alertmanager-telegram: create or update, from the two owner files, never from argv. The values
+# reach kubectl only as file paths; the manifest goes through a pipe, never to the output. Applied
+# server-side, so no kubectl.kubernetes.io/last-applied-configuration annotation (which would copy
+# both values into the Secret's metadata); --force-conflicts takes over the fields of a Secret made
+# by hand with `kubectl create`. Safe to re-run: an unchanged Secret is left unchanged.
+step_c_alertmanager_telegram() {
+  step "alertmanager-telegram: both owner files must exist (0600, not empty; the chat ID digits only), else stop"
+  printf '  $ test -f %s && test -f %s\n' "$TELEGRAM_TOKEN_FILE" "$TELEGRAM_CHAT_ID_FILE"
+  if (( ! PLAN )); then
+    owner_file_ok "$TELEGRAM_TOKEN_FILE"
+    owner_file_ok "$TELEGRAM_CHAT_ID_FILE"
+    # Alertmanager trims whitespace and parses an int64 (chat_id_file). Matched in a pipe, never kept.
+    tr -d '\r\n' < "$TELEGRAM_CHAT_ID_FILE" | grep -qxE '[1-9][0-9]{0,18}' \
+      || fatal "$TELEGRAM_CHAT_ID_FILE is not a numeric Telegram user ID (digits only)"
+  fi
+
+  step "alertmanager-telegram: create or update the Secret (keys token, chat_id; ADR-040 decision 12)"
+  printf '  $ kubectl create secret generic alertmanager-telegram -n monitoring --from-file=token=%s --from-file=chat_id=%s --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts --field-manager=nexus-bootstrap -f - >/dev/null\n' \
+    "$TELEGRAM_TOKEN_FILE" "$TELEGRAM_CHAT_ID_FILE"
+  (( PLAN )) && return 0
+  kubectl create secret generic alertmanager-telegram -n monitoring \
+    --from-file=token="$TELEGRAM_TOKEN_FILE" --from-file=chat_id="$TELEGRAM_CHAT_ID_FILE" \
+    --dry-run=client -o yaml \
+    | kubectl apply --server-side --force-conflicts --field-manager=nexus-bootstrap -f - >/dev/null \
+    || fatal "creating or updating the alertmanager-telegram Secret failed"
+  echo "  alertmanager-telegram: applied (keys token, chat_id)"
 }
 
 # wait_argocd_rollout <kind/name> <label-selector> <what> — on timeout, dumps pods, describe and
