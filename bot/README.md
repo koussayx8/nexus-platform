@@ -352,15 +352,27 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
    the bot `/status` from that account and read the log line `dropped {"update_id": …, "from_id": <ID>, …}`
    (logged for any sender not in the allowlist).
 5. Send `/start` to the bot once: Telegram lets a bot message only users who have opened its chat.
-6. **The Alertmanager route's Secret, before the route reaches `main`** (without it the Alertmanager pod
-   does not start and the operator sees no alerts): the same token, and your numeric user ID, as the
-   Secret `alertmanager-telegram` in `monitoring`. Both are read at silent prompts; neither is in argv or Git:
+6. **The Alertmanager route's Secret, before the route reaches `main`.** Without it the Alertmanager pod
+   does not start and the operator sees no alerts. The Secret `monitoring/alertmanager-telegram` holds the bot's
+   token (key `token`, from `~/.nexus/telegram-bot.token` of step 3) and your numeric user ID (key `chat_id`, from
+   `~/.nexus/telegram-chat-id`). `scripts/bootstrap.sh` (step c) creates or updates it from those two files, and
+   stops if either is missing. Save your user ID at a silent prompt:
 
    ```bash
-   read -rs -p 'Telegram bot token: ' T && echo && read -rs -p 'Telegram user ID: ' C && echo && printf '%s' "$T" | kubectl --context default -n monitoring create secret generic alertmanager-telegram --from-file=token=/dev/stdin --from-file=chat_id=<(printf '%s' "$C"); unset T C
+   ( umask 077; read -rs -p 'Telegram user ID: ' C && echo && printf '%s' "$C" > ~/.nexus/telegram-chat-id; unset C )
    ```
 
-   Check that both keys exist (`describe` prints sizes, not values):
+   Then create or update the Secret outside a rebuild, as bootstrap does. Only file paths are in argv, and the
+   manifest goes through a pipe. Server-side apply leaves no `last-applied-configuration` annotation, which
+   would copy both values into the Secret's metadata. `--force-conflicts` takes over the keys of a Secret made by
+   hand with `kubectl create`. Re-running it changes nothing:
+
+   ```bash
+   kubectl --context default -n monitoring create secret generic alertmanager-telegram --from-file=token="$HOME/.nexus/telegram-bot.token" --from-file=chat_id="$HOME/.nexus/telegram-chat-id" --dry-run=client -o yaml | kubectl --context default apply --server-side --force-conflicts --field-manager=nexus-bootstrap -f - >/dev/null && echo applied
+   ```
+
+   `scripts/verify-state.sh` M20 checks that it has 2 keys and that Alertmanager is Ready. To see the key names
+   (`describe` prints sizes, not values):
 
    ```bash
    kubectl --context default -n monitoring describe secret alertmanager-telegram

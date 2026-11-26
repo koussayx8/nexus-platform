@@ -496,7 +496,7 @@ wrapping in the default font. Settled by the next live deployment.
 | Finding | Evidence | Consequence |
 | --- | --- | --- |
 | **`parse_mode: ''` does not reach Alertmanager.** Contradicts the values file's "plain text, as the bot" | Prometheus Operator v0.91.0 rewrites the config (the live `alertmanagerConfigSelector` is `{}`, not null) through a struct with `parse_mode,omitempty` (`pkg/alertmanager/types.go:400`); Alertmanager v0.32.2 defaults `ParseMode` to `HTML` (`config/notifiers.go:188`) | The receiver uses HTML; Alertmanager renders it through its HTML template (`TmplHTML`). Decision 11 covers the bot's messages, not these. Settled live by `/api/v2/status`. Owner's decision |
-| **The Secret is a required volume** | `alertmanagerSpec.secrets`; the pod waits in `ContainerCreating` without it | Create the Secret before the route reaches `main`. A from-empty rebuild needs it too: `scripts/bootstrap.sh` does not create it |
+| **The Secret is a required volume** | `alertmanagerSpec.secrets`; the pod waits in `ContainerCreating` without it | Create the Secret before the route reaches `main`. `scripts/bootstrap.sh` step c creates or updates it from `~/.nexus/telegram-bot.token` and `~/.nexus/telegram-chat-id` (server-side apply) and stops if either file is missing; `scripts/verify-state.sh` M20 checks 2 keys and Alertmanager Ready |
 
 ## Consequences
 
