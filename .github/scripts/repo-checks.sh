@@ -34,6 +34,8 @@
 #     writes at RequestResponse, every other write at Metadata (audit-policy.sh, ADR-036).
 # 19. No rendered Application deploys the all-zero placeholder digest (sha256:0{64}): an image
 #     that was never built is wired into ArgoCD only after its digest bump (the Reasoner, Block 3).
+# 20. The Alertmanager Telegram Secret: bootstrap.sh's create-or-update step and verify-state.sh's
+#     M20, stub kubectl (alertmanager-telegram-secret.sh, ADR-040 decision 12).
 #
 # Usage: repo-checks.sh "<git log range>"   e.g. "abc123..def456"
 # Needs gitleaks, kustomize, kubeconform, helm, yq, promtool, shellcheck, jq, curl and python3 on
@@ -128,6 +130,10 @@ echo "::endgroup::"
 
 echo "::group::verify-state M3 checks (offline, stub kubectl)"
 KUBECONFIG=/nonexistent bash scripts/tests/verify-m3.sh
+echo "::endgroup::"
+
+echo "::group::Alertmanager Telegram Secret: bootstrap step and verify-state M20 (offline, stub kubectl)"
+KUBECONFIG=/nonexistent bash scripts/tests/alertmanager-telegram-secret.sh
 echo "::endgroup::"
 
 echo "::group::forward-merge tree check (offline, fixture trees)"
