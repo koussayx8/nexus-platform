@@ -14,14 +14,15 @@
 # and the live rollout strategy against Git (M15), and reads the nexus-dev level from Git (M5).
 # M3 (G7; --milestone m3) adds K1-K6 present, Ready and in Enforce (M16), the N1-N6 NetworkPolicies
 # present (M17) and the Reasoner Ready with the expected index hash (M18). The default milestone is
-# m2, which runs M1-M15, M19 (nexus_operator_recorder_up = 1) and the informational I1.
+# m2, which runs M1-M15, M19 (nexus_operator_recorder_up = 1), M20 (the Alertmanager Telegram Secret
+# and Alertmanager Ready; ADR-040 decision 12) and the informational I1.
 #
 # Every kubectl call names the cluster, `--context default`: the reads through k() (lib/readonly.sh),
 # the two port-forwards (M4, M10) and the audit probe (M7). None follows the kubeconfig's current context.
 #
 # Usage: scripts/verify-state.sh [--out PATH] [--milestone m2|m3]
 #   --out PATH        where the report is written (default: docs/CURRENT_STATE.md)
-#   --milestone M     m2 (default) runs M1-M15 and M19; m3 adds M16-M18 and needs
+#   --milestone M     m2 (default) runs M1-M15, M19 and M20; m3 adds M16-M18 and needs
 #                     NEXUS_VERIFY_REASONER_INDEX_HASH (the 64-hex corpus hash from `make index`)
 # Env: NEXUS_VERIFY_APPS_TIMEOUT (default 1140) bounds the M1 retry window, in seconds.
 #      NEXUS_VERIFY_ITEMS_NAMESPACES (default "nexus-dev nexus-prod") limits the M10 /items check;
@@ -669,6 +670,33 @@ v_recorder_up() {
 # I1. Container restart counts, informational (TASKS.md M1-3 commit 4): spots flapping pods
 # across a rebuild without turning a transient restart into a failure.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# M20. The Alertmanager Telegram route (ADR-040 decision 12): the Secret monitoring/alertmanager-telegram
+# exists with two keys, and every Alertmanager pod is Ready (the Prometheus Operator mounts that Secret
+# as a required volume). The Secret is listed through secret_names only, never read (lib/readonly.sh),
+# so the check sees the number of keys, not their names; bootstrap.sh writes exactly token and chat_id.
+# ---------------------------------------------------------------------------
+AM_TELEGRAM_SECRET=alertmanager-telegram
+v_alertmanager_telegram() {
+  local rc=0 row data pods
+  row=$(secret_names -n monitoring "$AM_TELEGRAM_SECRET" --no-headers 2>/dev/null)
+  if [[ -z $row ]]; then
+    echo "monitoring/$AM_TELEGRAM_SECRET: NOT FOUND"; rc=1
+  else
+    data=$(awk '{print $3}' <<<"$row")
+    echo "monitoring/$AM_TELEGRAM_SECRET: $data keys (want 2: token, chat_id)"
+    [[ $data == 2 ]] || rc=1
+  fi
+  pods=$(k get pods -n monitoring -l app.kubernetes.io/name=alertmanager -o json 2>/dev/null | jq -r '
+    .items[] | "\(.metadata.name) phase=\(.status.phase) ready=\([.status.containerStatuses[]?.ready] | (length > 0 and all))"')
+  if [[ -z $pods ]]; then
+    echo "Alertmanager pods (app.kubernetes.io/name=alertmanager): NONE"; return 1
+  fi
+  echo "$pods"
+  grep -q 'ready=false' <<<"$pods" && rc=1
+  return $rc
+}
+
 v_restart_counts() {
   k get pods -A -o json 2>/dev/null | jq -r '
     [.items[] | {pod: "\(.metadata.namespace)/\(.metadata.name)",
@@ -704,6 +732,7 @@ M14_DESC="Staged RBAC: scale and eviction in nexus-dev only"
 verify M14 "$M14_DESC" v_staged_rbac
 verify M15 "sample-api rollout strategy equals Git"      v_rollout_strategy
 verify M19 "Operator Flight Recorder link up (recorder_up = 1)" v_recorder_up
+verify M20 "Alertmanager Telegram Secret (2 keys) and Alertmanager Ready" v_alertmanager_telegram
 if [[ $MILESTONE == m3 ]]; then
   verify M16 "K1-K6 present, Ready, failurePolicy Fail, Enforce" v_policies_enforce
   verify M17 "N1-N6 NetworkPolicies present"           v_network_policies
