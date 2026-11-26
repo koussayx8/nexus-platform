@@ -18,7 +18,7 @@ write exactly as they decide a `nexusctl approve`.
 | C8, the revert pull request (ADR-041; `libs/nexus-revert`): a third loop, `Service.tick` every 30 s; its results in the chat | built (Block 6), **on only when `revert.yaml` and the GitHub token file are both present**; otherwise one log line `C8 off: …` |
 | Image (`bot/Dockerfile`, hashed `requirements.txt`), CI build, Trivy scan, Cosign signing, digest-bump PR (`.github/workflows/bot.yml`) | built; the first image is pushed when this merges to `main` |
 | `bot/k8s/` (ServiceAccount, ConfigMap, Deployment) by the `nexus-bot` Application; the namespace (`platform/namespaces/`), `platform/rbac/nexus-bot/` and `platform/network/nexus-bot/` by the `platform` Application | wired (Block 7 live step); deploys only once the image's digest bump has landed on `main` |
-| Alertmanager Telegram route (`platform/observability/alertmanager-telegram-values.yaml`) | written, **not enabled**: not in the `observability` Application's `valueFiles` |
+| Alertmanager Telegram route (`platform/observability/alertmanager-telegram-values.yaml`) | in the `observability` Application's `valueFiles`; needs the Secret of step 6 |
 | Argo CD Application, AppProject destination `nexus-bot`, `scripts/nexus-bot-secrets.sh` | written (Block 7 live step) |
 
 ## How a press is decided
@@ -352,15 +352,30 @@ mounted as a file. It is never in Git, an environment variable, argv or a log li
    the bot `/status` from that account and read the log line `dropped {"update_id": …, "from_id": <ID>, …}`
    (logged for any sender not in the allowlist).
 5. Send `/start` to the bot once: Telegram lets a bot message only users who have opened its chat.
-6. **When the Alertmanager route is enabled** (not before): the same token as a second Secret, in
-   `monitoring`, and your user ID as `chat_id` in `platform/observability/alertmanager-telegram-values.yaml`:
+6. **The Alertmanager route's Secret, before the route reaches `main`.** Without it the Alertmanager pod
+   does not start and the operator sees no alerts. The Secret `monitoring/alertmanager-telegram` holds the bot's
+   token (key `token`, from `~/.nexus/telegram-bot.token` of step 3) and your numeric user ID (key `chat_id`, from
+   `~/.nexus/telegram-chat-id`). `scripts/bootstrap.sh` (step c) creates or updates it from those two files, and
+   stops if either is missing. Save your user ID at a silent prompt:
 
    ```bash
-   read -rs -p 'Telegram bot token: ' T && echo && printf '%s' "$T" | kubectl --context default -n monitoring create secret generic alertmanager-telegram --from-file=token=/dev/stdin; unset T
+   ( umask 077; read -rs -p 'Telegram user ID: ' C && echo && printf '%s' "$C" > ~/.nexus/telegram-chat-id; unset C )
    ```
 
+   Then create or update the Secret outside a rebuild, as bootstrap does. Only file paths are in argv, and the
+   manifest goes through a pipe. Server-side apply leaves no `last-applied-configuration` annotation, which
+   would copy both values into the Secret's metadata. `--force-conflicts` takes over the keys of a Secret made by
+   hand with `kubectl create`. Re-running it changes nothing:
+
    ```bash
-   kubectl --context default -n monitoring get secret alertmanager-telegram -o jsonpath='{.data.token}' | base64 -d | wc -c
+   kubectl --context default -n monitoring create secret generic alertmanager-telegram --from-file=token="$HOME/.nexus/telegram-bot.token" --from-file=chat_id="$HOME/.nexus/telegram-chat-id" --dry-run=client -o yaml | kubectl --context default apply --server-side --force-conflicts --field-manager=nexus-bootstrap -f - >/dev/null && echo applied
+   ```
+
+   `scripts/verify-state.sh` M20 checks that it has 2 keys and that Alertmanager is Ready. To see the key names
+   (`describe` prints sizes, not values):
+
+   ```bash
+   kubectl --context default -n monitoring describe secret alertmanager-telegram
    ```
 
 ## Development (offline)

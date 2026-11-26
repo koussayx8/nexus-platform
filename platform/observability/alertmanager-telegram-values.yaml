@@ -1,10 +1,8 @@
-# The NEXUS alerts to Telegram (ADR-040 decision 12; D9). WRITTEN, NOT ENABLED: the `observability`
-# Application lists only kube-prometheus-stack-values.yaml. To enable (Block 7 live step, owner
-# approval), append this file to that Application's valueFiles, after the base file:
-#     - $values/platform/observability/alertmanager-telegram-values.yaml
-# and, first, create the Secret monitoring/alertmanager-telegram (key `token`, the bot's own token)
-# outside Git, as in bot/README.md step 3, and set chat_id below to the owner's numeric user ID.
-# Then update scripts/tests/test_alertmanager_route.py, which pins "no NEXUS receiver" today.
+# The NEXUS alerts to Telegram (ADR-040 decision 12; D9). Enabled: the `observability` Application
+# lists this file after kube-prometheus-stack-values.yaml. Both the bot's token and the chat ID come
+# from the Secret monitoring/alertmanager-telegram (keys `token` and `chat_id`), created outside Git
+# (bot/README.md step 6) BEFORE this file reaches main: the Prometheus Operator mounts it as a
+# required volume, so without it the Alertmanager pod does not start and the operator sees no alerts.
 #
 # Helm merges maps but replaces lists, so `route` and `receivers` are restated whole: the base
 # file's values with one change, the nexus_target route's receiver. bot/tests/test_alertmanager.py
@@ -32,8 +30,12 @@ alertmanager:
       - name: 'nexus-telegram'
         telegram_configs:
           - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/token
-            chat_id: 0                 # REPLACE with the owner's numeric Telegram user ID when enabling
-            parse_mode: ''             # plain text, as the bot (ADR-040 decision 11)
+            # Alertmanager >= 0.31.0 and Prometheus Operator >= 0.90.0; exclusive with chat_id.
+            chat_id_file: /etc/alertmanager/secrets/alertmanager-telegram/chat_id
+            # Asks for plain text, but the Prometheus Operator (v0.91.0) drops the empty string when it
+            # rewrites the config, so Alertmanager applies its default, HTML, and escapes every label
+            # and annotation (ADR-040 "Alertmanager route enabled").
+            parse_mode: ''
             disable_notifications: false
             send_resolved: true
   alertmanagerSpec:
